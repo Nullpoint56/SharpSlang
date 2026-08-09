@@ -222,6 +222,14 @@ public readonly record struct ThreadGroupSize(ulong X, ulong Y, ulong Z)
     /// literals.
     /// </para>
     /// <para>
+    /// The zero is the residue of a fix, which is worth knowing before treating it as an oversight.
+    /// This exact call used to access-violate on this exact shader — shader-slang/slang#8738, "AV in
+    /// spReflectionEntryPoint_getComputeThreadGroupSize when using specialization constants for
+    /// NumThreads attribute", closed December 2025 — and the fix was to check for a specialization
+    /// constant before dereferencing the extent. So the crash became a zero, and the zero is what
+    /// arrives here.
+    /// </para>
+    /// <para>
     /// The 0 is the danger. A host computing <c>(width + size.X - 1) / size.X</c> divides by zero,
     /// and a host that guards the divide dispatches a wrong count instead. Read
     /// <c>SpirvModule.Read(code).EntryPoints[i].WorkgroupSize</c> for the constant ids and the

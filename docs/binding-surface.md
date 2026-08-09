@@ -1035,6 +1035,15 @@ the ids through `OpSpecConstant` and its `SpecId` decoration to recover **both**
 the default the shader declared. `ThreadGroupSize.IsSpecialized` flags the reflection-side case, and
 `VulkanWorkgroupSize.GroupCountFor` refuses rather than dividing.
 
+> Added later, on checking whether this was known upstream: **the zero is the residue of a fix.**
+> This exact call used to access-violate on this exact shader —
+> [shader-slang/slang#8738](https://github.com/shader-slang/slang/issues/8738), "AV in
+> `spReflectionEntryPoint_getComputeThreadGroupSize` when using specialization constants for
+> NumThreads attribute", closed December 2025 — and the fix checks for a specialization constant
+> before dereferencing the extent. The crash became a zero. Worth knowing before reading the zero as
+> an oversight: it is the deliberate answer to a reported crash, and the gap is that nothing carries
+> "unknown" any further than a value that arithmetic accepts.
+
 `VulkanWorkgroupSize.From(size, values)` distinguishes null from empty on purpose: null means
 nothing has been decided and the size stays specialized; any dictionary, empty included, says *these
 are the values I will supply*, and an absent constant keeps its default because that is what Vulkan
