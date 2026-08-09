@@ -1,0 +1,123 @@
+name: CI
+
+# Runs on every push and PR what currently only runs by hand.
+#
+# The cross-platform matrix is not box-ticking: the first linux-x64 run of this project found a
+# heap-corrupting ownership bug that had been passing green on Windows since the first commit
+# (ISession::loadModule* returns a borrowed pointer — see docs/binding-surface.md §9.1). glibc
+# aborts on it; the Windows heap does not. Keeping Linux in the matrix is the control for that
+# entire class of bug.
+#
+# The native payload is NOT committed — runtimes/ is gitignored. Each job fetches it from the
+# release pinned in Directory.Build.props, which also proves the fetch script still works against
+# the current upstream layout.
+
+on:
+  push:
+    branches: ['**']
+    tags-ignore: ['v*']      # tags are handled by publish.yml
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: test (${{ matrix.rid }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false       # a Windows-only or Linux-only failure is the interesting signal
+      matrix:
+        include:
+          - os: windows-latest
+            rid: win-x64
+          - os: ubuntu-latest
+            rid: linux-x64
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Cache the Slang release
+        uses: actions/cache@v4
+        with:
+          # Keyed on the pin, so a version bump misses the cache and re-downloads by design.
+          path: obj/slang-dist
+          key: slang-${{ matrix.rid }}-${{ hashFiles('Directory.Build.props') }}
+
+      - name: Fetch native payload
+        shell: pwsh
+        run: ./tools/fetch-native.ps1 -Rid ${{ matrix.rid }} -Profile Spirv
+
+      - name: Build
+        run: dotnet build PrismSlang.slnx -c Release --nologo -warnaserror
+
+      - name: Test
+        run: dotnet test PrismSlang.slnx -c Release --no-build --nologo --logger "trx;LogFileName=results.trx"
+
+      - name: Tier 0 spike
+        run: dotnet run --project samples/PrismSlang.Smoke -c Release --no-build
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-results-${{ matrix.rid }}
+          path: '**/results.trx'
+          if-no-files-found: ignore
+
+      - name: Package contains the host RID's payload
+        shell: pwsh
+        run: |
+          # A packaging bug once excluded the host RID from the .nupkg: its files matched both the
+          # Content and None globs, and Pack="false" won. The package restored cleanly and failed
+          # at run time with DllNotFoundException. Cheap to assert, invisible otherwise.
+          dotnet pack dotnet/PrismSlang.csproj -c Release -o pack-check --no-build --nologo
+          $nupkg = Get-ChildItem pack-check -Filter *.nupkg | Select-Object -First 1
+          if (-not $nupkg) { throw "no package produced" }
+
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $zip = [System.IO.Compression.ZipFile]::OpenRead($nupkg.FullName)
+          try {
+            $prefix = "runtimes/${{ matrix.rid }}/native/"
+            $found = @($zip.Entries | Where-Object { $_.FullName.StartsWith($prefix) })
+            if ($found.Count -eq 0) {
+              throw "package has no payload under $prefix - the Content/None globs overlap again"
+            }
+            Write-Host "$prefix : $($found.Count) files"
+          } finally { $zip.Dispose() }
+
+  regen:
+    name: generated bindings are current
+    runs-on: windows-latest
+    # Vtable *reordering* is a silent ABI break: the code still compiles and calls the wrong
+    # function. Reviewing that diff is the control (docs §4.3), so CI fails if the committed
+    # dotnet/Native/ does not match what the generator produces from the pinned header.
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Install ClangSharp generator
+        run: dotnet tool install --global ClangSharpPInvokeGenerator
+
+      - name: Regenerate
+        shell: pwsh
+        run: ./tools/generate-native.ps1
+
+      - name: Fail if the committed bindings differ
+        shell: pwsh
+        run: |
+          git add --intent-to-add dotnet/Native
+          $diff = git diff --stat -- dotnet/Native
+          if ($diff) {
+            Write-Host "::error::dotnet/Native is out of date. Run tools/generate-native.ps1 and review the diff."
+            git diff -- dotnet/Native
+            exit 1
+          }
+          Write-Host "generated bindings match the pinned header"

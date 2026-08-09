@@ -1,0 +1,12 @@
+<Solution>
+  <Folder Name="/docs/">
+    <File Path="docs/binding-surface.md" />
+  </Folder>
+  <Folder Name="/tools/">
+    <File Path="tools/generate-native.ps1" />
+  </Folder>
+  <Project Path="dotnet/PrismSlang.csproj" />
+  <Project Path="vulkan/PrismSlang.Vulkan.csproj" />
+  <Project Path="tests/PrismSlang.Tests/PrismSlang.Tests.csproj" />
+  <Project Path="samples/PrismSlang.Smoke/PrismSlang.Smoke.csproj" />
+</Solution>

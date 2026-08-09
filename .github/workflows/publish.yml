@@ -1,0 +1,93 @@
+name: Publish to GitHub Packages
+
+# Publishes both packages on a version tag (e.g. `v0.1.0`), or on manual dispatch. The version is
+# taken from the tag (`v0.1.0` -> 0.1.0); manual runs fall back to <Version> in the csproj.
+#
+# Two packages, deliberately:
+#   PrismSlang         Slang-neutral. Compilation and reflection.
+#   PrismSlang.Vulkan  The Vulkan reading of a reflection snapshot. Opt-in, so a D3D12 or Metal
+#                      consumer never pulls Vulkan concepts in.
+#
+# Unlike PrismUSD, the native payload is not committed: runtimes/ is gitignored and fetched from
+# the release pinned in Directory.Build.props. So this workflow stages every RID before packing —
+# a package missing a RID would fail at run time on that platform rather than here.
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Stage native payloads for every supported RID
+        shell: pwsh
+        run: |
+          # Staged from Windows for all RIDs. fetch-native.ps1 copies the real versioned library
+          # and synthesises the plain-named alias, because Expand-Archive cannot create the
+          # symlinks the Unix archives rely on.
+          foreach ($rid in @('win-x64', 'linux-x64', 'osx-arm64')) {
+            ./tools/fetch-native.ps1 -Rid $rid -Profile Spirv
+          }
+
+      - name: Resolve version
+        id: version
+        shell: pwsh
+        run: |
+          # Resolved once and applied to the build as well as the pack. Passing -p:Version only to
+          # `pack --no-build` would stamp the nupkg with one version and the assembly inside it
+          # with another.
+          $ref = "${{ github.ref_name }}"
+          $v = if ($ref -match '^v\d') { $ref.TrimStart('v') } else { '' }
+          "value=$v" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          Write-Host "version: $(if ($v) { $v } else { '<from csproj>' })"
+
+      - name: Verify before publishing
+        shell: pwsh
+        run: |
+          $v = "${{ steps.version.outputs.value }}"
+          $args = @('-c', 'Release', '--nologo', '-warnaserror')
+          if ($v) { $args += "-p:Version=$v" }
+          dotnet build PrismSlang.slnx @args
+          if ($LASTEXITCODE -ne 0) { throw "build failed" }
+          dotnet test PrismSlang.slnx -c Release --no-build --nologo
+          if ($LASTEXITCODE -ne 0) { throw "tests failed" }
+
+      - name: Pack
+        shell: pwsh
+        run: |
+          $v = "${{ steps.version.outputs.value }}"
+          $extra = if ($v) { @("-p:Version=$v") } else { @() }
+          foreach ($proj in @('dotnet/PrismSlang.csproj', 'vulkan/PrismSlang.Vulkan.csproj')) {
+            dotnet pack $proj -c Release -o artifacts --no-build @extra
+            if ($LASTEXITCODE -ne 0) { throw "pack failed for $proj" }
+          }
+
+      - name: Push to GitHub Packages
+        shell: pwsh
+        run: |
+          $pkgs = Get-ChildItem -Path artifacts -Filter *.nupkg
+          if (-not $pkgs) { throw "no .nupkg produced in artifacts/" }
+          foreach ($pkg in $pkgs) {
+            Write-Host "Pushing $($pkg.Name)"
+            dotnet nuget push $pkg.FullName `
+              --source "https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json" `
+              --api-key "${{ secrets.GITHUB_TOKEN }}" `
+              --skip-duplicate
+          }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: packages
+          path: artifacts/*.nupkg

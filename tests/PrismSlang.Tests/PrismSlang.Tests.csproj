@@ -1,0 +1,39 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Drift tests. These do not test Slang and they do not need the native library — they test that
+    the hand-written parts of the binding still agree with the pinned slang.h. Everything they
+    assert is re-derived from the header at run time, never restated, so they fail on an upstream
+    change instead of passing forever. See docs/binding-surface.md §4.5.
+  -->
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <IsPackable>false</IsPackable>
+    <AssemblyName>PrismSlang.Tests</AssemblyName>
+  </PropertyGroup>
+
+  <!-- Surfaces the pinned version from Directory.Build.props to the test code. -->
+  <ItemGroup>
+    <AssemblyMetadata Include="SlangVersion" Value="$(SlangVersion)" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
+    <PackageReference Include="xunit" Version="2.9.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\dotnet\PrismSlang.csproj" />
+    <ProjectReference Include="..\..\vulkan\PrismSlang.Vulkan.csproj" />
+  </ItemGroup>
+
+</Project>

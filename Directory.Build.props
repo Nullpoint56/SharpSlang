@@ -1,0 +1,21 @@
+<Project>
+
+  <!--
+    Single source of truth for the pinned Slang release.
+
+    Slang's public ABI is explicitly not stable (docs/binding-surface.md §3.5), so this is an exact
+    pin, not a floor. Everything downstream reads it from here:
+
+      tools/generate-native.ps1   default -SlangVersion, and the header cache path
+      tools/fetch-native.ps1      which release archive to download per RID
+      dotnet/PrismSlang.csproj    package metadata
+      tests/                      which header the drift tests parse
+
+    Bumping Slang is therefore: change this line, re-run both tools, run the tests, review the diff.
+  -->
+
+  <PropertyGroup>
+    <SlangVersion>v2026.14.1</SlangVersion>
+  </PropertyGroup>
+
+</Project>
