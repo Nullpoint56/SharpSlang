@@ -1,9 +1,27 @@
 <Solution>
+  <Folder Name="/Solution Items/">
+    <File Path="README.md" />
+    <File Path="Directory.Build.props" />
+    <File Path="NativeReaderEnums.props" />
+    <File Path=".gitignore" />
+  </Folder>
   <Folder Name="/docs/">
-    <File Path="docs/binding-surface.md" />
+    <File Path="docs/guide.md" />
+    <File Path="docs/findings.md" />
+    <File Path="docs/design.md" />
   </Folder>
   <Folder Name="/tools/">
+    <File Path="tools/fetch-native.ps1" />
     <File Path="tools/generate-native.ps1" />
+  </Folder>
+  <Folder Name="/tools/ci/">
+    <File Path="tools/ci/check-docs.sh" />
+    <File Path="tools/ci/verify-linux.sh" />
+  </Folder>
+  <Folder Name="/.github/">
+    <File Path=".github/workflows/ci.yml" />
+    <File Path=".github/workflows/docs.yml" />
+    <File Path=".github/workflows/publish.yml" />
   </Folder>
   <Project Path="runtime/PrismSlang.Runtime.csproj" />
   <Project Path="dotnet/PrismSlang.csproj" />

@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 #
 # Documentation checks. Cheap enough to run on every markdown-only change, which is the point:
-# those changes skip the build matrix, so this is what stands in for it.
+# those changes skip the build matrix, so this is what stands in for it. It also runs in the main
+# job, because two of the three properties below can be broken by a change that touches no markdown
+# at all.
 #
-# Two properties, both of which this repository has already got wrong once:
+# Three properties. Every one of them has already been broken here at least once:
 #
 #   1. Every internal link resolves — the file exists and the anchor matches a real heading.
 #      Anchors are generated from heading text, so renaming a heading silently breaks every link
@@ -13,6 +15,11 @@
 #      The two documents share one numbering — §1-§8 in design, §9.x in findings — and ~48 code
 #      comments cite a bare section number relying on that. Splitting the documents was safe only
 #      because the numbers are unique; this is what keeps that true rather than assuming it.
+#
+#   3. Every file the solution lists exists. Renaming binding-surface.md to design.md updated
+#      thirteen source references and left the one in PrismSlang.slnx pointing at nothing — a
+#      dangling entry the IDE shows as a missing file and no build ever complains about. The
+#      solution's non-project files are the docs and the scripts, so they belong in this check.
 #
 # Usage:  bash tools/ci/check-docs.sh
 
@@ -113,6 +120,30 @@ for section in $cited; do
         || echo "code cites §$section, which is not a heading in design.md or findings.md" >> "$problems"
 done
 
+# ---------------------------------------------------------------- 3. solution file references
+
+echo "==> solution references"
+
+for solution in *.slnx; do
+    [ -f "$solution" ] || continue
+
+    grep -oE '(File|Project) Path="[^"]+"' "$solution" \
+        | sed 's/.*Path="//; s/"$//; s|\\|/|g' \
+        | while IFS= read -r referenced; do
+            [ -f "$referenced" ] \
+                || echo "$solution references $referenced, which does not exist" >> "$problems"
+        done
+done
+
+# The reverse, for the two directories the solution is supposed to mirror. A document nobody can
+# find from the IDE is most of the way to a document nobody reads, and adding one is exactly when
+# updating the solution gets forgotten.
+for expected in docs/*.md tools/*.ps1 tools/ci/*.sh README.md; do
+    [ -f "$expected" ] || continue
+    grep -qF "Path=\"$expected\"" ./*.slnx 2>/dev/null \
+        || echo "$expected exists but no .slnx lists it" >> "$problems"
+done
+
 # ---------------------------------------------------------------- verdict
 
 if [ -s "$problems" ]; then
@@ -126,4 +157,4 @@ if [ -s "$problems" ]; then
 fi
 
 echo
-echo "docs OK - $(wc -l < "$sections") numbered sections, all links and § references resolve"
+echo "OK - $(wc -l < "$sections") numbered sections; links, § references and solution entries all resolve"

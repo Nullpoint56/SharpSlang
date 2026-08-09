@@ -103,6 +103,14 @@ jobs:
           test -f /usr/share/vulkan/explicit_layer.d/VkLayer_khronos_validation.json \
             || { echo "::error::validation layer manifest missing"; exit 1; }
 
+      # Also runs in docs.yml, which is what covers a markdown-only change. It runs here too because
+      # two of its three checks are broken by changes that touch no markdown at all: a § renumbered
+      # in a code comment, and a file renamed out from under PrismSlang.slnx. Linux only — it is a
+      # property of the tree, not of the platform.
+      - name: Check documentation and solution references
+        if: matrix.rid == 'linux-x64'
+        run: bash tools/ci/check-docs.sh
+
       - name: Build
         run: dotnet build PrismSlang.slnx -c Release --nologo -warnaserror
 

@@ -12,9 +12,9 @@ on:
   push:
     branches: ['**']
     tags-ignore: ['v*']
-    paths: ['**.md', 'tools/ci/check-docs.sh', '.github/workflows/docs.yml']
+    paths: ['**.md', '**.slnx', 'tools/ci/check-docs.sh', '.github/workflows/docs.yml']
   pull_request:
-    paths: ['**.md', 'tools/ci/check-docs.sh', '.github/workflows/docs.yml']
+    paths: ['**.md', '**.slnx', 'tools/ci/check-docs.sh', '.github/workflows/docs.yml']
   workflow_dispatch:
 
 permissions:
