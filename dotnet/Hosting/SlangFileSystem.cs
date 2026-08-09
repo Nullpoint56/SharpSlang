@@ -108,34 +108,62 @@ public sealed unsafe class SlangFileSystem : IDisposable
 
     // ---------------------------------------------------------------- thunks
     //
-    // Stdcall to match SLANG_MCALL: __stdcall on Windows, ignored elsewhere on 64-bit. Every thunk
-    // must swallow managed exceptions — letting one unwind across the native frame is undefined
-    // behaviour, and on Linux it terminates the process outright.
-
+    // Stdcall to match SLANG_MCALL: __stdcall on Windows, ignored elsewhere on 64-bit.
+    //
+    // Every thunk swallows managed exceptions. Letting one unwind across a native frame is
+    // undefined behaviour — on Linux the runtime terminates the process outright rather than
+    // attempt it — and this is the only boundary in the binding where managed code runs underneath
+    // native code, so it is the only place the hazard exists.
+    //
+    // This comment claimed all five did that while only LoadFile had a catch. The other four look
+    // like they cannot throw, and they nearly cannot: what they do is dereference `self`, compare
+    // GUIDs and touch an interlocked counter. But every one of them starts by resolving a GCHandle
+    // out of memory Slang owns the lifetime of, and GCHandle.FromIntPtr on a value that is not a
+    // live handle throws. A guard that is only correct as long as nobody makes a mistake is not the
+    // kind of guard this boundary should have.
+    //
     // The thunks stay one line each: [UnmanagedCallersOnly] methods cannot be called from managed
     // code, so the implementations live beside them as ordinary statics that they and each other
     // can share.
 
     [UnmanagedCallersOnly(CallConvs = [typeof(System.Runtime.CompilerServices.CallConvStdcall)])]
-    private static int QueryInterface(void* self, SlangUUID* uuid, void** outObject) =>
-        QueryInterfaceImpl(self, uuid, outObject);
+    private static int QueryInterface(void* self, SlangUUID* uuid, void** outObject)
+    {
+        try { return QueryInterfaceImpl(self, uuid, outObject); }
+        catch { return SlangResult.InternalFail; }
+    }
 
     [UnmanagedCallersOnly(CallConvs = [typeof(System.Runtime.CompilerServices.CallConvStdcall)])]
-    private static uint AddRef(void* self) => AddRefImpl(self);
+    private static uint AddRef(void* self)
+    {
+        try { return AddRefImpl(self); }
+        catch { return 0; }
+    }
 
     [UnmanagedCallersOnly(CallConvs = [typeof(System.Runtime.CompilerServices.CallConvStdcall)])]
-    private static uint Release(void* self) => ReleaseImpl(self);
+    private static uint Release(void* self)
+    {
+        try { return ReleaseImpl(self); }
+        catch { return 0; }
+    }
 
     [UnmanagedCallersOnly(CallConvs = [typeof(System.Runtime.CompilerServices.CallConvStdcall)])]
     private static void* CastAs(void* self, SlangUUID* uuid)
     {
-        void* result = null;
-        return QueryInterfaceImpl(self, uuid, &result) == SlangResult.Ok ? result : null;
+        try
+        {
+            void* result = null;
+            return QueryInterfaceImpl(self, uuid, &result) == SlangResult.Ok ? result : null;
+        }
+        catch { return null; }
     }
 
     [UnmanagedCallersOnly(CallConvs = [typeof(System.Runtime.CompilerServices.CallConvStdcall)])]
-    private static int LoadFile(void* self, sbyte* path, ISlangBlob** outBlob) =>
-        LoadFileImpl(self, path, outBlob);
+    private static int LoadFile(void* self, sbyte* path, ISlangBlob** outBlob)
+    {
+        try { return LoadFileImpl(self, path, outBlob); }
+        catch { return SlangResult.InternalFail; }
+    }
 
     // ---------------------------------------------------------------- implementations
 
@@ -187,6 +215,9 @@ public sealed unsafe class SlangFileSystem : IDisposable
             var managedPath = Utf8.Read(path);
             if (managedPath is null) return SlangResult.InvalidArg;
 
+            // The one call into code this package did not write. An engine VFS reading from a pack
+            // file has every ordinary reason to throw — a bad path, a closed archive, a disk error
+            // — and none of those may reach Slang's frame.
             var content = fs._provider.TryRead(managedPath);
             if (content is null) return SlangResult.NotFound;
 
