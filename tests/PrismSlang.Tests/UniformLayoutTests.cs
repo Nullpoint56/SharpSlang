@@ -248,7 +248,7 @@ public class UniformLayoutTests
         using var ep = module.FindEntryPoint("computeMain");
         using var program = session.Link(module, ep);
 
-        var restored = ProgramLayout.FromJson(ShaderPackage.Bake(program, InstanceShader).Layout.ToJson());
+        var restored = ProgramLayout.FromJson(ShaderPackageBaker.Bake(program, InstanceShader).Layout.ToJson());
         var instances = (ResourceLayout)restored.Parameter("gInstances")!.Type;
 
         Assert.Equal(80ul, instances.ElementStride);

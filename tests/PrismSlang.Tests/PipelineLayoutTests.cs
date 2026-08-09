@@ -447,7 +447,7 @@ public class PipelineLayoutTests
         using var program = session.Link(module, vs, fs);
 
         using var buffer = new MemoryStream();
-        ShaderPackage.Bake(program, Everything).WriteTo(buffer);
+        ShaderPackageBaker.Bake(program, Everything).WriteTo(buffer);
         buffer.Position = 0;
 
         var before = program.Reflect().ToVulkan();

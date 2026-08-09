@@ -1,0 +1,41 @@
+<Project>
+
+  <!--
+    The generated L0 types that a package reader needs, and the split point between the two
+    assemblies.
+
+    Native/ mixes two populations. Most of it is COM-shaped interfaces — IGlobalSession, ISession,
+    IModule, IComponentType — which exist only to call into slang-compiler and are useless without
+    it. A handful of files are plain enums that appear on the public surface of a reflection
+    snapshot: a ShaderParameter has a SlangParameterCategory, a MatrixLayout has a
+    SlangMatrixLayoutMode. Those need nothing at run time but a value.
+
+    A game that ships a baked ShaderPackage has to name those enums and must not carry a 36 MB
+    compiler to do it. So the list below is compiled into PrismSlang.Runtime and REMOVED from
+    PrismSlang, which references it — one definition of each type, in the assembly that can be
+    referenced on its own.
+
+    Named here rather than in either project so the two cannot disagree about where a type lives,
+    which would be a duplicate-definition error at best and a type-identity mismatch at worst. The
+    generator writes all of them to dotnet/Native as before; only the compilation is split.
+
+    Adding to this list is a public API move between assemblies. It is only correct for a type with
+    no dependency on anything native — a bare enum. Anything with a pointer in it belongs on the
+    compiler side.
+  -->
+
+  <ItemGroup>
+    <PrismSlangReaderEnum Include="$(MSBuildThisFileDirectory)dotnet\Native\BindingType.cs" />
+    <PrismSlangReaderEnum Include="$(MSBuildThisFileDirectory)dotnet\Native\SlangBindingType.cs" />
+    <PrismSlangReaderEnum Include="$(MSBuildThisFileDirectory)dotnet\Native\SlangDeclKind.cs" />
+    <PrismSlangReaderEnum Include="$(MSBuildThisFileDirectory)dotnet\Native\SlangImageFormat.cs" />
+    <PrismSlangReaderEnum Include="$(MSBuildThisFileDirectory)dotnet\Native\SlangMatrixLayoutMode.cs" />
+    <PrismSlangReaderEnum Include="$(MSBuildThisFileDirectory)dotnet\Native\SlangParameterCategory.cs" />
+    <PrismSlangReaderEnum Include="$(MSBuildThisFileDirectory)dotnet\Native\SlangResourceAccess.cs" />
+    <PrismSlangReaderEnum Include="$(MSBuildThisFileDirectory)dotnet\Native\SlangResourceShape.cs" />
+    <PrismSlangReaderEnum Include="$(MSBuildThisFileDirectory)dotnet\Native\SlangScalarType.cs" />
+    <PrismSlangReaderEnum Include="$(MSBuildThisFileDirectory)dotnet\Native\SlangStage.cs" />
+    <PrismSlangReaderEnum Include="$(MSBuildThisFileDirectory)dotnet\Native\SlangTypeKind.cs" />
+  </ItemGroup>
+
+</Project>

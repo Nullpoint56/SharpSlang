@@ -310,7 +310,7 @@ public class SpecializationConstantTests
         using var program = session.Link(module, ep);
 
         using var buffer = new MemoryStream();
-        Baking.ShaderPackage.Bake(program, Shader).WriteTo(buffer);
+        Baking.ShaderPackageBaker.Bake(program, Shader).WriteTo(buffer);
         buffer.Position = 0;
 
         var restored = Baking.ShaderPackage.ReadFrom(buffer).Layout;

@@ -176,7 +176,7 @@ public class MalformedInputTests
         using var program = session.Link(module, ep);
 
         using var buffer = new MemoryStream();
-        ShaderPackage.Bake(program, Source).WriteTo(buffer);
+        ShaderPackageBaker.Bake(program, Source).WriteTo(buffer);
         return buffer.ToArray();
     }
 

@@ -69,7 +69,7 @@ jobs:
         run: |
           $v = "${{ steps.version.outputs.value }}"
           $extra = if ($v) { @("-p:Version=$v") } else { @() }
-          foreach ($proj in @('dotnet/PrismSlang.csproj', 'vulkan/PrismSlang.Vulkan.csproj')) {
+          foreach ($proj in @('runtime/PrismSlang.Runtime.csproj', 'dotnet/PrismSlang.csproj', 'vulkan/PrismSlang.Vulkan.csproj')) {
             dotnet pack $proj -c Release -o artifacts --no-build @extra
             if ($LASTEXITCODE -ne 0) { throw "pack failed for $proj" }
           }
@@ -81,8 +81,12 @@ jobs:
           # would publish silently and fail on the consumer's machine. Without slang-glslang the
           # failure is worse than a missing file: Slang still compiles, just unoptimised, and says
           # so once per global session on a successful result.
+          # The core package is the only one that should carry a payload at all. Matched by an
+          # exact prefix rather than by excluding the others one at a time: PrismSlang.Runtime was
+          # added later and would have slipped through a not-like list, and it is precisely the
+          # package whose whole purpose is to have no payload.
           $nupkg = Get-ChildItem artifacts -Filter 'PrismSlang.*.nupkg' |
-                   Where-Object { $_.Name -notlike 'PrismSlang.Vulkan.*' } | Select-Object -First 1
+                   Where-Object { $_.Name -match '^PrismSlang\.\d' } | Select-Object -First 1
           if (-not $nupkg) { throw "no PrismSlang core package in artifacts/" }
 
           Add-Type -AssemblyName System.IO.Compression.FileSystem

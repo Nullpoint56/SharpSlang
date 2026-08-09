@@ -19,6 +19,14 @@
   <!-- Surfaces the pinned version from Directory.Build.props to the test code. -->
   <ItemGroup>
     <AssemblyMetadata Include="SlangVersion" Value="$(SlangVersion)" />
+
+    <!--
+      Where the native-free consumer builds to. AssemblySplitTests inspects that directory rather
+      than reasoning about project references, because what the engine team asked for is a property
+      of the deployment closure and nothing else demonstrates it.
+    -->
+    <AssemblyMetadata Include="RuntimeConsumerOutput"
+                      Value="$(MSBuildThisFileDirectory)..\PrismSlang.Runtime.Consumer\bin\$(Configuration)\$(TargetFramework)" />
   </ItemGroup>
 
   <ItemGroup>
@@ -46,6 +54,15 @@
   <ItemGroup>
     <ProjectReference Include="..\..\dotnet\PrismSlang.csproj" />
     <ProjectReference Include="..\..\vulkan\PrismSlang.Vulkan.csproj" />
+
+    <!--
+      Built, never referenced. AssemblySplitTests needs the consumer's output directory to exist and
+      to be current; referencing its assembly would pull it into this project's own closure, where
+      the compiler payload lives, and there would be nothing left to measure.
+    -->
+    <ProjectReference Include="..\PrismSlang.Runtime.Consumer\PrismSlang.Runtime.Consumer.csproj"
+                      ReferenceOutputAssembly="false"
+                      Private="false" />
   </ItemGroup>
 
 </Project>

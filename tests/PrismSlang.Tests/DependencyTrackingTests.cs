@@ -55,7 +55,7 @@ public class DependencyTrackingTests : IDisposable
         using var ep = module.FindEntryPoint("fragmentMain");
         using var program = session.Link(module, ep);
 
-        return ShaderPackage.Bake(program, module);
+        return ShaderPackageBaker.Bake(program, module);
     }
 
     // ---------------------------------------------------------------- the module's own view
@@ -91,7 +91,7 @@ public class DependencyTrackingTests : IDisposable
 
         // Slang still reports the synthetic path, but nothing behind it is readable, so the bake
         // records no dependency rather than one it can never verify.
-        Assert.Empty(ShaderPackage.Bake(program, module).Dependencies);
+        Assert.Empty(ShaderPackageBaker.Bake(program, module).Dependencies);
     }
 
     // ---------------------------------------------------------------- staleness
@@ -191,7 +191,7 @@ public class DependencyTrackingTests : IDisposable
         using var ep = module.FindEntryPoint("fragmentMain");
         using var program = session.Link(module, ep);
 
-        var package = ShaderPackage.Bake(program, Source);
+        var package = ShaderPackageBaker.Bake(program, Source);
 
         // Nothing to check, so IsCurrent says no rather than yes. The string overload's own
         // staleness check still works, and is the right one for an in-memory shader.

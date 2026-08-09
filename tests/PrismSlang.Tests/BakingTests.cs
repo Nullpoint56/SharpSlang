@@ -41,7 +41,7 @@ public class BakingTests
         using var fs = module.FindEntryPoint("fragmentMain");
         using var program = session.Link(module, vs, fs);
 
-        return ShaderPackage.Bake(program, source);
+        return ShaderPackageBaker.Bake(program, source);
     }
 
     [NativeFact]

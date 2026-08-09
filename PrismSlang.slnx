@@ -5,8 +5,10 @@
   <Folder Name="/tools/">
     <File Path="tools/generate-native.ps1" />
   </Folder>
+  <Project Path="runtime/PrismSlang.Runtime.csproj" />
   <Project Path="dotnet/PrismSlang.csproj" />
   <Project Path="vulkan/PrismSlang.Vulkan.csproj" />
   <Project Path="tests/PrismSlang.Tests/PrismSlang.Tests.csproj" />
+  <Project Path="tests/PrismSlang.Runtime.Consumer/PrismSlang.Runtime.Consumer.csproj" />
   <Project Path="samples/PrismSlang.Smoke/PrismSlang.Smoke.csproj" />
 </Solution>

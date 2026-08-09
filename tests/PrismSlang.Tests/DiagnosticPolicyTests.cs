@@ -91,7 +91,7 @@ public class DiagnosticPolicyTests
         using var _ = new PolicyScope(SlangDiagnosticPolicy.ThrowOnError);
 
         var seen = new List<(string Op, string Text)>();
-        SlangDiagnostics.Handler = (op, text) => seen.Add((op, text));
+        SlangDiagnostics.Handler = (op, _, text) => seen.Add((op, text));
 
         Diagnostics.ApplySuccessPolicy(SlangResult.Ok, "getEntryPointCode", OldSpirvVersion);
 
@@ -104,11 +104,48 @@ public class DiagnosticPolicyTests
         using var _ = new PolicyScope(SlangDiagnosticPolicy.Report);
 
         var seen = new List<string>();
-        SlangDiagnostics.Handler = (_, text) => seen.Add(text);
+        SlangDiagnostics.Handler = (_, _, text) => seen.Add(text);
 
         Diagnostics.ApplySuccessPolicy(SlangResult.Ok, "op", MissingSpirvOpt);
 
         Assert.Equal(MissingSpirvOpt, Assert.Single(seen));
+    }
+
+    [Fact]
+    public void The_handler_is_told_the_severity_it_would_otherwise_have_to_derive()
+    {
+        // The point of Report is to let a build log warnings and fail on errors itself, which needs
+        // the severity. Slang has no structured severity — it comes from parsing message prefixes —
+        // so a handler working it out again would be re-deriving Classify, less carefully.
+        using var _ = new PolicyScope(SlangDiagnosticPolicy.Report);
+
+        var seen = new List<(string Operation, SlangDiagnosticSeverity Severity)>();
+        SlangDiagnostics.Handler = (op, severity, _) => seen.Add((op, severity));
+
+        Diagnostics.ApplySuccessPolicy(SlangResult.Ok, "getEntryPointCode", MissingSpirvOpt);
+        Diagnostics.ApplySuccessPolicy(SlangResult.Ok, "compile", "warning[E50011]: SPIR-V version too old");
+        Diagnostics.ApplySuccessPolicy(SlangResult.Ok, "compile", "note[E99996]: something");
+
+        Assert.Equal(
+        [
+            ("getEntryPointCode", SlangDiagnosticSeverity.Error),
+            ("compile", SlangDiagnosticSeverity.Warning),
+            ("compile", SlangDiagnosticSeverity.Note),
+        ], seen);
+    }
+
+    [Fact]
+    public void The_severity_the_handler_gets_is_the_one_ThrowOnError_would_have_acted_on()
+    {
+        // One classification, used for both decisions. If these could differ, a build could log a
+        // warning for the same text that another policy treats as fatal.
+        Assert.Equal(SlangDiagnosticSeverity.Error, SlangDiagnostics.Classify(MissingSpirvOpt));
+
+        using var _ = new PolicyScope(SlangDiagnosticPolicy.ThrowOnError);
+        var e = Assert.Throws<SlangException>(
+            () => Diagnostics.ApplySuccessPolicy(SlangResult.Ok, "op", MissingSpirvOpt));
+
+        Assert.Contains("succeeded but reported errors", e.Message);
     }
 
     [Fact]
@@ -117,7 +154,7 @@ public class DiagnosticPolicyTests
         using var _ = new PolicyScope(SlangDiagnosticPolicy.Ignore);
 
         var seen = 0;
-        SlangDiagnostics.Handler = (_, _) => seen++;
+        SlangDiagnostics.Handler = (_, _, _) => seen++;
 
         Diagnostics.ApplySuccessPolicy(SlangResult.Ok, "op", MissingSpirvOpt);
 
@@ -144,7 +181,7 @@ public class DiagnosticPolicyTests
             using var _ = new PolicyScope(policy);
 
             var seen = 0;
-            SlangDiagnostics.Handler = (_, _) => seen++;
+            SlangDiagnostics.Handler = (_, _, _) => seen++;
 
             Diagnostics.ApplySuccessPolicy(SlangResult.Ok, "op", null);
             Assert.Equal(0, seen);

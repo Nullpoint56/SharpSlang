@@ -40,8 +40,14 @@
     <RepositoryType>git</RepositoryType>
   </PropertyGroup>
 
+  <!--
+    PrismSlang.Runtime, not PrismSlang. Projecting a layout is arithmetic over managed data and
+    never touches the compiler, so referencing the compiler dragged a 36 MB per-RID payload behind
+    a 10 KB assembly for every consumer — including a game that only reads baked packages. Docs
+    §9.16.
+  -->
   <ItemGroup>
-    <ProjectReference Include="..\dotnet\PrismSlang.csproj" />
+    <ProjectReference Include="..\runtime\PrismSlang.Runtime.csproj" />
   </ItemGroup>
 
 </Project>

@@ -602,12 +602,12 @@ constant buffer, a texture, a sampler, and varyings specifically so there is som
 
 ## 9. Status
 
-All five layers are built and green on **win-x64 and linux-x64**: 375 tests, the Tier 0 spike, and
+All five layers are built and green on **win-x64 and linux-x64**: 381 tests, the Tier 0 spike, and
 a full reflection walk on both.
 
 | Layer | State |
 |---|---|
-| L0 raw | generated; 278 `DllImport`, 383 vtable sites, 27 IIDs, ~5,100 lines |
+| L0 raw | generated; 278 `DllImport`, 383 vtable sites, 27 IIDs, ~5,100 lines. The 11 enums on the reader surface compile into `PrismSlang.Runtime` instead — §9.16 |
 | L1 interop | UTF-8, blobs, diagnostics + severity policy, result codes, defaults, **ownership** |
 | L2 compilation | `SlangGlobalSession` → `SlangSession` → `SlangModule` → `LinkedProgram` |
 | L2 Tier 2 | type lookup, specialisation, type conformances, subtype checks, link-time options |
@@ -616,7 +616,8 @@ a full reflection walk on both.
 | L3 SPIR-V | header, `OpEntryPoint` and workgroup-size reader, for facts reflection cannot report |
 | L4 hosting | managed `ISlangFileSystem` via `[UnmanagedCallersOnly]` thunks |
 | Baking | `ShaderPackage`: SPIR-V + layout + module entry-point name + version + workgroup size + dependency hashes |
-| `PrismSlang.Vulkan` | separate package: descriptor sets, push constants, vertex inputs, fragment outputs, input attachments, stages and dispatch geometry, `VkSpecializationInfo`, target-env mapping |
+| `PrismSlang.Runtime` | the reader half: `ShaderPackage`, `ProgramLayout`, `SpirvModule`. No native dependency, so a shipped game carries no compiler — §9.16 |
+| `PrismSlang.Vulkan` | separate package, referencing `PrismSlang.Runtime`: descriptor sets, push constants, vertex inputs, fragment outputs, input attachments, stages and dispatch geometry, `VkSpecializationInfo`, target-env mapping |
 
 | Supporting | State |
 |---|---|
@@ -624,7 +625,7 @@ a full reflection walk on both.
 | `fetch-native.ps1` | win-x64 + linux-x64 verified; osx-arm64 mapped, unrun |
 | `tools/ci/verify-linux.sh` | build + tests + spike under WSL |
 | `.github/workflows` | CI matrix, regeneration check, package-contents check, publish |
-| Tests | 375. `ModuleAgreementTests` diffs a 27-shader corpus against the emitted module as sets, both directions; `SurfaceCoverageTests` fails on any Slang enum value the corpus neither exercises nor declares untried. See §9.11 and §9.13 |
+| Tests | 381. `ModuleAgreementTests` diffs a 27-shader corpus against the emitted module as sets, both directions; `SurfaceCoverageTests` fails on any Slang enum value the corpus neither exercises nor declares untried. See §9.11 and §9.13 |
 
 Package sizes tell the story of the split: `PrismSlang` is 34 MB (it carries the compiler for every
 RID), `PrismSlang.Vulkan` is **10 KB**. A D3D12 consumer pays nothing for Vulkan.
@@ -1509,3 +1510,93 @@ two locations, where Slang and the emitted module agree with each other and disa
 specification as read here.
 
 375 tests.
+
+---
+
+### 9.16 Splitting the reader out of the compiler
+
+The second round of engine feedback, and the first ask is structural rather than a defect: a shipped
+game reads baked shader packages and never compiles one, but referencing `ShaderPackage` meant
+referencing `PrismSlang`, which carries a 36 MB per-RID payload. The types a runtime needs are all
+plain managed data; only the thing that *makes* a package needs Slang.
+
+#### Where the line falls
+
+**`PrismSlang.Runtime`** — no native dependency, referenceable on its own:
+
+| From | What |
+|---|---|
+| `PrismSlang.Baking` | `ShaderPackage` (container, `ReadFrom`/`WriteTo`, `IsUpToDate`, `IsCurrent`, `StaleDependencies`), `BakedEntryPoint`, `ShaderDependency` |
+| `PrismSlang.Reflection` | `ProgramLayout` and its whole transitive surface, plus the `TypeLayout` family |
+| `PrismSlang.Spirv` | `SpirvModule` and everything it returns — byte parsing that never needed Slang |
+| `PrismSlang.Native` | the eleven generated enums that surface names, and nothing else |
+
+**`PrismSlang.Vulkan`** now references `PrismSlang.Runtime` rather than `PrismSlang`. It never
+touched the compiler; it was inheriting the payload through a reference it did not need.
+
+**`PrismSlang`** keeps the compiler, the interop layer, the reflection *walk*, the hosting thunks —
+and `ShaderPackageBaker.Bake(program, module)`, which is the one method the split forced out of
+`ShaderPackage`. Reading a package needs managed code; making one needs a `LinkedProgram`, a
+`SlangModule` and the library behind them, so the class had to divide along exactly that line.
+
+#### The generated layer
+
+`Native/` mixes two populations that happen to share a directory: COM-shaped interfaces that exist
+only to call into `slang-compiler`, and plain enums that appear on a reflection snapshot's public
+surface. The split runs through it, and only the enums move.
+
+They move by *compilation*, not by file. The generator still writes all 127 files to
+`dotnet/Native`; `NativeReaderEnums.props` names the eleven that belong to the reader, the runtime
+project compiles them, and `PrismSlang` removes them from its own compile. One list, imported by
+both projects, because the failure mode of two lists is a type-identity mismatch: two
+`SlangStage`s that print the same and are not the same type.
+
+`NativeTypeNameAttribute` is the exception and is compiled into both. It is `internal`, so two
+copies are two types that never meet; moving it would mean making a ClangSharp implementation detail
+public. Granting `InternalsVisibleTo` between the assemblies instead is what does not work — it
+makes the runtime's copy visible where the generated layer has its own, which is CS0436 on every
+generated file, and `-warnaserror` turns that into a failed build.
+
+#### The acceptance criterion, as a project
+
+The engine team wrote a testable criterion, so it is a test.
+`tests/PrismSlang.Runtime.Consumer` is an executable referencing **only** `PrismSlang.Runtime` and
+`PrismSlang.Vulkan`. It reads a package off disk, projects the layout to a `VulkanPipelineLayout`,
+calls `VulkanSpecialization.Pack` and `VulkanEnvironment.Require`, and walks
+`FieldLayout.UniformOffset` — the five things named. If any of them needed the compiler it would not
+compile.
+
+`AssemblySplitTests` checks the other half, which is a property of the deployment closure and not of
+the reference graph: the consumer's output directory must contain no `slang-compiler`, no
+`slang-glslang`, no `runtimes/` tree, and exactly three assemblies. Then it bakes a real package
+here, where the compiler is, and runs the consumer as a separate process against it.
+
+It is worth saying what that output actually is:
+
+```
+PrismSlang.Runtime.Consumer.dll   PrismSlang.Runtime.dll   PrismSlang.Vulkan.dll
+```
+
+Writing the consumer found one thing, in the consumer rather than the library: a conditional
+expression unifies its branches to one numeric type before boxing, so
+`c.IsFloatingPoint ? c.DefaultFloat : c.DefaultInt` hands `Pack` a `double` for an integer constant
+whichever branch is taken. `Pack` refused it by name and type, which is the behaviour §9.8 asked for
+working exactly as intended on the first real consumer to make the mistake.
+
+#### The second ask: severity on a success result
+
+Already there, and the answer is §9.8 C. `SlangDiagnostics.Classify` reads severity out of the blob,
+`SlangDiagnosticPolicy.ThrowOnError` is the default, and an error-level diagnostic accompanying a
+successful compile therefore throws rather than scrolling past — which is the missing-`spirv-opt`
+signature exactly. `GlobalSessionOptions.RequireSpirvOptimizer` is the second mechanism, because the
+diagnostic fires once per global session and a policy alone only catches the first shader of a
+batch.
+
+One real gap, now closed: `SlangDiagnosticHandler` received `(operation, text)`. A host under
+`Report` — the policy that exists so a build can log warnings and fail on errors itself — had to
+re-derive the severity, which means re-deriving `Classify`, which parses message prefixes because
+Slang has no structured severity to read. The handler is now
+`(operation, severity, text)`, classified once and used for both the throw decision and the report,
+so the two can never disagree about the same text.
+
+381 tests.

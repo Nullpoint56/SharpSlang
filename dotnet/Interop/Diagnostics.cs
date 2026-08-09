@@ -90,8 +90,24 @@ public enum SlangDiagnosticPolicy
 
 /// <summary>Receives diagnostics Slang produced on a call that succeeded.</summary>
 /// <param name="operation">Which Slang call produced them.</param>
+/// <param name="severity">
+/// The worst severity in <paramref name="diagnostics"/>, already classified. A host under
+/// <see cref="SlangDiagnosticPolicy.Report"/> is the one that most needs it — that policy exists to
+/// let a build log warnings and fail on errors itself, which is not possible without knowing which
+/// is which.
+/// </param>
 /// <param name="diagnostics">The compiler's text, verbatim.</param>
-public delegate void SlangDiagnosticHandler(string operation, string diagnostics);
+/// <remarks>
+/// The severity is passed rather than left to the handler because the classification is not
+/// obvious: Slang has no structured severity, so it comes from parsing message prefixes, and a host
+/// re-deriving it would be re-deriving <see cref="SlangDiagnostics.Classify"/> — probably less
+/// carefully, and certainly without the regression tests. It is still public for a caller with
+/// diagnostic text from somewhere else.
+/// </remarks>
+public delegate void SlangDiagnosticHandler(
+    string operation,
+    SlangDiagnosticSeverity severity,
+    string diagnostics);
 
 /// <summary>
 /// Process-wide policy for diagnostics Slang produces on successful calls.
@@ -107,7 +123,8 @@ public static partial class SlangDiagnostics
     /// into their own log.
     /// </summary>
     public static SlangDiagnosticHandler Handler { get; set; } =
-        static (op, text) => Console.Error.WriteLine($"[slang] {op}:{Environment.NewLine}{text}");
+        static (op, severity, text) =>
+            Console.Error.WriteLine($"[slang {severity}] {op}:{Environment.NewLine}{text}");
 
     /// <summary>What to do about them. Defaults to <see cref="SlangDiagnosticPolicy.ThrowOnError"/>.</summary>
     public static SlangDiagnosticPolicy Policy { get; set; } = SlangDiagnosticPolicy.ThrowOnError;
@@ -205,19 +222,18 @@ internal static unsafe class Diagnostics
     internal static void ApplySuccessPolicy(int result, string operation, string? text)
     {
         if (text is null) return;
+        if (SlangDiagnostics.Policy == SlangDiagnosticPolicy.Ignore) return;
 
-        switch (SlangDiagnostics.Policy)
+        // Classified once, then either acted on or handed over. A host under Report needs the same
+        // answer the ThrowOnError branch uses, not its own guess at it.
+        var severity = SlangDiagnostics.Classify(text);
+
+        if (SlangDiagnostics.Policy == SlangDiagnosticPolicy.ThrowOnError
+            && severity >= SlangDiagnosticSeverity.Error)
         {
-            case SlangDiagnosticPolicy.Ignore:
-                return;
-
-            case SlangDiagnosticPolicy.ThrowOnError
-                when SlangDiagnostics.Classify(text) >= SlangDiagnosticSeverity.Error:
-                throw new SlangException(result, operation, text);
-
-            default:
-                SlangDiagnostics.Handler(operation, text);
-                return;
+            throw new SlangException(result, operation, text);
         }
+
+        SlangDiagnostics.Handler(operation, severity, text);
     }
 }

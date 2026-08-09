@@ -165,7 +165,7 @@ public class ComputeAndAttachmentTests
         using var program = session.Link(module, ep);
 
         using var buffer = new MemoryStream();
-        ShaderPackage.Bake(program, SpecializedCompute).WriteTo(buffer);
+        ShaderPackageBaker.Bake(program, SpecializedCompute).WriteTo(buffer);
         buffer.Position = 0;
 
         var size = ShaderPackage.ReadFrom(buffer).EntryPoint("computeMain")!.WorkgroupSize!;
@@ -191,7 +191,7 @@ public class ComputeAndAttachmentTests
         using var program = session.Link(module, ep);
 
         using var buffer = new MemoryStream();
-        ShaderPackage.Bake(program, Source).WriteTo(buffer);
+        ShaderPackageBaker.Bake(program, Source).WriteTo(buffer);
         buffer.Position = 0;
 
         Assert.Null(ShaderPackage.ReadFrom(buffer).EntryPoint("vertexMain")!.WorkgroupSize);

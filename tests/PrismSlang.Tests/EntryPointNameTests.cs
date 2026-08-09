@@ -127,7 +127,7 @@ public class EntryPointNameTests
         using var fs = module.FindEntryPoint("fragmentMain");
         using var program = session.Link(module, vs, fs);
 
-        var package = ShaderPackage.Bake(program, TwoStages);
+        var package = ShaderPackageBaker.Bake(program, TwoStages);
 
         var baked = package.EntryPoint("vertexMain")!;
         Assert.Equal("vertexMain", baked.Name);              // how the asset pipeline finds it
@@ -145,7 +145,7 @@ public class EntryPointNameTests
         using var fs = module.FindEntryPoint("fragmentMain");
         using var program = session.Link(module, fs);
 
-        var package = ShaderPackage.Bake(program, TwoStages);
+        var package = ShaderPackageBaker.Bake(program, TwoStages);
         Assert.Equal("fragmentMain", package.EntryPoint("fragmentMain")!.ModuleEntryPointName);
     }
 
@@ -163,7 +163,7 @@ public class EntryPointNameTests
             using var fs = module.FindEntryPoint("fragmentMain");
             using var program = session.Link(module, vs, fs);
 
-            var package = ShaderPackage.Bake(program, TwoStages);
+            var package = ShaderPackageBaker.Bake(program, TwoStages);
 
             foreach (var e in package.EntryPoints)
             {
@@ -184,7 +184,7 @@ public class EntryPointNameTests
         using var program = session.Link(module, vs);
 
         using var buffer = new MemoryStream();
-        ShaderPackage.Bake(program, TwoStages).WriteTo(buffer);
+        ShaderPackageBaker.Bake(program, TwoStages).WriteTo(buffer);
         buffer.Position = 0;
 
         var restored = ShaderPackage.ReadFrom(buffer).EntryPoint("vertexMain")!;

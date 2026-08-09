@@ -50,7 +50,7 @@ public class TargetEnvironmentTests
         // a failure — so the default ThrowOnError policy lets it through. If a future Slang
         // promotes this to an error, builds targeting an old device start failing and this says why.
         var seen = new List<string>();
-        using (new DiagnosticScope(SlangDiagnosticPolicy.Report, (_, t) => seen.Add(t)))
+        using (new DiagnosticScope(SlangDiagnosticPolicy.Report, (_, severity, t) => seen.Add($"{severity}: {t}")))
         {
             Assert.Equal(requested, SpirvModule.ReadVersion(Compile(new TargetOptions { SpirvVersion = requested })));
         }
@@ -201,7 +201,7 @@ public class TargetEnvironmentTests
         using var ep = module.FindEntryPoint("fragmentMain");
         using var program = session.Link(module, ep);
 
-        var package = Baking.ShaderPackage.Bake(program, Trivial);
+        var package = Baking.ShaderPackageBaker.Bake(program, Trivial);
         var baked = Assert.Single(package.EntryPoints);
 
         Assert.Equal(SpirvVersion.V1_6, baked.SpirvVersion);
