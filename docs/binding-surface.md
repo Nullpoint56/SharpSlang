@@ -602,12 +602,12 @@ constant buffer, a texture, a sampler, and varyings specifically so there is som
 
 ## 9. Status
 
-All five layers are built and green on **win-x64 and linux-x64**: 314 tests, the Tier 0 spike, and
+All five layers are built and green on **win-x64 and linux-x64**: 342 tests, the Tier 0 spike, and
 a full reflection walk on both.
 
 | Layer | State |
 |---|---|
-| L0 raw | generated; 280 `DllImport`, 383 vtable sites, 27 IIDs, ~5,100 lines |
+| L0 raw | generated; 278 `DllImport`, 383 vtable sites, 27 IIDs, ~5,100 lines |
 | L1 interop | UTF-8, blobs, diagnostics + severity policy, result codes, defaults, **ownership** |
 | L2 compilation | `SlangGlobalSession` → `SlangSession` → `SlangModule` → `LinkedProgram` |
 | L2 Tier 2 | type lookup, specialisation, type conformances, subtype checks, link-time options |
@@ -624,7 +624,7 @@ a full reflection walk on both.
 | `fetch-native.ps1` | win-x64 + linux-x64 verified; osx-arm64 mapped, unrun |
 | `tools/ci/verify-linux.sh` | build + tests + spike under WSL |
 | `.github/workflows` | CI matrix, regeneration check, package-contents check, publish |
-| Tests | 314. `ModuleAgreementTests` diffs a 27-shader corpus against the emitted module as sets, both directions; `SurfaceCoverageTests` fails on any Slang enum value the corpus neither exercises nor declares untried. See §9.11 |
+| Tests | 342. `ModuleAgreementTests` diffs a 27-shader corpus against the emitted module as sets, both directions; `SurfaceCoverageTests` fails on any Slang enum value the corpus neither exercises nor declares untried. See §9.11 and §9.13 |
 
 Package sizes tell the story of the split: `PrismSlang` is 34 MB (it carries the compiler for every
 RID), `PrismSlang.Vulkan` is **10 KB**. A D3D12 consumer pays nothing for Vulkan.
@@ -1240,3 +1240,120 @@ correct. That is the shape you want: the yield moves from "wherever we looked" t
 not looked", and the answer to *where have we not looked* is now a failing test rather than a guess.
 
 314 tests.
+
+---
+
+### 9.13 What each part should be tested by, and what that turned up
+
+The corpus harness covers one axis very well — does reflection agree with the module — and nothing
+else. Asking what the *right* test is for each part of the codebase says where the next holes are,
+and three of the answers were missing entirely.
+
+| Part | The test that fits it | State |
+|---|---|---|
+| L0 raw | every declared entry point resolves in the loaded library | **added** — found two Windows-only bindings |
+| L0 raw | generated output matches a fresh run of the generator | CI regeneration check |
+| L1 interop | round-trip and lifetime; dispose order, double dispose | partial — see Remaining |
+| L1 diagnostics | severity classification against real compiler text | `DiagnosticPolicyTests` |
+| L1 defaults | drift against the header's initialisers | `DefaultsDriftTests` |
+| L2 options | each option demonstrably changes the output, or is declared inert | **added** |
+| L2 link options | same, at link time | §9.5 |
+| L3 reflection | set-equality against the emitted module, both directions | §9.11 |
+| L3 reflection | invariants with no oracle, for what the module cannot witness | §9.12 |
+| L3 coverage | every Slang enum value exercised or declared untried | §9.11 |
+| L3 SPIR-V reader | malformed, truncated and corrupted input | **added** |
+| L4 hosting | a managed filesystem serving a whole import tree | `HostingTests` |
+| Baking | round-trip, version rejection, corrupt input | round-trip existed; **corrupt added** |
+| Vulkan enums | mirrored values against the specification | none — see Remaining |
+
+Three were missing. All three found something.
+
+#### Every entry point resolves — and two never could, off Windows
+
+A `DllImport` is a promise checked when it is first called and not before. L0 declares 280 of them;
+the tests call perhaps a third. An export Slang renames in a future release is not a build error,
+not a startup error and not a test failure — it is an `EntryPointNotFoundException` from inside a
+cook, naming a function nobody recognises, on whichever machine happens to compile the shader that
+reaches it first.
+
+`NativeExportTests` resolves every declaration against the loaded library. It also asserts no export
+is bound twice, which is how a generator run goes wrong quietly: two managed methods on one export
+both compile, both resolve, and one of them has the wrong signature.
+
+**It found two on its first cross-platform run, and they were Windows-only bindings.** All 280
+resolved on win-x64. Under WSL, two did not:
+
+```
+?slang_getEmbeddedCoreModule@@YAPEAUISlangBlob@@XZ
+?spReflection_GetSession@@YAPEAUISession@slang@@PEAUSlangProgramLayout@@@Z
+```
+
+Those are MSVC manglings. Two functions in `slang.h` are not `extern "C"`, so ClangSharp bound them
+by name-mangled symbol — which compiles on every platform and can only ever resolve on the one that
+produced the mangling. On linux-x64 the symbol carries an Itanium mangling instead, and the call
+throws `EntryPointNotFoundException`. Neither function was used, so nothing had ever called them and
+nothing had ever noticed.
+
+Both are excluded from generation now, taking L0 to 278 entry points, and a second test rejects any
+declaration bound by a `?`- or `_Z`-prefixed entry point so a regeneration cannot bring them back.
+That one needs no native library at all: it is a property of the declarations, not of the binary.
+
+#### Malformed input
+
+`SpirvModule` and `ShaderPackage` both parse bytes that came from disk, in a runtime that may have
+no compiler to fall back on. `MalformedInputTests` truncates a module at every word boundary, cuts
+it at every non-word boundary, corrupts 2,000 individual words under a fixed seed, and forces the
+instruction-length words that make a parser loop forever or read off the end.
+
+**`SpirvModule` survived all of it** — every failure an `InvalidDataException`, no hang, no crash.
+That is a result worth having written down.
+
+**`ShaderPackage.ReadFrom` did not.** Its documented exception is `InvalidDataException`; a
+corrupted byte inside the layout produced a `JsonException` and a truncated file an
+`EndOfStreamException`. Neither is in the contract, so neither was being caught, and both surface at
+load time in a shipped build. It now has one failure mode whatever goes wrong inside, and length
+prefixes are checked against what is left in the stream before being used — `BinaryReader.ReadBytes`
+allocates its argument up front, so one flipped byte asking for two gigabytes got two gigabytes
+before the read failed.
+
+#### Does every option do something?
+
+§9.5 asked this of the seven link-time options and found five inert. Session and target options —
+the ones a consumer actually sets — had never been asked. `OptionEffectTests` requires each property
+on `SessionOptions` and `TargetOptions` to have a test named after it proving the output changes, or
+an entry in a list of options with no observable effect and the reason. Both directions ratchet: a
+new property arrives unaccounted for, and an entry for a property that no longer exists fails.
+
+Most work. One does not, and it is the interesting one.
+
+**`ParameterBlocksUseRegisterSpaces` is byte-for-byte inert on a SPIR-V target.** Setting it produces
+identical output and an identical descriptor-set structure, because a `ParameterBlock` introduces a
+register space of its own either way.
+
+The property's own documentation said the opposite: that without the flag two blocks are packed into
+space 0, that the reflected structure would not be the one the author intended, and that a Vulkan
+renderer "almost certainly wants this on" — citing
+`ReflectionTests.ParameterBlock_space_assignment_follows_the_target_flag` as proof. That test
+exists, and passes, and **its body had already recorded the correction**: "with or without the
+target flag — `ParameterBlock` introduces a sub-element register space regardless". Someone measured
+this, fixed the assertion, wrote the finding into the body, and left both the test's name and the
+property's documentation asserting the belief they had just disproved.
+
+That is §9.8 exactly, in miniature and entirely self-inflicted. A consumer reads the property they
+are about to set; they do not read the body of a test in another file. The comment now says what is
+true, the test is named for what it asserts, and the inertness has an assertion of its own so a
+release that starts honouring the flag fails rather than quietly agreeing with a corrected comment.
+
+#### Still missing
+
+- **Adversarial lifetime tests.** The two ownership bugs in §9.1 were found by a cross-platform run,
+  not by a test. Dispose order, double dispose, use-after-dispose and forgotten dispose all have
+  defined intended behaviour and none of it is asserted.
+- **A managed exception escaping an `[UnmanagedCallersOnly]` thunk.** L4's filesystem callbacks are
+  called from native code, where an escaping exception is undefined behaviour. Nothing tests what
+  happens when a caller's `ISlangFileSystem` throws.
+- **`VulkanEnums` against the specification.** The numeric values are mirrored by hand and nothing
+  checks them; there is no offline source of truth to check against, so this needs either a
+  generated header or a deliberate decision to keep trusting the table.
+
+342 tests.

@@ -893,9 +893,6 @@ public static unsafe partial class SlangApi
     [return: NativeTypeName("SlangInt")]
     public static extern long spReflection_getBindlessSpaceIndex([NativeTypeName("SlangReflection *")] SlangProgramLayout* reflection);
 
-    [DllImport("slang-compiler", CallingConvention = CallingConvention.Cdecl, EntryPoint = "?spReflection_GetSession@@YAPEAUISession@slang@@PEAUSlangProgramLayout@@@Z", ExactSpelling = true)]
-    [return: NativeTypeName("slang::ISession *")]
-    public static extern ISession* spReflection_GetSession([NativeTypeName("SlangReflection *")] SlangProgramLayout* reflection);
 
     [DllImport("slang-compiler", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
     [return: NativeTypeName("SlangResult")]
@@ -952,9 +949,6 @@ public static unsafe partial class SlangApi
     [DllImport("slang-compiler", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
     [return: NativeTypeName("SlangResult")]
     public static extern int slang_createGlobalSessionWithoutCoreModule([NativeTypeName("SlangInt")] long apiVersion, [NativeTypeName("slang::IGlobalSession **")] IGlobalSession** outGlobalSession);
-
-    [DllImport("slang-compiler", CallingConvention = CallingConvention.Cdecl, EntryPoint = "?slang_getEmbeddedCoreModule@@YAPEAUISlangBlob@@XZ", ExactSpelling = true)]
-    public static extern ISlangBlob* slang_getEmbeddedCoreModule();
 
     [DllImport("slang-compiler", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
     public static extern void slang_shutdown();

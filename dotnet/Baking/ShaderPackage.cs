@@ -368,11 +368,45 @@ public sealed class ShaderPackage
     }
 
     /// <summary>Reads a package. Requires no compiler and no native library.</summary>
-    /// <exception cref="InvalidDataException">Not a package, or a format version we cannot read.</exception>
+    /// <exception cref="InvalidDataException">
+    /// The bytes are not a package this build can read — wrong magic, wrong format version,
+    /// truncated, or corrupt. Always this type, whatever went wrong inside.
+    /// </exception>
+    /// <remarks>
+    /// <para>
+    /// One failure mode, on purpose. This runs at load time in a shipped game, against a file that
+    /// may have been half-written, partly downloaded or corrupted on disk, in a build with no
+    /// compiler to fall back on — so a caller has to be able to write one catch and know it covers
+    /// the case. Before it did, a corrupted byte in the layout produced a
+    /// <c>JsonException</c> and a truncated file an <c>EndOfStreamException</c>, neither of which
+    /// is in this method's contract and neither of which a caller was catching.
+    /// </para>
+    /// <para>
+    /// The broad catch below is deliberate for that reason: the set of ways a byte array can be
+    /// wrong is not enumerable, and every one of them means the same thing to a caller.
+    /// </para>
+    /// </remarks>
     public static ShaderPackage ReadFrom(Stream stream)
     {
         ArgumentNullException.ThrowIfNull(stream);
 
+        try
+        {
+            return Read(stream);
+        }
+        catch (InvalidDataException)
+        {
+            throw;
+        }
+        catch (Exception e) when (e is not (OutOfMemoryException or OperationCanceledException))
+        {
+            throw new InvalidDataException(
+                $"not a readable PrismSlang shader package: {e.Message}", e);
+        }
+    }
+
+    private static ShaderPackage Read(Stream stream)
+    {
         using var r = new BinaryReader(stream, Encoding.UTF8, leaveOpen: true);
 
         if (r.ReadUInt32() != Magic)
@@ -387,12 +421,12 @@ public sealed class ShaderPackage
         var sourceHash = r.ReadBytes(32);
         var layout = ProgramLayout.FromJson(r.ReadString());
 
-        var dependencyCount = r.ReadUInt32();
+        var dependencyCount = Bounded(r, r.ReadUInt32(), perItem: 33, "dependencies");
         var dependencies = new List<ShaderDependency>((int)dependencyCount);
         for (var i = 0u; i < dependencyCount; i++)
             dependencies.Add(new ShaderDependency(r.ReadString(), r.ReadBytes(32)));
 
-        var count = r.ReadUInt32();
+        var count = Bounded(r, r.ReadUInt32(), perItem: 20, "entry points");
         var entryPoints = new List<BakedEntryPoint>((int)count);
         for (var i = 0u; i < count; i++)
         {
@@ -401,7 +435,7 @@ public sealed class ShaderPackage
             var stage = (SlangStage)r.ReadUInt32();
             var spirvVersion = (SpirvVersion)r.ReadUInt32();
             var workgroupSize = ReadWorkgroupSize(r);
-            var length = r.ReadUInt32();
+            var length = Bounded(r, r.ReadUInt32(), perItem: 1, "code bytes");
             entryPoints.Add(new BakedEntryPoint(
                 name, stage, r.ReadBytes((int)length), moduleName, spirvVersion, workgroupSize));
         }
@@ -414,6 +448,34 @@ public sealed class ShaderPackage
             EntryPoints = entryPoints,
             Dependencies = dependencies,
         };
+    }
+
+    /// <summary>
+    /// Rejects a count or length the rest of the stream cannot possibly satisfy.
+    /// </summary>
+    /// <param name="count">The value just read from the stream.</param>
+    /// <param name="perItem">Fewest bytes one item can occupy.</param>
+    /// <param name="what">What is being counted, for the message.</param>
+    /// <remarks>
+    /// A corrupted length prefix is the one field that turns a bad file into a bad allocation:
+    /// <c>BinaryReader.ReadBytes</c> allocates its argument up front, so a flipped byte asking for
+    /// two gigabytes gets two gigabytes before the read fails. Checking against what is left in the
+    /// stream costs nothing and turns it into a message. Skipped for a stream that cannot report
+    /// its length, where there is nothing to check against.
+    /// </remarks>
+    private static uint Bounded(BinaryReader r, uint count, long perItem, string what)
+    {
+        if (!r.BaseStream.CanSeek) return count;
+
+        var remaining = r.BaseStream.Length - r.BaseStream.Position;
+        if ((long)count * perItem > remaining)
+        {
+            throw new InvalidDataException(
+                $"shader package claims {count} {what}, which needs at least {(long)count * perItem} "
+                + $"bytes, but only {remaining} remain. The file is truncated or corrupt.");
+        }
+
+        return count;
     }
 
     /// <summary>Convenience: write to a file, replacing any existing one.</summary>

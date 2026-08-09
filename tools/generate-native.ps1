@@ -102,6 +102,15 @@ foreach ($t in $veneer) { $exclude += @('--exclude', $t) }
 $exclude += @(
     '--exclude', 'getTypeGuid',          # SLANG_COM_INTERFACE constexpr GUID -> fixed buffer
     '--exclude', 'createGlobalSession'   # C++ default member initializers; hand-written in L1
+
+    # The two functions in slang.h that are not extern "C". ClangSharp binds them by their MSVC
+    # mangling — ?spReflection_GetSession@@YAPEAUISession@slang@@PEAUSlangProgramLayout@@@Z — which
+    # compiles on every platform and can only ever resolve on Windows; on linux-x64 the symbol is
+    # Itanium-mangled and the DllImport throws EntryPointNotFoundException at the first call.
+    # Neither is used, and a binding that is silently Windows-only is worse than no binding.
+    # NativeExportTests catches a regeneration that brings them back.
+    '--exclude', 'spReflection_GetSession',
+    '--exclude', 'slang_getEmbeddedCoreModule'
 )
 
 # Clear the previous output by deleting the .cs files rather than the directory itself: an IDE or

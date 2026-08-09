@@ -176,16 +176,18 @@ public class ReflectionTests
     }
 
     [NativeFact]
-    public void ParameterBlock_space_assignment_follows_the_target_flag()
+    public void Every_parameter_block_gets_a_space_of_its_own_whatever_the_target_flag_says()
     {
-        // Discovered rather than assumed: ParameterBlock<T> does NOT get its own register space by
-        // default. Slang packs the blocks into space 0 unless
-        // SLANG_TARGET_FLAG_PARAMETER_BLOCKS_USE_REGISTER_SPACES is set, which is what
-        // TargetOptions.ParameterBlocksUseRegisterSpaces controls.
+        // Named for what it asserts. It used to be called
+        // ParameterBlock_space_assignment_follows_the_target_flag, after a belief the body below
+        // had already disproved — and TargetOptions.ParameterBlocksUseRegisterSpaces cited the old
+        // name as proof of the opposite of what this measures. A test name is documentation; this
+        // one was the wrong kind.
         //
-        // This is the "policy input the engine controls" case: the descriptor-set structure the
-        // renderer reflects is a consequence of session configuration, not a fixed property of the
-        // shader. A Vulkan renderer modelling per-frame / per-material sets wants the flag on.
+        // What is true, against slang-compiler 2026.14.1: on SPIR-V a ParameterBlock<T> introduces
+        // a sub-element register space with or without
+        // SLANG_TARGET_FLAG_PARAMETER_BLOCKS_USE_REGISTER_SPACES, and the flag changes nothing.
+        // OptionEffectTests asserts that inertness byte-for-byte.
         const string TwoBlocks = """
             struct A { float4 x; };
             struct B { float4 y; };

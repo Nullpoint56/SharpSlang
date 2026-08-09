@@ -79,16 +79,26 @@ public sealed class TargetOptions
     public bool EmitSpirvDirectly { get; init; } = true;
 
     /// <summary>
-    /// Give each <c>ParameterBlock&lt;T&gt;</c> its own register space — i.e. its own Vulkan
-    /// descriptor set.
+    /// Give each <c>ParameterBlock&lt;T&gt;</c> its own register space.
+    /// <b>No observable effect on a SPIR-V target</b> — see the remarks before setting it.
     /// </summary>
     /// <remarks>
-    /// Off by default, matching Slang, and that default surprises people: without it two
-    /// <c>ParameterBlock</c>s are packed into space 0 alongside everything else, and the
-    /// descriptor-set structure the renderer reflects is not the one the shader author intended.
-    /// Verified by <c>ReflectionTests.ParameterBlock_space_assignment_follows_the_target_flag</c>.
-    /// Vulkan renderers that use parameter blocks to model per-frame / per-material / per-draw
-    /// sets almost certainly want this on.
+    /// <para>
+    /// Measured against slang-compiler 2026.14.1: setting this produces <em>byte-identical</em>
+    /// output and an identical descriptor-set structure, because a <c>ParameterBlock</c> on SPIR-V
+    /// introduces a sub-element register space whether the flag is set or not. Kept because it is a
+    /// real target flag that other targets honour, and removing it would make the option
+    /// unreachable; asserted inert by
+    /// <c>OptionEffectTests.ParameterBlocksUseRegisterSpaces_does_nothing_on_a_SPIR_V_target</c>,
+    /// which fails if a future release starts honouring it.
+    /// </para>
+    /// <para>
+    /// An earlier version of this comment said the opposite — that without the flag two blocks are
+    /// packed into space 0, and that a Vulkan renderer "almost certainly wants this on" — and cited
+    /// a test whose name agreed while its body had already recorded the correction. That is the
+    /// §9.8 failure repeating: a consumer reads the property they are about to set, not the body of
+    /// a test somewhere else.
+    /// </para>
     /// </remarks>
     public bool ParameterBlocksUseRegisterSpaces { get; init; }
 
