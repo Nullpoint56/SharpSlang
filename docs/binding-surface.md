@@ -602,7 +602,7 @@ constant buffer, a texture, a sampler, and varyings specifically so there is som
 
 ## 9. Status
 
-All five layers are built and green on **win-x64 and linux-x64**: 381 tests, the Tier 0 spike, and
+All five layers are built and green on **win-x64 and linux-x64**: 384 tests, the Tier 0 spike, and
 a full reflection walk on both.
 
 | Layer | State |
@@ -625,7 +625,7 @@ a full reflection walk on both.
 | `fetch-native.ps1` | win-x64 + linux-x64 verified; osx-arm64 mapped, unrun |
 | `tools/ci/verify-linux.sh` | build + tests + spike under WSL |
 | `.github/workflows` | CI matrix, regeneration check, package-contents check, publish |
-| Tests | 381. `ModuleAgreementTests` diffs a 27-shader corpus against the emitted module as sets, both directions; `SurfaceCoverageTests` fails on any Slang enum value the corpus neither exercises nor declares untried. See §9.11 and §9.13 |
+| Tests | 384. `ModuleAgreementTests` diffs a 27-shader corpus against the emitted module as sets, both directions; `SurfaceCoverageTests` fails on any Slang enum value the corpus neither exercises nor declares untried. See §9.11 and §9.13 |
 
 Package sizes tell the story of the split: `PrismSlang` is 34 MB (it carries the compiler for every
 RID), `PrismSlang.Vulkan` is **10 KB**. A D3D12 consumer pays nothing for Vulkan.
@@ -1267,6 +1267,7 @@ and three of the answers were missing entirely.
 | L4 hosting | a provider that throws, and every thunk called hostilely | **added**, §9.15 |
 | Baking | round-trip, version rejection, corrupt input | round-trip existed; **corrupt added** |
 | Vulkan enums | mirrored values against a vk.xml-generated binding | **added** — found four wrong, §9.14 |
+| Vulkan projection | a real VkPipeline on a device with the validation layers | **added**, §9.17 |
 
 Three were missing. All three found something.
 
@@ -1422,6 +1423,12 @@ specification rather than from a measurement. If the two-location rule somehow d
 vertex inputs, the check is a false refusal on a legal shader. Running the validation layers against
 a real device — technique 4 from the list that produced §9.11 — is what would settle it, and this is
 the first finding that makes that worth doing rather than merely nice.
+
+> **Settled in §9.17, and the reading was right.** The layers reject the overlapping module with
+> `VUID-StandaloneSpirv-OpEntryPoint-08721`, "conflicting input location assignment at location 2" —
+> the same location the check names — and they reject it from `vkCreateShaderModule`, before any
+> pipeline is built. Slang emits SPIR-V that does not satisfy the specification, so this is not a
+> disagreement about how to describe a valid shader.
 
 #### What this says about the other mirrors
 
@@ -1600,3 +1607,71 @@ Slang has no structured severity to read. The handler is now
 so the two can never disagree about the same text.
 
 381 tests.
+
+---
+
+### 9.17 The fourth oracle, and the question it settled
+
+Three oracles had accumulated: the emitted module (§9.11), invariants needing no oracle at all
+(§9.12), and — once — the specification as read by a person (§9.14). That third one was the weak
+link, and it was load-bearing: `VulkanProjection.RequireDistinctLocations` refuses a shader on the
+strength of a rule read out of a document, in the one case where Slang and the emitted module agree
+with each other and disagree with the reading. Nothing already in the repository could settle it,
+because both sides of every comparison came from Slang.
+
+`VulkanTestDevice` adds the party that decides. A headless Vulkan instance with
+`VK_LAYER_KHRONOS_validation` and a debug messenger, no surface and no swapchain, dynamic rendering
+instead of a render pass. `VulkanValidationTests` builds real `VkDescriptorSetLayout`s, a real
+`VkPipelineLayout` and a real `VkPipeline` out of the projection and the SPIR-V it accompanies, and
+asserts the layers said nothing. Skipped with an actionable reason wherever there is no loader, no
+device or no layer — which is what happens under WSL, and what a CI runner would fix with lavapipe.
+
+#### The answer
+
+**The reading was right, and it is worse than it looked.** Given
+`float3 position, double4 wide, float2 after`, Slang assigns locations 0, 1, 2 and decorates the
+module to match. Handed to a device:
+
+```
+VUID-StandaloneSpirv-OpEntryPoint-08721: vkCreateShaderModule(): pCreateInfo->pCode
+  (spirv-val produced an error):
+Entry-point has conflicting input location assignment at location 2, component 0
+  OpEntryPoint Vertex %vertexMain "main" %gl_Position %v_position %v_wide %v_after
+```
+
+Location 2 — the same location `RequireDistinctLocations` names. And the complaint comes from
+**`vkCreateShaderModule`**, not from pipeline creation: the module is invalid SPIR-V on its own,
+before any layout is involved. So this is not a disagreement about how to describe a valid shader.
+Slang emits SPIR-V that does not satisfy the specification, and PrismSlang refusing it at cook time
+is the earliest anything can.
+
+The check is no longer the odd one out in that file. Its remarks now cite the VUID.
+
+#### Everything else passed
+
+A graphics pipeline with a constant buffer, a texture, a sampler, an unbounded bindless array, a
+push-constant range and a `float4x4` instance attribute — descriptor set layouts, pipeline layout
+and pipeline all built from `ToVulkan()` with nothing adjusted on the way through — draws no
+complaint. Nor does a compute pipeline with a uniform buffer, two structured buffers and a formatted
+storage image. Those cover the descriptor types, the stage flags, the push-constant range and the
+vertex attribute formats that §9.9 through §9.14 corrected, and they are now checked by the party
+that enforces them rather than by the party that reported them.
+
+#### One more shader of mine, wrong again
+
+The first draft of the graphics shader had `fragmentMain(VOut i, uint which : BINDLESS)` — a
+fragment input the vertex stage does not write. The layers named it immediately:
+`VUID-RuntimeSpirv-OpEntryPoint-08743`, "has a declared Input at Location 1 ... but the previous
+stage has no Output declared there". A real defect in a test shader, found in the first minute the
+harness existed, which is a fair advertisement for having it.
+
+The probe that decides whether to skip was also wrong at first, and in the way that matters most for
+a gate: it compared `VK_LAYER_KHRONOS_validation` against the names from
+`vkEnumerateInstanceLayerProperties` and concluded the layer was absent on a machine that had it
+registered. Reading a name out of a fixed-size buffer in a by-value struct is easy to get subtly
+wrong, and a gate that is wrong skips every test in the file with a confident, false explanation —
+which is strictly worse than failing. It now creates the instance and reads
+`VK_ERROR_LAYER_NOT_PRESENT`, asking the loader the same question rather than re-deriving its
+answer. That is the same lesson as §9.13's severity classification, arrived at from the other side.
+
+384 tests: 381 everywhere, plus these three wherever a device and the layers exist.

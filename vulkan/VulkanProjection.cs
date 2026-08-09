@@ -417,11 +417,14 @@ public static class VulkanProjection
     /// the pipeline rather than at the shader.
     /// </para>
     /// <para>
-    /// This is the only claim in this file asserted from the specification rather than from a
-    /// measurement, so it is worth saying plainly: if Slang is right and this rule does not apply
-    /// to vertex inputs, the check is a false refusal on a legal shader. Running the layers against
-    /// a real device would settle it — see docs §9.14. Meanwhile the check also catches an overlap
-    /// from any other cause, which is worth having on its own.
+    /// This started as the one claim in this file taken from the specification rather than from a
+    /// measurement, which made it the one that might have been refusing a legal shader. It is not:
+    /// built on a real device with <c>VK_LAYER_KHRONOS_validation</c> loaded, the overlapping module
+    /// is rejected by <c>vkCreateShaderModule</c> with
+    /// <c>VUID-StandaloneSpirv-OpEntryPoint-08721</c>, "conflicting input location assignment at
+    /// location 2" — the same location named below. The module itself is invalid SPIR-V, before any
+    /// pipeline is built around it, so refusing at cook time is the earliest anything could.
+    /// <c>VulkanValidationTests</c> holds that, and docs §9.17.
     /// </para>
     /// </remarks>
     private static void RequireDistinctLocations(List<VulkanVertexInput> inputs)
