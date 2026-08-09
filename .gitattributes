@@ -1,0 +1,22 @@
+# Normalize to LF in the repo *and* in the working tree on every platform.
+#
+# `eol=lf` rather than plain `text` is load-bearing here, not stylistic. ClangSharp writes LF, and
+# tools/generate-native.ps1 rewrites the same files. If Windows checked out CRLF, the CI job that
+# regenerates the bindings and diffs them against what is committed would see every one of the 127
+# generated files as modified — a permanently red job with no real change behind it.
+
+*.cs      text eol=lf
+*.csproj  text eol=lf
+*.slnx    text eol=lf
+*.props   text eol=lf
+*.md      text eol=lf
+*.ps1     text eol=lf
+*.sh      text eol=lf
+*.yml     text eol=lf
+*.json    text eol=lf
+*.slang   text eol=lf
+.gitignore      text eol=lf
+.gitattributes  text eol=lf
+
+# Baked shader packages are binary; never let EOL conversion near them.
+*.pslb    binary

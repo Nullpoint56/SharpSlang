@@ -31,22 +31,51 @@
   Destination for the generated sources. Defaults to dotnet/Native.
 #>
 param(
-    [Parameter(Mandatory = $true)]
     [string]$SlangVersion,
-
-    [string]$Output    = (Join-Path $PSScriptRoot "..\dotnet\Native"),
+    [string]$Output,
     [string]$Namespace = "PrismSlang.Native",
     [string]$Library   = "slang-compiler"   # NOT "slang" — renamed in v2025.21, alias dies end of 2026
 )
 
 $ErrorActionPreference = "Stop"
 $root = Resolve-Path (Join-Path $PSScriptRoot "..")
-$inc  = Join-Path $root "obj\slang-headers\$SlangVersion"
-$gen  = "$env:USERPROFILE\.dotnet\tools\ClangSharpPInvokeGenerator.cmd"
 
-if (-not (Test-Path $gen)) {
-    throw "ClangSharpPInvokeGenerator not found. Install it with:`n  dotnet tool install --global ClangSharpPInvokeGenerator"
+# Defaults to the pin in Directory.Build.props, like fetch-native.ps1. Requiring it explicitly
+# meant CI could not just run the script, and it invited the two tools drifting to different
+# versions — the one thing the single-source-of-truth pin exists to prevent.
+if (-not $SlangVersion) {
+    $props = Get-Content (Join-Path $root "Directory.Build.props") -Raw
+    if ($props -notmatch '<SlangVersion>([^<]+)</SlangVersion>') {
+        throw "SlangVersion not found in Directory.Build.props"
+    }
+    $SlangVersion = $Matches[1].Trim()
 }
+if (-not $Output) { $Output = Join-Path $root "dotnet" "Native" }
+
+# Multi-segment Join-Path, not "obj\...": a literal backslash is a filename character on Linux,
+# not a separator, so the string form silently creates a directory called `obj\slang-headers\...`.
+$inc = Join-Path $root "obj" "slang-headers" $SlangVersion
+
+# Prefer PATH — `dotnet tool install --global` puts the shim there on every platform. The explicit
+# fallbacks cover a shell whose PATH has not picked up the tools directory yet, which is common
+# right after installing in the same CI job.
+$gen = $null
+$onPath = Get-Command ClangSharpPInvokeGenerator -ErrorAction SilentlyContinue
+if ($onPath) { $gen = $onPath.Source }
+if (-not $gen) {
+    foreach ($candidate in @(
+        (Join-Path $HOME ".dotnet" "tools" "ClangSharpPInvokeGenerator.cmd"),
+        (Join-Path $HOME ".dotnet" "tools" "ClangSharpPInvokeGenerator.exe"),
+        (Join-Path $HOME ".dotnet" "tools" "ClangSharpPInvokeGenerator")
+    )) {
+        if (Test-Path $candidate) { $gen = $candidate; break }
+    }
+}
+if (-not $gen) {
+    throw "ClangSharpPInvokeGenerator not found on PATH or in ~/.dotnet/tools. Install it with:`n  dotnet tool install --global ClangSharpPInvokeGenerator"
+}
+Write-Host "==> generator: $gen"
+Write-Host "==> slang:     $SlangVersion"
 
 # ---------------------------------------------------------------- fetch pinned headers
 New-Item -ItemType Directory -Force -Path $inc | Out-Null
@@ -78,7 +107,7 @@ $exclude += @(
 # Clear the previous output by deleting the .cs files rather than the directory itself: an IDE or
 # a lingering MSBuild node commonly holds a handle on the folder, and that must not fail a rebuild.
 New-Item -ItemType Directory -Force -Path $Output | Out-Null
-Get-ChildItem "$Output\*.cs" -ErrorAction SilentlyContinue | Remove-Item -Force -Confirm:$false
+Get-ChildItem (Join-Path $Output "*.cs") -ErrorAction SilentlyContinue | Remove-Item -Force -Confirm:$false
 
 Write-Host "==> generating -> $Output"
 # Only slang.h is passed as --file: it #includes slang-deprecated.h itself, so listing that as a
@@ -98,7 +127,7 @@ Write-Host "==> generating -> $Output"
 
 # ClangSharp exits non-zero on macro-translation warnings even when generation succeeded, so
 # verify by output rather than by exit code.
-$produced = @(Get-ChildItem "$Output\*.cs")
+$produced = @(Get-ChildItem (Join-Path $Output "*.cs"))
 if ($produced.Count -lt 100) { throw "generation produced only $($produced.Count) files - expected ~126" }
 
 # ---------------------------------------------------------------- post-process
@@ -219,7 +248,7 @@ $guidNames = $guidMatches | ForEach-Object { $_.Groups['name'].Value }
 # compile-request API that PrismSlang does not bind (docs/binding-surface.md §3.3, Tier 4).
 $noIidByDesign = @('ICompileRequest')
 
-$declaredIfaces = @(Get-ChildItem "$Output\I*.cs" | ForEach-Object { $_.BaseName })
+$declaredIfaces = @(Get-ChildItem (Join-Path $Output "I*.cs") | ForEach-Object { $_.BaseName })
 $missingIid = @($declaredIfaces | Where-Object { $_ -notin $guidNames -and $_ -notin $noIidByDesign })
 if ($missingIid.Count -gt 0) {
     throw "generated interfaces with no IID: $($missingIid -join ', '). The SLANG_COM_INTERFACE parse missed them."
@@ -255,10 +284,10 @@ $($guidLines -join "`r`n")
 "@ | Set-Content (Join-Path $Output "_InterfaceGuids.cs")
 
 # ---------------------------------------------------------------- report
-$files = @(Get-ChildItem "$Output\*.cs")
+$files = @(Get-ChildItem (Join-Path $Output "*.cs"))
 $lines = ($files | Get-Content | Measure-Object -Line).Lines
-$imports = (Select-String -Path "$Output\*.cs" -Pattern 'DllImport').Count
-$vtbl = (Select-String -Path "$Output\*.cs" -Pattern 'delegate\* unmanaged').Count
+$imports = (Select-String -Path (Join-Path $Output "*.cs") -Pattern 'DllImport').Count
+$vtbl = (Select-String -Path (Join-Path $Output "*.cs") -Pattern 'delegate\* unmanaged').Count
 $refl = ((Select-String -Path (Join-Path $Output "SlangApi.cs") -Pattern 'spReflection[A-Za-z_0-9]*\(' -AllMatches).Matches.Value | Sort-Object -Unique).Count
 
 Write-Host ""
