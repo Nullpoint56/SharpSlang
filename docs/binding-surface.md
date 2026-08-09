@@ -624,7 +624,7 @@ a full reflection walk on both.
 | `generate-native.ps1` | self-checking; asserts every interface has an IID |
 | `fetch-native.ps1` | win-x64 + linux-x64 verified; osx-arm64 mapped, unrun |
 | `tools/ci/verify-linux.sh` | build + tests + spike under WSL |
-| `.github/workflows` | CI matrix, regeneration check, package-contents check, publish |
+| `.github/workflows` | CI matrix, regeneration check, package-contents check, publish, lavapipe + validation layers on linux-x64 |
 | Tests | 384. `ModuleAgreementTests` diffs a 27-shader corpus against the emitted module as sets, both directions; `SurfaceCoverageTests` fails on any Slang enum value the corpus neither exercises nor declares untried. See §9.11 and §9.13 |
 
 Package sizes tell the story of the split: `PrismSlang` is 34 MB (it carries the compiler for every
@@ -1674,4 +1674,36 @@ which is strictly worse than failing. It now creates the instance and reads
 `VK_ERROR_LAYER_NOT_PRESENT`, asking the loader the same question rather than re-deriving its
 answer. That is the same lesson as §9.13's severity classification, arrived at from the other side.
 
-384 tests: 381 everywhere, plus these three wherever a device and the layers exist.
+#### On CI, through lavapipe
+
+A GitHub runner has no GPU, so the linux-x64 job installs `mesa-vulkan-drivers` — which carries
+lavapipe — and `vulkan-validationlayers`. Two of the three tests then run there for real. Windows
+skips them: the layers mean the SDK installer, which is a large download for tests the Linux job
+already covers, and the skip prints its reason.
+
+Three things came out of getting that working, all of them the kind that only appear on a second
+implementation:
+
+- **No `VK_DRIVER_FILES`.** The first attempt pinned
+  `/usr/share/vulkan/icd.d/lvp_icd.x86_64.json` and the loader reported *Found no drivers*: Mesa
+  dropped the architecture suffix between the version in Ubuntu 24.04's archive and the one in its
+  updates, so the file is now `lvp_icd.json`. Since lavapipe is the only ICD on the runner, the
+  loader's own discovery finds it and there is nothing to pin — the pin was the only thing that
+  could break.
+- **The wide-attribute test cannot run on lavapipe at all**, and it took a while to see why. The
+  driver reports `bufferFeatures 0` for `VK_FORMAT_R64G64B64A64_SFLOAT`, so the pipeline is rejected
+  with `VUID-VkVertexInputAttributeDescription-format-00623` before anything gets as far as checking
+  location assignment. Left to run, it would have asserted against whichever message arrived —
+  passing or failing for a reason unrelated to the question. It now has a gate of its own that
+  queries `vkGetPhysicalDeviceFormatProperties` and skips with that sentence.
+- **The two implementations disagree about which VUID carries the message.** The SDK layers on a
+  discrete GPU report the conflict under `VUID-StandaloneSpirv-OpEntryPoint-08721`; the layers on
+  lavapipe report it under `VUID-VkShaderModuleCreateInfo-pCode-08737` and quote the spirv-val VUID
+  inside the text. The assertion matches either, and the same wording for the part that matters.
+
+And because a skipped test is a green test, the job asserts that at least two of them actually ran.
+Installing lavapipe and never noticing it failed to load would switch the whole harness off in
+silence, which is the failure mode this section exists to avoid — the same shape as the probe that
+confidently reported the layer missing on a machine that had it.
+
+384 tests: 381 everywhere, 383 on lavapipe, 384 on a device with 64-bit vertex formats.

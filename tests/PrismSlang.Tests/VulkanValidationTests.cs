@@ -270,7 +270,7 @@ public sealed unsafe class VulkanValidationTests : IDisposable
 
     // ---------------------------------------------------------------- the open question
 
-    [VulkanValidationFact]
+    [Wide64VertexFact]
     public void A_wide_64_bit_vertex_attribute_really_does_consume_two_locations()
     {
         // §9.14 left this open, and it is the reason for building any of this. Vulkan gives a
@@ -358,10 +358,17 @@ public sealed unsafe class VulkanValidationTests : IDisposable
             + "shader — remove it and update §9.14. Everything the layers did say:\n"
             + capture.Report());
 
-        // Matched exactly, so this cannot pass on some unrelated message that happens to contain
-        // the word.
+        // Matched on the VUID and the location, so this cannot pass on some unrelated message that
+        // happens to contain the word.
+        //
+        // Searched in the id *or* the text, because the two implementations this ran on disagree
+        // about which one carries it. The SDK layers on a discrete GPU report the message under
+        // VUID-StandaloneSpirv-OpEntryPoint-08721; the layers on lavapipe report it under
+        // VUID-VkShaderModuleCreateInfo-pCode-08737 and quote the spirv-val VUID inside the text.
+        // Same finding, same wording for the part that matters.
         Assert.Contains(complaints,
-            m => m.Id == "VUID-StandaloneSpirv-OpEntryPoint-08721"
+            m => (m.Id.Contains("OpEntryPoint-08721", StringComparison.Ordinal)
+                  || m.Text.Contains("OpEntryPoint-08721", StringComparison.Ordinal))
               && m.Text.Contains("conflicting input location assignment at location 2",
                      StringComparison.Ordinal));
 

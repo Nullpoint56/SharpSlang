@@ -102,6 +102,39 @@ public sealed unsafe class VulkanTestDevice : IDisposable
         public VkResult Result { get; } = result;
     }
 
+    /// <summary>
+    /// Why a 64-bit vertex attribute cannot be tested on this device, or null if it can.
+    /// </summary>
+    /// <remarks>
+    /// A separate gate because a driver may be perfectly usable and still not accept
+    /// <c>VK_FORMAT_R64G64B64A64_SFLOAT</c> in a vertex buffer. Lavapipe is exactly that case —
+    /// it reports <c>bufferFeatures 0</c> for the format — so a pipeline using one is rejected with
+    /// <c>VUID-VkVertexInputAttributeDescription-format-00623</c> before anything gets as far as
+    /// checking location assignment. Running the test there would assert on the wrong message, or
+    /// worse, pass because the driver objected to something else entirely.
+    /// </remarks>
+    public static string? WideVertexFormatUnsupported => WideFormatProbe.Value;
+
+    private static readonly Lazy<string?> WideFormatProbe = new(() =>
+    {
+        if (Unavailable is { } reason) return reason;
+
+        using var device = new VulkanTestDevice();
+        return device.SupportsVertexFormat(VkFormat.R64G64B64A64Sfloat)
+            ? null
+            : "this device does not accept VK_FORMAT_R64G64B64A64_SFLOAT as a vertex buffer format "
+              + "(lavapipe does not), so a pipeline using one is rejected before location "
+              + "assignment is ever checked.";
+    });
+
+    /// <summary>Whether the device accepts this format in a vertex buffer.</summary>
+    public bool SupportsVertexFormat(VkFormat format)
+    {
+        var properties = new VkFormatProperties();
+        InstanceApi.vkGetPhysicalDeviceFormatProperties(PhysicalDevice, format, &properties);
+        return (properties.bufferFeatures & VkFormatFeatureFlags.VertexBuffer) != 0;
+    }
+
     public VulkanTestDevice()
     {
         using var layers = new VkStringArray([ValidationLayer]);
@@ -329,5 +362,17 @@ public sealed class VulkanValidationTheoryAttribute : TheoryAttribute
     {
         if (!SlangNative.Available) Skip = SlangNative.SkipReason;
         else if (VulkanTestDevice.Unavailable is { } reason) Skip = reason;
+    }
+}
+
+/// <summary>
+/// A fact that additionally needs a device accepting 64-bit vertex attribute formats.
+/// </summary>
+public sealed class Wide64VertexFactAttribute : FactAttribute
+{
+    public Wide64VertexFactAttribute()
+    {
+        if (!SlangNative.Available) Skip = SlangNative.SkipReason;
+        else if (VulkanTestDevice.WideVertexFormatUnsupported is { } reason) Skip = reason;
     }
 }

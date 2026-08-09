@@ -67,11 +67,54 @@ jobs:
           }
           $found | ForEach-Object { Write-Host ("    {0,-44} {1,8:N1} MB" -f $_.Name, ($_.Length / 1MB)) }
 
+      # A software Vulkan implementation and the validation layers, so VulkanValidationTests runs
+      # rather than skipping. Those tests build real descriptor set layouts, a real pipeline layout
+      # and a real VkPipeline out of the projection and let Khronos judge the result — the only
+      # oracle in the suite that is not ultimately Slang telling us about itself (docs §9.17).
+      #
+      # Linux only. A Windows runner has no GPU either, but getting the layers there means the SDK
+      # installer, which is a large download for the same three tests these already cover; on
+      # Windows they skip, with the reason printed.
+      #
+      # mesa-vulkan-drivers carries lavapipe. No VK_DRIVER_FILES is set: it is the only ICD on the
+      # runner, so the loader's own discovery finds it, and pinning a path is how this breaks —
+      # Mesa renamed the file from lvp_icd.x86_64.json to lvp_icd.json between the version in
+      # Ubuntu 24.04's archive and the one in its updates.
+      - name: Install lavapipe and the Vulkan validation layers
+        if: matrix.rid == 'linux-x64'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq mesa-vulkan-drivers vulkan-validationlayers libvulkan1
+          echo "ICDs:";   ls -1 /usr/share/vulkan/icd.d/
+          echo "layers:"; ls -1 /usr/share/vulkan/explicit_layer.d/
+          test -f /usr/share/vulkan/explicit_layer.d/VkLayer_khronos_validation.json \
+            || { echo "::error::validation layer manifest missing"; exit 1; }
+
       - name: Build
         run: dotnet build PrismSlang.slnx -c Release --nologo -warnaserror
 
       - name: Test
         run: dotnet test PrismSlang.slnx -c Release --no-build --nologo --logger "trx;LogFileName=results.trx"
+
+      # A skipped test is green, so installing lavapipe and never noticing it failed to load would
+      # leave the whole validation harness silently switched off. Two of the three run on any
+      # device; the third needs 64-bit vertex formats, which lavapipe does not offer, and skips
+      # with that reason.
+      - name: The validation-layer tests actually ran
+        if: matrix.rid == 'linux-x64'
+        run: |
+          # `|| true` on the grep: no match is a real outcome here — it means the run summarised as
+          # Skipped! — and the check below is what should report it, not a pipeline that died.
+          output=$(dotnet test PrismSlang.slnx -c Release --no-build --nologo \
+            --filter "FullyQualifiedName~VulkanValidationTests" --logger "console;verbosity=detailed")
+          echo "$output"
+          summary=$(echo "$output" | grep -E '^(Passed|Failed|Skipped)!' || true)
+          passed=$(echo "$summary" | sed -n 's/.*Passed: *\([0-9]*\).*/\1/p')
+          if [ "${passed:-0}" -lt 2 ]; then
+            echo "::error::only ${passed:-0} validation-layer test(s) ran. lavapipe or the layers did not load; the skip reason is in the output above."
+            exit 1
+          fi
+          echo "$passed validation-layer test(s) ran against lavapipe"
 
       - name: Tier 0 spike
         run: dotnet run --project samples/PrismSlang.Smoke -c Release --no-build
