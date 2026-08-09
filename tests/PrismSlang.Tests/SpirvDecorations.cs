@@ -36,16 +36,38 @@ public sealed record SpirvVariable(
     public string LeafName => Name[(Name.LastIndexOf('.') + 1)..];
 }
 
+/// <summary>How the module lays out one member of a struct.</summary>
+/// <param name="Offset">Byte offset within the enclosing struct.</param>
+/// <param name="MatrixStride">
+/// Bytes between one row/column and the next, for a matrix member. Null for anything else.
+/// </param>
+/// <param name="IsRowMajor">
+/// The module's own word for the storage order — which is the opposite of Slang's, because HLSL
+/// counts rows where SPIR-V counts columns. Null for a non-matrix member.
+/// </param>
+public sealed record SpirvMember(ulong Offset, ulong? MatrixStride, bool? IsRowMajor);
+
 /// <summary>Reads decorations out of an emitted module.</summary>
 public static class SpirvDecorations
 {
     private const uint OpName = 5;
+    private const uint OpMemberName = 6;
+    private const uint OpExecutionMode = 16;
+    private const uint OpTypeImage = 25;
     private const uint OpDecorate = 71;
+    private const uint OpMemberDecorate = 72;
     private const uint OpVariable = 59;
+    private const uint OpExecutionModeId = 331;
 
+    private const uint DecorationRowMajor = 4;
+    private const uint DecorationColMajor = 5;
+    private const uint DecorationArrayStride = 6;
+    private const uint DecorationMatrixStride = 7;
     private const uint DecorationLocation = 30;
     private const uint DecorationBinding = 33;
     private const uint DecorationDescriptorSet = 34;
+    private const uint DecorationOffset = 35;
+    private const uint DecorationInputAttachmentIndex = 43;
 
     /// <summary>Every variable carrying a set/binding or location decoration, in module order.</summary>
     public static List<SpirvVariable> Read(ReadOnlySpan<byte> spirv)
@@ -125,6 +147,124 @@ public static class SpirvDecorations
         Read(spirv)
             .Where(v => v is { Location: not null, StorageClass: SpirvVariable.Output })
             .ToDictionary(v => v.LeafName, v => v.Location!.Value);
+
+    /// <summary>
+    /// Struct members by name, for every struct the module declares.
+    /// </summary>
+    /// <remarks>
+    /// Keyed by member name alone, not by owning type. That is enough for these tests and it keeps
+    /// the reader simple; the shaders are written so member names are unique across the module.
+    /// </remarks>
+    public static Dictionary<string, SpirvMember> Members(ReadOnlySpan<byte> spirv)
+    {
+        var words = MemoryMarshal.Cast<byte, uint>(spirv);
+
+        var names = new Dictionary<(uint Type, uint Index), string>();
+        var offsets = new Dictionary<(uint, uint), ulong>();
+        var strides = new Dictionary<(uint, uint), ulong>();
+        var rowMajor = new Dictionary<(uint, uint), bool>();
+
+        foreach (var (op, o) in Instructions(words))
+        {
+            switch (op)
+            {
+                case OpMemberName when o.Length >= 3:
+                    names[(o[0], o[1])] = ReadString(o[2..]);
+                    break;
+
+                case OpMemberDecorate when o.Length >= 3:
+                {
+                    var key = (o[0], o[1]);
+                    switch (o[2])
+                    {
+                        case DecorationOffset when o.Length >= 4: offsets[key] = o[3]; break;
+                        case DecorationMatrixStride when o.Length >= 4: strides[key] = o[3]; break;
+                        case DecorationRowMajor: rowMajor[key] = true; break;
+                        case DecorationColMajor: rowMajor[key] = false; break;
+                    }
+                    break;
+                }
+            }
+        }
+
+        var result = new Dictionary<string, SpirvMember>();
+        foreach (var (key, name) in names)
+        {
+            if (!offsets.TryGetValue(key, out var offset)) continue;
+            result[name] = new SpirvMember(
+                offset,
+                strides.TryGetValue(key, out var stride) ? stride : null,
+                rowMajor.TryGetValue(key, out var row) ? row : null);
+        }
+        return result;
+    }
+
+    /// <summary>Every <c>ArrayStride</c> the module declares, in declaration order.</summary>
+    public static List<uint> ArrayStrides(ReadOnlySpan<byte> spirv) =>
+        Decorations(spirv, DecorationArrayStride).Select(d => d.Value).ToList();
+
+    /// <summary><c>InputAttachmentIndex</c> by variable name.</summary>
+    public static Dictionary<string, uint> InputAttachmentIndices(ReadOnlySpan<byte> spirv)
+    {
+        var names = Names(spirv);
+        return Decorations(spirv, DecorationInputAttachmentIndex)
+            .ToDictionary(d => names.GetValueOrDefault(d.Target, $"%{d.Target}"), d => d.Value);
+    }
+
+    /// <summary>
+    /// The <c>imageFormat</c> operand of every <c>OpTypeImage</c>, in declaration order. 0 is
+    /// <c>Unknown</c>; 4 is <c>Rgba8</c>.
+    /// </summary>
+    public static List<uint> ImageFormats(ReadOnlySpan<byte> spirv) =>
+        Instructions(MemoryMarshal.Cast<byte, uint>(spirv))
+            .Where(i => i.Op == OpTypeImage && i.Operands.Length >= 8)
+            .Select(i => i.Operands[7])
+            .ToList();
+
+    /// <summary>
+    /// The workgroup size the module declares: literals from <c>LocalSize</c>, or result ids from
+    /// <c>LocalSizeId</c> with <paramref name="byId"/> set.
+    /// </summary>
+    public static (uint X, uint Y, uint Z, bool ById)? LocalSize(ReadOnlySpan<byte> spirv)
+    {
+        const uint LocalSize = 17;
+        const uint LocalSizeId = 38;
+
+        foreach (var (op, o) in Instructions(MemoryMarshal.Cast<byte, uint>(spirv)))
+        {
+            if (op is not (OpExecutionMode or OpExecutionModeId) || o.Length < 5) continue;
+            if (op == OpExecutionMode && o[1] == LocalSize) return (o[2], o[3], o[4], false);
+            if (op == OpExecutionModeId && o[1] == LocalSizeId) return (o[2], o[3], o[4], true);
+        }
+        return null;
+    }
+
+    /// <summary><c>OpName</c> by result id.</summary>
+    public static Dictionary<uint, string> Names(ReadOnlySpan<byte> spirv) =>
+        Instructions(MemoryMarshal.Cast<byte, uint>(spirv))
+            .Where(i => i.Op == OpName && i.Operands.Length >= 2)
+            .ToDictionary(i => i.Operands[0], i => ReadString(i.Operands[1..]));
+
+    private static List<(uint Target, uint Value)> Decorations(ReadOnlySpan<byte> spirv, uint decoration) =>
+        Instructions(MemoryMarshal.Cast<byte, uint>(spirv))
+            .Where(i => i.Op == OpDecorate && i.Operands.Length >= 3 && i.Operands[1] == decoration)
+            .Select(i => (i.Operands[0], i.Operands[2]))
+            .ToList();
+
+    private static List<(uint Op, uint[] Operands)> Instructions(ReadOnlySpan<uint> words)
+    {
+        var result = new List<(uint, uint[])>();
+
+        var i = 5;
+        while (i < words.Length)
+        {
+            var count = (int)(words[i] >> 16);
+            if (count < 1 || i + count > words.Length) break;
+            result.Add((words[i] & 0xFFFF, words.Slice(i + 1, count - 1).ToArray()));
+            i += count;
+        }
+        return result;
+    }
 
     private static string ReadString(ReadOnlySpan<uint> words)
     {

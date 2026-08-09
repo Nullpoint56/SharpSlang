@@ -602,7 +602,7 @@ constant buffer, a texture, a sampler, and varyings specifically so there is som
 
 ## 9. Status
 
-All five layers are built and green on **win-x64 and linux-x64**: 244 tests, the Tier 0 spike, and
+All five layers are built and green on **win-x64 and linux-x64**: 272 tests, the Tier 0 spike, and
 a full reflection walk on both.
 
 | Layer | State |
@@ -612,11 +612,11 @@ a full reflection walk on both.
 | L2 compilation | `SlangGlobalSession` → `SlangSession` → `SlangModule` → `LinkedProgram` |
 | L2 Tier 2 | type lookup, specialisation, type conformances, subtype checks, link-time options |
 | L2 target env | pinned SPIR-V version, emitted-module verification, entry-point naming |
-| L3 reflection | type tree + bindings + descriptor sets + generics + declarations + spec constants |
-| L3 SPIR-V | header and `OpEntryPoint` reader, for facts reflection cannot report |
+| L3 reflection | type tree + bindings + descriptor sets + generics + declarations + spec constants + buffer byte layout (matrix and element strides) |
+| L3 SPIR-V | header, `OpEntryPoint` and workgroup-size reader, for facts reflection cannot report |
 | L4 hosting | managed `ISlangFileSystem` via `[UnmanagedCallersOnly]` thunks |
-| Baking | `ShaderPackage`: SPIR-V + layout + module entry-point name + version + dependency hashes |
-| `PrismSlang.Vulkan` | separate package: descriptor sets, push constants, vertex inputs, fragment outputs, `VkSpecializationInfo`, target-env mapping |
+| Baking | `ShaderPackage`: SPIR-V + layout + module entry-point name + version + workgroup size + dependency hashes |
+| `PrismSlang.Vulkan` | separate package: descriptor sets, push constants, vertex inputs, fragment outputs, input attachments, stages and dispatch geometry, `VkSpecializationInfo`, target-env mapping |
 
 | Supporting | State |
 |---|---|
@@ -624,7 +624,7 @@ a full reflection walk on both.
 | `fetch-native.ps1` | win-x64 + linux-x64 verified; osx-arm64 mapped, unrun |
 | `tools/ci/verify-linux.sh` | build + tests + spike under WSL |
 | `.github/workflows` | CI matrix, regeneration check, package-contents check, publish |
-| Tests | 244, including a `PipelineLayoutTests` suite that asserts the projection against the emitted module's own decorations rather than against hand-written numbers |
+| Tests | 272. `PipelineLayoutTests`, `UniformLayoutTests` and `ComputeAndAttachmentTests` assert against the emitted module's own decorations rather than against hand-written numbers |
 
 Package sizes tell the story of the split: `PrismSlang` is 34 MB (it carries the compiler for every
 RID), `PrismSlang.Vulkan` is **10 KB**. A D3D12 consumer pays nothing for Vulkan.
@@ -721,6 +721,17 @@ which is why the declaration tree is the right home for it.
   binding. Conservative and safe, but a renderer wanting tight `stageFlags` still has to narrow
   them itself. Slang's global-scope reflection does not attribute a parameter to entry points, so
   closing this needs a per-entry-point walk rather than more plumbing.
+- **The implicit global constant buffer is unnamed.** Loose global uniforms (`float4 gTint;` at
+  file scope) become a synthesised buffer that the module calls `globalParams` and reflection
+  attributes to no declaration, so its descriptor range has a null name.
+  `ProgramLayout.GlobalConstantBufferBinding` identifies it by index; a host binding purely by name
+  has to special-case it. Left alone rather than named after the module, because inventing a name
+  for something nobody declared is the smaller of two bad options only until someone declares a
+  parameter with that name.
+- **`getEntryPointHash` is deliberately unbound.** Measured stable and content-sensitive, but
+  **identical across `-O0` and `-O3`** while the emitted SPIR-V differs (2,048 vs 1,664 bytes), so
+  it is safe as a shader-identity key and unsafe as a pipeline-cache key. Hash the emitted bytes
+  instead.
 
 ---
 
@@ -922,3 +933,139 @@ something unverifiable is the failure the method exists to prevent.
 reach `VkDescriptorSetLayoutBinding::descriptorCount`. Normalised to 0 with `IsUnbounded` set: the
 real cap is a host decision, made with `VK_DESCRIPTOR_BINDING_VARIABLE_DESCRIPTOR_COUNT_BIT` against
 the device's limits. Fixed-size arrays (`Texture2D t[8]`) were always correct.
+
+---
+
+### 9.10 The third round: memory, and the pipelines that are not graphics pipelines
+
+§9.9 asked the descriptor and location decorations whether reflection agreed with them. This round
+asked the same question of two areas it had not covered — where bytes go inside a buffer, and what a
+non-graphics pipeline needs — and of the descriptor model again, now that there was a harness for
+it. Seven more disagreements, all reported by reflection in a form that looked reasonable.
+
+| | Module says | PrismSlang said |
+|---|---|---|
+| `float3x3` in a cbuffer | rows 16 bytes apart | size 48, **no stride at all** |
+| `StructuredBuffer<Instance>` | `ArrayStride 80`, fields at 0/12/16 | element **size 0, no fields** |
+| `SubpassInput` x2 + a texture | bindings 0, 1, 2 | one binding, **at 2** |
+| `ParameterBlock<Frame>` | `gFrame.shadow` set 1 binding 1 | set 1 binding 1, **unnamed** |
+| `ParameterBlock` inside a block | `gOuter.inner.t` set 1 binding 0 | **no set 1** |
+| `[numthreads(kGroupX,1,1)]` | `LocalSizeId` naming spec constant 0 | thread group **`[0, 1, 1]`** |
+| `[format("rgba8")] RWTexture2D` | image format `Rgba8` | nothing, anywhere |
+
+#### The matrix stride is the one that corrupts data silently
+
+Reflection reported a `float3x3` as 48 bytes and stopped there. It is 48 because its three rows sit
+**16 bytes apart**, not because it holds 48 bytes of matrix — a host writing nine contiguous floats
+puts rows 1 and 2 four bytes early and gets a transform that is wrong in a way that looks like bad
+maths rather than bad memory. A row-major `float4x2` is 64 bytes for eight floats, which is worse.
+
+Slang will not tell you the stride: `GetStride` on a matrix returns the whole matrix and
+`GetElementStride` returns 0. So `MatrixLayout.Stride` is derived — the total divided by the number
+of entries along the major axis — and `UniformLayoutTests` asserts the derivation against the
+module's `MatrixStride` decoration for 4x4, 3x3, 2x4 and 4x2 under **both** layout modes, because
+the non-square shapes are where dividing by the wrong axis still yields a plausible number.
+`ComponentOffset(row, column)` applies the rule so a caller never has to.
+
+While measuring it: **the mode Slang reports and the word the module decorates are opposites.** A
+session set to `ROW_MAJOR` emits members decorated `ColMajor`, and vice versa. That is not a bug —
+HLSL writes rows-by-columns while SPIR-V's `OpTypeMatrix` is a list of columns, so the same bytes get
+opposite names — but it is exactly the shape of the entry-point-name confusion in §9.8, so it is
+pinned by a test and stated on `MatrixLayout` rather than left for someone to rediscover.
+
+#### A structured buffer had no element layout
+
+`ResourceLayout.ResultType` named the type — `Instance` — and reported a size of 0 with no fields,
+because `spReflectionType_GetResourceResultType` hands back a `SlangReflectionType*` and layout
+questions can only be asked of a type *layout*. So reflection could tell you an instance buffer held
+an `Instance` and nothing about how many bytes that was or where `xform` sat: the buffer could not be
+filled. `GetElementTypeLayout` on the resource has the real thing, and returns null on textures,
+samplers, byte-address and typed buffers, subpass inputs and acceleration structures — so no shape
+test is needed, the resources that have an element layout are exactly the ones that return one.
+`ResourceLayout.ElementType` and `ElementStride` now carry it.
+
+#### Two ways to lose a descriptor set
+
+**Subpass inputs.** Slang omits them from *both* its binding-range and its descriptor-set views —
+while still consuming their binding indices. With `gA`, `gB`, `gOrdinary` the module decorates
+bindings 0, 1 and 2 and reflection offered exactly one range, at index 2. A deferred renderer
+building `VkDescriptorSetLayout` from that gets one binding for a shader that reads three. The
+parameter list is the half of Slang's reflection that matches the module, so `ReadDescriptorSets`
+gained a reconciliation pass: any parameter holding a descriptor-table slot no range covers gets a
+range, typed from its resource shape. Only the subpass shape is mapped; anything else lands as
+`SLANG_BINDING_TYPE_UNKNOWN`, which the projection refuses loudly. A hole reported as unknown is a
+bug report — a hole given a plausible type is this whole exercise repeating.
+
+**Nested parameter blocks.** The walk found a top-level block's space and stopped, so a
+`ParameterBlock` declared *inside* one contributed no descriptor set at all. The offsets accumulate
+down the chain, and they accumulate through a plain struct too: measured with
+`Root { float4 c; Mid mid; Texture2D o; }` and `Mid { float2 pad; ParameterBlock<Leaf> leaf; }`,
+`mid` reports a sub-element offset of 1, `leaf` reports 0, and the module puts `gRoot.mid.leaf.t` in
+set 1 — so a struct that owns no descriptor set of its own still has to be walked through.
+`getSubObjectRangeSpaceOffset`, which looks like the API for exactly this, reports 0 for the same
+block.
+
+#### Names, and the fallback that looked dead
+
+`DescriptorRange.Name` was always null; the Vulkan projection recovered names by scanning the
+top-level parameter list, which cannot see inside a `ParameterBlock` — so every binding of Slang's
+own descriptor-set feature came back unnamed, and a material system binding by name had nothing to
+work with. The binding-range view links a leaf variable to a descriptor range through
+`getBindingRangeDescriptorSetIndex` and `getBindingRangeFirstDescriptorRangeIndex`, and that works
+at global scope and inside a block, so the walk populates `Name` from it.
+
+With that in place the old scan looked redundant, and **the whole suite passed with it disabled**.
+It is not redundant: the binding-range view does not attribute an entry point's `uniform`
+parameters, so deleting it would have silently dropped the name of every entry-point descriptor. A
+probe caught that, not a test — so `An_entry_point_uniform_descriptor_is_still_named` exists now to
+make the second attempt fail loudly.
+
+#### A thread group size of zero
+
+`[numthreads(kGroupX, 1, 1)]` with `kGroupX` a specialization constant makes
+`getComputeThreadGroupSize` report `[0, 1, 1]`. It genuinely does not know — the value arrives at
+pipeline creation — but a host computing `(width + size.X - 1) / size.X` divides by zero, and one
+that guards the divide dispatches a wrong group count instead, which is a shader quietly processing
+part of its domain.
+
+The module is honest: a fixed size emits `OpExecutionMode LocalSize` with literals, a specialized
+one emits `OpExecutionModeId LocalSizeId` naming the constants. So `SpirvModule` reads it, resolving
+the ids through `OpSpecConstant` and its `SpecId` decoration to recover **both** the constant id and
+the default the shader declared. `ThreadGroupSize.IsSpecialized` flags the reflection-side case, and
+`VulkanWorkgroupSize.GroupCountFor` refuses rather than dividing.
+
+`VulkanWorkgroupSize.From(size, values)` distinguishes null from empty on purpose: null means
+nothing has been decided and the size stays specialized; any dictionary, empty included, says *these
+are the values I will supply*, and an absent constant keeps its default because that is what Vulkan
+does with one. That distinction came out of a test that failed — the first version had no way to say
+"I am deliberately using the defaults".
+
+#### The rest
+
+- **`VulkanPipelineLayout.Stages`.** The layout described a graphics pipeline only. It now carries
+  each entry point's stage flag and workgroup size, so a compute pipeline can be built and
+  dispatched from it without going back to the neutral layout.
+- **`BakedEntryPoint.WorkgroupSize`**, read from the module for the same reason as
+  `ModuleEntryPointName`. Package format is now **4**.
+- **`[format("rgba8")]`** was reported nowhere — it is a built-in attribute, so it never appeared in
+  the user-attribute list either — and an unformatted `RWTexture2D` requires the device's
+  `shaderStorageImageWriteWithoutFormat`, which the host had no way to learn. Now on
+  `DescriptorRange.ImageFormat` and `VulkanBinding.ImageFormat`.
+
+  The call behind it is guarded, and the guard is load-bearing:
+  **`spReflectionTypeLayout_getBindingRangeImageFormat` access-violates** — crashes the process, not
+  returns `unknown` — when asked about a `PARAMETER_BLOCK` binding range. Only texture-shaped ranges
+  are asked, and the test shader for image formats contains a parameter block so the guard is
+  exercised.
+
+#### What the harness looks like now
+
+`SpirvDecorations` grew member offsets, matrix strides, array strides, input attachment indices,
+image formats and execution modes. 272 tests; every claim in the two tables above is asserted
+against the emitted module's own bytes rather than against a number typed out by hand.
+
+The pattern worth keeping from this round is narrower than "read the module back". Three of the
+seven were found by a **probe**, not by a test — the nested parameter block and the
+looks-dead-but-is-not fallback among them. A test asserts what someone already thought to ask. A
+probe that prints reflection and the module side by side, for a shader nobody has tried yet, is what
+turns up the question.

@@ -71,6 +71,29 @@ public sealed record ShaderParameter(
         or SlangParameterCategory.SLANG_PARAMETER_CATEGORY_UNORDERED_ACCESS
         or SlangParameterCategory.SLANG_PARAMETER_CATEGORY_SAMPLER_STATE);
 
+    /// <summary>
+    /// Which input attachment of the subpass this reads, for a <c>SubpassInput</c>; null otherwise.
+    /// </summary>
+    /// <remarks>
+    /// Distinct from the descriptor binding, and both are needed: the binding says where to write
+    /// the descriptor, this says which entry of <c>VkSubpassDescription::pInputAttachments</c> the
+    /// shader means. Slang carries it as the offset of the <c>SUBPASS</c> category, matching the
+    /// module's <c>InputAttachmentIndex</c> decoration.
+    /// </remarks>
+    [JsonIgnore]
+    public uint? InputAttachmentIndex
+    {
+        get
+        {
+            foreach (var b in Bindings)
+            {
+                if (b.Category == SlangParameterCategory.SLANG_PARAMETER_CATEGORY_SUBPASS)
+                    return b.Index;
+            }
+            return null;
+        }
+    }
+
     /// <summary>The primary binding — the first non-uniform one, else the first of any kind.</summary>
     [JsonIgnore]
     public ParameterBinding? PrimaryBinding =>
@@ -119,6 +142,15 @@ public sealed record ShaderParameter(
 /// <param name="IsUnbounded">
 /// Whether the shader declared a runtime-sized array (<c>Texture2D t[];</c>), i.e. bindless.
 /// </param>
+/// <param name="InputAttachmentIndex">
+/// For a subpass input, which input attachment of the subpass it reads — the module's
+/// <c>InputAttachmentIndex</c> decoration. Null for everything else.
+/// </param>
+/// <param name="ImageFormat">
+/// The format declared with <c>[format("...")]</c> on a storage image. <c>unknown</c> both when
+/// none was declared and when the binding is not an image; a storage image left unknown requires
+/// the device's <c>shaderStorageImageReadWithoutFormat</c> / <c>WriteWithoutFormat</c> feature.
+/// </param>
 /// <remarks>
 /// Slang reports an unbounded array's descriptor count as <c>0xFFFFFFFF</c>. That value is not a
 /// count and must not reach <c>VkDescriptorSetLayoutBinding::descriptorCount</c>; it is normalised
@@ -132,7 +164,9 @@ public sealed record DescriptorRange(
     uint DescriptorCount,
     SlangParameterCategory Category,
     string? Name = null,
-    bool IsUnbounded = false);
+    bool IsUnbounded = false,
+    uint? InputAttachmentIndex = null,
+    SlangImageFormat ImageFormat = SlangImageFormat.SLANG_IMAGE_FORMAT_unknown);
 
 /// <summary>A descriptor set (register space) and the ranges within it.</summary>
 public sealed record DescriptorSet(uint SpaceOffset, IReadOnlyList<DescriptorRange> Ranges);
@@ -169,9 +203,41 @@ public sealed record EntryPointLayout(
 }
 
 /// <summary>Compute thread-group dimensions.</summary>
+/// <remarks>
+/// A dimension of 0 does not mean zero threads; it means Slang could not report one. See
+/// <see cref="IsSpecialized"/>, and prefer <see cref="Resolved"/> over reading
+/// <see cref="X"/>/<see cref="Y"/>/<see cref="Z"/> straight into a divisor.
+/// </remarks>
 public readonly record struct ThreadGroupSize(ulong X, ulong Y, ulong Z)
 {
-    public override string ToString() => $"[{X}, {Y}, {Z}]";
+    /// <summary>
+    /// Whether a dimension is driven by a specialization constant, so this is not the launch size.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <c>[numthreads(kGroupX, 1, 1)]</c> with <c>kGroupX</c> a specialization constant makes Slang
+    /// report <c>[0, 1, 1]</c>: it genuinely does not know, because the value arrives at pipeline
+    /// creation. The module is honest about it and emits <c>OpExecutionModeId LocalSizeId</c>
+    /// naming the constants, where a fixed size emits <c>OpExecutionMode LocalSize</c> with
+    /// literals.
+    /// </para>
+    /// <para>
+    /// The 0 is the danger. A host computing <c>(width + size.X - 1) / size.X</c> divides by zero,
+    /// and a host that guards the divide dispatches a wrong count instead. Read
+    /// <c>SpirvModule.Read(code).EntryPoints[i].WorkgroupSize</c> for the constant ids and the
+    /// declared defaults; that is the only place the full answer exists.
+    /// </para>
+    /// </remarks>
+    public bool IsSpecialized => X == 0 || Y == 0 || Z == 0;
+
+    /// <summary>The dimensions when all three are known, else null.</summary>
+    public (ulong X, ulong Y, ulong Z)? Resolved => IsSpecialized ? null : (X, Y, Z);
+
+    public override string ToString() => IsSpecialized
+        ? $"[{Dim(X)}, {Dim(Y)}, {Dim(Z)}]"
+        : $"[{X}, {Y}, {Z}]";
+
+    private static string Dim(ulong v) => v == 0 ? "specialized" : v.ToString();
 }
 
 /// <summary>

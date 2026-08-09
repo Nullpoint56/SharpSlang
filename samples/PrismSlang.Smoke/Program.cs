@@ -98,16 +98,23 @@ try
         var b = p.PrimaryBinding;
         Console.WriteLine($"    {p.Name,-14} {p.Type.Kind,-14} set {b?.Space} binding {b?.Index}");
 
-        // Data-driven materials read exactly this: field name, type, byte offset.
+        // Data-driven materials read exactly this: field name, type, byte offset — and, for a
+        // matrix, the stride. The size alone is not enough to place a row: a float3x3 is 48 bytes
+        // because its three rows sit 16 apart, so packing nine floats corrupts it.
         if (p.Type is ContainerLayout { ElementType: StructLayout s })
             foreach (var f in s.Fields)
-                Console.WriteLine($"      .{f.Name,-12} {Describe(f.Type),-12} offset {f.UniformOffset,3}  size {f.Type.UniformSize}");
+                Console.WriteLine(
+                    $"      .{f.Name,-12} {Describe(f.Type),-12} offset {f.UniformOffset,3}  " +
+                    $"size {f.Type.UniformSize}" +
+                    (f.Type is MatrixLayout m ? $"  stride {m.Stride} ({Major(m.Mode)})" : ""));
     }
 
     Console.WriteLine("\n  descriptor sets:");
     foreach (var set in layout.DescriptorSets)
         foreach (var r in set.Ranges)
-            Console.WriteLine($"    set {set.SpaceOffset} binding {r.IndexOffset}  {r.BindingType}  x{r.DescriptorCount}");
+            Console.WriteLine(
+                $"    set {set.SpaceOffset} binding {r.IndexOffset}  {r.BindingType}  " +
+                $"x{r.DescriptorCount}  {r.Name ?? "(unnamed)"}");
 
     Console.WriteLine("\n  entry points:");
     foreach (var ep in layout.EntryPoints)
@@ -144,6 +151,18 @@ static string Describe(TypeLayout t) => t switch
     ArrayLayout a => $"{Describe(a.ElementType)}[{a.ElementCount?.ToString() ?? ""}]",
     _ => t.Name ?? t.Kind.ToString(),
 };
+
+/// <summary>
+/// Which axis a matrix's stride steps along, in Slang's terms.
+/// </summary>
+/// <remarks>
+/// Worth spelling out rather than printing the enum: the emitted module decorates the opposite
+/// word, because HLSL counts rows where SPIR-V counts columns. Printing "ROW_MAJOR" beside a module
+/// that says <c>ColMajor</c> is exactly the kind of half-answer that sent a consumer the wrong way
+/// over entry-point names.
+/// </remarks>
+static string Major(SlangMatrixLayoutMode mode) =>
+    mode == SlangMatrixLayoutMode.SLANG_MATRIX_LAYOUT_COLUMN_MAJOR ? "per column" : "per row";
 
 static string Short(SlangScalarType s) => s.ToString()
     .Replace("SLANG_SCALAR_TYPE_", "")

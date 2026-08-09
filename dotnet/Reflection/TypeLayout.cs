@@ -92,12 +92,78 @@ public sealed record VectorLayout : TypeLayout
 }
 
 /// <summary>A matrix. Row/column counts are as declared; storage order follows the session's layout mode.</summary>
+/// <remarks>
+/// <para>
+/// <b>The mode is stated in Slang's terms, and the emitted module decorates the opposite one.</b>
+/// A session set to <c>ROW_MAJOR</c> produces members decorated <c>ColMajor</c>, and vice versa.
+/// That is not a contradiction: HLSL writes <c>float4x4</c> as rows-by-columns while SPIR-V's
+/// <c>OpTypeMatrix</c> is a list of column vectors, so the same bytes are described by opposite
+/// words. Both were measured against slang-compiler 2026.14.1 across four matrix shapes in both
+/// modes. Read <see cref="Mode"/> and <see cref="Stride"/> together and ignore the decoration; the
+/// pair says exactly where a component goes without anyone having to hold the transposition in
+/// their head.
+/// </para>
+/// </remarks>
 public sealed record MatrixLayout : TypeLayout
 {
     public required SlangScalarType ElementType { get; init; }
     public required int RowCount { get; init; }
     public required int ColumnCount { get; init; }
     public required SlangMatrixLayoutMode Mode { get; init; }
+
+    /// <summary>
+    /// Bytes between one row and the next under <c>ROW_MAJOR</c>, or one column and the next under
+    /// <c>COLUMN_MAJOR</c>. 0 for a matrix with no uniform footprint.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The member a host cannot do without and Slang does not offer:
+    /// <c>spReflectionTypeLayout_GetStride</c> on a matrix returns the whole matrix, and
+    /// <c>GetElementStride</c> returns 0. So this is derived — total size divided by the number of
+    /// major-axis entries — and <c>UniformLayoutTests</c> asserts it against the module's own
+    /// <c>MatrixStride</c> decoration for four shapes in both layout modes, so the derivation
+    /// cannot quietly stop matching.
+    /// </para>
+    /// <para>
+    /// It is almost never the packed width. A <c>float3x3</c> is 48 bytes, not 36: three rows on a
+    /// 16-byte stride. A row-major <c>float4x2</c> is 64 bytes, not 32. Writing the components
+    /// contiguously produces a matrix that is wrong in a way that looks like a bad transform rather
+    /// than like bad memory.
+    /// </para>
+    /// </remarks>
+    public ulong Stride { get; init; }
+
+    /// <summary>
+    /// Byte offset of one component within this matrix, relative to the matrix's own start.
+    /// </summary>
+    /// <param name="row">Row index, as declared in the shader.</param>
+    /// <param name="column">Column index, as declared in the shader.</param>
+    /// <remarks>
+    /// Handles the major-axis choice so a caller does not have to. Add this to the field's
+    /// <see cref="FieldLayout.UniformOffset"/> to get the offset within the enclosing buffer.
+    /// </remarks>
+    public ulong ComponentOffset(int row, int column)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(row);
+        ArgumentOutOfRangeException.ThrowIfNegative(column);
+        ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(row, RowCount);
+        ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(column, ColumnCount);
+
+        var scalar = ScalarSize(ElementType);
+        return Mode == SlangMatrixLayoutMode.SLANG_MATRIX_LAYOUT_COLUMN_MAJOR
+            ? ((ulong)column * Stride) + ((ulong)row * scalar)
+            : ((ulong)row * Stride) + ((ulong)column * scalar);
+    }
+
+    private static ulong ScalarSize(SlangScalarType type) => type switch
+    {
+        SlangScalarType.SLANG_SCALAR_TYPE_FLOAT64 or SlangScalarType.SLANG_SCALAR_TYPE_INT64
+            or SlangScalarType.SLANG_SCALAR_TYPE_UINT64 => 8,
+        SlangScalarType.SLANG_SCALAR_TYPE_FLOAT16 or SlangScalarType.SLANG_SCALAR_TYPE_INT16
+            or SlangScalarType.SLANG_SCALAR_TYPE_UINT16 => 2,
+        SlangScalarType.SLANG_SCALAR_TYPE_INT8 or SlangScalarType.SLANG_SCALAR_TYPE_UINT8 => 1,
+        _ => 4,
+    };
 }
 
 /// <summary>A field of a struct, with the offsets Slang assigned it.</summary>
@@ -156,8 +222,42 @@ public sealed record ResourceLayout : TypeLayout
     /// <summary>Read, read-write, or one of the specialised access modes.</summary>
     public required SlangResourceAccess Access { get; init; }
 
-    /// <summary>The element type sampled or loaded from the resource, if it has one.</summary>
+    /// <summary>
+    /// The element type sampled or loaded from the resource, described structurally — no sizes and
+    /// no offsets, because Slang hands this one out as a bare type rather than a type layout.
+    /// </summary>
+    /// <remarks>
+    /// Use <see cref="ElementType"/> instead for anything that has to touch memory. This member
+    /// stays because it names the type (<c>Instance</c>) even where there is no layout to report,
+    /// as on a <c>Texture2D&lt;float4&gt;</c>.
+    /// </remarks>
     public TypeLayout? ResultType { get; init; }
+
+    /// <summary>
+    /// The element's full layout — field byte offsets, sizes, alignment — for a resource that has
+    /// one. Null for textures, samplers, byte-address buffers, typed buffers, subpass inputs and
+    /// acceleration structures, which have no element layout to report.
+    /// </summary>
+    /// <remarks>
+    /// This is what a host fills a <c>StructuredBuffer&lt;T&gt;</c> from. <see cref="ResultType"/>
+    /// names <c>T</c> but reports a size of 0 and no field offsets, because
+    /// <c>spReflectionType_GetResourceResultType</c> returns a type and layout questions can only
+    /// be asked of a type <em>layout</em> — so a consumer with only <c>ResultType</c> can see that
+    /// an instance buffer holds an <c>Instance</c> and still have no idea how many bytes that is or
+    /// where <c>xform</c> sits inside it.
+    /// </remarks>
+    public TypeLayout? ElementType { get; init; }
+
+    /// <summary>
+    /// Bytes from one element to the next, for a resource with an <see cref="ElementType"/>;
+    /// 0 otherwise. This is the value that sizes an upload and strides an index.
+    /// </summary>
+    /// <remarks>
+    /// Not the same as <c>ElementType.UniformSize</c> in general — the stride includes any tail
+    /// padding needed to keep the next element aligned. Asserted against the module's own
+    /// <c>ArrayStride</c> decoration by <c>UniformLayoutTests</c>.
+    /// </remarks>
+    public ulong ElementStride { get; init; }
 }
 
 /// <summary>

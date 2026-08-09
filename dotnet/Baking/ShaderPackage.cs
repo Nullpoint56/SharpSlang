@@ -16,7 +16,9 @@
 //   layout    length-prefixed UTF-8 JSON   the reflection snapshot
 //   deps      uint32 + [ path, 32-byte hash ] * n   files this was compiled from
 //   count     uint32                       number of entry points
-//   entries   [ name, moduleEntryPointName, stage, spirvVersion, length, bytes ] * count
+//   entries   [ name, moduleEntryPointName, stage, spirvVersion, workgroup, length, bytes ] * count
+//
+//   workgroup uint8 present + [ value, specId+1 ] * 3   threads per group, 0 byte if absent
 //
 // All integers little-endian. BinaryReader/Writer default to that on every platform .NET targets,
 // and the format is not intended for cross-endian transport.
@@ -41,20 +43,32 @@ namespace PrismSlang.Baking;
 /// The SPIR-V version of <paramref name="Code"/>, so a loader can reject a module its device
 /// cannot accept before handing it to the driver. <c>Unspecified</c> for a non-SPIR-V target.
 /// </param>
+/// <param name="WorkgroupSize">
+/// Threads per group for a compute-like stage, read from the module. Null for the raster and
+/// ray-tracing stages, and for a non-SPIR-V target.
+/// </param>
 /// <remarks>
+/// <para>
 /// <paramref name="Name"/> and <paramref name="ModuleEntryPointName"/> are separate members
 /// because they are separate things, and conflating them is the single most likely way to get a
 /// pipeline that fails to create. Slang names every per-entry-point module <c>main</c> by default,
 /// whatever the function was called; <c>TargetOptions.UseEntryPointNameInSpirv</c> makes it use the
 /// Slang name instead. Look up shaders by <paramref name="Name"/>; hand the driver
 /// <paramref name="ModuleEntryPointName"/>.
+/// </para>
+/// <para>
+/// <paramref name="WorkgroupSize"/> is here rather than left to the layout for the same reason:
+/// reflection reports <c>0</c> for a dimension driven by a specialization constant, and the module
+/// is the only place that carries the constant id and the declared default.
+/// </para>
 /// </remarks>
 public sealed record BakedEntryPoint(
     string Name,
     SlangStage Stage,
     byte[] Code,
     string ModuleEntryPointName = "main",
-    SpirvVersion SpirvVersion = SpirvVersion.Unspecified);
+    SpirvVersion SpirvVersion = SpirvVersion.Unspecified,
+    SpirvWorkgroupSize? WorkgroupSize = null);
 
 /// <summary>One file a package was compiled from, and what it contained at the time.</summary>
 /// <param name="Path">The path Slang resolved, absolute for anything found through a search path.</param>
@@ -70,11 +84,12 @@ public sealed class ShaderPackage
     private const uint Magic = 0x424C5350; // "PSLB" little-endian
 
     // 2 added the module entry point name and SPIR-V version per entry point. 3 added the
-    // dependency file list. Older packages cannot be upgraded in place — neither the module name
-    // nor the import graph is recoverable from what they stored — so ReadFrom rejects them and
-    // says rebake. Rebaking is cheap; a package that silently reports "main" for a module that
-    // says otherwise, or that claims to be current after its imports moved, is not.
-    private const uint FormatVersion = 3;
+    // dependency file list. 4 added the workgroup size. Older packages cannot be upgraded in
+    // place — none of the module name, the import graph or the workgroup size is recoverable from
+    // what an earlier version stored — so ReadFrom rejects them and says rebake. Rebaking is cheap;
+    // a package that silently reports "main" for a module that says otherwise, or that claims to be
+    // current after its imports moved, is not.
+    private const uint FormatVersion = 4;
 
     /// <summary>The Slang build that produced this package, e.g. <c>2026.14.1</c>.</summary>
     public required string SlangVersion { get; init; }
@@ -255,11 +270,16 @@ public sealed class ShaderPackage
             // naming rules, and neither should the pipeline builder.
             var moduleName = "main";
             var spirvVersion = SpirvVersion.Unspecified;
+            SpirvWorkgroupSize? workgroupSize = null;
             if (SpirvModule.IsSpirv(code))
             {
                 var module = SpirvModule.Read(code);
                 spirvVersion = module.Version;
-                if (module.EntryPoints.Count == 1) moduleName = module.EntryPoints[0].Name;
+                if (module.EntryPoints.Count == 1)
+                {
+                    moduleName = module.EntryPoints[0].Name;
+                    workgroupSize = module.EntryPoints[0].WorkgroupSize;
+                }
             }
 
             entryPoints.Add(new BakedEntryPoint(
@@ -267,7 +287,8 @@ public sealed class ShaderPackage
                 layout.EntryPoint(name)?.Stage ?? SlangStage.SLANG_STAGE_NONE,
                 code,
                 moduleName,
-                spirvVersion));
+                spirvVersion,
+                workgroupSize));
         }
 
         return new ShaderPackage
@@ -313,8 +334,36 @@ public sealed class ShaderPackage
             w.Write(e.ModuleEntryPointName);
             w.Write((uint)e.Stage);
             w.Write((uint)e.SpirvVersion);
+            WriteWorkgroupSize(w, e.WorkgroupSize);
             w.Write((uint)e.Code.Length);
             w.Write(e.Code);
+        }
+    }
+
+    // A specialization constant id is written biased by one so that 0 can mean "not specialized";
+    // id 0 is a real, common constant id and cannot double as the absent marker.
+    private static void WriteWorkgroupSize(BinaryWriter w, SpirvWorkgroupSize? size)
+    {
+        w.Write(size is not null);
+        if (size is null) return;
+
+        foreach (var d in new[] { size.X, size.Y, size.Z })
+        {
+            w.Write(d.Value);
+            w.Write(d.SpecializationConstantId + 1 ?? 0);
+        }
+    }
+
+    private static SpirvWorkgroupSize? ReadWorkgroupSize(BinaryReader r)
+    {
+        if (!r.ReadBoolean()) return null;
+        return new SpirvWorkgroupSize(ReadDimension(r), ReadDimension(r), ReadDimension(r));
+
+        static SpirvWorkgroupDimension ReadDimension(BinaryReader r)
+        {
+            var value = r.ReadUInt32();
+            var biased = r.ReadUInt32();
+            return new SpirvWorkgroupDimension(value, biased == 0 ? null : biased - 1);
         }
     }
 
@@ -351,9 +400,10 @@ public sealed class ShaderPackage
             var moduleName = r.ReadString();
             var stage = (SlangStage)r.ReadUInt32();
             var spirvVersion = (SpirvVersion)r.ReadUInt32();
+            var workgroupSize = ReadWorkgroupSize(r);
             var length = r.ReadUInt32();
             entryPoints.Add(new BakedEntryPoint(
-                name, stage, r.ReadBytes((int)length), moduleName, spirvVersion));
+                name, stage, r.ReadBytes((int)length), moduleName, spirvVersion, workgroupSize));
         }
 
         return new ShaderPackage

@@ -113,12 +113,77 @@ public enum SpirvExecutionModel : uint
 }
 
 /// <summary>
+/// One dimension of a compute workgroup.
+/// </summary>
+/// <param name="Value">
+/// The size, or — when <paramref name="SpecializationConstantId"/> is set — the default the shader
+/// declared for the constant that drives it.
+/// </param>
+/// <param name="SpecializationConstantId">
+/// The <c>constant_id</c> whose value decides this dimension at pipeline creation, if one does.
+/// </param>
+public readonly record struct SpirvWorkgroupDimension(uint Value, uint? SpecializationConstantId = null)
+{
+    /// <summary>Whether the host decides this dimension when it creates the pipeline.</summary>
+    public bool IsSpecialized => SpecializationConstantId is not null;
+
+    public override string ToString() =>
+        IsSpecialized ? $"spec({SpecializationConstantId}, default {Value})" : Value.ToString();
+}
+
+/// <summary>
+/// A compute entry point's workgroup size, as the module declares it.
+/// </summary>
+/// <remarks>
+/// The reason this is read from the module rather than taken from reflection: with
+/// <c>[numthreads(kGroupX, 1, 1)]</c> driven by a specialization constant, Slang's
+/// <c>getComputeThreadGroupSize</c> reports <c>0</c> for that dimension. The module says what is
+/// actually going on — <c>OpExecutionModeId LocalSizeId</c> naming the constants, against
+/// <c>OpExecutionMode LocalSize</c> with literals for a fixed size — so the constant ids and the
+/// declared defaults are both recoverable here and nowhere else.
+/// </remarks>
+public sealed record SpirvWorkgroupSize(
+    SpirvWorkgroupDimension X,
+    SpirvWorkgroupDimension Y,
+    SpirvWorkgroupDimension Z)
+{
+    /// <summary>Whether any dimension is decided at pipeline creation.</summary>
+    public bool IsSpecialized => X.IsSpecialized || Y.IsSpecialized || Z.IsSpecialized;
+
+    /// <summary>
+    /// The workgroup size once the host's specialization values are applied.
+    /// </summary>
+    /// <param name="specializationValues">
+    /// Constant id to value, as the host will supply them in <c>VkSpecializationInfo</c>. A
+    /// dimension whose constant is absent keeps the default declared in the shader, which is what
+    /// Vulkan does with an unsupplied constant.
+    /// </param>
+    public (uint X, uint Y, uint Z) Resolve(IReadOnlyDictionary<uint, uint>? specializationValues = null) =>
+        (Apply(X, specializationValues), Apply(Y, specializationValues), Apply(Z, specializationValues));
+
+    private static uint Apply(
+        SpirvWorkgroupDimension dimension,
+        IReadOnlyDictionary<uint, uint>? values) =>
+        dimension.SpecializationConstantId is { } id
+        && values is not null
+        && values.TryGetValue(id, out var supplied)
+            ? supplied
+            : dimension.Value;
+
+    public override string ToString() => $"[{X}, {Y}, {Z}]";
+}
+
+/// <summary>
 /// One <c>OpEntryPoint</c> in an emitted module.
 /// </summary>
 /// <param name="ExecutionModel">The stage, as SPIR-V names it.</param>
 /// <param name="Name">
 /// The entry point's name <em>in the module</em> — what goes in
 /// <c>VkPipelineShaderStageCreateInfo::pName</c>.
+/// </param>
+/// <param name="WorkgroupSize">
+/// The compute workgroup size, for a compute, task or mesh entry point. Null for the raster and
+/// ray-tracing stages, which declare none.
 /// </param>
 /// <remarks>
 /// This is not the Slang function name, and assuming it is has cost people pipelines. Measured
@@ -133,7 +198,10 @@ public enum SpirvExecutionModel : uint
 /// </list>
 /// So there is no rule to hardcode on either side. Read it from the module.
 /// </remarks>
-public sealed record SpirvEntryPoint(SpirvExecutionModel ExecutionModel, string Name);
+public sealed record SpirvEntryPoint(
+    SpirvExecutionModel ExecutionModel,
+    string Name,
+    SpirvWorkgroupSize? WorkgroupSize = null);
 
 /// <summary>What a SPIR-V module header and its entry point declarations say.</summary>
 /// <param name="Version">Version from the header word.</param>
@@ -153,7 +221,17 @@ public static class SpirvModule
     public const uint Magic = 0x07230203;
 
     private const int HeaderWords = 5;
+
     private const uint OpEntryPoint = 15;
+    private const uint OpExecutionMode = 16;
+    private const uint OpDecorate = 71;
+    private const uint OpConstant = 43;
+    private const uint OpSpecConstant = 50;
+    private const uint OpExecutionModeId = 331;
+
+    private const uint ExecutionModeLocalSize = 17;
+    private const uint ExecutionModeLocalSizeId = 38;
+    private const uint DecorationSpecId = 1;
 
     /// <summary>Whether this looks like a SPIR-V module at all.</summary>
     public static bool IsSpirv(ReadOnlySpan<byte> code) =>
@@ -180,7 +258,15 @@ public static class SpirvModule
         RequireSpirv(code);
 
         var words = MemoryMarshal.Cast<byte, uint>(code);
-        var entryPoints = new List<SpirvEntryPoint>();
+
+        // Collected by id and resolved at the end: the execution mode that carries the workgroup
+        // size appears near the top of the module, while the constants it names are declared much
+        // further down, so nothing can be resolved in a single forward pass.
+        var declared = new List<(uint Id, SpirvExecutionModel Model, string Name)>();
+        var literalSize = new Dictionary<uint, (uint X, uint Y, uint Z)>();
+        var idSize = new Dictionary<uint, (uint X, uint Y, uint Z)>();
+        var constants = new Dictionary<uint, uint>();
+        var specIds = new Dictionary<uint, uint>();
 
         var i = HeaderWords;
         while (i < words.Length)
@@ -193,22 +279,84 @@ public static class SpirvModule
                     $"malformed SPIR-V at word {i}: instruction length {count} runs past the end of a " +
                     $"{words.Length}-word module");
 
-            // OpEntryPoint: <execution model> <entry point id> <name literal> <interface ids...>
-            if (opcode == OpEntryPoint && count >= 4)
+            switch (opcode)
             {
-                entryPoints.Add(new SpirvEntryPoint(
-                    (SpirvExecutionModel)words[i + 1],
-                    ReadLiteralString(words.Slice(i + 3, count - 3))));
+                // OpEntryPoint: <execution model> <entry point id> <name literal> <interface ids...>
+                case OpEntryPoint when count >= 4:
+                    declared.Add((
+                        words[i + 2],
+                        (SpirvExecutionModel)words[i + 1],
+                        ReadLiteralString(words.Slice(i + 3, count - 3))));
+                    break;
+
+                // OpExecutionMode: <entry point id> <mode> <literals...>
+                case OpExecutionMode when count >= 6 && words[i + 2] == ExecutionModeLocalSize:
+                    literalSize[words[i + 1]] = (words[i + 3], words[i + 4], words[i + 5]);
+                    break;
+
+                // OpExecutionModeId: <entry point id> <mode> <ids...>
+                case OpExecutionModeId when count >= 6 && words[i + 2] == ExecutionModeLocalSizeId:
+                    idSize[words[i + 1]] = (words[i + 3], words[i + 4], words[i + 5]);
+                    break;
+
+                // OpConstant / OpSpecConstant: <result type> <result id> <value words...>. Only the
+                // first value word is read: a workgroup dimension is a 32-bit integer.
+                case OpConstant or OpSpecConstant when count >= 4:
+                    constants[words[i + 2]] = words[i + 3];
+                    break;
+
+                case OpDecorate when count >= 4 && words[i + 2] == DecorationSpecId:
+                    specIds[words[i + 1]] = words[i + 3];
+                    break;
             }
 
             i += count;
         }
+
+        var entryPoints = declared
+            .Select(e => new SpirvEntryPoint(
+                e.Model,
+                e.Name,
+                WorkgroupSizeOf(e.Id, literalSize, idSize, constants, specIds)))
+            .ToList();
 
         return new SpirvModuleInfo(
             (SpirvVersion)(words[1] & 0x00FF_FF00),
             words[2],
             words[3],
             entryPoints);
+    }
+
+    /// <summary>The workgroup size declared for one entry point id, or null if it declares none.</summary>
+    /// <remarks>
+    /// Two spellings, and which one appears is decided by the shader rather than by the target.
+    /// <c>LocalSize</c> carries three literals. <c>LocalSizeId</c> carries three result ids, each
+    /// either an <c>OpConstant</c> — a dimension that just happened to be written as a constant —
+    /// or an <c>OpSpecConstant</c> carrying its declared default and a <c>SpecId</c> decoration
+    /// naming the <c>constant_id</c> the host will supply.
+    /// </remarks>
+    private static SpirvWorkgroupSize? WorkgroupSizeOf(
+        uint entryPoint,
+        Dictionary<uint, (uint X, uint Y, uint Z)> literalSize,
+        Dictionary<uint, (uint X, uint Y, uint Z)> idSize,
+        Dictionary<uint, uint> constants,
+        Dictionary<uint, uint> specIds)
+    {
+        if (literalSize.TryGetValue(entryPoint, out var literal))
+        {
+            return new SpirvWorkgroupSize(
+                new SpirvWorkgroupDimension(literal.X),
+                new SpirvWorkgroupDimension(literal.Y),
+                new SpirvWorkgroupDimension(literal.Z));
+        }
+
+        if (!idSize.TryGetValue(entryPoint, out var ids)) return null;
+
+        return new SpirvWorkgroupSize(Dimension(ids.X), Dimension(ids.Y), Dimension(ids.Z));
+
+        SpirvWorkgroupDimension Dimension(uint id) => new(
+            constants.GetValueOrDefault(id),
+            specIds.TryGetValue(id, out var spec) ? spec : null);
     }
 
     /// <summary>

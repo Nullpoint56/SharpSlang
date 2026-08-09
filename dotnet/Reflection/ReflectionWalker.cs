@@ -408,21 +408,188 @@ public static unsafe class ReflectionWalker
             var typeLayout = SlangApi.spReflectionVariableLayout_GetTypeLayout(varLayout);
             if (typeLayout is null) continue;
 
-            var space = SubElementSpace(varLayout, typeLayout);
-            if (space is null) continue;
-
-            var element = SlangApi.spReflectionTypeLayout_GetElementTypeLayout(typeLayout);
-
-            // A parameter block's own uniform data becomes an implicit constant buffer, and that
-            // descriptor lives on the *container* var layout rather than in the element's
-            // descriptor sets. Miss it and a block of pure uniform data reports no bindings at
-            // all — the block's element layout genuinely says descriptorSets=0 in that case.
-            AddContainerDescriptor(varLayout, typeLayout, element, space.Value, bySpace);
-
-            if (element is not null) CollectSets(element, space.Value, bySpace);
+            CollectSpaces(varLayout, typeLayout, parentSpace: 0, bySpace);
         }
 
+        AddUncoveredParameters(shader, bySpace);
+
         return bySpace.Select(kv => new DescriptorSet(kv.Key, kv.Value)).ToList();
+    }
+
+    /// <summary>
+    /// Collects the descriptor sets of anything that introduces a register space, and of everything
+    /// nested inside it.
+    /// </summary>
+    /// <param name="parentSpace">
+    /// The space of whatever encloses this. Sub-element offsets are relative, so the absolute space
+    /// is the running sum down the chain.
+    /// </param>
+    /// <remarks>
+    /// <para>
+    /// Recursive because the nesting is, and the recursion used to stop after one level.
+    /// <c>struct Outer { float4 c; ParameterBlock&lt;Inner&gt; inner; Texture2D o; }</c> puts
+    /// <c>inner</c> in a space of its own, one past the outer block's, and the module decorates
+    /// <c>gOuter.inner.t</c> accordingly — while the layout reported the outer set and simply
+    /// omitted the inner one. Not a wrong binding: a missing descriptor set, the same failure the
+    /// subpass inputs had.
+    /// </para>
+    /// <para>
+    /// A plain struct in the chain is not a container and has no element layout, but it does carry
+    /// an offset — measured with <c>Root { float4 c; Mid mid; Texture2D o; }</c> and
+    /// <c>Mid { float2 pad; ParameterBlock&lt;Leaf&gt; leaf; }</c>: <c>mid</c> reports 1,
+    /// <c>leaf</c> reports 0, and the module puts <c>gRoot.mid.leaf.t</c> in set 1. So the offset
+    /// has to accumulate through the struct even though the struct owns no set of its own. Taking
+    /// the offset from <c>getSubObjectRangeSpaceOffset</c> instead does not work; it reports 0 for
+    /// the same block.
+    /// </para>
+    /// </remarks>
+    private static void CollectSpaces(
+        SlangReflectionVariableLayout* varLayout,
+        SlangReflectionTypeLayout* typeLayout,
+        uint parentSpace,
+        SortedDictionary<uint, List<DescriptorRange>> bySpace)
+    {
+        // No sub-element category means it holds nothing that lives in a space of its own, so
+        // there is nothing here for this walk and nothing nested either.
+        if (SubElementSpace(varLayout, typeLayout) is not { } offset) return;
+
+        var space = parentSpace + offset;
+
+        if (SlangApi.spReflectionTypeLayout_getKind(typeLayout) == SlangTypeKind.SLANG_TYPE_KIND_STRUCT)
+        {
+            CollectNestedSpaces(typeLayout, space, bySpace);
+            return;
+        }
+
+        var element = SlangApi.spReflectionTypeLayout_GetElementTypeLayout(typeLayout);
+
+        // A parameter block's own uniform data becomes an implicit constant buffer, and that
+        // descriptor lives on the *container* var layout rather than in the element's descriptor
+        // sets. Miss it and a block of pure uniform data reports no bindings at all — the block's
+        // element layout genuinely says descriptorSets=0 in that case.
+        AddContainerDescriptor(varLayout, typeLayout, element, space, bySpace);
+
+        if (element is null) return;
+        CollectSets(element, space, bySpace);
+        CollectNestedSpaces(element, space, bySpace);
+    }
+
+    /// <summary>Walks a struct's fields for anything that introduces a space of its own.</summary>
+    private static void CollectNestedSpaces(
+        SlangReflectionTypeLayout* structLayout,
+        uint space,
+        SortedDictionary<uint, List<DescriptorRange>> bySpace)
+    {
+        if (SlangApi.spReflectionTypeLayout_getKind(structLayout) != SlangTypeKind.SLANG_TYPE_KIND_STRUCT)
+            return;
+
+        var fields = SlangApi.spReflectionTypeLayout_GetFieldCount(structLayout);
+        for (uint f = 0; f < fields; f++)
+        {
+            var fieldVar = SlangApi.spReflectionTypeLayout_GetFieldByIndex(structLayout, f);
+            if (fieldVar is null) continue;
+
+            var fieldType = SlangApi.spReflectionVariableLayout_GetTypeLayout(fieldVar);
+            if (fieldType is not null) CollectSpaces(fieldVar, fieldType, space, bySpace);
+        }
+    }
+
+    /// <summary>
+    /// Adds a range for any top-level parameter that occupies a descriptor slot no range covers.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A reconciliation pass rather than more plumbing, because the two halves of Slang's own
+    /// reflection disagree and the parameter list is the half that matches the module.
+    /// <c>SubpassInput</c> is reported as a normal parameter with a
+    /// <c>DESCRIPTOR_TABLE_SLOT</c> offset — and is absent from both the descriptor-set view and
+    /// the binding-range view, while still consuming its index. Measured with
+    /// <c>gA</c>, <c>gB</c>, <c>gOrdinary</c>: the module decorates bindings 0, 1 and 2, and
+    /// reflection offered a single range, at 2. A deferred renderer built the descriptor set layout
+    /// from that and got one binding where the shader reads three.
+    /// </para>
+    /// <para>
+    /// Coverage is checked rather than assumed so this cannot double-count: a range starting at
+    /// index <c>i</c> with <c>n</c> descriptors covers <c>i</c>..<c>i+n-1</c>, and an unbounded one
+    /// covers everything from its start. Only genuine holes are filled.
+    /// </para>
+    /// <para>
+    /// The binding type comes from the resource shape. Only the subpass case is mapped, because
+    /// only the subpass case is known to go missing; anything else lands as
+    /// <c>SLANG_BINDING_TYPE_UNKNOWN</c>, which <c>VulkanProjection.ToDescriptorType</c> refuses
+    /// loudly. A hole reported as unknown is a bug report; a hole silently given a plausible type
+    /// is the class of defect this whole exercise keeps finding.
+    /// </para>
+    /// </remarks>
+    private static void AddUncoveredParameters(
+        SlangProgramLayout* shader,
+        SortedDictionary<uint, List<DescriptorRange>> bySpace)
+    {
+        const SlangParameterCategory Slot =
+            SlangParameterCategory.SLANG_PARAMETER_CATEGORY_DESCRIPTOR_TABLE_SLOT;
+
+        var paramCount = SlangApi.spReflection_GetParameterCount(shader);
+        for (uint i = 0; i < paramCount; i++)
+        {
+            var varLayout = SlangApi.spReflection_GetParameterByIndex(shader, i);
+            var typeLayout = SlangApi.spReflectionVariableLayout_GetTypeLayout(varLayout);
+            if (typeLayout is null) continue;
+
+            // A parameter block lives in its own space; its contents were collected by recursing.
+            if (SubElementSpace(varLayout, typeLayout) is not null) continue;
+
+            var slots = SlangApi.spReflectionTypeLayout_GetSize(typeLayout, Slot);
+            if (slots == 0) continue;
+
+            var space = (uint)SlangApi.spReflectionVariableLayout_GetSpace(varLayout, Slot);
+            var index = (uint)SlangApi.spReflectionVariableLayout_GetOffset(varLayout, Slot);
+
+            if (!bySpace.TryGetValue(space, out var ranges)) bySpace[space] = ranges = [];
+            if (ranges.Any(r => Covers(r, index))) continue;
+
+            var type = SlangApi.spReflectionTypeLayout_GetType(typeLayout);
+            var shape = type is null
+                ? SlangResourceShape.SLANG_RESOURCE_NONE
+                : SlangApi.spReflectionType_GetResourceShape(type)
+                  & SlangResourceShape.SLANG_RESOURCE_BASE_SHAPE_MASK;
+
+            var variable = SlangApi.spReflectionVariableLayout_GetVariable(varLayout);
+
+            ranges.Add(new DescriptorRange(
+                shape == SlangResourceShape.SLANG_TEXTURE_SUBPASS
+                    ? SlangBindingType.SLANG_BINDING_TYPE_INPUT_RENDER_TARGET
+                    : SlangBindingType.SLANG_BINDING_TYPE_UNKNOWN,
+                index,
+                (uint)slots,
+                Slot,
+                Name: variable is null ? null : Utf8.Read(SlangApi.spReflectionVariable_GetName(variable)),
+                InputAttachmentIndex: SubpassIndex(varLayout, typeLayout)));
+        }
+
+        static bool Covers(DescriptorRange range, uint index) =>
+            range.IsUnbounded
+                ? index >= range.IndexOffset
+                : index >= range.IndexOffset && index < range.IndexOffset + Math.Max(range.DescriptorCount, 1);
+    }
+
+    /// <summary>The <c>SUBPASS</c> category offset — the module's input attachment index.</summary>
+    private static uint? SubpassIndex(
+        SlangReflectionVariableLayout* varLayout,
+        SlangReflectionTypeLayout* typeLayout)
+    {
+        var categories = SlangApi.spReflectionTypeLayout_GetCategoryCount(typeLayout);
+        for (uint c = 0; c < categories; c++)
+        {
+            if (SlangApi.spReflectionTypeLayout_GetCategoryByIndex(typeLayout, c)
+                != SlangParameterCategory.SLANG_PARAMETER_CATEGORY_SUBPASS)
+            {
+                continue;
+            }
+
+            return (uint)SlangApi.spReflectionVariableLayout_GetOffset(
+                varLayout, SlangParameterCategory.SLANG_PARAMETER_CATEGORY_SUBPASS);
+        }
+        return null;
     }
 
     /// <summary>
@@ -475,6 +642,8 @@ public static unsafe class ReflectionWalker
         SortedDictionary<uint, List<DescriptorRange>> bySpace,
         SlangReflectionVariableLayout* rebase = null)
     {
+        var leaves = ReadBindingRanges(tl);
+
         var setCount = SlangApi.spReflectionTypeLayout_getDescriptorSetCount(tl);
         for (long s = 0; s < setCount; s++)
         {
@@ -495,16 +664,72 @@ public static unsafe class ReflectionWalker
                 // -1 as a SlangInt is how Slang reports "runtime-sized". It is not a count and
                 // must not be handed to Vulkan as one.
                 var unbounded = count < 0 || (ulong)count >= uint.MaxValue;
+                var leaf = leaves.GetValueOrDefault((s, r));
 
                 ranges.Add(new DescriptorRange(
                     SlangApi.spReflectionTypeLayout_getDescriptorSetDescriptorRangeType(tl, s, r),
                     index,
                     unbounded ? 0u : (uint)count,
                     category,
-                    Name: null,
-                    IsUnbounded: unbounded));
+                    Name: leaf.Name,
+                    IsUnbounded: unbounded,
+                    ImageFormat: leaf.Format));
             }
         }
+    }
+
+    /// <summary>
+    /// The declaration behind each descriptor range of <paramref name="tl"/>, keyed by
+    /// (descriptor set, range) — a name, and an image format where there is one.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Slang models the same bindings twice. The descriptor-set view says where a range sits; the
+    /// binding-range view says what declared it, and links the two through
+    /// <c>getBindingRangeDescriptorSetIndex</c> plus <c>getBindingRangeFirstDescriptorRangeIndex</c>.
+    /// Joining them is the only way to name a binding <em>inside</em> a <c>ParameterBlock</c>:
+    /// those are not top-level parameters, so the projection's habit of recovering names by
+    /// scanning the parameter list reported every binding of Slang's own descriptor-set feature as
+    /// unnamed.
+    /// </para>
+    /// <para>
+    /// A binding range with <c>descriptorSetIndex == -1</c> is a parameter block, which lives in a
+    /// space of its own rather than in one of this layout's sets; its contents are named when the
+    /// walk recurses into the element.
+    /// </para>
+    /// <para>
+    /// <b>The image format call is guarded deliberately.</b>
+    /// <c>spReflectionTypeLayout_getBindingRangeImageFormat</c> access-violates — not returns
+    /// <c>unknown</c>, crashes the process — when asked about a <c>PARAMETER_BLOCK</c> binding
+    /// range, measured against slang-compiler 2026.14.1. Only texture-shaped ranges are asked.
+    /// </para>
+    /// </remarks>
+    private static Dictionary<(long Set, long Range), (string? Name, SlangImageFormat Format)>
+        ReadBindingRanges(SlangReflectionTypeLayout* tl)
+    {
+        var result = new Dictionary<(long, long), (string?, SlangImageFormat)>();
+
+        var count = SlangApi.spReflectionTypeLayout_getBindingRangeCount(tl);
+        for (long b = 0; b < count; b++)
+        {
+            var set = SlangApi.spReflectionTypeLayout_getBindingRangeDescriptorSetIndex(tl, b);
+            if (set < 0) continue;
+
+            var type = SlangApi.spReflectionTypeLayout_getBindingRangeType(tl, b);
+            var format = type is SlangBindingType.SLANG_BINDING_TYPE_TEXTURE
+                             or SlangBindingType.SLANG_BINDING_TYPE_MUTABLE_TETURE
+                ? SlangApi.spReflectionTypeLayout_getBindingRangeImageFormat(tl, b)
+                : SlangImageFormat.SLANG_IMAGE_FORMAT_unknown;
+
+            var variable = SlangApi.spReflectionTypeLayout_getBindingRangeLeafVariable(tl, b);
+            var name = variable is null ? null : Utf8.Read(SlangApi.spReflectionVariable_GetName(variable));
+
+            var first = SlangApi.spReflectionTypeLayout_getBindingRangeFirstDescriptorRangeIndex(tl, b);
+            var spanned = SlangApi.spReflectionTypeLayout_getBindingRangeDescriptorRangeCount(tl, b);
+            for (long r = 0; r < spanned; r++) result[(set, first + r)] = (name, format);
+        }
+
+        return result;
     }
 
     /// <summary>
@@ -547,8 +772,14 @@ public static unsafe class ReflectionWalker
             // precedence, and duplicate bindings would produce an invalid set layout.
             if (ranges.All(r => r.IndexOffset != index))
             {
+                // Named after the block, which is what the module calls it: a ParameterBlock<Frame>
+                // named gFrame decorates its implicit buffer `gFrame`, while its contents get
+                // `gFrame.shadow` and so on.
+                var variable = SlangApi.spReflectionVariableLayout_GetVariable(varLayout);
+
                 ranges.Add(new DescriptorRange(
-                    SlangBindingType.SLANG_BINDING_TYPE_CONSTANT_BUFFER, index, 1, category));
+                    SlangBindingType.SLANG_BINDING_TYPE_CONSTANT_BUFFER, index, 1, category,
+                    Name: variable is null ? null : Utf8.Read(SlangApi.spReflectionVariable_GetName(variable))));
             }
             return;
         }
@@ -617,14 +848,21 @@ public static unsafe class ReflectionWalker
                 };
 
             case SlangTypeKind.SLANG_TYPE_KIND_MATRIX:
+            {
+                var mode = SlangApi.spReflectionTypeLayout_GetMatrixLayoutMode(tl);
+                var rows = (int)SlangApi.spReflectionType_GetRowCount(type);
+                var columns = (int)SlangApi.spReflectionType_GetColumnCount(type);
+
                 return new MatrixLayout
                 {
                     Kind = LayoutKind.Matrix, Name = name, Sizes = sizes, Alignment = alignment,
                     ElementType = ElementScalar(type),
-                    RowCount = (int)SlangApi.spReflectionType_GetRowCount(type),
-                    ColumnCount = (int)SlangApi.spReflectionType_GetColumnCount(type),
-                    Mode = SlangApi.spReflectionTypeLayout_GetMatrixLayoutMode(tl),
+                    RowCount = rows,
+                    ColumnCount = columns,
+                    Mode = mode,
+                    Stride = MatrixStride(sizes, mode, rows, columns),
                 };
+            }
 
             case SlangTypeKind.SLANG_TYPE_KIND_STRUCT:
                 return new StructLayout
@@ -649,13 +887,29 @@ public static unsafe class ReflectionWalker
             }
 
             case SlangTypeKind.SLANG_TYPE_KIND_RESOURCE:
+            {
+                // A StructuredBuffer<T> keeps T's *layout* here — offsets, sizes, alignment — while
+                // GetResourceResultType hands back a bare type with none of it. Reading only the
+                // latter is how a consumer ends up knowing that a buffer holds an Instance and not
+                // how many bytes one is. Measured null on textures, samplers, byte-address and
+                // typed buffers, subpass inputs and acceleration structures, so no shape test is
+                // needed: the resources that have an element layout are exactly the ones that
+                // return one.
+                var elementLayout = SlangApi.spReflectionTypeLayout_GetElementTypeLayout(tl);
+
                 return new ResourceLayout
                 {
                     Kind = LayoutKind.Resource, Name = name, Sizes = sizes, Alignment = alignment,
                     Shape = SlangApi.spReflectionType_GetResourceShape(type),
                     Access = SlangApi.spReflectionType_GetResourceAccess(type),
                     ResultType = ReadResultType(type, cache),
+                    ElementType = elementLayout is null ? null : ReadTypeLayout(elementLayout, cache),
+                    ElementStride = elementLayout is null
+                        ? 0
+                        : SlangApi.spReflectionTypeLayout_GetStride(
+                            elementLayout, SlangParameterCategory.SLANG_PARAMETER_CATEGORY_UNIFORM),
                 };
+            }
 
             case SlangTypeKind.SLANG_TYPE_KIND_SAMPLER_STATE:
                 return new OpaqueLayout
@@ -786,6 +1040,30 @@ public static unsafe class ReflectionWalker
         }
 
         return attributes.Count > 0 ? attributes : null;
+    }
+
+    /// <summary>
+    /// Bytes from one row to the next (row-major) or one column to the next (column-major).
+    /// </summary>
+    /// <remarks>
+    /// Derived, because Slang will not say: <c>GetStride</c> on a matrix returns the whole matrix's
+    /// footprint and <c>GetElementStride</c> returns 0. Measured against the module's
+    /// <c>MatrixStride</c> decoration for 4x4, 3x3, 2x4 and 4x2 under both layout modes — always
+    /// the total divided by the number of entries along the major axis, and always 16 in practice
+    /// for a float matrix in a constant buffer.
+    /// </remarks>
+    private static ulong MatrixStride(
+        IReadOnlyList<CategorySize> sizes,
+        SlangMatrixLayoutMode mode,
+        int rows,
+        int columns)
+    {
+        var total = sizes
+            .FirstOrDefault(s => s.Category == SlangParameterCategory.SLANG_PARAMETER_CATEGORY_UNIFORM)
+            .Size;
+
+        var major = mode == SlangMatrixLayoutMode.SLANG_MATRIX_LAYOUT_COLUMN_MAJOR ? columns : rows;
+        return major <= 0 ? 0 : total / (ulong)major;
     }
 
     private static SlangScalarType ElementScalar(SlangReflectionType* type)

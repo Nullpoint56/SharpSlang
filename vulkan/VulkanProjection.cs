@@ -31,8 +31,13 @@ public static class VulkanProjection
                     ToDescriptorType(r.BindingType),
                     r.DescriptorCount,
                     stages,
-                    names.GetValueOrDefault(r.IndexOffset),
-                    r.IsUnbounded))
+                    // The range's own name where the walk could attribute one — that is the only
+                    // source that reaches inside a ParameterBlock. The scan below is the fallback
+                    // for ranges Slang's binding-range view does not cover.
+                    r.Name ?? names.GetValueOrDefault(r.IndexOffset),
+                    r.IsUnbounded,
+                    r.InputAttachmentIndex,
+                    r.ImageFormat))
                 .OrderBy(b => b.Binding)
                 .ToList();
 
@@ -46,8 +51,25 @@ public static class VulkanProjection
             VertexInputs = VertexInputs(layout),
             FragmentOutputs = FragmentOutputs(layout),
             SpecializationConstants = layout.SpecializationMap(),
+            Stages = Stages(layout),
         };
     }
+
+    /// <summary>The program's entry points as pipeline stages.</summary>
+    /// <remarks>
+    /// A specialized workgroup size arrives here as the zeros Slang reports, but carrying the flag
+    /// that says so — which is what stops <see cref="VulkanWorkgroupSize.GroupCountFor"/> dividing
+    /// by one of them. Use <see cref="VulkanWorkgroupSize.From"/> with the emitted module to get
+    /// the declared defaults and the constant ids.
+    /// </remarks>
+    private static List<VulkanStage> Stages(ProgramLayout layout) => layout.EntryPoints
+        .Select(e => new VulkanStage(
+            e.Name,
+            ToStage(e.Stage),
+            e.ThreadGroupSize is { } t
+                ? new VulkanWorkgroupSize((uint)t.X, (uint)t.Y, (uint)t.Z, t.IsSpecialized)
+                : null))
+        .ToList();
 
     /// <summary>
     /// Colour attachments the fragment stage writes, ordered by location.
@@ -130,6 +152,16 @@ public static class VulkanProjection
             SlangBindingType.SLANG_BINDING_TYPE_INLINE_UNIFORM_DATA => VulkanDescriptorType.InlineUniformBlock,
             SlangBindingType.SLANG_BINDING_TYPE_RAY_TRACING_ACCELERATION_STRUCTURE =>
                 VulkanDescriptorType.AccelerationStructureKhr,
+
+            // Only reachable from the reconciliation pass in ReflectionWalker, which fills holes
+            // Slang leaves in its own descriptor-set view and types them from the resource shape.
+            // A shape it does not recognise arrives here rather than being given a plausible type.
+            SlangBindingType.SLANG_BINDING_TYPE_UNKNOWN => throw new NotSupportedException(
+                "this shader binds something Slang omitted from its descriptor-set reflection and " +
+                "whose resource shape PrismSlang does not recognise, so its descriptor type cannot " +
+                "be determined. The binding is real — the module decorates it — so this is a gap in " +
+                "PrismSlang rather than a shader error; the parameter name is on the binding. " +
+                "See ReflectionWalker.AddUncoveredParameters."),
 
             _ => throw new NotSupportedException(
                 $"Slang binding type {binding} has no Vulkan descriptor type. If this is a real " +
