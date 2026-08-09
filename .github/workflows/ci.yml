@@ -103,13 +103,24 @@ jobs:
       - name: The validation-layer tests actually ran
         if: matrix.rid == 'linux-x64'
         run: |
-          # `|| true` on the grep: no match is a real outcome here — it means the run summarised as
-          # Skipped! — and the check below is what should report it, not a pipeline that died.
-          output=$(dotnet test PrismSlang.slnx -c Release --no-build --nologo \
-            --filter "FullyQualifiedName~VulkanValidationTests" --logger "console;verbosity=detailed")
-          echo "$output"
-          summary=$(echo "$output" | grep -E '^(Passed|Failed|Skipped)!' || true)
-          passed=$(echo "$summary" | sed -n 's/.*Passed: *\([0-9]*\).*/\1/p')
+          # The count comes from the TRX, not from the console. The first version of this step
+          # scraped the one-line "Passed!  - Failed: 0, Passed: 2, ..." summary, which is what the
+          # default console logger prints — and then gained a
+          # `--logger "console;verbosity=detailed"` for a better log, which prints a multi-line
+          # block instead and no such line at all. It reported "only 0 ran" on a run where two had
+          # passed. TRX has a <Counters> element and does not change shape to suit a verbosity.
+          #
+          # The detailed console logger stays, because it is what puts the skip reason in the log.
+          dotnet test PrismSlang.slnx -c Release --no-build --nologo \
+            --filter "FullyQualifiedName~VulkanValidationTests" \
+            --logger "console;verbosity=detailed" \
+            --logger "trx;LogFileName=vulkan.trx" \
+            --results-directory vulkan-results
+
+          counters=$(grep -o '<Counters [^>]*>' vulkan-results/vulkan.trx | head -1)
+          echo "$counters"
+          passed=$(echo "$counters" | sed -n 's/.*[^a-z]passed="\([0-9]*\)".*/\1/p')
+
           if [ "${passed:-0}" -lt 2 ]; then
             echo "::error::only ${passed:-0} validation-layer test(s) ran. lavapipe or the layers did not load; the skip reason is in the output above."
             exit 1
