@@ -34,6 +34,23 @@ public sealed record ShaderParameter(
     uint SemanticIndex = 0,
     IReadOnlyList<UserAttribute>? Attributes = null)
 {
+    /// <summary>
+    /// Whether this is a specialization constant rather than something bound at draw time.
+    /// </summary>
+    /// <remarks>
+    /// Worth checking before treating any parameter as a descriptor. Slang reports specialization
+    /// constants in the same top-level parameter list as textures and buffers, with a binding
+    /// index that is really the <c>constant_id</c> and a space that is always 0 — so a
+    /// <c>[vk::constant_id(0)]</c> constant and the descriptor at set 0 binding 0 are
+    /// indistinguishable by index alone. See <see cref="ProgramLayout.SpecializationConstants"/>
+    /// for the extracted form.
+    /// </remarks>
+    [JsonIgnore]
+    public bool IsSpecializationConstant =>
+        Bindings.Count > 0
+        && Bindings.All(b =>
+            b.Category == SlangParameterCategory.SLANG_PARAMETER_CATEGORY_SPECIALIZATION_CONSTANT);
+
     /// <summary>The primary binding — the first non-uniform one, else the first of any kind.</summary>
     [JsonIgnore]
     public ParameterBinding? PrimaryBinding =>
@@ -105,6 +122,68 @@ public sealed record EntryPointLayout(
 public readonly record struct ThreadGroupSize(ulong X, ulong Y, ulong Z)
 {
     public override string ToString() => $"[{X}, {Y}, {Z}]";
+}
+
+/// <summary>
+/// A constant whose value is supplied when the pipeline is created rather than when the shader is
+/// compiled — <c>VkSpecializationInfo</c> on Vulkan, <c>OpSpecConstant</c> in the module.
+/// </summary>
+/// <param name="Name">Declared name.</param>
+/// <param name="ConstantId">
+/// The id the two sides agree on: <c>constant_id</c> in the shader,
+/// <c>VkSpecializationMapEntry::constantID</c> in the host. Explicit when the declaration gave one,
+/// assigned by Slang otherwise.
+/// </param>
+/// <param name="ScalarType">
+/// What kind of value it takes. This is where the byte size comes from — see
+/// <see cref="ProgramLayout.SpecializationConstants"/>.
+/// </param>
+/// <param name="DefaultInt">The declared default, for an integral or boolean constant.</param>
+/// <param name="DefaultFloat">The declared default, for a floating-point constant.</param>
+/// <remarks>
+/// Declare one of these as <c>[vk::constant_id(N)] const int kFoo = 4;</c> for an explicit id, or
+/// <c>[SpecializationConstant] const int kFoo = 4;</c> to let Slang assign one. Both forms are
+/// verified against the emitted module's <c>SpecId</c> decorations by
+/// <c>SpecializationConstantTests</c>; a plain <c>const int</c> without an attribute is a compile
+/// error in Slang ("global const variable with initializer must be declared static").
+/// </remarks>
+public sealed record SpecializationConstant(
+    string Name,
+    uint ConstantId,
+    SlangScalarType ScalarType,
+    long? DefaultInt = null,
+    double? DefaultFloat = null)
+{
+    /// <summary>
+    /// Size in bytes of the value, as the host must supply it.
+    /// </summary>
+    /// <remarks>
+    /// Derived from <see cref="ScalarType"/>, not from Slang's reported size. Slang measures a
+    /// specialization constant in the <c>SPECIALIZATION_CONSTANT</c> category, where the answer is
+    /// always 1 — one constant, not one byte — and its uniform size is 0. Using either would write
+    /// a one-byte or zero-byte <c>VkSpecializationMapEntry</c> for a four-byte int.
+    ///
+    /// Booleans are 4, not 1: Vulkan requires the data for a boolean specialization constant to be
+    /// a <c>VkBool32</c>.
+    /// </remarks>
+    [JsonIgnore]
+    public uint ByteSize => ScalarType switch
+    {
+        SlangScalarType.SLANG_SCALAR_TYPE_BOOL => 4,
+        SlangScalarType.SLANG_SCALAR_TYPE_INT8 or SlangScalarType.SLANG_SCALAR_TYPE_UINT8 => 1,
+        SlangScalarType.SLANG_SCALAR_TYPE_INT16 or SlangScalarType.SLANG_SCALAR_TYPE_UINT16
+            or SlangScalarType.SLANG_SCALAR_TYPE_FLOAT16 => 2,
+        SlangScalarType.SLANG_SCALAR_TYPE_INT64 or SlangScalarType.SLANG_SCALAR_TYPE_UINT64
+            or SlangScalarType.SLANG_SCALAR_TYPE_FLOAT64 => 8,
+        _ => 4,
+    };
+
+    /// <summary>Whether the value is floating point, and so which default field carries it.</summary>
+    [JsonIgnore]
+    public bool IsFloatingPoint => ScalarType
+        is SlangScalarType.SLANG_SCALAR_TYPE_FLOAT16
+        or SlangScalarType.SLANG_SCALAR_TYPE_FLOAT32
+        or SlangScalarType.SLANG_SCALAR_TYPE_FLOAT64;
 }
 
 /// <summary>What a program-level specialisation parameter expects.</summary>
@@ -260,6 +339,17 @@ public sealed record ProgramLayout
     public IReadOnlyList<string> HashedStrings { get; init; } = [];
 
     /// <summary>
+    /// Specialization constants, ordered by id — everything needed to build a
+    /// <c>VkSpecializationInfo</c> without either side hardcoding an id.
+    /// </summary>
+    /// <remarks>
+    /// Extracted from <see cref="Parameters"/> rather than replacing them: a specialization
+    /// constant genuinely is a top-level parameter as far as Slang is concerned, and the parameter
+    /// list stays a faithful report of what Slang said. This is the usable form.
+    /// </remarks>
+    public IReadOnlyList<SpecializationConstant> SpecializationConstants { get; init; } = [];
+
+    /// <summary>
     /// Generic parameters still awaiting concrete types. Non-empty means the program was linked
     /// without specialisation and cannot generate code yet.
     /// </summary>
@@ -283,6 +373,10 @@ public sealed record ProgramLayout
     /// <summary>Finds an entry point by name, or null.</summary>
     public EntryPointLayout? EntryPoint(string name) =>
         EntryPoints.FirstOrDefault(e => string.Equals(e.Name, name, StringComparison.Ordinal));
+
+    /// <summary>Finds a specialization constant by name, or null.</summary>
+    public SpecializationConstant? SpecializationConstant(string name) =>
+        SpecializationConstants.FirstOrDefault(c => string.Equals(c.Name, name, StringComparison.Ordinal));
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {

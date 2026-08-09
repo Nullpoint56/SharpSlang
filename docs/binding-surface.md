@@ -602,19 +602,21 @@ constant buffer, a texture, a sampler, and varyings specifically so there is som
 
 ## 9. Status
 
-All five layers are built and green on **win-x64 and linux-x64**: 99 tests, the Tier 0 spike, and
+All five layers are built and green on **win-x64 and linux-x64**: 216 tests, the Tier 0 spike, and
 a full reflection walk on both.
 
 | Layer | State |
 |---|---|
 | L0 raw | generated; 280 `DllImport`, 383 vtable sites, 27 IIDs, ~5,100 lines |
-| L1 interop | UTF-8, blobs, diagnostics, result codes, descriptor defaults, **ownership** |
+| L1 interop | UTF-8, blobs, diagnostics + severity policy, result codes, defaults, **ownership** |
 | L2 compilation | `SlangGlobalSession` → `SlangSession` → `SlangModule` → `LinkedProgram` |
 | L2 Tier 2 | type lookup, specialisation, type conformances, subtype checks, link-time options |
-| L3 reflection | type tree + bindings + descriptor sets + generics + declaration tree |
+| L2 target env | pinned SPIR-V version, emitted-module verification, entry-point naming |
+| L3 reflection | type tree + bindings + descriptor sets + generics + declarations + spec constants |
+| L3 SPIR-V | header and `OpEntryPoint` reader, for facts reflection cannot report |
 | L4 hosting | managed `ISlangFileSystem` via `[UnmanagedCallersOnly]` thunks |
-| Baking | `ShaderPackage`: SPIR-V + layout + version + source hash in one container |
-| `PrismSlang.Vulkan` | separate package: descriptor sets, push constants, vertex inputs |
+| Baking | `ShaderPackage`: SPIR-V + layout + module entry-point name + version + source hash |
+| `PrismSlang.Vulkan` | separate package: descriptor sets, push constants, vertex inputs, `VkSpecializationInfo`, target-env mapping |
 
 | Supporting | State |
 |---|---|
@@ -622,7 +624,7 @@ a full reflection walk on both.
 | `fetch-native.ps1` | win-x64 + linux-x64 verified; osx-arm64 mapped, unrun |
 | `tools/ci/verify-linux.sh` | build + tests + spike under WSL |
 | `.github/workflows` | CI matrix, regeneration check, package-contents check, publish |
-| Tests | 125 across drift, compilation, reflection, Vulkan, hosting, generics, baking, link options |
+| Tests | 216 across drift, compilation, reflection, Vulkan, hosting, generics, baking, link options, SPIR-V, entry-point naming, target env, diagnostics, spec constants |
 
 Package sizes tell the story of the split: `PrismSlang` is 34 MB (it carries the compiler for every
 RID), `PrismSlang.Vulkan` is **10 KB**. A D3D12 consumer pays nothing for Vulkan.
@@ -687,10 +689,15 @@ SPIR-V for one shader:
 | `Optimization` | **works** — None 2,052 B / default 1,868 / Maximal 1,668 |
 | `FloatingPointMode` | **works** — Precise +36 B (Fast matches the default, because Fast *is* the default) |
 | `DebugInformation` | none — session/target-level, not link-level |
-| `VulkanUseEntryPointName` | none, and redundant: Slang already emits the entry point's own name |
+| `VulkanUseEntryPointName` | none *at link time*; works on the session or target — see §9.8 |
+| `Capability` | none — `spirv_1_6` still emits 1.5. The profile is the only version knob |
 
-The last two are reachable via `RawEntries` if a future release honours them. A test asserts that a
-raw entry and its typed equivalent produce byte-identical output, so the escape hatch cannot rot.
+The ineffective three are reachable via `RawEntries` if a future release honours them. A test
+asserts that a raw entry and its typed equivalent produce byte-identical output, so the escape hatch
+cannot rot.
+
+> An earlier version of this table said `VulkanUseEntryPointName` had no effect **and** was
+> redundant because Slang already emitted the entry point's own name. Both halves were wrong. §9.8.
 
 ### 9.6 Where value generics live
 
@@ -708,5 +715,127 @@ which is why the declaration tree is the right home for it.
 
 - **osx-arm64** — RID mapped in `fetch-native.ps1`, never executed. Same class of risk linux-x64
   turned out to carry, so treat it as unverified rather than probably-fine.
-- **CI has never run.** The workflows are written and every step rehearsed locally, but no push has
-  exercised them on GitHub's runners, and the YAML has not been machine-validated.
+- **CI has never fully run.** The workflows are written and every step rehearsed locally, but the
+  YAML has not been machine-validated.
+- **Per-stage descriptor visibility.** `VulkanProjection` reports every program stage on every
+  binding. Conservative and safe, but a renderer wanting tight `stageFlags` still has to narrow
+  them itself. Slang's global-scope reflection does not attribute a parameter to entry points, so
+  closing this needs a per-entry-point walk rather than more plumbing.
+
+---
+
+### 9.8 Four findings from the first consumer
+
+The engine team integrated PrismSlang and hit four things. Two were real gaps; **one was a defect in
+this document that a consumer then built on**, which is the entry worth reading.
+
+#### A. The entry point in the module is called `main`
+
+`PipelineBuilder` hardcoded `"main"` in `VkPipelineShaderStageCreateInfo::pName`, and the report was
+that this must be wrong because Slang emits each entry point under its own name — citing §9.5's
+claim above and the Tier 0 spike, which printed `vertexMain` and `fragmentMain` next to each
+generated module.
+
+The claim was wrong and so was the spike's presentation. Measured by parsing `OpEntryPoint` out of
+the emitted modules:
+
+| Path | Name in the module |
+|---|---|
+| `getEntryPointCode` | **`main`**, whatever the Slang function is called |
+| `getEntryPointCode` + `VulkanUseEntryPointName` on the **session** or **target** | the Slang name |
+| `getEntryPointCode` + the same option at **link** time | `main` — the option is ignored there |
+| `getTargetCode` (whole program) | the Slang names, necessarily: one module, several stages |
+
+The spike had never read a name back. It printed the Slang names it had been *handed*, beside the
+bytes, which reads exactly like a report about the bytes. Nothing checked, so the wrong impression
+propagated into this document and out to a consumer, where the two errors cancelled: hardcoding
+`"main"` was in fact correct, for a reason opposite to the one everyone believed.
+
+The fix is not to pick a side. It is that **nobody derives the name**:
+
+- `LinkedProgram.GetSpirvEntryPoint` reads it from the module.
+- `BakedEntryPoint` carries `Name` (Slang, for lookup) and `ModuleEntryPointName` (for `pName`) as
+  separate fields, and a test asserts the recorded name matches the accompanying bytes under both
+  settings of the option.
+- The spike prints both columns.
+- `TargetOptions.UseEntryPointNameInSpirv` exposes the option at the level where it works.
+
+#### B. Specialization constants were reflected but unusable
+
+The data was already there — and unfindable. Slang reports a specialization constant as a top-level
+shader parameter in category `SPECIALIZATION_CONSTANT`, whose binding **offset is the
+`constant_id`**. Verified against the emitted module's `SpecId` decorations for explicit,
+non-contiguous (`9`) and Slang-assigned ids alike.
+
+Three traps, all measured:
+
+- **The reported size is `1`.** That is one *slot* in the specialization-constant category, not one
+  byte; the uniform size is `0`. Using either would write a one- or zero-byte
+  `VkSpecializationMapEntry` for a four-byte int, so `ByteSize` comes from the scalar type. Booleans
+  are 4 — Vulkan wants a `VkBool32`.
+- **`GetDefaultValueFloat` succeeds on integers.** `uint kFlags = 7` returns `SLANG_OK` from *both*
+  default-value getters. Probing in the wrong order silently turns integers into floats, so the
+  walker dispatches on the declared scalar type instead.
+- **Spec constants collide with descriptors in the parameter list.** They report space 0 and an
+  index that is really the constant id, so `[vk::constant_id(0)]` occupies the same
+  (space 0, index 0) coordinates as the descriptor at set 0 binding 0 — and they come *first*. This
+  was a live bug: `VulkanProjection`'s first-writer-wins name table labelled real descriptors with
+  constant names. Found by measuring, not by the complaint.
+
+Surfaced as `ProgramLayout.SpecializationConstants` (neutral) and
+`VulkanSpecialization.Pack` / `VulkanPipelineLayout.SpecializationConstants` (map entries plus a
+packed buffer). Supplying a name the shader does not declare throws rather than no-ops — a material
+referring to a removed constant means the two have drifted, and silently leaving the shader on its
+default is the version of that failure nobody can see.
+
+On the related point: program-level specialisation being type-only (§9.6) does push archetype and
+feature variants toward generics at cook time. That is the better answer independently, and it
+shrinks the variant problem rather than solving it — spec constants are still needed for the axes
+that stay dynamic.
+
+#### C. A missing spirv-opt is silent after the first shader
+
+Real, and worse than reported. With `slang-glslang` absent, `getEntryPointCode` **succeeds** and
+emits unoptimised SPIR-V, reporting:
+
+```
+error[E00100]: failed to load downstream compiler 'spirv-opt'
+note[E99996]: failed to load dynamic library 'slang-glslang'
+```
+
+Measured on `LinkOptionsTests`' shader: 2,048 bytes without, 1,864 at Slang's default and 1,664 at
+maximal with — a 23% regression against optimised output. And the diagnostic fires **once per global
+session**: six compiles across two global sessions produced exactly two messages, so shaders 2..n of
+every batch are silently oversized with nothing said at all.
+
+That frequency is why two mechanisms were needed, not one:
+
+- `SlangDiagnostics.Policy` defaults to `ThrowOnError`, so an error-severity diagnostic on a
+  successful call throws instead of scrolling past. Necessary, but it only catches the first shader.
+- `GlobalSessionOptions.RequireSpirvOptimizer` defaults to on and calls
+  `checkPassThroughSupport(SPIRV_OPT)` at session creation — deterministic, ordering-independent,
+  and before a single shader is compiled. Opt out for a deliberate `-Profile Minimal` deployment.
+
+CI asserts the library is both staged and packed; `DownstreamCompilerTests` asserts it is loadable
+*and* that optimised output is actually smaller, so a present-but-inert library fails too.
+
+#### D. The target environment is now pinned and checked
+
+Slang has no `-fspv-target-env`. The SPIR-V version comes from the target profile and nothing else:
+every `spirv_1_0`..`spirv_1_6` profile emits exactly the header version it names, and a link-time
+`-capability spirv_1_6` is silently ignored. Unset, Slang emits 1.5 — which is where the spike's 1.5
+came from: a default, not a decision.
+
+- `TargetOptions.SpirvVersion` names it. Null means "not specified", which is deliberately not the
+  same state as 1.5, so an existing caller can pin `Profile = "spirv_1_6"` alone without being told
+  it contradicts a version they never chose. Setting both to different versions is rejected at
+  session creation rather than resolved by precedence.
+- `TargetOptions.VerifyEmittedSpirv` (on by default) checks the emitted header against the request.
+- `VulkanEnvironment.MaxSpirvVersion` maps Vulkan version to ceiling. Note 1.4 raises no ceiling
+  over 1.3 — both cap at SPIR-V 1.6 — so "the device is 1.4" does not by itself say what to emit.
+  Retired DXC's `vulkan1.3` meant SPIR-V 1.6, so matching the old pipeline means asking for 1.6.
+
+Also measured while pinning this: `spirv_1_0`, `1_1` and `1_2` each emit the header version they
+name *and* `warning[E50011]: SPIR-V version too old` on a successful compile; `1_3` upward are
+clean. Another diagnostic-on-success, and the live test case for the severity classifier that
+decides whether one of these fails a build.

@@ -15,7 +15,7 @@
 //   source    32 bytes                     SHA-256 of the source, for staleness checks
 //   layout    length-prefixed UTF-8 JSON   the reflection snapshot
 //   count     uint32                       number of entry points
-//   entries   [ name, stage, length, bytes ] * count
+//   entries   [ name, moduleEntryPointName, stage, spirvVersion, length, bytes ] * count
 //
 // All integers little-endian. BinaryReader/Writer default to that on every platform .NET targets,
 // and the format is not intended for cross-endian transport.
@@ -24,14 +24,36 @@ using System.Security.Cryptography;
 using System.Text;
 using PrismSlang.Native;
 using PrismSlang.Reflection;
+using PrismSlang.Spirv;
 
 namespace PrismSlang.Baking;
 
 /// <summary>Compiled code for one entry point.</summary>
-/// <param name="Name">Entry point function name.</param>
+/// <param name="Name">Entry point function name, as declared in Slang.</param>
 /// <param name="Stage">Pipeline stage, so a loader can build pipelines without re-reflecting.</param>
 /// <param name="Code">Target code — SPIR-V for a Vulkan build.</param>
-public sealed record BakedEntryPoint(string Name, SlangStage Stage, byte[] Code);
+/// <param name="ModuleEntryPointName">
+/// The entry point's name <em>inside</em> <paramref name="Code"/> — what goes in
+/// <c>VkPipelineShaderStageCreateInfo::pName</c>. Read from the module, never assumed.
+/// </param>
+/// <param name="SpirvVersion">
+/// The SPIR-V version of <paramref name="Code"/>, so a loader can reject a module its device
+/// cannot accept before handing it to the driver. <c>Unspecified</c> for a non-SPIR-V target.
+/// </param>
+/// <remarks>
+/// <paramref name="Name"/> and <paramref name="ModuleEntryPointName"/> are separate members
+/// because they are separate things, and conflating them is the single most likely way to get a
+/// pipeline that fails to create. Slang names every per-entry-point module <c>main</c> by default,
+/// whatever the function was called; <c>TargetOptions.UseEntryPointNameInSpirv</c> makes it use the
+/// Slang name instead. Look up shaders by <paramref name="Name"/>; hand the driver
+/// <paramref name="ModuleEntryPointName"/>.
+/// </remarks>
+public sealed record BakedEntryPoint(
+    string Name,
+    SlangStage Stage,
+    byte[] Code,
+    string ModuleEntryPointName = "main",
+    SpirvVersion SpirvVersion = SpirvVersion.Unspecified);
 
 /// <summary>
 /// A compiled shader and its layout, ready to ship. Load with <see cref="ReadFrom"/> and the
@@ -40,7 +62,13 @@ public sealed record BakedEntryPoint(string Name, SlangStage Stage, byte[] Code)
 public sealed class ShaderPackage
 {
     private const uint Magic = 0x424C5350; // "PSLB" little-endian
-    private const uint FormatVersion = 1;
+
+    // 2 added the module entry point name and SPIR-V version per entry point. Version 1 packages
+    // cannot be upgraded in place — the module name is only recoverable by parsing the SPIR-V,
+    // which is exactly what a loader should not have to do — so ReadFrom rejects them and says
+    // rebake. Rebaking is cheap; a package that silently reports "main" for a module that says
+    // otherwise is not.
+    private const uint FormatVersion = 2;
 
     /// <summary>The Slang build that produced this package, e.g. <c>2026.14.1</c>.</summary>
     public required string SlangVersion { get; init; }
@@ -93,10 +121,26 @@ public sealed class ShaderPackage
         for (var i = 0; i < program.EntryPointNames.Count; i++)
         {
             var name = program.EntryPointNames[i];
+            var code = program.GetEntryPointCodeBytes(i, targetIndex);
+
+            // Read the module's own name and version rather than deriving them. This is the whole
+            // point of baking: the runtime should never need to parse SPIR-V or know Slang's
+            // naming rules, and neither should the pipeline builder.
+            var moduleName = "main";
+            var spirvVersion = SpirvVersion.Unspecified;
+            if (SpirvModule.IsSpirv(code))
+            {
+                var module = SpirvModule.Read(code);
+                spirvVersion = module.Version;
+                if (module.EntryPoints.Count == 1) moduleName = module.EntryPoints[0].Name;
+            }
+
             entryPoints.Add(new BakedEntryPoint(
                 name,
                 layout.EntryPoint(name)?.Stage ?? SlangStage.SLANG_STAGE_NONE,
-                program.GetEntryPointCodeBytes(i, targetIndex)));
+                code,
+                moduleName,
+                spirvVersion));
         }
 
         return new ShaderPackage
@@ -128,7 +172,9 @@ public sealed class ShaderPackage
         foreach (var e in EntryPoints)
         {
             w.Write(e.Name);
+            w.Write(e.ModuleEntryPointName);
             w.Write((uint)e.Stage);
+            w.Write((uint)e.SpirvVersion);
             w.Write((uint)e.Code.Length);
             w.Write(e.Code);
         }
@@ -148,7 +194,7 @@ public sealed class ShaderPackage
         var version = r.ReadUInt32();
         if (version != FormatVersion)
             throw new InvalidDataException(
-                $"shader package format version {version}, this build reads {FormatVersion}");
+                $"shader package format version {version}, this build reads {FormatVersion}. Rebake.");
 
         var slangVersion = r.ReadString();
         var sourceHash = r.ReadBytes(32);
@@ -159,9 +205,12 @@ public sealed class ShaderPackage
         for (var i = 0u; i < count; i++)
         {
             var name = r.ReadString();
+            var moduleName = r.ReadString();
             var stage = (SlangStage)r.ReadUInt32();
+            var spirvVersion = (SpirvVersion)r.ReadUInt32();
             var length = r.ReadUInt32();
-            entryPoints.Add(new BakedEntryPoint(name, stage, r.ReadBytes((int)length)));
+            entryPoints.Add(new BakedEntryPoint(
+                name, stage, r.ReadBytes((int)length), moduleName, spirvVersion));
         }
 
         return new ShaderPackage

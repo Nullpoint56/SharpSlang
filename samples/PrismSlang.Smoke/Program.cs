@@ -5,11 +5,11 @@
 // Compare against git history: the pointer plumbing, manual release() calls, and stackalloc
 // component arrays are all gone.
 
-using System.Runtime.InteropServices;
 using PrismSlang;
 using PrismSlang.Interop;
 using PrismSlang.Native;
 using PrismSlang.Reflection;
+using PrismSlang.Spirv;
 
 const string Source = """
     // A constant buffer, a texture, a sampler, varyings, and two stages — enough that Tier 1
@@ -55,7 +55,7 @@ try
     using var global = SlangGlobalSession.Create();
     using var session = global.CreateSession(new SessionOptions
     {
-        Targets = [new TargetOptions { Profile = "spirv_1_5" }],
+        Targets = [new TargetOptions { SpirvVersion = SpirvVersion.V1_5 }],
         MatrixLayout = SlangMatrixLayoutMode.SLANG_MATRIX_LAYOUT_ROW_MAJOR,
     });
 
@@ -73,6 +73,20 @@ try
     {
         using var code = program.GetEntryPointCode(i);
         if (!Validate(code.Span, program.EntryPointNames[i])) failures++;
+    }
+
+    // The name in the module is not the name of the Slang function, and printing only the latter
+    // beside each module — which this spike used to do — reads as if it were. That impression
+    // reached a consumer, which then hardcoded the wrong half. Print both.
+    Console.WriteLine("\n  entry point names:");
+    Console.WriteLine($"    {"slang",-14} {"in module",-14} note");
+    for (var i = 0; i < program.EntryPointNames.Count; i++)
+    {
+        var ep = program.GetSpirvEntryPoint(i);
+        var note = ep.Name == program.EntryPointNames[i]
+            ? ""
+            : "<- this is what goes in VkPipelineShaderStageCreateInfo::pName";
+        Console.WriteLine($"    {program.EntryPointNames[i],-14} {ep.Name,-14} {note}");
     }
 
     // Tier 1 — walk the reflection. The snapshot is immutable managed data and outlives `program`.
@@ -141,23 +155,17 @@ static string Short(SlangScalarType s) => s.ToString()
 /// <summary>Structural check on the emitted module: magic number, version, word alignment.</summary>
 static bool Validate(ReadOnlySpan<byte> spirv, string entryPoint)
 {
-    const uint SpirvMagic = 0x07230203;
-
-    if (spirv.Length < 20 || spirv.Length % 4 != 0)
+    try
     {
-        Console.WriteLine($"  [!!] {entryPoint}: {spirv.Length} bytes — not a whole number of SPIR-V words");
+        var module = SpirvModule.Read(spirv);
+        Console.WriteLine(
+            $"  [ok] {entryPoint,-13} {spirv.Length,6} bytes  " +
+            $"SPIR-V {module.Version.ToDisplayString()}  bound={module.Bound}");
+        return true;
+    }
+    catch (InvalidDataException ex)
+    {
+        Console.WriteLine($"  [!!] {entryPoint}: {ex.Message}");
         return false;
     }
-
-    var words = MemoryMarshal.Cast<byte, uint>(spirv);
-    if (words[0] != SpirvMagic)
-    {
-        Console.WriteLine($"  [!!] {entryPoint}: magic 0x{words[0]:X8}, expected 0x{SpirvMagic:X8}");
-        return false;
-    }
-
-    Console.WriteLine(
-        $"  [ok] {entryPoint,-13} {spirv.Length,6} bytes  " +
-        $"SPIR-V {(words[1] >> 16) & 0xFF}.{(words[1] >> 8) & 0xFF}  bound={words[3]}");
-    return true;
 }

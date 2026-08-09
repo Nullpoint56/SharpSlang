@@ -43,6 +43,7 @@ public static class VulkanProjection
             DescriptorSets = sets,
             PushConstants = PushConstants(layout),
             VertexInputs = VertexInputs(layout),
+            SpecializationConstants = layout.SpecializationMap(),
         };
     }
 
@@ -255,11 +256,24 @@ public static class VulkanProjection
         return stages;
     }
 
+    /// <summary>
+    /// Names for the bindings of one space, so a descriptor can be reported as "albedo" rather
+    /// than "set 0 binding 1".
+    /// </summary>
+    /// <remarks>
+    /// Specialization constants are skipped, and skipping them is load-bearing rather than tidy.
+    /// Slang reports them as top-level parameters whose binding index is really the
+    /// <c>constant_id</c> and whose space is always 0, so <c>[vk::constant_id(0)] const int
+    /// kLightCount</c> claims exactly the same (space 0, index 0) coordinates as the descriptor at
+    /// set 0 binding 0. They also come first in the parameter list, so without this filter the
+    /// first-writer-wins <c>TryAdd</c> below labelled real descriptors with constant names.
+    /// </remarks>
     private static Dictionary<uint, string> NamesForSpace(ProgramLayout layout, uint space)
     {
         var names = new Dictionary<uint, string>();
         foreach (var p in layout.Parameters)
         {
+            if (p.IsSpecializationConstant) continue;
             if (p.DescriptorSet != space) continue;
             var b = p.PrimaryBinding;
             if (b is not null) names.TryAdd(b.Value.Index, p.Name);

@@ -2,6 +2,7 @@
 
 using PrismSlang.Interop;
 using PrismSlang.Native;
+using PrismSlang.Spirv;
 
 namespace PrismSlang;
 
@@ -12,11 +13,27 @@ namespace PrismSlang;
 public sealed unsafe class LinkedProgram : SlangObject<IComponentType>
 {
     private readonly string[] _entryPointNames;
+    private readonly IReadOnlyList<TargetOptions> _targets;
 
-    internal LinkedProgram(IComponentType* owned, string[] entryPointNames, SlangSession owner)
-        : base(owned, nameof(LinkedProgram), owner) => _entryPointNames = entryPointNames;
+    internal LinkedProgram(
+        IComponentType* owned,
+        string[] entryPointNames,
+        SlangSession owner,
+        IReadOnlyList<TargetOptions> targets)
+        : base(owned, nameof(LinkedProgram), owner)
+    {
+        _entryPointNames = entryPointNames;
+        _targets = targets;
+    }
 
-    /// <summary>Entry point names, in the order they were linked. Index into these for code retrieval.</summary>
+    /// <summary>
+    /// Entry point names <em>as declared in Slang</em>, in the order they were linked. Index into
+    /// these for code retrieval.
+    /// </summary>
+    /// <remarks>
+    /// Not the names the emitted SPIR-V uses. Those come from the module — see
+    /// <see cref="GetSpirvEntryPoint"/> — and by default they are all <c>main</c>.
+    /// </remarks>
     public IReadOnlyList<string> EntryPointNames => _entryPointNames;
 
     /// <summary>
@@ -72,14 +89,24 @@ public sealed unsafe class LinkedProgram : SlangObject<IComponentType>
 
         ISlangBlob* code = null;
         ISlangBlob* diagnostics = null;
+        var operation = $"getEntryPointCode('{_entryPointNames[entryPointIndex]}')";
         var hr = Ptr->getEntryPointCode(entryPointIndex, targetIndex, &code, &diagnostics);
-        Diagnostics.ThrowIfFailed(hr, $"getEntryPointCode('{_entryPointNames[entryPointIndex]}')", diagnostics);
+        Diagnostics.ThrowIfFailed(hr, operation, diagnostics);
 
         if (code is null)
-            throw new SlangException(SlangResult.Fail,
-                $"getEntryPointCode('{_entryPointNames[entryPointIndex]}') produced no code", null);
+            throw new SlangException(SlangResult.Fail, $"{operation} produced no code", null);
 
-        return new SlangBlob(code, this);
+        var blob = new SlangBlob(code, this);
+        try
+        {
+            Verify(blob.Span, targetIndex, operation);
+            return blob;
+        }
+        catch
+        {
+            blob.Dispose();
+            throw;
+        }
     }
 
     /// <summary>Generated code for one entry point, copied into a managed array.</summary>
@@ -112,7 +139,67 @@ public sealed unsafe class LinkedProgram : SlangObject<IComponentType>
         Diagnostics.ThrowIfFailed(hr, "getTargetCode", diagnostics);
 
         if (code is null) throw new SlangException(SlangResult.Fail, "getTargetCode produced no code", null);
-        return new SlangBlob(code, this);
+
+        var blob = new SlangBlob(code, this);
+        try
+        {
+            Verify(blob.Span, targetIndex, "getTargetCode");
+            return blob;
+        }
+        catch
+        {
+            blob.Dispose();
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// The entry point's name and stage <em>in the emitted module</em> — what a pipeline builder
+    /// puts in <c>VkPipelineShaderStageCreateInfo::pName</c>.
+    /// </summary>
+    /// <remarks>
+    /// Reads it out of the SPIR-V rather than deriving it. Slang names every per-entry-point module
+    /// <c>main</c> by default whatever the function was called, and
+    /// <see cref="TargetOptions.UseEntryPointNameInSpirv"/> changes that — so neither answer is
+    /// safe to hardcode, on either side of the artifact.
+    /// </remarks>
+    /// <exception cref="InvalidDataException">The target does not emit SPIR-V, or the module is malformed.</exception>
+    public SpirvEntryPoint GetSpirvEntryPoint(int entryPointIndex, int targetIndex = 0)
+    {
+        using var code = GetEntryPointCode(entryPointIndex, targetIndex);
+        return SpirvModule.SingleEntryPoint(code.Span);
+    }
+
+    /// <summary>
+    /// Checks a generated module against the target it was generated for.
+    /// </summary>
+    /// <remarks>
+    /// Only the header: magic, word alignment, and the version. That is enough to turn the two
+    /// failures that otherwise surface at <c>vkCreateShaderModule</c> — "this is not SPIR-V" and
+    /// "this is a newer SPIR-V than the device accepts" — into an exception naming the target.
+    /// </remarks>
+    private void Verify(ReadOnlySpan<byte> code, int targetIndex, string operation)
+    {
+        if (targetIndex < 0 || targetIndex >= _targets.Count) return;
+
+        var target = _targets[targetIndex];
+        if (!target.IsSpirv || !target.VerifyEmittedSpirv) return;
+
+        if (!SpirvModule.IsSpirv(code))
+            throw new SlangException(SlangResult.Ok, operation,
+                $"target {targetIndex} is SPIR-V but produced {code.Length} bytes that are not a " +
+                $"SPIR-V module. This is a Slang bug or a corrupted blob, not a shader error.");
+
+        var expected = target.ExpectedSpirvVersion;
+        if (expected == SpirvVersion.Unspecified) return;
+
+        var actual = SpirvModule.ReadVersion(code);
+        if (actual == expected) return;
+
+        throw new SlangException(SlangResult.Ok, operation,
+            $"target {targetIndex} asked for SPIR-V {expected.ToDisplayString()} but Slang emitted " +
+            $"{actual.ToDisplayString()}. A module above the device's supported SPIR-V version is " +
+            $"rejected by vkCreateShaderModule with no further detail, so it is caught here instead.");
     }
 
     /// <summary>

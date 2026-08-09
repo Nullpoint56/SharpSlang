@@ -36,11 +36,19 @@ public readonly record struct RawCompilerOption(
 /// because Fast <em>is</em> the default.</item>
 /// <item><c>DebugInformation</c> — <b>no effect at link time.</b> It is a target/session-level
 /// option; set it on the session instead.</item>
-/// <item><c>VulkanUseEntryPointName</c> — <b>no effect,</b> and unnecessary: Slang already emits
-/// the entry point's own name by default in this version.</item>
+/// <item><c>VulkanUseEntryPointName</c> — <b>no effect at link time,</b> but it works on the
+/// session or the target: see <see cref="TargetOptions.UseEntryPointNameInSpirv"/>. An earlier
+/// version of this file said the option did nothing anywhere and was unnecessary because Slang
+/// already used the entry point's own name. Both halves were wrong — the default name is
+/// <c>main</c> — and a consumer built a pipeline builder on the claim. Corrected and pinned by
+/// <c>EntryPointNameTests</c>.</item>
+/// <item><c>Capability</c> — <b>no effect at link time.</b> Passing <c>spirv_1_6</c> still emits
+/// SPIR-V 1.5. The SPIR-V version comes from the target profile; see
+/// <see cref="TargetOptions.SpirvVersion"/>.</item>
 /// </list>
 ///
-/// The last two are reachable through <see cref="RawEntries"/> if a future Slang honours them.
+/// The three ineffective ones are still reachable through <see cref="RawEntries"/> if a future
+/// Slang honours them.
 /// </remarks>
 public sealed class LinkTimeOptions
 {

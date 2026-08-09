@@ -74,6 +74,32 @@ jobs:
             if ($LASTEXITCODE -ne 0) { throw "pack failed for $proj" }
           }
 
+      - name: Every RID in the package carries the compiler and the SPIR-V optimiser
+        shell: pwsh
+        run: |
+          # The test suite only exercises the host RID; a staging failure on linux-x64 or osx-arm64
+          # would publish silently and fail on the consumer's machine. Without slang-glslang the
+          # failure is worse than a missing file: Slang still compiles, just unoptimised, and says
+          # so once per global session on a successful result.
+          $nupkg = Get-ChildItem artifacts -Filter 'PrismSlang.*.nupkg' |
+                   Where-Object { $_.Name -notlike 'PrismSlang.Vulkan.*' } | Select-Object -First 1
+          if (-not $nupkg) { throw "no PrismSlang core package in artifacts/" }
+
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $zip = [System.IO.Compression.ZipFile]::OpenRead($nupkg.FullName)
+          try {
+            foreach ($rid in @('win-x64', 'linux-x64', 'osx-arm64')) {
+              $prefix = "runtimes/$rid/native/"
+              $files = @($zip.Entries | Where-Object { $_.FullName.StartsWith($prefix) })
+              foreach ($needed in @('slang-compiler', 'slang-glslang')) {
+                if (-not ($files | Where-Object { $_.FullName -like "*$needed*" })) {
+                  throw "package is missing $needed under $prefix"
+                }
+              }
+              Write-Host ("    {0,-12} {1} files" -f $rid, $files.Count)
+            }
+          } finally { $zip.Dispose() }
+
       - name: Push to GitHub Packages
         shell: pwsh
         run: |

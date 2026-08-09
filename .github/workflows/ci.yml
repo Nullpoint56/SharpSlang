@@ -53,6 +53,20 @@ jobs:
         shell: pwsh
         run: ./tools/fetch-native.ps1 -Rid ${{ matrix.rid }} -Profile Spirv
 
+      - name: Payload carries the SPIR-V optimiser
+        shell: pwsh
+        run: |
+          # slang-glslang is where spirv-opt lives. Without it Slang emits unoptimised SPIR-V —
+          # ~23% larger — and says so once per global session, on a *successful* result, so the
+          # rest of a batch is silently oversized. DownstreamCompilerTests asserts the same thing
+          # from inside the process; this catches a staging regression before anything is built.
+          $dir = "runtimes/${{ matrix.rid }}/native"
+          $found = @(Get-ChildItem $dir -File | Where-Object { $_.Name -like '*slang-glslang*' })
+          if ($found.Count -eq 0) {
+            throw "no slang-glslang in $dir - every shader would compile unoptimised"
+          }
+          $found | ForEach-Object { Write-Host ("    {0,-44} {1,8:N1} MB" -f $_.Name, ($_.Length / 1MB)) }
+
       - name: Build
         run: dotnet build PrismSlang.slnx -c Release --nologo -warnaserror
 
@@ -88,6 +102,12 @@ jobs:
               throw "package has no payload under $prefix - the Content/None globs overlap again"
             }
             Write-Host "$prefix : $($found.Count) files"
+
+            # Staged correctly but not packed is its own failure mode, and it only shows up for
+            # consumers who install the NuGet package rather than building the repo.
+            if (-not ($found | Where-Object { $_.FullName -like '*slang-glslang*' })) {
+              throw "package has no slang-glslang under $prefix - shaders would compile unoptimised"
+            }
           } finally { $zip.Dispose() }
 
   regen:

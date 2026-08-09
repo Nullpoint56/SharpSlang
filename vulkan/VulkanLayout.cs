@@ -59,6 +59,17 @@ public sealed record VulkanPipelineLayout
     /// </summary>
     public required IReadOnlyList<VulkanVertexInput> VertexInputs { get; init; }
 
+    /// <summary>
+    /// Specialization constants the shader declares, at their natural offsets, ordered by
+    /// constant id. Empty when it declares none.
+    /// </summary>
+    /// <remarks>
+    /// The map only. To also pack the values, call
+    /// <c>ProgramLayout.Pack(values)</c> — offsets there are computed the same way, so a host can
+    /// use either and get the same layout.
+    /// </remarks>
+    public IReadOnlyList<VulkanSpecializationMapEntry> SpecializationConstants { get; init; } = [];
+
     /// <summary>Finds a descriptor set by index, or null.</summary>
     public VulkanDescriptorSetLayout? Set(uint index) =>
         DescriptorSets.FirstOrDefault(s => s.Set == index);

@@ -18,13 +18,21 @@ public sealed unsafe class SlangSession : SlangObject<ISession>
     // Owner references keep Slang's hierarchy alive in the GC's eyes: a session cannot be
     // collected while a module from it lives, and so on down. See SlangObject for why this
     // replaces a finalizer rather than supplementing one.
-    private SlangSession(ISession* owned, SlangGlobalSession owner)
-        : base(owned, nameof(SlangSession), owner) { }
+    private SlangSession(ISession* owned, SlangGlobalSession owner, IReadOnlyList<TargetOptions> targets)
+        : base(owned, nameof(SlangSession), owner) => Targets = targets;
+
+    /// <summary>
+    /// The targets this session was created with, in order. Kept so a linked program can check what
+    /// Slang emitted against what was asked for.
+    /// </summary>
+    internal IReadOnlyList<TargetOptions> Targets { get; }
 
     internal static SlangSession Create(SlangGlobalSession global, SessionOptions options)
     {
         if (options.Targets.Count == 0)
             throw new ArgumentException("a session needs at least one target", nameof(options));
+
+        foreach (var t in options.Targets) t.Validate(nameof(options));
 
         // Everything allocated here is freed in the finally. Slang deep-copies the descriptor.
         var targets = (TargetDesc*)NativeMemory.AllocZeroed(
@@ -32,6 +40,11 @@ public sealed unsafe class SlangSession : SlangObject<ISession>
         var searchPaths = stackalloc sbyte*[Math.Max(1, options.SearchPaths.Count)];
         var macros = (PreprocessorMacroDesc*)NativeMemory.AllocZeroed(
             (nuint)Math.Max(1, options.PreprocessorMacros.Count), (nuint)sizeof(PreprocessorMacroDesc));
+
+        // One CompilerOptionEntry per target that needs one. Allocated as a single block so the
+        // cleanup is a single free; each target points at its own slot.
+        var targetOptions = (CompilerOptionEntry*)NativeMemory.AllocZeroed(
+            (nuint)options.Targets.Count, (nuint)sizeof(CompilerOptionEntry));
 
         var owned = new List<nint>();
         sbyte* Own(string? s)
@@ -60,11 +73,25 @@ public sealed unsafe class SlangSession : SlangObject<ISession>
                 if (t.ParameterBlocksUseRegisterSpaces)
                     desc.flags |= (uint)SlangApi.SLANG_TARGET_FLAG_PARAMETER_BLOCKS_USE_REGISTER_SPACES;
 
-                if (!string.IsNullOrEmpty(t.Profile))
+                var profileName = t.ResolveProfile();
+                if (!string.IsNullOrEmpty(profileName))
                 {
-                    desc.profile = global.FindProfile(t.Profile);
+                    desc.profile = global.FindProfile(profileName);
                     if (desc.profile == SlangProfileID.SLANG_PROFILE_UNKNOWN)
-                        throw new ArgumentException($"unknown Slang profile '{t.Profile}'", nameof(options));
+                        throw new ArgumentException($"unknown Slang profile '{profileName}'", nameof(options));
+                }
+
+                // VulkanUseEntryPointName is honoured here and on the session, and nowhere else:
+                // passing it to linkWithOptions is a measured no-op. See TargetOptions.
+                if (t.UseEntryPointNameInSpirv)
+                {
+                    targetOptions[i].name = CompilerOptionName.VulkanUseEntryPointName;
+                    targetOptions[i].value = Defaults.CompilerOptionValue();
+                    targetOptions[i].value.kind = CompilerOptionValueKind.Int;
+                    targetOptions[i].value.intValue0 = 1;
+
+                    desc.compilerOptionEntries = &targetOptions[i];
+                    desc.compilerOptionEntryCount = 1;
                 }
 
                 targets[i] = desc;
@@ -101,13 +128,14 @@ public sealed unsafe class SlangSession : SlangObject<ISession>
             if (SlangResult.Failed(hr) || p is null)
                 throw new SlangException(hr, "IGlobalSession::createSession", null);
 
-            return new SlangSession(p, global);
+            return new SlangSession(p, global, [.. options.Targets]);
         }
         finally
         {
             foreach (var p in owned) Utf8.Free((sbyte*)p);
             NativeMemory.Free(targets);
             NativeMemory.Free(macros);
+            NativeMemory.Free(targetOptions);
         }
     }
 
@@ -227,7 +255,7 @@ public sealed unsafe class SlangSession : SlangObject<ISession>
 
         var names = new string[entryPoints.Length];
         for (var i = 0; i < entryPoints.Length; i++) names[i] = entryPoints[i].Name;
-        return new LinkedProgram(linked, names, this);
+        return new LinkedProgram(linked, names, this, Targets);
     }
 
     /// <summary>

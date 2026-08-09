@@ -32,9 +32,17 @@ public static unsafe class ReflectionWalker
         var cache = new Dictionary<nint, TypeLayout>();
 
         var parameters = new List<ShaderParameter>();
+        var specializationConstants = new List<SpecializationConstant>();
         var paramCount = SlangApi.spReflection_GetParameterCount(shader);
         for (uint i = 0; i < paramCount; i++)
-            parameters.Add(ReadParameter(SlangApi.spReflection_GetParameterByIndex(shader, i), cache));
+        {
+            var varLayout = SlangApi.spReflection_GetParameterByIndex(shader, i);
+            var parameter = ReadParameter(varLayout, cache);
+            parameters.Add(parameter);
+
+            if (parameter.IsSpecializationConstant)
+                specializationConstants.Add(ReadSpecializationConstant(varLayout, parameter));
+        }
 
         var entryPoints = new List<EntryPointLayout>();
         var epCount = SlangApi.spReflection_getEntryPointCount(shader);
@@ -59,7 +67,54 @@ public static unsafe class ReflectionWalker
             GlobalConstantBufferBinding = (uint)SlangApi.spReflection_getGlobalConstantBufferBinding(shader),
             HashedStrings = hashed,
             SpecializationParameters = ReadSpecializationParameters(shader),
+            SpecializationConstants = specializationConstants.OrderBy(c => c.ConstantId).ToList(),
         };
+    }
+
+    /// <summary>
+    /// Turns a specialization-constant parameter into its usable form: id, type, default.
+    /// </summary>
+    /// <remarks>
+    /// The id is the parameter's binding <em>offset</em> in the <c>SPECIALIZATION_CONSTANT</c>
+    /// category. Verified against the emitted module's <c>SpecId</c> decorations for explicit,
+    /// non-contiguous and Slang-assigned ids alike — see
+    /// <c>SpecializationConstantTests.Reflected_ids_match_the_emitted_SpecId_decorations</c>.
+    ///
+    /// The default value is read type-first rather than by probing. <c>GetDefaultValueFloat</c>
+    /// succeeds on an integral constant too (measured: <c>uint kFlags = 7</c> returns SLANG_OK from
+    /// both getters), so probing in the wrong order silently turns integers into floats.
+    /// </remarks>
+    private static SpecializationConstant ReadSpecializationConstant(
+        SlangReflectionVariableLayout* varLayout,
+        ShaderParameter parameter)
+    {
+        var scalar = parameter.Type is ScalarLayout s
+            ? s.ScalarType
+            : SlangScalarType.SLANG_SCALAR_TYPE_NONE;
+
+        var id = parameter.Bindings[0].Index;
+
+        var variable = SlangApi.spReflectionVariableLayout_GetVariable(varLayout);
+        if (variable is null || SlangApi.spReflectionVariable_HasDefaultValue(variable) == 0)
+            return new SpecializationConstant(parameter.Name, id, scalar);
+
+        var isFloat = scalar
+            is SlangScalarType.SLANG_SCALAR_TYPE_FLOAT16
+            or SlangScalarType.SLANG_SCALAR_TYPE_FLOAT32
+            or SlangScalarType.SLANG_SCALAR_TYPE_FLOAT64;
+
+        if (isFloat)
+        {
+            float f;
+            return SlangResult.Succeeded(SlangApi.spReflectionVariable_GetDefaultValueFloat(variable, &f))
+                ? new SpecializationConstant(parameter.Name, id, scalar, DefaultFloat: f)
+                : new SpecializationConstant(parameter.Name, id, scalar);
+        }
+
+        long v;
+        return SlangResult.Succeeded(SlangApi.spReflectionVariable_GetDefaultValueInt(variable, &v))
+            ? new SpecializationConstant(parameter.Name, id, scalar, DefaultInt: v)
+            : new SpecializationConstant(parameter.Name, id, scalar);
     }
 
     /// <summary>

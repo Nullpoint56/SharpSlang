@@ -7,6 +7,7 @@
 // marshals it in one scoped block inside SlangSession.Create.
 
 using PrismSlang.Native;
+using PrismSlang.Spirv;
 
 namespace PrismSlang;
 
@@ -16,8 +17,60 @@ public sealed class TargetOptions
     /// <summary>Output format. Defaults to SPIR-V, the only target PrismEngine uses.</summary>
     public SlangCompileTarget Format { get; init; } = SlangCompileTarget.SLANG_SPIRV;
 
-    /// <summary>Profile name, e.g. <c>spirv_1_5</c>. Null lets Slang choose.</summary>
-    public string? Profile { get; init; } = "spirv_1_5";
+    /// <summary>
+    /// Which SPIR-V version to emit. Effectively 1.5 unless set — but pinned rather than inherited,
+    /// because "whatever the compiler felt like" is not a target environment.
+    /// </summary>
+    /// <remarks>
+    /// A Vulkan device accepts SPIR-V up to a version fixed by its API version
+    /// (<c>VulkanEnvironment.MaxSpirvVersion</c> in PrismSlang.Vulkan maps that); above it,
+    /// <c>vkCreateShaderModule</c> fails with nothing useful to say.
+    ///
+    /// Measured against slang-compiler 2026.14.1: the profile is the only knob that moves the
+    /// emitted header. Every <c>spirv_1_0</c>..<c>spirv_1_6</c> profile produces exactly the header
+    /// version it names; a link-time <c>-capability spirv_1_6</c> is silently ignored. Ignored
+    /// unless <see cref="Format"/> is SPIR-V.
+    ///
+    /// Null — the default — means "not specified", which is not the same as saying 1.5: it lets
+    /// <see cref="Profile"/> decide, and only falls back to 1.5 when neither knob is set. Keeping
+    /// those two states distinct is what lets an existing caller pin <c>Profile = "spirv_1_6"</c>
+    /// and not be told it contradicts a version it never chose.
+    /// </remarks>
+    public SpirvVersion? SpirvVersion { get; init; }
+
+    /// <summary>
+    /// Check the emitted module's header against what was requested, and that it is SPIR-V at all.
+    /// </summary>
+    /// <remarks>
+    /// On by default. It is five words of parsing per generated module, and it converts "the device
+    /// rejected the shader" into "Slang emitted 1.6 when 1.4 was requested" at the point of
+    /// compilation. Ignored unless <see cref="Format"/> is SPIR-V.
+    /// </remarks>
+    public bool VerifyEmittedSpirv { get; init; } = true;
+
+    /// <summary>
+    /// Name each entry point in the emitted module after its Slang function, instead of <c>main</c>.
+    /// </summary>
+    /// <remarks>
+    /// Off by default, matching Slang. Whichever way this is set, read the resulting name from the
+    /// module rather than assuming it — <see cref="SpirvEntryPoint"/> explains why, and
+    /// <c>ShaderPackage</c> records it so a pipeline builder never has to guess.
+    ///
+    /// Note this must be set here or on the session: measured against slang-compiler 2026.14.1,
+    /// passing <c>VulkanUseEntryPointName</c> to <c>linkWithOptions</c> has no effect at all.
+    /// </remarks>
+    public bool UseEntryPointNameInSpirv { get; init; }
+
+    /// <summary>
+    /// Profile name, e.g. <c>spirv_1_5</c> or <c>glsl_450</c>. Null derives it from
+    /// <see cref="SpirvVersion"/> for a SPIR-V target, and leaves it to Slang otherwise.
+    /// </summary>
+    /// <remarks>
+    /// The escape hatch, for profiles <see cref="SpirvVersion"/> cannot name. Setting this alone is
+    /// fine and the profile decides; setting <em>both</em> to contradictory SPIR-V versions is
+    /// rejected at session creation rather than silently resolved one way or the other.
+    /// </remarks>
+    public string? Profile { get; init; }
 
     /// <summary>
     /// Emit SPIR-V from Slang's own backend rather than routing through glslang. On by default,
@@ -47,6 +100,54 @@ public sealed class TargetOptions
     /// pipeline; exposed because changing it silently changes every uniform offset.
     /// </summary>
     public bool ForceGlslScalarBufferLayout { get; init; }
+
+    // The property and the type share a name, so `this.` marks every read of the property below and
+    // a bare `SpirvVersion` is always the type. C# resolves both, but not readably.
+
+    /// <summary>What a SPIR-V target falls back to when neither knob is set.</summary>
+    /// <remarks>
+    /// Slang's own default, restated here so it is a decision rather than an inheritance. Vulkan
+    /// 1.2 and later all accept it; a device that needs 1.6 features has to say so.
+    /// </remarks>
+    private const SpirvVersion FallbackSpirvVersion = Spirv.SpirvVersion.V1_5;
+
+    /// <summary>Whether this target emits SPIR-V, and so whether the SPIR-V knobs apply.</summary>
+    internal bool IsSpirv => Format == SlangCompileTarget.SLANG_SPIRV;
+
+    /// <summary>The profile name to hand Slang, or null to leave it unset.</summary>
+    internal string? ResolveProfile() =>
+        Profile ?? (IsSpirv ? (this.SpirvVersion ?? FallbackSpirvVersion).ToProfileName() : null);
+
+    /// <summary>
+    /// The SPIR-V version the emitted module must carry, or Unspecified when nothing was pinned
+    /// and there is therefore nothing to check against.
+    /// </summary>
+    internal SpirvVersion ExpectedSpirvVersion =>
+        !IsSpirv ? Spirv.SpirvVersion.Unspecified
+        : Profile is not null ? SpirvVersions.FromProfileName(Profile)
+        : this.SpirvVersion ?? FallbackSpirvVersion;
+
+    /// <summary>
+    /// Rejects a configuration whose two version knobs disagree.
+    /// </summary>
+    /// <remarks>
+    /// Only when both were actually set — hence the nullable <see cref="SpirvVersion"/>. Picking a
+    /// winner silently would mean one of the two things the caller wrote down is a lie, and the
+    /// symptom lands much later as a device rejecting a shader module.
+    /// </remarks>
+    internal void Validate(string paramName)
+    {
+        if (!IsSpirv || Profile is null) return;
+        if (this.SpirvVersion is not { } wanted || wanted == Spirv.SpirvVersion.Unspecified) return;
+
+        var fromProfile = SpirvVersions.FromProfileName(Profile);
+        if (fromProfile == Spirv.SpirvVersion.Unspecified || fromProfile == wanted) return;
+
+        throw new ArgumentException(
+            $"target profile '{Profile}' is SPIR-V {fromProfile.ToDisplayString()} but SpirvVersion " +
+            $"says {wanted.ToDisplayString()}. Set one or the other, not both.",
+            paramName);
+    }
 }
 
 /// <summary>Configuration for a <see cref="SlangSession"/>.</summary>
