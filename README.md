@@ -129,6 +129,10 @@ one measured, several of them mistakes this binding made and then caught.
 - **`MalformedInputTests`** truncates and corrupts both file readers under a fixed seed.
 - **`NativeExportTests`** resolves all 278 `DllImport` entry points against the loaded library.
 
+Markdown-only changes skip that matrix and run `tools/ci/check-docs.sh` instead, which verifies
+every internal link resolves and every `§N` a code comment cites is a real heading. The two
+documents share one numbering, and ~48 comments depend on it.
+
 ## Licence
 
 MIT.

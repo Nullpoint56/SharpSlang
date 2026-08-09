@@ -12,11 +12,24 @@ name: CI
 # release pinned in Directory.Build.props, which also proves the fetch script still works against
 # the current upstream layout.
 
+# Markdown-only changes skip all of this and run docs.yml instead. A full run is two runners each
+# downloading a 36 MB payload, building, and executing 384 tests, plus a job that installs ClangSharp
+# and regenerates the bindings — none of which a paragraph can affect.
+#
+# paths-ignore only skips when *every* changed file matches, so a commit touching a document and a
+# source file still runs everything. That is the behaviour worth having: the docs here are not inert
+# prose, they carry section numbers that code comments cite, and check-docs.sh verifies those
+# against the source rather than against the documents alone.
+#
+# If these jobs are ever made required status checks, this needs revisiting: a skipped workflow
+# never reports, and a PR waits forever for a check that will not arrive.
 on:
   push:
     branches: ['**']
     tags-ignore: ['v*']      # tags are handled by publish.yml
+    paths-ignore: ['**.md']
   pull_request:
+    paths-ignore: ['**.md']
   workflow_dispatch:
 
 permissions:

@@ -1,0 +1,34 @@
+name: docs
+
+# The counterpart to ci.yml's paths-ignore: markdown-only changes skip the build matrix, and this
+# runs in its place so they are not simply unchecked.
+#
+# It is deliberately tiny — no payload, no SDK, no build — because the whole argument for skipping
+# CI on a documentation change is that a documentation change cannot break the build. What it *can*
+# break is a link, or a § reference that a code comment depends on, and neither of those was
+# checked by anything before this existed.
+
+on:
+  push:
+    branches: ['**']
+    tags-ignore: ['v*']
+    paths: ['**.md', 'tools/ci/check-docs.sh', '.github/workflows/docs.yml']
+  pull_request:
+    paths: ['**.md', 'tools/ci/check-docs.sh', '.github/workflows/docs.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: links and section references
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Needs the source tree, not just docs/: half the check is that every § a code comment cites
+      # resolves to a real heading. Splitting binding-surface.md into design.md and findings.md was
+      # only safe because the numbering is unique across both, and this is what keeps that true.
+      - name: Check documentation
+        run: bash tools/ci/check-docs.sh
