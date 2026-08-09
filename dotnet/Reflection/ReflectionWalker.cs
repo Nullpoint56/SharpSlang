@@ -323,8 +323,14 @@ public static unsafe class ReflectionWalker
             parameters.Add(ReadParameter(
                 SlangApi.spReflectionEntryPoint_getParameterByIndex(ep, (uint)i), cache));
 
+        // Mesh and amplification are dispatched in workgroups too, and declare one with
+        // [numthreads] exactly as compute does — the module emits OpExecutionMode LocalSize for all
+        // three. Gating this on SLANG_STAGE_COMPUTE reported null for a mesh shader that had said
+        // [numthreads(1,1,1)], which the emitted module then confirmed.
         ThreadGroupSize? threadGroup = null;
-        if (stage == SlangStage.SLANG_STAGE_COMPUTE)
+        if (stage is SlangStage.SLANG_STAGE_COMPUTE
+                  or SlangStage.SLANG_STAGE_MESH
+                  or SlangStage.SLANG_STAGE_AMPLIFICATION)
         {
             var dims = stackalloc ulong[3];
             SlangApi.spReflectionEntryPoint_getComputeThreadGroupSize(ep, 3, dims);

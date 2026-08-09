@@ -602,7 +602,7 @@ constant buffer, a texture, a sampler, and varyings specifically so there is som
 
 ## 9. Status
 
-All five layers are built and green on **win-x64 and linux-x64**: 272 tests, the Tier 0 spike, and
+All five layers are built and green on **win-x64 and linux-x64**: 297 tests, the Tier 0 spike, and
 a full reflection walk on both.
 
 | Layer | State |
@@ -624,7 +624,7 @@ a full reflection walk on both.
 | `fetch-native.ps1` | win-x64 + linux-x64 verified; osx-arm64 mapped, unrun |
 | `tools/ci/verify-linux.sh` | build + tests + spike under WSL |
 | `.github/workflows` | CI matrix, regeneration check, package-contents check, publish |
-| Tests | 272. `PipelineLayoutTests`, `UniformLayoutTests` and `ComputeAndAttachmentTests` assert against the emitted module's own decorations rather than against hand-written numbers |
+| Tests | 297. `ModuleAgreementTests` diffs a 20-shader corpus against the emitted module as sets, both directions; `SurfaceCoverageTests` fails on any Slang enum value the corpus neither exercises nor declares untried. See §9.11 |
 
 Package sizes tell the story of the split: `PrismSlang` is 34 MB (it carries the compiler for every
 RID), `PrismSlang.Vulkan` is **10 KB**. A D3D12 consumer pays nothing for Vulkan.
@@ -1069,3 +1069,84 @@ seven were found by a **probe**, not by a test — the nested parameter block an
 looks-dead-but-is-not fallback among them. A test asserts what someone already thought to ask. A
 probe that prints reflection and the module side by side, for a shader nobody has tried yet, is what
 turns up the question.
+
+---
+
+### 9.11 Finding these without being told: a corpus, and two questions asked of it
+
+Three rounds of hand-picking a shader, hand-picking a fact and comparing it with the module found
+twelve defects. That works and it does not scale, because it only finds what someone thought to ask.
+Sorting the twelve by how they failed says what to build instead:
+
+- A few were a **wrong value** — reflection said 2 where the module said 5. A field-by-field
+  comparison finds those.
+- Most were **missing** — reflection said nothing at all about a subpass input, a nested block, a
+  structured buffer's element. A field-by-field comparison cannot find those, because the fields you
+  compare are the fields you thought of.
+
+So `ShaderCorpus` is twenty programs covering every stage Slang will compile and every descriptor
+kind it will emit, and two tests ask everything of it.
+
+#### `ModuleAgreementTests` — set equality, both directions
+
+Each case is linked whole and emitted with `getTargetCode`, then reduced to a set of facts — every
+descriptor's set and binding, every vertex input and fragment output location, every input
+attachment index, every specialization id, every struct member's byte offset and matrix stride,
+every stage and workgroup size. The same set is derived from `ProgramLayout` and its Vulkan
+projection. The two must be equal.
+
+Equal, not "agrees where both speak". A fact nobody thought to assert is still in the set, and a
+fact one side simply does not have is a **difference** rather than a silence — which is the whole
+point, because silence is how the majority of these hid.
+
+A difference that is understood is declared on the corpus case with its reason, and the assertion is
+that the difference is *exactly* the declared set. So a known gap can neither grow quietly nor be
+fixed without someone deleting the declaration. There is one, and it is the implicit constant buffer
+for loose global uniforms: the module calls it `globalParams`, reflection attributes it to no
+declaration. Closing it would mean putting a name chosen by Slang's SPIR-V emitter into the
+API-neutral layer, which is worse than the gap.
+
+The harness was checked by breaking things on purpose. Removing the subpass reconciliation loses
+four facts and the diff names all four; deriving the matrix stride from the wrong axis reports
+`ulTall stride 32` and `ulWide stride 8` against the module's 16 for both — the two non-square
+shapes, exactly the ones where the wrong axis still yields a plausible number.
+
+Getting the harness itself right took three iterations, and the second bug in it is worth recording:
+reading `FieldLayout.UniformOffset` unconditionally put every varying and every resource field at
+offset 0. That is the same defaulting-an-absent-offset mistake §9.9 found in the vertex-input
+projection, committed here by the code written to catch it.
+
+#### `SurfaceCoverageTests` — what has never been tried
+
+Agreement proves that what the corpus covers is reported correctly. It says nothing about what the
+corpus does not cover, and that is where every defect so far has lived. Subpass inputs were not
+wrong in a way anyone could see; they had never been compiled.
+
+So this walks `SlangStage`, `SlangBindingType`, `SlangResourceShape` and `SlangTypeKind` and requires
+every value to be either exercised by the corpus or listed with a reason it will not be. It finds no
+bugs. It converts "nobody tried that" from invisible into a failing test, which is the only way that
+first kind of gap becomes visible before a consumer finds it. The ratchet runs both ways: a value
+that becomes exercised must be removed from its list, and a value a future Slang release adds
+arrives unexercised and undeclared. Both fail.
+
+Writing the lists surfaced two things worth keeping:
+
+- **`SLANG_BINDING_TYPE_PARAMETER_BLOCK` never reaches a descriptor range on SPIR-V.** A parameter
+  block takes a register space of its own, and the descriptor it occupies is reported as
+  `CONSTANT_BUFFER` for its implicit uniform buffer; the block itself appears only as a *binding*
+  range at global scope, with `descriptorSetIndex == -1`. `VulkanProjection` maps it to
+  `UniformBuffer` anyway — that arm is unreachable for this target, and the declaration is the
+  record of that rather than a comment nobody will check.
+- **`SLANG_TYPE_KIND_MESH_OUTPUT` never reaches the layout.** The mesh case declares
+  `out vertices` and `out indices` and Slang reports neither as an entry-point parameter, so a
+  renderer sizes mesh output from the shader source rather than from reflection.
+
+#### And it found one on the way in
+
+Writing the corpus meant compiling every stage for the first time, which is itself the point.
+`getComputeThreadGroupSize` was read only for `SLANG_STAGE_COMPUTE` — but mesh and amplification
+declare `[numthreads]` too, and the module emits `OpExecutionMode LocalSize` for all three. A mesh
+shader that said `[numthreads(32,1,1)]` reported no workgroup size at all. Found before either test
+was written, by the corpus existing.
+
+297 tests.

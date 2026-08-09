@@ -132,21 +132,43 @@ public static class SpirvDecorations
 
     /// <summary>Descriptors only, as (set, binding) keyed by leaf name.</summary>
     public static Dictionary<string, (uint Set, uint Binding)> Descriptors(ReadOnlySpan<byte> spirv) =>
-        Read(spirv)
-            .Where(v => v is { Set: not null, Binding: not null })
-            .ToDictionary(v => v.LeafName, v => (v.Set!.Value, v.Binding!.Value));
+        FirstPerKey(
+            Read(spirv).Where(v => v is { Set: not null, Binding: not null }),
+            v => v.LeafName,
+            v => (v.Set!.Value, v.Binding!.Value));
 
     /// <summary>Input locations by leaf name — the vertex attributes, for a vertex module.</summary>
     public static Dictionary<string, uint> InputLocations(ReadOnlySpan<byte> spirv) =>
-        Read(spirv)
-            .Where(v => v is { Location: not null, StorageClass: SpirvVariable.Input })
-            .ToDictionary(v => v.LeafName, v => v.Location!.Value);
+        FirstPerKey(
+            Read(spirv).Where(v => v is { Location: not null, StorageClass: SpirvVariable.Input }),
+            v => v.LeafName,
+            v => v.Location!.Value);
 
     /// <summary>Output locations by leaf name — the colour attachments, for a fragment module.</summary>
     public static Dictionary<string, uint> OutputLocations(ReadOnlySpan<byte> spirv) =>
-        Read(spirv)
-            .Where(v => v is { Location: not null, StorageClass: SpirvVariable.Output })
-            .ToDictionary(v => v.LeafName, v => v.Location!.Value);
+        FirstPerKey(
+            Read(spirv).Where(v => v is { Location: not null, StorageClass: SpirvVariable.Output }),
+            v => v.LeafName,
+            v => v.Location!.Value);
+
+    /// <summary>
+    /// <c>ToDictionary</c> that keeps the first of a repeated key instead of throwing.
+    /// </summary>
+    /// <remarks>
+    /// A module may name two ids the same — a geometry shader's per-vertex arrays are one case —
+    /// and this reader is an oracle, so it has to survive whatever the compiler emits rather than
+    /// failing the test it is meant to adjudicate.
+    /// </remarks>
+    private static Dictionary<TKey, TValue> FirstPerKey<T, TKey, TValue>(
+        IEnumerable<T> source,
+        Func<T, TKey> key,
+        Func<T, TValue> value)
+        where TKey : notnull
+    {
+        var result = new Dictionary<TKey, TValue>();
+        foreach (var item in source) result.TryAdd(key(item), value(item));
+        return result;
+    }
 
     /// <summary>
     /// Struct members by name, for every struct the module declares.
@@ -239,11 +261,59 @@ public static class SpirvDecorations
         return null;
     }
 
+    /// <summary>Specialization constant ids by the name the module gives them.</summary>
+    public static Dictionary<string, uint> SpecializationIds(ReadOnlySpan<byte> spirv)
+    {
+        const uint DecorationSpecId = 1;
+        var names = Names(spirv);
+        return Decorations(spirv, DecorationSpecId)
+            .ToDictionary(d => names.GetValueOrDefault(d.Target, $"%{d.Target}"), d => d.Value);
+    }
+
+    /// <summary>Every <c>OpEntryPoint</c> as name to execution model.</summary>
+    public static Dictionary<string, uint> EntryPointModels(ReadOnlySpan<byte> spirv) =>
+        EntryPointIds(spirv).ToDictionary(e => e.Name, e => e.Model);
+
+    /// <summary>
+    /// The workgroup size each entry point declares, by name. <c>ById</c> means the operands are
+    /// result ids of specialization constants rather than literals.
+    /// </summary>
+    public static Dictionary<string, (uint X, uint Y, uint Z, bool ById)> WorkgroupSizes(
+        ReadOnlySpan<byte> spirv)
+    {
+        const uint LocalSize = 17;
+        const uint LocalSizeId = 38;
+
+        var sizes = new Dictionary<uint, (uint, uint, uint, bool)>();
+        foreach (var (op, o) in Instructions(MemoryMarshal.Cast<byte, uint>(spirv)))
+        {
+            if (op is not (OpExecutionMode or OpExecutionModeId) || o.Length < 5) continue;
+            if (op == OpExecutionMode && o[1] == LocalSize) sizes[o[0]] = (o[2], o[3], o[4], false);
+            if (op == OpExecutionModeId && o[1] == LocalSizeId) sizes[o[0]] = (o[2], o[3], o[4], true);
+        }
+
+        var result = new Dictionary<string, (uint, uint, uint, bool)>();
+        foreach (var e in EntryPointIds(spirv))
+            if (sizes.TryGetValue(e.Id, out var size)) result[e.Name] = size;
+        return result;
+    }
+
+    private static List<(uint Id, uint Model, string Name)> EntryPointIds(ReadOnlySpan<byte> spirv)
+    {
+        const uint OpEntryPoint = 15;
+        return Instructions(MemoryMarshal.Cast<byte, uint>(spirv))
+            .Where(i => i.Op == OpEntryPoint && i.Operands.Length >= 3)
+            .Select(i => (i.Operands[1], i.Operands[0], ReadString(i.Operands.AsSpan(2))))
+            .ToList();
+    }
+
     /// <summary><c>OpName</c> by result id.</summary>
     public static Dictionary<uint, string> Names(ReadOnlySpan<byte> spirv) =>
-        Instructions(MemoryMarshal.Cast<byte, uint>(spirv))
-            .Where(i => i.Op == OpName && i.Operands.Length >= 2)
-            .ToDictionary(i => i.Operands[0], i => ReadString(i.Operands[1..]));
+        FirstPerKey(
+            Instructions(MemoryMarshal.Cast<byte, uint>(spirv))
+                .Where(i => i.Op == OpName && i.Operands.Length >= 2),
+            i => i.Operands[0],
+            i => ReadString(i.Operands.AsSpan(1)));
 
     private static List<(uint Target, uint Value)> Decorations(ReadOnlySpan<byte> spirv, uint decoration) =>
         Instructions(MemoryMarshal.Cast<byte, uint>(spirv))
