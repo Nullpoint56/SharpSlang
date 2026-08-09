@@ -1,4 +1,4 @@
-// HAND-WRITTEN. Not generated — and deliberately so. See docs/binding-surface.md §4.5.
+// HAND-WRITTEN. Not generated — and deliberately so. See docs/design.md §4.5.
 //
 // The descriptor structs in slang.h carry C++ default member initializers:
 //

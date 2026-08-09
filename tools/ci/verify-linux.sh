@@ -5,7 +5,7 @@
 # This is not ceremony. The run that first executed this script found a heap-corrupting ownership
 # bug that had been passing green on Windows for the whole of the project's history:
 # ISession::loadModule* returns a borrowed pointer, and releasing it over-releases. glibc aborts
-# on it; the Windows heap did not. See docs/binding-surface.md §9 and SlangModule's constructor.
+# on it; the Windows heap did not. See docs/findings.md §9 and SlangModule's constructor.
 #
 # Prerequisites:
 #   pwsh tools/fetch-native.ps1 -Rid linux-x64      # stage the payload (runs fine from Windows)

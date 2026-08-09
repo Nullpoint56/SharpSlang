@@ -1,4 +1,4 @@
-// HAND-WRITTEN. Not generated — and not generatable. See docs/binding-surface.md §4.5.
+// HAND-WRITTEN. Not generated — and not generatable. See docs/design.md §4.5.
 //
 // Every Slang entry point that can fail returns a SlangResult (an int32 in HRESULT layout). The
 // codes and the success/failure test are *function-like preprocessor macros*:

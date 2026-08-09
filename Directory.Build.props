@@ -3,7 +3,7 @@
   <!--
     Single source of truth for the pinned Slang release.
 
-    Slang's public ABI is explicitly not stable (docs/binding-surface.md §3.5), so this is an exact
+    Slang's public ABI is explicitly not stable (docs/design.md §3.5), so this is an exact
     pin, not a floor. Everything downstream reads it from here:
 
       tools/generate-native.ps1   default -SlangVersion, and the header cache path

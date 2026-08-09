@@ -4,7 +4,7 @@ name: CI
 #
 # The cross-platform matrix is not box-ticking: the first linux-x64 run of this project found a
 # heap-corrupting ownership bug that had been passing green on Windows since the first commit
-# (ISession::loadModule* returns a borrowed pointer — see docs/binding-surface.md §9.1). glibc
+# (ISession::loadModule* returns a borrowed pointer — see docs/findings.md §9.1). glibc
 # aborts on it; the Windows heap does not. Keeping Linux in the matrix is the control for that
 # entire class of bug.
 #

@@ -8,7 +8,7 @@
   ClangSharp 21.1.8.4: 126 files, ~5,000 lines, 280 DllImports, 383 vtable call sites, 0 errors,
   0 warnings on net10.0.
 
-  See docs/binding-surface.md §4.3 for why each workaround below exists. The short version:
+  See docs/design.md §4.3 for why each workaround below exists. The short version:
 
     * `struct Attribute` shadows System.Attribute and breaks every generated helper attribute.
     * The 12 C++ reflection "classes" are opaque types whose methods are inline forwarders. C++
@@ -210,10 +210,10 @@ if ((Test-Path $vm) -and ((Get-Content $vm -Raw) -notmatch 'using System\.Runtim
 //
 // These 12 types are opaque C++ structs in slang.h: no fields, no vtable, and every method an
 // inline forwarder to a flat spReflection* C function. There is nothing for a generator to bind,
-// and ClangSharp's attempt does not compile (C++ `this` is a pointer; C# struct `this` is not).
+// and ClangSharp's attempt does not compile (C++ ``this`` is a pointer; C# struct ``this`` is not).
 // They are excluded from generation and declared here only so the COM interfaces returning T*
 // have a type to point at. The managed object model over them is hand-written in L3 against the
-// flat SlangApi functions. See docs/binding-surface.md §3.2 and §4.4.
+// flat SlangApi functions. See docs/design.md §3.2 and §4.4.
 //
 // NOTE: SlangAttribute, not Attribute — a type named ``Attribute`` in this namespace shadows
 // System.Attribute and breaks every generated [NativeTypeName]/[VtblIndex] helper attribute.
@@ -254,7 +254,7 @@ $guidNames = $guidMatches | ForEach-Object { $_.Groups['name'].Value }
 
 # ICompileRequest predates Slang's COM conversion: it is a plain vtable type with no
 # SLANG_COM_INTERFACE and therefore no IID, by design. It belongs to the 83-function legacy
-# compile-request API that PrismSlang does not bind (docs/binding-surface.md §3.3, Tier 4).
+# compile-request API that PrismSlang does not bind (docs/design.md §3.3, Tier 4).
 $noIidByDesign = @('ICompileRequest')
 
 $declaredIfaces = @(Get-ChildItem (Join-Path $Output "I*.cs") | ForEach-Object { $_.BaseName })
@@ -268,7 +268,7 @@ if ($missingIid.Count -gt 0) {
 //
 // SLANG_COM_INTERFACE's constexpr SlangUUID cannot be expressed as a C# fixed-buffer initializer,
 // so getTypeGuid() is excluded from generation and the IIDs are parsed out of slang.h here.
-// Required by queryInterface / castAs. See docs/binding-surface.md §4.3.
+// Required by queryInterface / castAs. See docs/design.md §4.3.
 
 using System;
 using System.Runtime.CompilerServices;

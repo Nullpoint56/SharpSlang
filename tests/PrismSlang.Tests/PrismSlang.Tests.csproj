@@ -4,7 +4,7 @@
     Drift tests. These do not test Slang and they do not need the native library — they test that
     the hand-written parts of the binding still agree with the pinned slang.h. Everything they
     assert is re-derived from the header at run time, never restated, so they fail on an upstream
-    change instead of passing forever. See docs/binding-surface.md §4.5.
+    change instead of passing forever. See docs/design.md §4.5.
   -->
 
   <PropertyGroup>

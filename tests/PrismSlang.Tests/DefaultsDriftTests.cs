@@ -105,7 +105,7 @@ public class DefaultsDriftTests
     [Fact]
     public void Never_trust_a_zero_initialized_descriptor()
     {
-        // The two concrete cases from docs/binding-surface.md §4.5, pinned as regressions. If
+        // The two concrete cases from docs/design.md §4.5, pinned as regressions. If
         // someone "simplifies" Defaults away, these fail loudly instead of shipping broken shaders.
         var zeroed = default(SessionDesc);
         Assert.Equal(SlangMatrixLayoutMode.SLANG_MATRIX_LAYOUT_MODE_UNKNOWN, zeroed.defaultMatrixLayoutMode);

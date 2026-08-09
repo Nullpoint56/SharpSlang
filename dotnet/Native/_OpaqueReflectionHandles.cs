@@ -2,10 +2,10 @@
 //
 // These 12 types are opaque C++ structs in slang.h: no fields, no vtable, and every method an
 // inline forwarder to a flat spReflection* C function. There is nothing for a generator to bind,
-// and ClangSharp's attempt does not compile (C++ 	his is a pointer; C# struct 	his is not).
+// and ClangSharp's attempt does not compile (C++ `this` is a pointer; C# struct `this` is not).
 // They are excluded from generation and declared here only so the COM interfaces returning T*
 // have a type to point at. The managed object model over them is hand-written in L3 against the
-// flat SlangApi functions. See docs/binding-surface.md §3.2 and §4.4.
+// flat SlangApi functions. See docs/design.md §3.2 and §4.4.
 //
 // NOTE: SlangAttribute, not Attribute — a type named `Attribute` in this namespace shadows
 // System.Attribute and breaks every generated [NativeTypeName]/[VtblIndex] helper attribute.
