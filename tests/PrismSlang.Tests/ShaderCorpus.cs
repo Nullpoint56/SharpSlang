@@ -217,6 +217,26 @@ public static class ShaderCorpus
             }
             """, ["viVertex"]),
 
+        // Added on the back of the VkFormat transcription bug. Only the one-location 64-bit types
+        // are here: a double3 or double4 takes two locations, Slang assigns it one, and the
+        // resulting overlap has no valid pipeline layout — VulkanEnumTests covers that refusal.
+        new("wide-vertex-inputs", """
+            struct WvIn
+            {
+                float3  wvPosition : POSITION;
+                double  wvScalar   : TEXCOORD0;
+                double2 wvPair     : TEXCOORD1;
+                float2  wvAfter    : TEXCOORD2;
+            };
+
+            [shader("vertex")]
+            float4 wvVertex(WvIn v) : SV_Position
+            {
+                return float4(v.wvPosition, 1) + (float)v.wvScalar + (float)v.wvPair.x
+                     + float4(v.wvAfter, 0, 0);
+            }
+            """, ["wvVertex"]),
+
         new("fragment-outputs", """
             struct FoGBuffer
             {

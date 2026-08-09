@@ -147,19 +147,24 @@ public class PipelineLayoutTests
     {
         // Silently skipping is how the matrix vanished. A type that occupies locations but has no
         // attribute format has to say so.
-        const string Doubles = """
-            struct VIn { float3 position; double3x3 weird; };
+        //
+        // This used to use double3x3, on the grounds that it maps to R64G64B64Sfloat per row. It
+        // does — and each of those rows takes two locations while Slang assigns one, so the rows
+        // overlap and the layout is refused before it can be inspected. That case moved to
+        // VulkanEnumTests; what belongs here is the mapping, which float3x3 exercises identically.
+        const string Matrix = """
+            struct VIn { float3 position; float3x3 weird; };
             struct VOut { float4 pos : SV_Position; };
 
             [shader("vertex")]
             VOut vertexMain(VIn v)
-            { VOut o; o.pos = float4(v.position, (float)v.weird[0][0]); return o; }
+            { VOut o; o.pos = float4(v.position, v.weird[0][0]); return o; }
             """;
 
-        var c = Compile(Doubles, "vertexMain");
+        var c = Compile(Matrix, "vertexMain");
 
-        // double3x3 has a Vulkan format per row (R64G64B64Sfloat), so this one does map; the
-        // assertion that matters is that nothing was silently lost.
+        // Every input the module decorates has to appear, under its own name or as one of the
+        // per-location attributes a matrix expands into.
         var located = SpirvDecorations.InputLocations(c.Code);
         foreach (var name in located.Keys)
         {

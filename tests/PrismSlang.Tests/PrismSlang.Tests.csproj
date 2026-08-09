@@ -29,6 +29,18 @@
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
     <PackageReference Include="xunit" Version="2.9.2" />
     <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
+
+    <!--
+      The oracle for VulkanEnums, and the only reason this dependency exists. PrismSlang.Vulkan
+      mirrors ~48 Vulkan enum values by hand so that it ships standalone — a consumer should not
+      inherit somebody else's choice of Vulkan binding behind a small mapping. That reasoning is
+      about the *package*, and it says nothing about the test assembly, which can depend on
+      whatever gives it a real answer.
+
+      Vortice.Vulkan is generated from the Khronos vk.xml registry, so agreeing with it is
+      agreeing with the specification. See VulkanEnumTests, and docs §9.14.
+    -->
+    <PackageReference Include="Vortice.Vulkan" Version="3.2.3" />
   </ItemGroup>
 
   <ItemGroup>

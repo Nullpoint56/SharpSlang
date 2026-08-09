@@ -393,8 +393,66 @@ public static class VulkanProjection
             Emit(p.Name, p.Type, p.Semantic, location, result);
         }
 
-        return result.OrderBy(v => v.Location).ToList();
+        var ordered = result.OrderBy(v => v.Location).ToList();
+        RequireDistinctLocations(ordered);
+        return ordered;
     }
+
+    /// <summary>
+    /// Refuses a vertex layout where two attributes claim the same location.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// An invariant checked against the Vulkan specification rather than against the module,
+    /// because on this one the module is not an oracle: Slang and the emitted SPIR-V agree with
+    /// each other and both disagree with the rule.
+    /// </para>
+    /// <para>
+    /// Vulkan's location assignment gives a three- or four-component 64-bit vector <em>two</em>
+    /// consecutive locations, where every 32-bit type and a scalar or two-component 64-bit vector
+    /// takes one. Measured against slang-compiler 2026.14.1 with
+    /// <c>float3, double, double2, double4, float2</c>: Slang assigns 0, 1, 2, 3, 4 and decorates
+    /// the module the same way, so the <c>double4</c> at 3 and the <c>float2</c> at 4 overlap. A
+    /// pipeline built from that is rejected by the validation layers, and the diagnostic points at
+    /// the pipeline rather than at the shader.
+    /// </para>
+    /// <para>
+    /// This is the only claim in this file asserted from the specification rather than from a
+    /// measurement, so it is worth saying plainly: if Slang is right and this rule does not apply
+    /// to vertex inputs, the check is a false refusal on a legal shader. Running the layers against
+    /// a real device would settle it — see docs §9.14. Meanwhile the check also catches an overlap
+    /// from any other cause, which is worth having on its own.
+    /// </para>
+    /// </remarks>
+    private static void RequireDistinctLocations(List<VulkanVertexInput> inputs)
+    {
+        var claimed = new Dictionary<uint, string>();
+
+        foreach (var input in inputs)
+        {
+            for (var i = 0u; i < LocationsConsumed(input.Format); i++)
+            {
+                if (claimed.TryGetValue(input.Location + i, out var other))
+                {
+                    throw new NotSupportedException(
+                        $"vertex attributes '{other}' and '{input.Name}' both occupy location "
+                        + $"{input.Location + i}. A three- or four-component 64-bit attribute takes "
+                        + $"two consecutive locations, and Slang assigned these as if it took one. "
+                        + $"Give the attribute after the 64-bit one an explicit location, or narrow "
+                        + $"it to at most two components.");
+                }
+
+                claimed[input.Location + i] = input.Name;
+            }
+        }
+    }
+
+    /// <summary>Locations one attribute of this format occupies. Two only for a wide 64-bit vector.</summary>
+    private static uint LocationsConsumed(VulkanFormat format) => format switch
+    {
+        VulkanFormat.R64G64B64Sfloat or VulkanFormat.R64G64B64A64Sfloat => 2,
+        _ => 1,
+    };
 
     /// <summary>The VARYING_INPUT offset, if the parameter has one at all.</summary>
     /// <remarks>

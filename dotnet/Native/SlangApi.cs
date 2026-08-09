@@ -893,7 +893,6 @@ public static unsafe partial class SlangApi
     [return: NativeTypeName("SlangInt")]
     public static extern long spReflection_getBindlessSpaceIndex([NativeTypeName("SlangReflection *")] SlangProgramLayout* reflection);
 
-
     [DllImport("slang-compiler", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
     [return: NativeTypeName("SlangResult")]
     public static extern int spCompileRequest_getProgram([NativeTypeName("SlangCompileRequest *")] ICompileRequest* request, [NativeTypeName("slang::IComponentType **")] IComponentType** outProgram);

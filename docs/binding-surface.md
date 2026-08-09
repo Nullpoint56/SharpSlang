@@ -602,7 +602,7 @@ constant buffer, a texture, a sampler, and varyings specifically so there is som
 
 ## 9. Status
 
-All five layers are built and green on **win-x64 and linux-x64**: 342 tests, the Tier 0 spike, and
+All five layers are built and green on **win-x64 and linux-x64**: 351 tests, the Tier 0 spike, and
 a full reflection walk on both.
 
 | Layer | State |
@@ -624,7 +624,7 @@ a full reflection walk on both.
 | `fetch-native.ps1` | win-x64 + linux-x64 verified; osx-arm64 mapped, unrun |
 | `tools/ci/verify-linux.sh` | build + tests + spike under WSL |
 | `.github/workflows` | CI matrix, regeneration check, package-contents check, publish |
-| Tests | 342. `ModuleAgreementTests` diffs a 27-shader corpus against the emitted module as sets, both directions; `SurfaceCoverageTests` fails on any Slang enum value the corpus neither exercises nor declares untried. See §9.11 and §9.13 |
+| Tests | 351. `ModuleAgreementTests` diffs a 27-shader corpus against the emitted module as sets, both directions; `SurfaceCoverageTests` fails on any Slang enum value the corpus neither exercises nor declares untried. See §9.11 and §9.13 |
 
 Package sizes tell the story of the split: `PrismSlang` is 34 MB (it carries the compiler for every
 RID), `PrismSlang.Vulkan` is **10 KB**. A D3D12 consumer pays nothing for Vulkan.
@@ -1264,7 +1264,7 @@ and three of the answers were missing entirely.
 | L3 SPIR-V reader | malformed, truncated and corrupted input | **added** |
 | L4 hosting | a managed filesystem serving a whole import tree | `HostingTests` |
 | Baking | round-trip, version rejection, corrupt input | round-trip existed; **corrupt added** |
-| Vulkan enums | mirrored values against the specification | none — see Remaining |
+| Vulkan enums | mirrored values against a vk.xml-generated binding | **added** — found four wrong, §9.14 |
 
 Three were missing. All three found something.
 
@@ -1353,7 +1353,75 @@ release that starts honouring the flag fails rather than quietly agreeing with a
   called from native code, where an escaping exception is undefined behaviour. Nothing tests what
   happens when a caller's `ISlangFileSystem` throws.
 - **`VulkanEnums` against the specification.** The numeric values are mirrored by hand and nothing
-  checks them; there is no offline source of truth to check against, so this needs either a
-  generated header or a deliberate decision to keep trusting the table.
+  checks them. Unlike the two above this is a decision before it is a task, because there is no
+  offline source of truth in the repository to check against. Resolved in §9.14, which is where the
+  decision and its immediate result are.
 
 342 tests.
+
+---
+
+### 9.14 The mirrored Vulkan values, four of which were wrong
+
+`VulkanEnums.cs` copies ~48 numeric values out of the Vulkan specification so the package ships
+standalone, and said so:
+
+> The numeric values below are fixed by the Vulkan specification and will not change, so mirroring
+> them is safe and keeps the package standalone.
+
+That is an argument about **drift**, and about drift it is correct. It says nothing about
+**transcription**. "It cannot change" is not "it was typed correctly", and the two had been treated
+as the same sentence — the same shape as every other finding in this document, applied to the
+document's own reasoning.
+
+The decision was where to get an oracle. Options were a Vulkan binding referenced by the test
+project, a pinned `vk.xml` parsed at test time, dropping the enums for raw `uint`, or recording the
+exposure and living with it. The first won: the objection to a Vulkan dependency is about the
+*package*, and it says nothing about the test assembly. `PrismSlang.Vulkan` still has no
+dependencies; `PrismSlang.Tests` gained `Vortice.Vulkan`, which is generated from the Khronos
+`vk.xml` registry, so agreeing with it is agreeing with the registry.
+
+**Four of the 48 were wrong, and they failed on the first run:**
+
+| | Mirrored as | Actually |
+|---|---|---|
+| `R64Sfloat` | 110 | 112 |
+| `R64G64Sfloat` | 113 | 115 |
+| `R64G64B64Sfloat` | 116 | 118 |
+| `R64G64B64A64Sfloat` | 119 | 121 |
+
+Each is off by exactly two, and the reason is visible once the numbers are laid out: this region of
+`VkFormat` runs in UINT/SINT/SFLOAT triples, so 110 is `R64_UINT`, 111 is `R64_SINT` and 112 is
+`R64_SFLOAT`. Whoever transcribed them took the *start* of each group. A `double` vertex attribute
+was therefore described to the driver as an unsigned integer of the same width — eight bytes read
+and reinterpreted, structurally valid, so validation passes and the geometry is simply wrong.
+
+The 32-bit family, which has the identical triple structure, was correct throughout. So was
+everything else. It was one contiguous block of four, typed once.
+
+#### And its neighbour
+
+Putting doubles in the corpus to cover the fixed formats turned up something the agreement harness
+structurally cannot: Vulkan gives a three- or four-component 64-bit vector **two** consecutive
+locations, where every 32-bit type and a narrow 64-bit one takes a single location. Measured with
+`float3, double, double2, double4, float2`, Slang assigns 0, 1, 2, 3, 4 and decorates the module the
+same way — so the `double4` at 3 and the `float2` at 4 overlap, and reflection and the module are in
+perfect agreement about it. A `double3x3` is worse: every row overlaps the next.
+
+That is a third category, after "the module disagrees" and "both are silent". Here **both speak and
+both are wrong**, and the only oracle left is the specification.
+`VulkanProjection.RequireDistinctLocations` refuses the overlap and names both attributes.
+
+It is worth flagging that this is the one assertion in the Vulkan projection taken from the
+specification rather than from a measurement. If the two-location rule somehow does not apply to
+vertex inputs, the check is a false refusal on a legal shader. Running the validation layers against
+a real device — technique 4 from the list that produced §9.11 — is what would settle it, and this is
+the first finding that makes that worth doing rather than merely nice.
+
+#### What this says about the other mirrors
+
+There are none left: `SlangImageFormat`, `SlangStage`, `SlangBindingType` and the rest are Slang's
+own enums, generated by ClangSharp from the pinned header, so they cannot be mistyped by hand.
+`VulkanEnums` was the only table copied by a person, and it was the only one with an error in it.
+
+351 tests.
