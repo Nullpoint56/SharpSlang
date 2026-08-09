@@ -339,13 +339,38 @@ public static unsafe class ReflectionWalker
             if (tl is not null) resultType = ReadTypeLayout(tl, cache);
         }
 
+        // Where this entry point's own parameter block sits in the global numbering, and how much
+        // uniform data it carries. Both are needed to place `uniform` entry-point parameters,
+        // which report their offsets relative to this block rather than absolutely.
+        List<ParameterBinding>? parameterBase = null;
+        ulong uniformSize = 0;
+        var epVarLayout = SlangApi.spReflectionEntryPoint_getVarLayout(ep);
+        if (epVarLayout is not null)
+        {
+            var epTypeLayout = SlangApi.spReflectionVariableLayout_GetTypeLayout(epVarLayout);
+            if (epTypeLayout is not null)
+            {
+                parameterBase = ReadBindings(epVarLayout, epTypeLayout);
+
+                // The entry point's block is a constant buffer wrapping a struct, and the wrapper
+                // reports a uniform size of 0 — the bytes are on the element. Reading the wrapper
+                // says an entry point with `uniform float4 tint` needs no push constants at all.
+                var element = SlangApi.spReflectionTypeLayout_GetElementTypeLayout(epTypeLayout);
+                uniformSize = SlangApi.spReflectionTypeLayout_GetSize(
+                    element is not null ? element : epTypeLayout,
+                    SlangParameterCategory.SLANG_PARAMETER_CATEGORY_UNIFORM);
+            }
+        }
+
         return new EntryPointLayout(
             name,
             stage,
             parameters,
             threadGroup,
             SlangApi.spReflectionEntryPoint_usesAnySampleRateInput(ep) != 0,
-            resultType);
+            resultType,
+            parameterBase,
+            uniformSize);
     }
 
     // ---------------------------------------------------------------- descriptor sets
@@ -374,6 +399,8 @@ public static unsafe class ReflectionWalker
         var globalScope = SlangApi.spReflection_getGlobalParamsTypeLayout(shader);
         if (globalScope is not null) CollectSets(globalScope, baseSpace: 0, bySpace);
 
+        CollectEntryPointSets(shader, bySpace);
+
         var paramCount = SlangApi.spReflection_GetParameterCount(shader);
         for (uint i = 0; i < paramCount; i++)
         {
@@ -398,10 +425,55 @@ public static unsafe class ReflectionWalker
         return bySpace.Select(kv => new DescriptorSet(kv.Key, kv.Value)).ToList();
     }
 
+    /// <summary>
+    /// Adds the descriptors an entry point's own <c>uniform</c> parameters occupy.
+    /// </summary>
+    /// <remarks>
+    /// Necessary, not thorough-for-its-own-sake. <c>uniform Texture2D extra</c> on an entry point
+    /// is a real descriptor — the emitted module decorates it with a set and a binding — but it is
+    /// invisible in the global scope, so a layout built only from
+    /// <c>getGlobalParamsTypeLayout</c> is missing a binding the shader will read. That produces a
+    /// descriptor set layout the driver rejects, or worse, silently accepts against the wrong slot.
+    ///
+    /// The rebasing is the fiddly part. An entry point's parameters and descriptor ranges are
+    /// numbered from zero within the entry point's own block, and the block's position in the
+    /// global numbering is the offset on <c>getVarLayout</c> — per category. Measured against
+    /// slang-compiler 2026.14.1: with three global descriptors the entry-point block reports
+    /// <c>DESCRIPTOR_TABLE_SLOT off=3</c>, and its two ranges at relative 0 and 1 land at absolute
+    /// bindings 3 and 4, exactly matching the module's decorations.
+    /// </remarks>
+    private static void CollectEntryPointSets(
+        SlangProgramLayout* shader,
+        SortedDictionary<uint, List<DescriptorRange>> bySpace)
+    {
+        var count = SlangApi.spReflection_getEntryPointCount(shader);
+        for (ulong e = 0; e < count; e++)
+        {
+            var ep = SlangApi.spReflection_getEntryPointByIndex(shader, e);
+            if (ep is null) continue;
+
+            var varLayout = SlangApi.spReflectionEntryPoint_getVarLayout(ep);
+            if (varLayout is null) continue;
+
+            var typeLayout = SlangApi.spReflectionVariableLayout_GetTypeLayout(varLayout);
+            if (typeLayout is null) continue;
+
+            var baseSpace = (uint)SlangApi.spReflectionVariableLayout_GetSpace(
+                varLayout, SlangParameterCategory.SLANG_PARAMETER_CATEGORY_DESCRIPTOR_TABLE_SLOT);
+
+            CollectSets(typeLayout, baseSpace, bySpace, varLayout);
+        }
+    }
+
+    /// <param name="rebase">
+    /// When set, the variable layout whose per-category offsets each range index is relative to.
+    /// Null for the global scope, whose ranges are already absolute.
+    /// </param>
     private static void CollectSets(
         SlangReflectionTypeLayout* tl,
         uint baseSpace,
-        SortedDictionary<uint, List<DescriptorRange>> bySpace)
+        SortedDictionary<uint, List<DescriptorRange>> bySpace,
+        SlangReflectionVariableLayout* rebase = null)
     {
         var setCount = SlangApi.spReflectionTypeLayout_getDescriptorSetCount(tl);
         for (long s = 0; s < setCount; s++)
@@ -413,11 +485,24 @@ public static unsafe class ReflectionWalker
             var rangeCount = SlangApi.spReflectionTypeLayout_getDescriptorSetDescriptorRangeCount(tl, s);
             for (long r = 0; r < rangeCount; r++)
             {
+                var category = SlangApi.spReflectionTypeLayout_getDescriptorSetDescriptorRangeCategory(tl, s, r);
+                var index = (uint)SlangApi.spReflectionTypeLayout_getDescriptorSetDescriptorRangeIndexOffset(tl, s, r);
+                var count = SlangApi.spReflectionTypeLayout_getDescriptorSetDescriptorRangeDescriptorCount(tl, s, r);
+
+                if (rebase is not null)
+                    index += (uint)SlangApi.spReflectionVariableLayout_GetOffset(rebase, category);
+
+                // -1 as a SlangInt is how Slang reports "runtime-sized". It is not a count and
+                // must not be handed to Vulkan as one.
+                var unbounded = count < 0 || (ulong)count >= uint.MaxValue;
+
                 ranges.Add(new DescriptorRange(
                     SlangApi.spReflectionTypeLayout_getDescriptorSetDescriptorRangeType(tl, s, r),
-                    (uint)SlangApi.spReflectionTypeLayout_getDescriptorSetDescriptorRangeIndexOffset(tl, s, r),
-                    (uint)SlangApi.spReflectionTypeLayout_getDescriptorSetDescriptorRangeDescriptorCount(tl, s, r),
-                    SlangApi.spReflectionTypeLayout_getDescriptorSetDescriptorRangeCategory(tl, s, r)));
+                    index,
+                    unbounded ? 0u : (uint)count,
+                    category,
+                    Name: null,
+                    IsUnbounded: unbounded));
             }
         }
     }

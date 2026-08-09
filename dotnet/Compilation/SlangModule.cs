@@ -43,6 +43,41 @@ public sealed unsafe class SlangModule : SlangObject<IModule>
     /// <summary>Number of entry points declared with a <c>[shader("...")]</c> attribute.</summary>
     public int EntryPointCount => Ptr->getDefinedEntryPointCount();
 
+    /// <summary>The path this module was loaded from, or null for one compiled from a string.</summary>
+    public string? FilePath => Utf8.Read(Ptr->getFilePath());
+
+    /// <summary>
+    /// Every file this module was compiled from — itself, everything it <c>import</c>s, and
+    /// everything <c>#include</c>d, transitively.
+    /// </summary>
+    /// <remarks>
+    /// This is what makes a staleness check honest. Hashing only the file a shader was named by
+    /// leaves a bake claiming to be current after the module it imports has changed underneath it,
+    /// and the symptom is a shader that behaves like the version before last. Verified against
+    /// slang-compiler 2026.14.1: a module that imports one <c>.slang</c> and includes one
+    /// <c>.hlsli</c> reports all three paths.
+    ///
+    /// Paths are as Slang resolved them, so they are absolute for anything found through a search
+    /// path. A module compiled from a string reports the synthetic path it was given, which will
+    /// not exist on disk.
+    /// </remarks>
+    public IReadOnlyList<string> DependencyFilePaths
+    {
+        get
+        {
+            var count = Ptr->getDependencyFileCount();
+            if (count <= 0) return [];
+
+            var paths = new List<string>(count);
+            for (var i = 0; i < count; i++)
+            {
+                var path = Utf8.Read(Ptr->getDependencyFilePath(i));
+                if (!string.IsNullOrEmpty(path)) paths.Add(path);
+            }
+            return paths;
+        }
+    }
+
     /// <summary>Resolves an entry point by name.</summary>
     /// <exception cref="SlangException">No such entry point in this module.</exception>
     public SlangEntryPoint FindEntryPoint(string name)

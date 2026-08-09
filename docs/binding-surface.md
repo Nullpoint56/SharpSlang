@@ -602,7 +602,7 @@ constant buffer, a texture, a sampler, and varyings specifically so there is som
 
 ## 9. Status
 
-All five layers are built and green on **win-x64 and linux-x64**: 216 tests, the Tier 0 spike, and
+All five layers are built and green on **win-x64 and linux-x64**: 244 tests, the Tier 0 spike, and
 a full reflection walk on both.
 
 | Layer | State |
@@ -615,8 +615,8 @@ a full reflection walk on both.
 | L3 reflection | type tree + bindings + descriptor sets + generics + declarations + spec constants |
 | L3 SPIR-V | header and `OpEntryPoint` reader, for facts reflection cannot report |
 | L4 hosting | managed `ISlangFileSystem` via `[UnmanagedCallersOnly]` thunks |
-| Baking | `ShaderPackage`: SPIR-V + layout + module entry-point name + version + source hash |
-| `PrismSlang.Vulkan` | separate package: descriptor sets, push constants, vertex inputs, `VkSpecializationInfo`, target-env mapping |
+| Baking | `ShaderPackage`: SPIR-V + layout + module entry-point name + version + dependency hashes |
+| `PrismSlang.Vulkan` | separate package: descriptor sets, push constants, vertex inputs, fragment outputs, `VkSpecializationInfo`, target-env mapping |
 
 | Supporting | State |
 |---|---|
@@ -624,7 +624,7 @@ a full reflection walk on both.
 | `fetch-native.ps1` | win-x64 + linux-x64 verified; osx-arm64 mapped, unrun |
 | `tools/ci/verify-linux.sh` | build + tests + spike under WSL |
 | `.github/workflows` | CI matrix, regeneration check, package-contents check, publish |
-| Tests | 216 across drift, compilation, reflection, Vulkan, hosting, generics, baking, link options, SPIR-V, entry-point naming, target env, diagnostics, spec constants |
+| Tests | 244, including a `PipelineLayoutTests` suite that asserts the projection against the emitted module's own decorations rather than against hand-written numbers |
 
 Package sizes tell the story of the split: `PrismSlang` is 34 MB (it carries the compiler for every
 RID), `PrismSlang.Vulkan` is **10 KB**. A D3D12 consumer pays nothing for Vulkan.
@@ -839,3 +839,86 @@ Also measured while pinning this: `spirv_1_0`, `1_1` and `1_2` each emit the hea
 name *and* `warning[E50011]: SPIR-V version too old` on a successful compile; `1_3` upward are
 clean. Another diagnostic-on-success, and the live test case for the severity classifier that
 decides whether one of these fails a build.
+
+---
+
+### 9.9 Reading the module back, and what that found
+
+§9.8's entry-point-name defect came from a claim nobody had checked against the bytes. So the same
+question was asked of the rest of the pipeline layout: for a handful of shaders, what does the
+emitted module's `DescriptorSet` / `Binding` / `Location` decoration say, and does PrismSlang agree?
+
+It did not, in five places. Four were shipping wrong data behind passing tests, because the tests
+only checked the projection against itself.
+
+| | Module says | PrismSlang said |
+|---|---|---|
+| **Vertex struct with a matrix** | `position`@0 `instanceXform`@1 `uv`@5 `bones`@6 | `position`@0 `uv`@2 `bones`@3, matrix absent |
+| **Entry-point `uniform Texture2D`** | set 0 binding 2 | not in the layout at all |
+| **`Texture2D t[]`** | one binding | `descriptorCount = 0xFFFFFFFF` |
+| **`[vk::push_constant]` + a texture** | binding 0 is `albedo` | binding 0 named `push` |
+| **MRT `GBuffer` return** | locations 0, 1, 2 | nothing — no such concept |
+
+**Vertex locations were the serious one.** The projection numbered attributes by counting fields,
+one location each. A `float4x4` occupies four, so everything declared after one was reported four
+locations too low; and because a matrix had no attribute format it was skipped *while still
+advancing the counter by one*, so it vanished entirely. A mesh with a per-instance transform —
+ordinary instanced rendering — got no transform and read its UVs from whatever buffer was bound at
+location 2. Locations now come from the offset Slang reports for each field, and a matrix becomes
+one attribute per location, with the width derived from the location count Slang gave rather than
+from an assumption about row- versus column-major.
+
+**Entry-point `uniform` parameters are real descriptors.** They are numbered from zero inside the
+entry point's own block, and the block's position in the global numbering is the offset on
+`getVarLayout`, per category — with three globals it reports `DESCRIPTOR_TABLE_SLOT off=3`, and the
+entry point's two parameters land at 3 and 4. Their `uniform` *values* go somewhere else again: into
+an implicit push-constant buffer, whose size is on the element type layout and not on the wrapper,
+which reports 0.
+
+**The naming bug was the same bug twice.** §9.8 fixed specialization constants stealing descriptor
+names by excluding specialization constants. Push constants do exactly the same thing for exactly
+the same reason — they report (space 0, index 0) and sort first — and were still doing it.
+Blacklisting kinds as they turn up cannot converge; `OccupiesDescriptorSlot` is now a whitelist.
+
+**Two findings that were not defects**, kept because they cost time to establish:
+
+- A `float depth : SV_Depth` field reports *no* `VARYING_OUTPUT` category at all and is decorated
+  `BuiltIn FragDepth`. Presence of the category, not the spelling of the semantic, separates a
+  colour attachment from a builtin — the same test that keeps `SV_VertexID` out of the vertex
+  inputs. No list of system-value names to maintain.
+- Writing `: SV_Target` on a fragment function that returns a struct makes Slang **re-label every
+  field**, so `SV_Depth` genuinely becomes `SV_TARGET1` and genuinely gets a location. Reporting
+  two colour attachments there is correct. This looked exactly like a bug for a while.
+
+The lasting change is `SpirvDecorations` in the test project and the `PipelineLayoutTests` built on
+it: the projection is now asserted against the module rather than against a number typed out by
+hand. All five defects would have failed on the first run.
+
+#### Staleness now covers the import graph
+
+`IModule::getDependencyFileCount` reports the shader, everything it `import`s, and everything
+`#include`d. `ShaderPackage` hashed only the single source string it was handed, so editing a shared
+lighting module left every shader importing it claiming to be current — a shader running the version
+before last, which reads as a renderer bug until someone suspects the cooker.
+
+`ShaderPackage.Bake(program, module)` now records each dependency's path and content hash;
+`StaleDependencies()` returns *which* files changed, so a build log can say why it rebuilt. Hashes
+rather than timestamps, so a checkout does not rebuild the project. A package baked from a string
+has nothing to check and `IsCurrent` reports false rather than true, because claiming currency for
+something unverifiable is the failure the method exists to prevent.
+
+#### Two things deliberately refused rather than guessed
+
+- **More than one push-constant buffer.** Slang counts push-constant *buffers*, so the offset it
+  reports is a buffer index, not a byte offset. They coincide at 0, which is why one range has
+  always looked right. Two — an explicit `[vk::push_constant]` block plus entry-point uniforms —
+  cannot be laid out into the single block Vulkan wants without inventing offsets, so it throws.
+- **A vertex input with no attribute format that still occupies locations.** Silently dropping one
+  is how the matrix disappeared.
+
+#### Unbounded arrays
+
+`Texture2D t[]` reports a descriptor count of `0xFFFFFFFF`, which is not a count and must never
+reach `VkDescriptorSetLayoutBinding::descriptorCount`. Normalised to 0 with `IsUnbounded` set: the
+real cap is a host decision, made with `VK_DESCRIPTOR_BINDING_VARIABLE_DESCRIPTOR_COUNT_BIT` against
+the device's limits. Fixed-size arrays (`Texture2D t[8]`) were always correct.

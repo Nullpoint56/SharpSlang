@@ -51,6 +51,26 @@ public sealed record ShaderParameter(
         && Bindings.All(b =>
             b.Category == SlangParameterCategory.SLANG_PARAMETER_CATEGORY_SPECIALIZATION_CONSTANT);
 
+    /// <summary>
+    /// Whether this parameter actually consumes a slot in a descriptor set.
+    /// </summary>
+    /// <remarks>
+    /// The test to apply before treating a parameter's binding index as a descriptor binding.
+    /// Slang puts everything in one top-level list — descriptors, push constants, specialization
+    /// constants, varyings — and several of those report an index and a space that look exactly
+    /// like a descriptor's without being one. A <c>[vk::push_constant]</c> block and a
+    /// <c>[vk::constant_id(0)]</c> constant both claim (space 0, index 0), the same coordinates as
+    /// the descriptor at set 0 binding 0, and both sort ahead of it. Two separate bugs came from
+    /// asking the question the other way round and excluding kinds one at a time as they turned up.
+    /// </remarks>
+    [JsonIgnore]
+    public bool OccupiesDescriptorSlot => Bindings.Any(b => b.Category
+        is SlangParameterCategory.SLANG_PARAMETER_CATEGORY_DESCRIPTOR_TABLE_SLOT
+        or SlangParameterCategory.SLANG_PARAMETER_CATEGORY_CONSTANT_BUFFER
+        or SlangParameterCategory.SLANG_PARAMETER_CATEGORY_SHADER_RESOURCE
+        or SlangParameterCategory.SLANG_PARAMETER_CATEGORY_UNORDERED_ACCESS
+        or SlangParameterCategory.SLANG_PARAMETER_CATEGORY_SAMPLER_STATE);
+
     /// <summary>The primary binding — the first non-uniform one, else the first of any kind.</summary>
     [JsonIgnore]
     public ParameterBinding? PrimaryBinding =>
@@ -90,15 +110,29 @@ public sealed record ShaderParameter(
 /// <summary>One binding slot inside a descriptor set, as Slang models it.</summary>
 /// <param name="BindingType">What kind of thing is bound.</param>
 /// <param name="IndexOffset">Binding index within the set.</param>
-/// <param name="DescriptorCount">Array size; 1 for a scalar binding.</param>
+/// <param name="DescriptorCount">
+/// Array size; 1 for a scalar binding, and 0 when <paramref name="IsUnbounded"/> — the shader did
+/// not say, so the host chooses.
+/// </param>
 /// <param name="Category">The resource category this range is counted in.</param>
 /// <param name="Name">The parameter that produced this range, where it could be attributed.</param>
+/// <param name="IsUnbounded">
+/// Whether the shader declared a runtime-sized array (<c>Texture2D t[];</c>), i.e. bindless.
+/// </param>
+/// <remarks>
+/// Slang reports an unbounded array's descriptor count as <c>0xFFFFFFFF</c>. That value is not a
+/// count and must not reach <c>VkDescriptorSetLayoutBinding::descriptorCount</c>; it is normalised
+/// to 0 here with the flag set, because the real cap is a host decision made with
+/// <c>VK_DESCRIPTOR_BINDING_VARIABLE_DESCRIPTOR_COUNT_BIT</c> and the device's
+/// <c>maxPerStageDescriptor*</c> limits. Measured against slang-compiler 2026.14.1.
+/// </remarks>
 public sealed record DescriptorRange(
     SlangBindingType BindingType,
     uint IndexOffset,
     uint DescriptorCount,
     SlangParameterCategory Category,
-    string? Name = null);
+    string? Name = null,
+    bool IsUnbounded = false);
 
 /// <summary>A descriptor set (register space) and the ranges within it.</summary>
 public sealed record DescriptorSet(uint SpaceOffset, IReadOnlyList<DescriptorRange> Ranges);
@@ -110,13 +144,29 @@ public sealed record DescriptorSet(uint SpaceOffset, IReadOnlyList<DescriptorRan
 /// <param name="ThreadGroupSize">Compute thread-group dimensions, null for non-compute stages.</param>
 /// <param name="UsesAnySampleRateInput">Whether the stage forces sample-rate shading.</param>
 /// <param name="ResultType">The return type's layout, where it has one.</param>
+/// <param name="ParameterBase">
+/// Where the entry point's own parameter block starts, per category. Entry-point
+/// <c>uniform</c> parameters report offsets <em>relative</em> to this, so an absolute binding is
+/// this plus the parameter's own offset.
+/// </param>
+/// <param name="UniformSize">
+/// Bytes of the implicit buffer holding the entry point's <c>uniform</c> value parameters. Slang
+/// places these in a push-constant buffer. 0 when the entry point declares none.
+/// </param>
 public sealed record EntryPointLayout(
     string Name,
     SlangStage Stage,
     IReadOnlyList<ShaderParameter> Parameters,
     ThreadGroupSize? ThreadGroupSize = null,
     bool UsesAnySampleRateInput = false,
-    TypeLayout? ResultType = null);
+    TypeLayout? ResultType = null,
+    IReadOnlyList<ParameterBinding>? ParameterBase = null,
+    ulong UniformSize = 0)
+{
+    /// <summary>The entry point's base offset in one category, or 0 if it occupies none.</summary>
+    public uint BaseOffset(SlangParameterCategory category) =>
+        ParameterBase?.FirstOrDefault(b => b.Category == category).Index ?? 0;
+}
 
 /// <summary>Compute thread-group dimensions.</summary>
 public readonly record struct ThreadGroupSize(ulong X, ulong Y, ulong Z)
