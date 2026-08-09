@@ -44,6 +44,8 @@ public static class VulkanProjection
             if (bindings.Count > 0) sets.Add(new VulkanDescriptorSetLayout(set.SpaceOffset, bindings));
         }
 
+        RequireEveryParameterIsPlaced(layout);
+
         return new VulkanPipelineLayout
         {
             DescriptorSets = sets,
@@ -53,6 +55,42 @@ public static class VulkanProjection
             SpecializationConstants = layout.SpecializationMap(),
             Stages = Stages(layout),
         };
+    }
+
+    /// <summary>
+    /// Refuses a program holding a shader parameter that Slang placed nowhere.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// An invariant rather than a comparison, and it is here because comparing against the emitted
+    /// module cannot catch this one: when Slang cannot place a parameter it drops the parameter
+    /// <em>and</em> emits no descriptor for it, so reflection and the module agree by being equally
+    /// silent while the shader still reads the thing.
+    /// </para>
+    /// <para>
+    /// Measured cause, against slang-compiler 2026.14.1: a buffer whose contents include an array
+    /// whose length is a specialization constant. <c>ConstantBuffer&lt;Push&gt;</c> and
+    /// <c>[[vk::push_constant]] ConstantBuffer&lt;Push&gt;</c> both come back with no bindings at
+    /// all, no descriptor range and no push-constant range, and a renderer built from that layout
+    /// binds nothing where the shader expects a buffer.
+    /// </para>
+    /// </remarks>
+    private static void RequireEveryParameterIsPlaced(ProgramLayout layout)
+    {
+        foreach (var p in layout.Parameters)
+        {
+            if (p.Bindings.Count > 0) continue;
+
+            var cause = p.Type is ContainerLayout c && !c.ElementType.IsUniformSizeKnown
+                ? " Its size is not known: it holds an array whose length is a specialization "
+                  + "constant, and Vulkan needs the size when the pipeline layout is built, which "
+                  + "is before any specialization value exists. Give the array a fixed length."
+                : "";
+
+            throw new NotSupportedException(
+                $"shader parameter '{p.Name}' ({p.Type.Kind}) has no binding of any kind, so it is "
+                + $"in the shader and in no part of the pipeline layout.{cause}");
+        }
     }
 
     /// <summary>The program's entry points as pipeline stages.</summary>
@@ -280,8 +318,23 @@ public static class VulkanProjection
             }
 
             // The declared size is the element's uniform footprint, not the wrapper's.
-            var size = p.Type is ContainerLayout c ? c.ElementType.UniformSize : p.Type.UniformSize;
-            result.Add(new VulkanPushConstantRange(0, (uint)size, stages, p.Name));
+            var block = p.Type is ContainerLayout c ? c.ElementType : p.Type;
+
+            // Unreachable for every shader measured — a block with an unknown size loses its
+            // bindings entirely and RequireEveryParameterIsPlaced catches it first. Kept because
+            // the alternative is casting a marker near ulong.MaxValue to uint, producing a
+            // 0xFFFFFFFE push-constant range that fails inside vkCreatePipelineLayout with nothing
+            // pointing back at the shader.
+            if (!block.IsUniformSizeKnown)
+            {
+                throw new NotSupportedException(
+                    $"push-constant block '{p.Name}' has no fixed size: it contains an array whose " +
+                    $"length is a specialization constant, so its footprint is not known until the " +
+                    $"pipeline is created. Vulkan needs the size when the pipeline layout is built, " +
+                    $"which is earlier. Give the array a fixed length.");
+            }
+
+            result.Add(new VulkanPushConstantRange(0, (uint)block.UniformSize, stages, p.Name));
         }
 
         // An entry point's `uniform` value parameters become an implicit push-constant buffer.

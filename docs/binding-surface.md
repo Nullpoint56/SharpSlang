@@ -602,7 +602,7 @@ constant buffer, a texture, a sampler, and varyings specifically so there is som
 
 ## 9. Status
 
-All five layers are built and green on **win-x64 and linux-x64**: 297 tests, the Tier 0 spike, and
+All five layers are built and green on **win-x64 and linux-x64**: 314 tests, the Tier 0 spike, and
 a full reflection walk on both.
 
 | Layer | State |
@@ -624,7 +624,7 @@ a full reflection walk on both.
 | `fetch-native.ps1` | win-x64 + linux-x64 verified; osx-arm64 mapped, unrun |
 | `tools/ci/verify-linux.sh` | build + tests + spike under WSL |
 | `.github/workflows` | CI matrix, regeneration check, package-contents check, publish |
-| Tests | 297. `ModuleAgreementTests` diffs a 20-shader corpus against the emitted module as sets, both directions; `SurfaceCoverageTests` fails on any Slang enum value the corpus neither exercises nor declares untried. See §9.11 |
+| Tests | 314. `ModuleAgreementTests` diffs a 27-shader corpus against the emitted module as sets, both directions; `SurfaceCoverageTests` fails on any Slang enum value the corpus neither exercises nor declares untried. See §9.11 |
 
 Package sizes tell the story of the split: `PrismSlang` is 34 MB (it carries the compiler for every
 RID), `PrismSlang.Vulkan` is **10 KB**. A D3D12 consumer pays nothing for Vulkan.
@@ -1150,3 +1150,93 @@ shader that said `[numthreads(32,1,1)]` reported no workgroup size at all. Found
 was written, by the corpus existing.
 
 297 tests.
+
+---
+
+### 9.12 First hunt with the harness: when Slang does not know, and when it dies
+
+Round four was the first done the intended way — add shaders to the corpus, run, read the diff — and
+it behaved differently from the three before it. Eight new cases went in covering per-field matrix
+orientation, append/consume buffers, buffer arrays, nested uniform structs, 64-bit scalars, system
+values, interpolation modifiers and specialization-sized arrays. **Five of the eight passed on the
+first run**, which is itself the result: per-field `row_major` / `column_major` overrides, nested
+struct offsets, `double` alignment, unbounded sampler arrays and interpolation modifiers are all
+reported correctly, and now have a test saying so rather than nobody's confidence.
+
+The other three all came from one construct.
+
+#### An array whose length is a specialization constant
+
+Slang answers "I do not know" with a number. `SLANG_UNKNOWN_SIZE` is `~size_t(0) - 1`, one below
+`SLANG_UNBOUNDED_SIZE`, and it comes back from the size and offset queries as an ordinary `ulong`.
+Cast to `uint` it is `0xFFFFFFFE`; used as an offset it points four exabytes past the buffer;
+compared against anything it is simply large. Three consequences, all measured:
+
+| Query | Fixed array | Length is a spec constant |
+|---|---|---|
+| `GetSize(UNIFORM)` on the array | 192 | `0xFFFF_FFFF_FFFF_FFFE` |
+| Offset of the next field | 192 | `0xFFFF_FFFF_FFFF_FFFE` |
+| `spReflectionType_GetElementCount` | 3 | **access violation** |
+| `GetSpecializedElementCount` | 3 | **access violation** |
+
+The element count is the sharp one. The C++ header presents `getElementCount()` as calling
+`spReflectionType_GetSpecializedElementCount`, documented to return `SLANG_UNKNOWN_SIZE` "when size
+depends on unresolved generic parameters or link-time constants" — so the resolving version is the
+one that is supposed to handle this, and it crashes too. The walk now reads the size marker first
+and never asks for a count it has been told is unknown. `ArrayLayout.IsSpecializationSized` reports
+the case, `CategorySize.IsKnown` and `FieldLayout.IsUniformOffsetKnown` guard the markers.
+
+#### The buffer disappears, and so does the module's descriptor
+
+`ConstantBuffer<Block>` where `Block` holds such an array comes back with **no bindings at all** —
+no descriptor range, no push-constant range, no category. So does
+`[[vk::push_constant]] ConstantBuffer<Block>`. A renderer building a pipeline layout from that binds
+nothing where the shader expects a buffer.
+
+This is the case the agreement harness cannot see, and it is worth being precise about why. The
+emitted module drops the descriptor as well, so reflection and the module agree — by being equally
+silent — while the shader still reads the thing. §9.11 said the module is the oracle; this is where
+that runs out, and the answer is the third technique rather than a better comparison:
+`VulkanProjection` now asserts an **invariant** with no oracle at all, that every top-level shader
+parameter has a binding of some kind, and refuses by name when one does not. It needs no ground
+truth because it needs no comparison.
+
+#### And one that cannot be guarded
+
+A *resource* array sized by a specialization constant — `Texture2D t[kCascades]` — **terminates the
+process**. Not an exception: `spReflectionTypeLayout_getBindingRangeCount` on a global scope
+containing one exits with no managed stack and no diagnostic, so reflecting such a shader kills the
+cooker.
+
+It is not guarded, because it cannot be detected. Measured side by side, a spec-sized texture array
+and a fixed-size one are identical on every query that does not crash — same categories, same
+`DESCRIPTOR_TABLE_SLOT=1`, same stride of 0, same alignment, same `genericParamIndex` of -1 — and
+the size marker that gives the uniform case away does not exist for a resource, which reports no
+uniform footprint at all. There is no question to ask that survives being asked.
+
+The mitigating fact is that the construct cannot work on Vulkan regardless:
+`VkDescriptorSetLayoutBinding::descriptorCount` is fixed when the descriptor set layout is created,
+which is before any specialization value exists. So it is a shader nobody can use, that kills the
+compiler rather than rejecting it. Recorded here, kept out of the corpus, and worth reporting
+upstream.
+
+#### Two differences that are the module's fault, not ours
+
+Both declared as corpus gaps rather than fixed, because in both the layout is the more useful of the
+two answers:
+
+- **Append and consume buffers are both named `elements` in the module**, after the payload field of
+  the struct Slang wraps them in, so the two are indistinguishable by name in the SPIR-V. The layout
+  reports the declared names. Sets and bindings agree.
+- **The implicit buffer for loose global uniforms** is `globalParams` in the module and unnamed in
+  the layout, from §9.11.
+
+#### What the round says about the method
+
+The three rounds before this one found twelve defects at roughly four per round, all by someone
+choosing what to look at. This round found three, and all three were in the one construct the corpus
+gained that nobody had ever compiled — while five of the eight new areas turned out to be already
+correct. That is the shape you want: the yield moves from "wherever we looked" to "wherever we had
+not looked", and the answer to *where have we not looked* is now a failing test rather than a guess.
+
+314 tests.

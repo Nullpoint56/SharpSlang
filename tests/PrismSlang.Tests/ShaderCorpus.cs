@@ -393,6 +393,183 @@ public static class ShaderCorpus
                     "binding, it simply has no name to report."),
             ]),
 
+        // ------------------------------------------------------------ round four
+        new("matrix-orientation-overrides", """
+            struct MoBlock
+            {
+                             float4x4 moDefault;
+                 row_major   float4x4 moRow;
+                 column_major float4x4 moColumn;
+                 row_major   float3x2 moRowTall;
+                 column_major float3x2 moColumnTall;
+            };
+            ConstantBuffer<MoBlock> moBuffer;
+
+            [shader("fragment")]
+            float4 moFragment() : SV_Target
+            {
+                return mul(moBuffer.moDefault, float4(1)) + mul(moBuffer.moRow, float4(1))
+                     + mul(moBuffer.moColumn, float4(1))
+                     + float4(mul(moBuffer.moRowTall, float2(1)), 0)
+                     + float4(mul(moBuffer.moColumnTall, float2(1)), 0);
+            }
+            """, ["moFragment"]),
+
+        new("append-buffers", """
+            struct AbParticle { float3 abPosition; float abLife; };
+
+            AppendStructuredBuffer<AbParticle>  abAppend;
+            ConsumeStructuredBuffer<AbParticle> abConsume;
+            RWStructuredBuffer<AbParticle>      abPlain;
+
+            [shader("compute")]
+            [numthreads(64, 1, 1)]
+            void abCompute(uint id : SV_DispatchThreadID)
+            {
+                AbParticle p = abConsume.Consume();
+                p.abLife -= 1;
+                abPlain[id] = p;
+                abAppend.Append(p);
+            }
+            """, ["abCompute"],
+            [
+                new ShaderCase.Gap(
+                    "descriptor elements",
+                    "the module names both the append and the consume buffer `elements`, after the " +
+                    "payload field inside the struct Slang wraps them in, so the two are " +
+                    "indistinguishable by name in the SPIR-V. The layout reports the declared " +
+                    "names. The set and binding agree; only the name differs, and PrismSlang's is " +
+                    "the useful one."),
+                new ShaderCase.Gap("descriptor abAppend", "the layout half of the same gap."),
+                new ShaderCase.Gap("descriptor abConsume", "the layout half of the same gap."),
+            ]),
+
+        new("buffer-arrays", """
+            // No ParameterBlock array here: Slang rejects it outright with
+            // "arrays of non-addressable type not allowed", so there is nothing to reflect.
+            struct BaFrame  { float4 baTint; };
+            struct BaObject { float4x4 baModel; };
+
+            ConstantBuffer<BaFrame>   baBuffers[3];
+            ParameterBlock<BaObject>  baBlock;
+            SamplerState              baSamplers[4];
+            SamplerState              baUnbounded[];
+            Texture2D                 baTexture;
+
+            [shader("fragment")]
+            float4 baFragment(uint i : INDEX) : SV_Target
+            {
+                return baBuffers[1].baTint
+                     + mul(baBlock.baModel, float4(1))
+                     + baTexture.Sample(baSamplers[2], 0)
+                     + baTexture.Sample(baUnbounded[i], 0);
+            }
+            """, ["baFragment"]),
+
+        new("nested-uniform-structs", """
+            struct NuInner  { float3 nuOffset; float nuWeight; };
+            struct NuMiddle { NuInner nuInner; float2x2 nuWarp; };
+            struct NuOuter
+            {
+                NuMiddle nuMiddle;
+                NuInner  nuArray[2];
+                float    nuTrailing;
+            };
+            ConstantBuffer<NuOuter> nuBuffer;
+
+            [shader("fragment")]
+            float4 nuFragment() : SV_Target
+            {
+                return float4(nuBuffer.nuMiddle.nuInner.nuOffset, nuBuffer.nuMiddle.nuInner.nuWeight)
+                     + float4(mul(nuBuffer.nuMiddle.nuWarp, float2(1)), 0, 0)
+                     + float4(nuBuffer.nuArray[1].nuOffset, nuBuffer.nuTrailing);
+            }
+            """, ["nuFragment"]),
+
+        new("wide-scalars", """
+            struct WsBlock
+            {
+                float    wsLead;
+                double   wsWide;
+                double2  wsWidePair;
+                float    wsBetween;
+                double   wsWideArray[2];
+                uint64_t wsBig;
+                int64_t  wsBigSigned;
+            };
+            ConstantBuffer<WsBlock> wsBuffer;
+
+            [shader("fragment")]
+            float4 wsFragment() : SV_Target
+            {
+                return float4((float)(wsBuffer.wsWide + wsBuffer.wsWidePair.x + wsBuffer.wsWideArray[1]),
+                              wsBuffer.wsLead + wsBuffer.wsBetween,
+                              (float)wsBuffer.wsBig, (float)wsBuffer.wsBigSigned);
+            }
+            """, ["wsFragment"]),
+
+        new("system-values", """
+            struct SvVertexIn
+            {
+                float3 svPosition : POSITION;
+                uint   svVertex   : SV_VertexID;
+                uint   svInstance : SV_InstanceID;
+            };
+            struct SvVertexOut
+            {
+                float4 svClip     : SV_Position;
+                float2 svUv       : TEXCOORD0;
+                uint   svLayer    : SV_RenderTargetArrayIndex;
+            };
+
+            [shader("vertex")]
+            SvVertexOut svVertex(SvVertexIn v)
+            {
+                SvVertexOut o;
+                o.svClip = float4(v.svPosition, 1) + v.svVertex + v.svInstance;
+                o.svUv = 0;
+                o.svLayer = 0;
+                return o;
+            }
+
+            [shader("fragment")]
+            float4 svFragment(SvVertexOut i, bool svFront : SV_IsFrontFace) : SV_Target
+            {
+                return float4(i.svUv, svFront ? 1 : 0, i.svClip.z);
+            }
+            """, ["svVertex", "svFragment"]),
+
+        new("interpolation-modifiers", """
+            struct ImVaryings
+            {
+                float4                  imClip   : SV_Position;
+                nointerpolation float3  imFlat   : COLOR0;
+                noperspective   float2  imScreen : TEXCOORD0;
+                sample          float   imPerSample : TEXCOORD1;
+                                float2  imSmooth : TEXCOORD2;
+            };
+
+            [shader("vertex")]
+            ImVaryings imVertex(float3 imPosition : POSITION)
+            {
+                ImVaryings o;
+                o.imClip = float4(imPosition, 1);
+                o.imFlat = 1; o.imScreen = 0; o.imPerSample = 0; o.imSmooth = 0;
+                return o;
+            }
+
+            [shader("fragment")]
+            float4 imFragment(ImVaryings v) : SV_Target
+            {
+                return float4(v.imFlat, v.imPerSample) + float4(v.imScreen, v.imSmooth);
+            }
+            """, ["imVertex", "imFragment"]),
+
+        // Arrays sized by a specialization constant are not here, and cannot be: a buffer holding
+        // one is dropped by Slang from both the layout and the module, so it has no pipeline layout
+        // to agree about, and a *resource* array sized that way terminates the process inside
+        // getBindingRangeCount. UnknownSizeTests covers what can be covered. Docs §9.12.
+
         new("scalar-widths", """
             struct SwBlock
             {

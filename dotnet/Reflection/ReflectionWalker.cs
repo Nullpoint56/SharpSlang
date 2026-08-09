@@ -879,14 +879,24 @@ public static unsafe class ReflectionWalker
 
             case SlangTypeKind.SLANG_TYPE_KIND_ARRAY:
             {
-                var count = SlangApi.spReflectionType_GetElementCount(type);
+                // Ask about the size first, and only ask for a count if the answer was a number.
+                // An array whose length is a specialization constant reports CategorySize.Unknown,
+                // and spReflectionType_GetElementCount access-violates on it — as does
+                // GetSpecializedElementCount, which the C++ header presents as the resolving
+                // version. Measured against slang-compiler 2026.14.1; see ArrayLayout for the
+                // resource-array case, which has no such signal and cannot be guarded.
+                var specializationSized = sizes.Any(s => !s.IsKnown);
+
+                var count = specializationSized ? 0 : SlangApi.spReflectionType_GetElementCount(type);
+
                 return new ArrayLayout
                 {
                     Kind = LayoutKind.Array, Name = name, Sizes = sizes, Alignment = alignment,
                     ElementType = ReadTypeLayout(SlangApi.spReflectionTypeLayout_GetElementTypeLayout(tl), cache),
                     // 0 is how Slang reports an unbounded array; a real zero-length array is not
                     // expressible in the language, so the mapping is unambiguous.
-                    ElementCount = count == 0 ? null : (int)count,
+                    ElementCount = specializationSized || count == 0 ? null : (int)count,
+                    IsSpecializationSized = specializationSized,
                     ElementStride = SlangApi.spReflectionTypeLayout_GetElementStride(
                         tl, SlangParameterCategory.SLANG_PARAMETER_CATEGORY_UNIFORM),
                 };

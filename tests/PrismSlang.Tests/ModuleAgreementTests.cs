@@ -132,6 +132,12 @@ public class ModuleAgreementTests
             if (IsSynthetic(name)) continue;
             facts.Add($"member {name} = offset {member.Offset}");
             if (member.MatrixStride is { } stride) facts.Add($"member {name} = stride {stride}");
+
+            // Inverted on the way in: the module decorates ColMajor for what Slang calls row-major,
+            // because HLSL counts rows where SPIR-V counts columns. Stating it in Slang's terms on
+            // both sides is what makes the comparison mean anything.
+            if (member.IsRowMajor is { } rowMajorInModule)
+                facts.Add($"member {name} = major {(rowMajorInModule ? "column" : "row")}");
         }
 
         foreach (var (name, model) in SpirvDecorations.EntryPointModels(code))
@@ -178,7 +184,14 @@ public class ModuleAgreementTests
         foreach (var (name, member) in Members(layout))
         {
             facts.Add($"member {name} = offset {member.UniformOffset}");
-            if (member.Type is MatrixLayout m) facts.Add($"member {name} = stride {m.Stride}");
+            if (member.Type is MatrixLayout m)
+            {
+                facts.Add($"member {name} = stride {m.Stride}");
+                facts.Add($"member {name} = major " +
+                    (m.Mode == SlangMatrixLayoutMode.SLANG_MATRIX_LAYOUT_COLUMN_MAJOR
+                        ? "column"
+                        : "row"));
+            }
         }
 
         // Loose uniform values are members of a block the module synthesises — the entry point's

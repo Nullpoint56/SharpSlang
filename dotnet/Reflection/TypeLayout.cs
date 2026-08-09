@@ -45,8 +45,31 @@ public enum LayoutKind
 /// slot — which is why sizes are reported per category rather than as one number.
 /// </summary>
 /// <param name="Category">The resource kind being measured.</param>
-/// <param name="Size">Units consumed. Bytes for <c>Uniform</c>, slots otherwise.</param>
-public readonly record struct CategorySize(SlangParameterCategory Category, ulong Size);
+/// <param name="Size">
+/// Units consumed. Bytes for <c>Uniform</c>, slots otherwise. Check <see cref="IsKnown"/> before
+/// doing arithmetic with it — two of the values Slang can return here are markers, not counts.
+/// </param>
+public readonly record struct CategorySize(SlangParameterCategory Category, ulong Size)
+{
+    /// <summary>Slang's marker for a runtime-sized array: <c>~size_t(0)</c>.</summary>
+    public const ulong Unbounded = ulong.MaxValue;
+
+    /// <summary>
+    /// Slang's marker for a size that depends on something not yet resolved — a specialization
+    /// constant used as an array length, or an unresolved generic parameter.
+    /// </summary>
+    public const ulong Unknown = ulong.MaxValue - 1;
+
+    /// <summary>
+    /// Whether <see cref="Size"/> is a measurement rather than a marker.
+    /// </summary>
+    /// <remarks>
+    /// The markers are near <c>ulong.MaxValue</c>, so using one as a size does not fail loudly —
+    /// it allocates 16 exabytes, or wraps, or produces a <c>VkPushConstantRange</c> the driver
+    /// rejects with nothing pointing at the shader that caused it.
+    /// </remarks>
+    public bool IsKnown => Size < Unknown;
+}
 
 /// <summary>Base for every node in the type tree.</summary>
 [JsonPolymorphic(TypeDiscriminatorPropertyName = "$kind")]
@@ -73,9 +96,27 @@ public abstract record TypeLayout
     public int Alignment { get; init; }
 
     /// <summary>Convenience: the uniform (byte) footprint, or 0 if this type occupies no bytes.</summary>
+    /// <remarks>
+    /// Reports Slang's answer as given, markers included — see <see cref="CategorySize.IsKnown"/>
+    /// and <see cref="IsUniformSizeKnown"/>. An array whose length is a specialization constant
+    /// measures <c>0xFFFF_FFFF_FFFF_FFFE</c> bytes here, which is not a number of bytes.
+    /// </remarks>
     [JsonIgnore]
-    public ulong UniformSize =>
-        Sizes.FirstOrDefault(s => s.Category == SlangParameterCategory.SLANG_PARAMETER_CATEGORY_UNIFORM).Size;
+    public ulong UniformSize => UniformCategorySize.Size;
+
+    /// <summary>
+    /// Whether <see cref="UniformSize"/> is a byte count rather than one of Slang's markers.
+    /// </summary>
+    /// <remarks>
+    /// False for a type whose footprint depends on a specialization constant. A host cannot size a
+    /// buffer for one of those, and neither can this package — so the question has to be asked
+    /// before the answer is used, rather than after a driver rejects the range.
+    /// </remarks>
+    [JsonIgnore]
+    public bool IsUniformSizeKnown => UniformCategorySize.IsKnown;
+
+    private CategorySize UniformCategorySize =>
+        Sizes.FirstOrDefault(s => s.Category == SlangParameterCategory.SLANG_PARAMETER_CATEGORY_UNIFORM);
 }
 
 /// <summary>A single numeric or boolean value.</summary>
@@ -182,16 +223,42 @@ public sealed record FieldLayout(
     IReadOnlyList<UserAttribute>? Attributes = null)
 {
     /// <summary>Convenience: byte offset within the enclosing uniform block.</summary>
+    /// <remarks>
+    /// Reports Slang's answer as given, markers included — check
+    /// <see cref="IsUniformOffsetKnown"/> before writing to it.
+    /// </remarks>
     [JsonIgnore]
-    public ulong UniformOffset =>
-        Offsets.FirstOrDefault(o => o.Category == SlangParameterCategory.SLANG_PARAMETER_CATEGORY_UNIFORM).Offset;
+    public ulong UniformOffset => UniformCategoryOffset.Offset;
+
+    /// <summary>
+    /// Whether this field has a byte offset at all.
+    /// </summary>
+    /// <remarks>
+    /// False for a field declared after an array whose length is a specialization constant: where
+    /// it lands depends on a value that arrives at pipeline creation, so there is no answer until
+    /// then. Slang reports the marker rather than a position, and a host that writes at
+    /// <c>0xFFFF_FFFF_FFFF_FFFE</c> is writing nowhere near the buffer.
+    /// </remarks>
+    [JsonIgnore]
+    public bool IsUniformOffsetKnown => UniformCategoryOffset.IsKnown;
+
+    private CategoryOffset UniformCategoryOffset =>
+        Offsets.FirstOrDefault(o => o.Category == SlangParameterCategory.SLANG_PARAMETER_CATEGORY_UNIFORM);
 }
 
 /// <summary>An offset in one resource category.</summary>
 /// <param name="Category">The resource kind.</param>
-/// <param name="Offset">Bytes for <c>Uniform</c>; a binding/slot index otherwise.</param>
+/// <param name="Offset">
+/// Bytes for <c>Uniform</c>; a binding/slot index otherwise. Check <see cref="IsKnown"/> first: a
+/// field placed after an array whose length is a specialization constant has no offset, and Slang
+/// says so with the same near-<c>ulong.MaxValue</c> marker it uses for sizes.
+/// </param>
 /// <param name="Space">Register space / descriptor set the offset is relative to.</param>
-public readonly record struct CategoryOffset(SlangParameterCategory Category, ulong Offset, uint Space);
+public readonly record struct CategoryOffset(SlangParameterCategory Category, ulong Offset, uint Space)
+{
+    /// <summary>Whether <see cref="Offset"/> is a position rather than one of Slang's markers.</summary>
+    public bool IsKnown => Offset < CategorySize.Unknown;
+}
 
 /// <summary>A struct, with its fields in declaration order.</summary>
 public sealed record StructLayout : TypeLayout
@@ -203,11 +270,40 @@ public sealed record StructLayout : TypeLayout
         Fields.FirstOrDefault(f => string.Equals(f.Name, name, StringComparison.Ordinal));
 }
 
-/// <summary>An array. <see cref="ElementCount"/> is null for an unbounded (runtime-sized) array.</summary>
+/// <summary>An array. <see cref="ElementCount"/> is null when the length is not a fixed number.</summary>
 public sealed record ArrayLayout : TypeLayout
 {
     public required TypeLayout ElementType { get; init; }
+
+    /// <summary>
+    /// Elements, or null when the length is not statically known — a runtime-sized array, or one
+    /// whose length is a specialization constant. <see cref="IsSpecializationSized"/> separates the
+    /// two.
+    /// </summary>
     public required int? ElementCount { get; init; }
+
+    /// <summary>
+    /// Whether the length is a specialization constant, so it is fixed at pipeline creation rather
+    /// than being runtime-sized.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Reported, and reported without asking Slang how many elements there are — because asking is
+    /// fatal. <c>spReflectionType_GetElementCount</c> and its
+    /// <c>GetSpecializedElementCount</c> counterpart both access-violate on an array of this shape,
+    /// measured against slang-compiler 2026.14.1. The signal used instead is the size marker:
+    /// such an array reports <see cref="CategorySize.Unknown"/> for its uniform footprint.
+    /// </para>
+    /// <para>
+    /// That signal only exists for an array with a uniform footprint. A <em>resource</em> array
+    /// sized by a specialization constant — <c>Texture2D t[kCount]</c> — is indistinguishable from
+    /// a fixed-size one until something asks, and reflecting a shader containing one terminates the
+    /// process inside <c>getBindingRangeCount</c>. It is not guarded because it cannot be detected;
+    /// see docs §9.12. It is also not usable on Vulkan, where <c>descriptorCount</c> is fixed when
+    /// the descriptor set layout is created, before any specialization value exists.
+    /// </para>
+    /// </remarks>
+    public bool IsSpecializationSized { get; init; }
 
     /// <summary>Byte stride between elements, where the array has a uniform footprint.</summary>
     public required ulong ElementStride { get; init; }
