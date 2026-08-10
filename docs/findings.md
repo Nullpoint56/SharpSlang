@@ -47,7 +47,7 @@ so a bare `§4.4` or `§9.8` in a code comment is unambiguous.
 | [9.23](#923-the-two-spec-conformance-bugs-rechecked--and-one-of-them-was-already-filed) | The two spec bugs, rechecked | one is #12441, filed a day before we found it |
 | [9.24](#924-three-of-the-v10-gaps-and-the-one-the-layers-had-to-judge) | Three v1.0 gaps | stage flags narrowed, the API written down, a third architecture |
 | [9.25](#925-the-macos-leg-found-an-ownership-bug-in-this-binding) | The macOS leg earned itself | a module does not retain its session, and three platforms shrugged |
-| [9.26](#926-the-same-test-died-again-and-the-instrument-was-missing) | The same test died again | the fix was real and was not the crash; three runs, one test name, no stack |
+| [9.26](#926-the-same-test-died-again-and-the-instrument-was-missing) | The same test died again | the global session destroyed from inside `~Linkage`, found by the first backtrace anyone read |
 
 ### The four oracles
 
@@ -2105,4 +2105,79 @@ reports rather than merely dying.
 An in-process test can assert that something does not crash. It cannot tell you anything about the
 crash when it does.
 
-500 tests.
+#### What the backtrace said, on the first run that had one
+
+Both instruments fired. `lldb` reproduced the crash in the prober — so it was never test-host
+specific — and stopped at exactly `releasing program ...`, the last release of the five. The test
+host's `.ips` gave the stack:
+
+```
+free_small                                    <- "Incorrect checksum for freed object:
+Slang::WitnessTable::~WitnessTable()             probably modified after being freed"
+Slang::Helper<Slang::InheritanceDecl>::destruct(void*)
+Slang::ASTBuilder::~ASTBuilder()
+Slang::RootASTBuilder::~RootASTBuilder()      <- the *global session's* AST arena
+Slang::ASTBuilder::~ASTBuilder()
+Slang::Linkage::~Linkage()
+non-virtual thunk to Slang::Linkage::release()
+```
+
+`~Linkage()` is tearing down the global session's `RootASTBuilder`, which only happens when the
+Linkage holds the last reference to the global session. The two AST arenas then double-free a
+witness table between them. Slang requires an `IGlobalSession` to outlive the Linkages made from
+it, and its own reference counting does not enforce that.
+
+§9.25's fix guaranteed the opposite. Holding a reference on the **immediate** owner builds a chain
+that is only transitive while the intermediate wrappers are alive — dispose the session early and
+its grandchildren stop protecting the global session:
+
+| release | | |
+|---|---|---|
+| `global` | G 3→2 | |
+| `session` | S 3→2, and **releases its G reference** | G→1, held only by the Linkage |
+| `module` | M, then S 2→1 | |
+| `entry` | E, then M | |
+| `program` | P, then **S 1→0** | `~Linkage()` → G→0 **inside the destructor** |
+
+Innermost-first — what every other test does — destroys the Linkage at `session.Dispose()` while
+the global wrapper still holds its own reference, so the global dies afterwards at the top level.
+That is why 499 other tests never saw this.
+
+#### The fix, and the number that shows it
+
+Every wrapper holds a native reference on its **whole ancestor chain**, released nearest-first. An
+ancestor is then always destroyed after its descendants and at the top level, never nested inside
+one of their destructors — whatever order the caller disposes in.
+
+The invariant is one number, and it is platform-independent, so it is measurable on the machine
+this is developed on:
+
+```
+                              fixed          broken
+global=6 session=4  releasing global ...     global=3 session=3
+global=5 session=4  releasing session ...    global=2 session=3
+global=4 session=3  releasing module ...     global=1 session=2
+global=3 session=2  releasing entry ...      global=1 session=1
+global=2 session=1  releasing program ...    global=1 session=1   <- the crash
+```
+
+`global=2` before the last release says somebody other than the Linkage is still holding it.
+`global=1` says the Linkage is about to destroy it from inside itself.
+`The_global_session_is_never_destroyed_from_inside_the_linkage` asserts that, one release *before*
+the fatal one, so a regression fails as an assertion rather than as a dead host — and it fails on
+Windows. A bug that took a fourth platform and four CI runs to find is now caught by `dotnet test`
+on the machine it would be reintroduced on.
+
+#### The part worth keeping
+
+Three rounds were spent on this and only the last one had an instrument. The first two produced a
+test name; the fix that came out of the second was a real bug — §9.25 stands — but it was not this
+bug, and nothing available at the time could have told the difference. The round that solved it did
+not involve a better hypothesis. It involved reading a file macOS had been writing all along.
+
+The order was backwards, and the tell was there: three runs in, the reasoning had gone
+*measure refcounts → build a model → predict → still wrong*, twice. That is the signature of a
+missing instrument rather than a missing insight, and the next move after the second failed
+prediction should have been to go and get the stack.
+
+501 tests.

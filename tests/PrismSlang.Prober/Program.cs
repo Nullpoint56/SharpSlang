@@ -191,7 +191,7 @@ internal static class Cases
     /// three CI runs whose only output was the name of a test. Here the last line on stdout is the
     /// answer, and it arrives whether the process exits or dies.
     /// </remarks>
-    private static void DisposeOutermostFirst()
+    private static unsafe void DisposeOutermostFirst()
     {
         const string Source = """
             struct Uniforms { float4 tint; };
@@ -207,19 +207,36 @@ internal static class Cases
         var entry = module.FindEntryPoint("fragmentMain");
         var program = session.Link(module, entry);
 
+        // Captured while everything is alive, because the wrappers start throwing from Raw as soon
+        // as they are disposed and these two have to be readable right up to the last release.
+        var globalPtr = (ISlangUnknown*)global.RawForTests;
+        var sessionPtr = (ISlangUnknown*)session.RawForTests;
+
         Release("global", global);
         Release("session", session);
         Release("module", module);
         Release("entry", entry);
         Release("program", program);
 
-        static void Release(string what, SlangObject o)
+        void Release(string what, SlangObject o)
         {
-            Console.Out.WriteLine($"    releasing {what} ...");
+            // The invariant, printed on the line before the release that has to preserve it. The
+            // last release destroys the Linkage, and if the Linkage is the only thing left holding
+            // the global session then Slang destroys it from inside ~Linkage() and double-frees a
+            // witness table between the two AST arenas (§9.26). global >= 2 here is what says
+            // somebody other than the Linkage is still holding it.
+            Console.Out.WriteLine(
+                $"    global={Count(globalPtr)} session={Count(sessionPtr)}  releasing {what} ...");
             Console.Out.Flush();
             o.Dispose();
             Console.Out.WriteLine($"    releasing {what} ok");
             Console.Out.Flush();
+        }
+
+        static uint Count(ISlangUnknown* p)
+        {
+            p->addRef();
+            return p->release();
         }
     }
 

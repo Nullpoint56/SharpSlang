@@ -154,10 +154,17 @@ public class LifetimeTests
         using var session = NewSession(global);
 
         var sessionBefore = RefCount(session);
+        var globalBefore = RefCount(global);
         using var module = session.LoadModuleFromSource("rc", "rc.slang", Source);
         Assert.True(RefCount(session) > sessionBefore,
             "loading a module did not retain its session. Disposing the session first is then a "
             + "use-after-free, which is what SlangObject's owner reference exists to prevent.");
+
+        // And its grandparent. The immediate owner is not enough on its own — see §9.26 and the
+        // test below — so the chain is held whole and this is where that is visible.
+        Assert.True(RefCount(global) > globalBefore,
+            "loading a module did not retain the global session. A module only protects it while "
+            + "the session wrapper is undisposed, and disposal order is not ours to dictate.");
 
         var moduleBefore = RefCount(module);
         using var entry = module.FindEntryPoint("fragmentMain");
@@ -175,6 +182,52 @@ public class LifetimeTests
             p->addRef();
             return p->release();
         }
+    }
+
+    [NativeFact]
+    public unsafe void The_global_session_is_never_destroyed_from_inside_the_linkage()
+    {
+        // The invariant the test below rests on, checked one release before the one that would
+        // break it — deliberately, so a regression fails as an assertion instead of as a dead test
+        // host. Three macOS runs were spent learning that difference (§9.26).
+        //
+        // Slang destroys the global session's RootASTBuilder from inside Slang::Linkage::~Linkage()
+        // if the Linkage is holding the last reference to it, and the two AST arenas then
+        // double-free a witness table:
+        //
+        //     Slang::WitnessTable::~WitnessTable()      <- free(): checksum botch
+        //     Slang::RootASTBuilder::~RootASTBuilder()
+        //     Slang::Linkage::~Linkage()
+        //
+        // Holding a reference on the immediate owner is not enough to prevent it, because that
+        // chain is only transitive while the intermediate wrappers are alive — dispose the session
+        // early and its grandchildren stop protecting the global session. Every wrapper therefore
+        // holds a reference on the whole chain above it, and the measurement below is the
+        // difference: 2 with that, 1 without, and 1 is the crash.
+        var global = SlangGlobalSession.Create();
+        var session = NewSession(global);
+        var module = session.LoadModuleFromSource("m", "m.slang", Source);
+        var ep = module.FindEntryPoint("fragmentMain");
+        var program = session.Link(module, ep);
+
+        // Read while it is unambiguously alive; Raw throws once the wrapper is disposed.
+        var globalPtr = (PrismSlang.Native.ISlangUnknown*)global.RawForTests;
+
+        global.Dispose();
+        session.Dispose();
+        module.Dispose();
+        ep.Dispose();
+
+        globalPtr->addRef();
+        var remaining = globalPtr->release();
+
+        Assert.True(remaining > 1,
+            $"the global session is down to {remaining} reference(s) with a linked program still "
+            + "alive, so the last release will destroy it from inside Slang::Linkage::~Linkage() "
+            + "and double-free a witness table. SlangObject must hold a reference on every "
+            + "ancestor, not only the immediate owner — see §9.26.");
+
+        program.Dispose();
     }
 
     [NativeFact]

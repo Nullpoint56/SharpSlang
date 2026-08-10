@@ -39,7 +39,9 @@
 //
 // So: no finalizer. Two things replace it.
 //   1. Every wrapper holds a managed reference to its owner, so the owner cannot be collected
-//      while a child is alive. This also fixes the plain-GC case, not just finalization.
+//      while a child is alive, and a *native* reference on every ancestor above it, so none of
+//      them can be destroyed early or in the wrong order. See _ancestors — the native half took
+//      two more platforms and two more findings to get right (§9.25, §9.26).
 //   2. Failing to Dispose leaks until process exit. That is the correct trade: a leak is a bug you
 //      can find with a memory profiler, whereas corruption is a bug you find in a crash dump from
 //      a player six months later.
@@ -64,8 +66,9 @@ public abstract unsafe class SlangObject : IDisposable
     // module created from it is still in use.
     private readonly SlangObject? _owner;
 
-    // A *native* reference on the owner, and the reason it exists is worth reading before touching
-    // any of this.
+    // A *native* reference on every ancestor, nearest first. Worth reading before touching any of
+    // this, because two separate bugs live here and the second one hides behind the fix for the
+    // first.
     //
     // The managed reference above stops the GC collecting the owner's wrapper. It does nothing
     // about the owner's native refcount, and the two were assumed to be the same problem because
@@ -79,15 +82,30 @@ public abstract unsafe class SlangObject : IDisposable
     //     session, after Link            1      <- nor does the linked program
     //
     // So `session.Dispose()` while a module was still alive dropped the last reference and
-    // destroyed it, leaving every module and program pointing into freed memory. Windows and both
-    // Linux allocators tolerated that; macOS did not, and LifetimeTests's own
-    // An_owner_may_be_disposed_before_the_things_it_owns — the test that asserts disposal order
-    // does not matter — is where the host died (§9.25).
+    // destroyed it, leaving every module and program pointing into freed memory (§9.25).
     //
-    // Holding our own native reference on the owner makes the guarantee true rather than hoped for.
-    // The raw pointer is captured here rather than read from _owner later, because by then the
-    // owner's wrapper may be disposed and Raw would throw.
-    private readonly nint _ownerNative;
+    // Holding a reference on the *immediate* owner fixed that and did not fix the crash, because
+    // the chain it builds is only transitive while the intermediate wrappers are alive. Dispose the
+    // session early and its grandchildren stop protecting the global session — so the last release
+    // of all destroys the Linkage, and Slang destroys the global session from inside
+    // `Slang::Linkage::~Linkage()`. Its `RootASTBuilder` and the Linkage's own `ASTBuilder` then
+    // double-free a witness table between them:
+    //
+    //     Slang::WitnessTable::~WitnessTable()          <- free(): checksum botch
+    //     Slang::ASTBuilder::~ASTBuilder()
+    //     Slang::RootASTBuilder::~RootASTBuilder()      <- the global session's arena
+    //     Slang::Linkage::~Linkage()
+    //     non-virtual thunk to Slang::Linkage::release()
+    //
+    // Slang requires an IGlobalSession to outlive the Linkages made from it, and its own refcount
+    // does not enforce that. So each wrapper holds a reference on the whole chain above it, and
+    // Dispose releases them nearest-first: whatever is released last, an ancestor is always
+    // destroyed *after* its descendants and at the top level, never nested inside one of their
+    // destructors. That is what makes "disposal order does not matter" true (§9.26).
+    //
+    // Pointers are captured here rather than read from _owner later, because by then the owner's
+    // wrapper may be disposed and Raw would throw. Depth is at most four.
+    private readonly nint[] _ancestors;
 
     // Releasing native objects while the runtime is tearing down a process can run after the
     // native library has already been unloaded. Leaking at exit is harmless; crashing is not.
@@ -106,14 +124,24 @@ public abstract unsafe class SlangObject : IDisposable
         _what = what;
         _owner = owner;
 
-        // Taken before anything can fail, and released exactly once in Dispose. An owner already
-        // disposed by the time a child is built is a caller error the child cannot recover from,
-        // so Raw's ObjectDisposedException is the right outcome and is left to propagate.
-        if (owner is not null)
+        // Taken before anything can fail, and released exactly once each in Dispose. An owner
+        // already disposed by the time a child is built is a caller error the child cannot recover
+        // from, so Raw's ObjectDisposedException is the right outcome and is left to propagate —
+        // and it propagates before any reference is taken, so a throw here leaks nothing.
+        if (owner is null)
         {
-            _ownerNative = (nint)owner.Raw;
-            ((ISlangUnknown*)_ownerNative)->addRef();
+            _ancestors = [];
+            return;
         }
+
+        // The owner's chain is known to be live: the owner is not disposed, so it still holds a
+        // reference on every one of them.
+        var chain = new nint[owner._ancestors.Length + 1];
+        chain[0] = (nint)owner.Raw;
+        Array.Copy(owner._ancestors, 0, chain, 1, owner._ancestors.Length);
+
+        foreach (var ancestor in chain) ((ISlangUnknown*)ancestor)->addRef();
+        _ancestors = chain;
     }
 
     /// <summary>True once the native reference has been released.</summary>
@@ -161,9 +189,10 @@ public abstract unsafe class SlangObject : IDisposable
 
         ((ISlangUnknown*)p)->release();
 
-        // Ours, taken in the constructor. Released after the child so the owner cannot be destroyed
-        // while the child's own release is still running through it.
-        if (_ownerNative != 0) ((ISlangUnknown*)_ownerNative)->release();
+        // Ours, taken in the constructor. Nearest-first and after this object's own release, so an
+        // ancestor is never destroyed while a descendant's release is still running through it —
+        // and never from inside a descendant's destructor, which is the part Slang cannot survive.
+        foreach (var ancestor in _ancestors) ((ISlangUnknown*)ancestor)->release();
 
         // The owner must outlive this release, not merely reach it.
         GC.KeepAlive(_owner);
