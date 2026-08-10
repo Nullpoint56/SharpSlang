@@ -62,7 +62,7 @@ public static unsafe class ReflectionWalker
         {
             Parameters = parameters,
             EntryPoints = entryPoints,
-            DescriptorSets = ReadDescriptorSets(shader),
+            DescriptorSets = WithStageUsage(ReadDescriptorSets(shader), program, targetIndex, entryPoints),
             GlobalConstantBufferSize = SlangApi.spReflection_getGlobalConstantBufferSize(shader),
             GlobalConstantBufferBinding = (uint)SlangApi.spReflection_getGlobalConstantBufferBinding(shader),
             HashedStrings = hashed,
@@ -71,6 +71,92 @@ public static unsafe class ReflectionWalker
             BindlessSpaceIndex = BindlessSpace(shader),
             SubObjectRanges = ReadSubObjectRanges(shader),
         };
+    }
+
+    /// <summary>
+    /// Fills in which stages read each descriptor range, from the per-entry-point metadata.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The one fact in this snapshot that reflection cannot supply. Slang's global-scope view does
+    /// not attribute a parameter to the entry points that use it, which is why
+    /// <c>VulkanProjection</c> reported every stage on every binding for as long as it existed.
+    /// <c>IMetadata</c> knows, per entry point, whether the generated code touches a location — so
+    /// asking it once per stage per range produces the attribution the layout view lacks.
+    /// </para>
+    /// <para>
+    /// Done here rather than in the projection because the projection reads a snapshot and the
+    /// compiler is gone by then, and because a baked package should carry the answer rather than
+    /// recompute it. The cost is one native call per stage per range, all of them pointer
+    /// comparisons in Slang.
+    /// </para>
+    /// <para>
+    /// A range no stage claims keeps an empty list, which the projection reads as "every stage" —
+    /// see <c>DescriptorRange.Stages</c>. Failing to ask at all, on a target whose backend does not
+    /// track usage, does the same. Neither case narrows anything, which is the only safe direction:
+    /// omitting a stage that really reads the binding is a driver rejection.
+    /// </para>
+    /// </remarks>
+    private static List<DescriptorSet> WithStageUsage(
+        List<DescriptorSet> sets,
+        LinkedProgram program,
+        int targetIndex,
+        List<EntryPointLayout> entryPoints)
+    {
+        if (sets.Count == 0 || entryPoints.Count == 0) return sets;
+
+        var metadata = new List<(SlangStage Stage, SlangMetadata Metadata)>(entryPoints.Count);
+        try
+        {
+            for (var i = 0; i < entryPoints.Count; i++)
+            {
+                try
+                {
+                    metadata.Add((entryPoints[i].Stage, program.GetEntryPointMetadata(i, targetIndex)));
+                }
+                catch (SlangException)
+                {
+                    // This target cannot answer. Leaving the lists empty means "every stage",
+                    // which is what the projection did before any of this existed.
+                    return sets;
+                }
+            }
+
+            return [.. sets.Select(set => set with
+            {
+                Ranges = [.. set.Ranges.Select(range => range with
+                {
+                    Stages = StagesUsing(metadata, set.SpaceOffset, range),
+                })],
+            })];
+        }
+        finally
+        {
+            foreach (var (_, m) in metadata) m.Dispose();
+        }
+    }
+
+    private static List<SlangStage> StagesUsing(
+        List<(SlangStage Stage, SlangMetadata Metadata)> metadata, uint space, DescriptorRange range)
+    {
+        var stages = new List<SlangStage>();
+
+        foreach (var (stage, m) in metadata)
+        {
+            try
+            {
+                if (m.IsUsed(range.Category, space, range.IndexOffset) && !stages.Contains(stage))
+                    stages.Add(stage);
+            }
+            catch (SlangException)
+            {
+                // One unanswerable location must not narrow the rest. Reported as "nobody claims
+                // it", which the projection widens back to every stage.
+                return [];
+            }
+        }
+
+        return stages;
     }
 
     /// <summary>The space reserved for a bindless heap, or null for the usual "there isn't one".</summary>

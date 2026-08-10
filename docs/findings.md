@@ -45,6 +45,7 @@ so a bare `§4.4` or `§9.8` in a code comment is unambiguous.
 | [9.21](#921-the-four-crashes-what-upstream-says-and-whether-they-are-ours) | The four crashes, checked | a closed audit's residue, and one claim of ours that expired |
 | [9.22](#922-the-rest-of-the-reflection-surface-and-what-closing-it-cost) | The rest of the surface | 172 of 172, and a fifth crash the Linux leg found |
 | [9.23](#923-the-two-spec-conformance-bugs-rechecked--and-one-of-them-was-already-filed) | The two spec bugs, rechecked | one is #12441, filed a day before we found it |
+| [9.24](#924-three-of-the-v10-gaps-and-the-one-the-layers-had-to-judge) | Three v1.0 gaps | stage flags narrowed, the API written down, a third architecture |
 
 ### The four oracles
 
@@ -1766,4 +1767,96 @@ consistent with a validator that now works and a defect that reproduces in four 
 
 Neither has been reported by this project, for the reason given when the first one was found.
 
-492 tests.
+497 tests.
+
+### 9.24 Three of the v1.0 gaps, and the one the layers had to judge
+
+§9.7's remaining-gaps list has carried "per-stage descriptor visibility" since it was written.
+Closing it, locking the API surface, and adding an ARM leg were the three things standing between
+here and a release that were not macOS.
+
+#### Stage flags now name the stages that read the binding
+
+`VulkanProjection` reported **every** stage in the program on **every** binding, and said why:
+Slang's global-scope reflection does not attribute a parameter to the entry points that use it. That
+was true and it was the wrong place to look. `IMetadata` knows, per entry point, whether the
+generated code touches a location — §9.19 bound it and the gap note predates that.
+
+So the reflection walk asks, once per stage per range, while the program is still alive, and
+`DescriptorRange.Stages` carries the answer into the snapshot. A shader with
+
+```slang
+ConstantBuffer<Uniforms> u;      // u.mvp in the vertex, u.tint in the fragment
+Texture2D    albedo;             // fragment only
+SamplerState albedoSampler;      // fragment only
+RWStructuredBuffer<float4> outBuffer;  // fragment only
+```
+
+used to produce `VERTEX | FRAGMENT` on all four. It now produces `VERTEX | FRAGMENT` on `u` and
+`FRAGMENT` on the other three.
+
+**Empty means every stage, not no stage.** Vulkan rejects a `VkDescriptorSetLayoutBinding` with a
+non-zero descriptor count and no stage flags, and a binding nothing is known to read still has to be
+declared somewhere. Widening is also the only safe direction: an omitted stage that really reads the
+binding is a driver rejection, where a surplus one costs nothing. A declared-but-unread texture
+therefore keeps every stage, and so does every binding on a target whose backend cannot answer.
+
+The change was worth making because it could be *judged*. Narrowing a descriptor set layout too far
+is precisely what `VUID-VkGraphicsPipelineCreateInfo-layout-00756` exists to catch, and
+`VulkanCorpusValidationTests` builds a real pipeline for every corpus shader and lets the Khronos
+layers decide. They accepted all of it. Without that oracle this would have been a plausible change
+nobody could verify, which is the shape of change this project has learned to be slowest about.
+
+#### The public surface is written down
+
+Three packages, no tags, and nothing checking that a member did not quietly disappear. `PublicApiTests`
+renders each assembly's public API and diffs it against a checked-in file, so a removal or a
+reordered parameter is a review comment rather than a consumer's broken build.
+
+Two things it did immediately. It caught the first real change made after it existed — the `Stages`
+property above — and produced a two-line diff naming exactly what moved. And its own first draft
+wrote the approved files as `.cs`, which MSBuild promptly globbed into the test assembly's
+compilation; two of the three even compiled, which would have been worse. They are `.txt` now,
+because they are a record of a shape rather than source.
+
+The mutation test is the one that matters: making `HashString` internal produces
+
+```
+line 91
+  approved:     public static uint HashString(string value) { }
+  actual:       public static void RequirePinnedVersion() { }
+```
+
+which is what a reviewer needs and what a whole-file string comparison would have buried.
+
+#### A third leg, for the axis neither of the other two covers
+
+`linux-arm64`, on `ubuntu-24.04-arm`. Not completeness: every vtable call in the generated layer is
+`delegate* unmanaged[Stdcall]`, and **stdcall has no meaning on ARM64** — the runtime is expected to
+ignore it and use the platform convention. So are the `[UnmanagedCallersOnly]` thunks Slang calls
+back into (§9.15). "Expected to" is the phrase this document exists to distrust.
+
+The matrix has now paid for itself twice: §9.1's borrowed pointer, green on Windows and a glibc
+abort on Linux; and §9.22's `specializeType`, which returns null on Windows and segfaults on Linux
+and was found by that leg aborting a run that was green here. A third architecture is the cheapest
+remaining place a defect of that shape could still be hiding.
+
+The validation-layer count check stays on `linux-x64` for now, and the comment in `ci.yml` says so
+and says when to widen it: an ARM run that shows lavapipe loading. A gate turned on before anyone
+has seen it work is the failure mode §9.17 is about.
+
+#### What is left for v1.0
+
+- **osx-arm64, never executed.** The one hard blocker. `publish.yml` already stages a macOS payload
+  into the package, so a release today would ship a library nobody has loaded.
+- **Never released.** No tags. The publish path can now be *rehearsed* — `workflow_dispatch` takes
+  a `dry_run` input, default true, that runs the whole thing except the push: three-RID staging from
+  a Windows runner, build, test, pack all three projects, and the check that every RID in the core
+  package carries both the compiler and the SPIR-V optimiser. The `.nupkg` files upload either way,
+  so there is something to inspect. A tag still publishes for real. Rehearsing it is not the same as
+  having released, but a tag is a bad place to discover that the staging is wrong, because the
+  failure arrives attached to a version number.
+- The implicit global constant buffer is still unnamed, and `getEntryPointHash` is still
+  deliberately unbound (§9.7).
+
+497 tests.

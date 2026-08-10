@@ -87,15 +87,49 @@ public class VulkanProjectionTests
     }
 
     [NativeFact]
-    public void Stage_flags_cover_the_program_stages()
+    public void Stage_flags_name_the_stages_that_actually_read_the_binding()
     {
+        // This test used to assert the opposite, and the comment explained why: Slang's
+        // global-scope reflection does not attribute a parameter to specific entry points, so
+        // every binding reported every stage in the program. Conservative, safe, and it left a
+        // renderer wanting tight stageFlags to work them out itself.
+        //
+        // IMetadata knows per entry point, and the reflection walk now asks it (§9.24). In this
+        // shader `u` is read by both stages — u.mvp in the vertex, u.tint and u.exposure in the
+        // fragment — and the other three are fragment-only.
         var set = Assert.Single(Project().DescriptorSets);
-        var expected = VulkanShaderStages.Vertex | VulkanShaderStages.Fragment;
+        var byName = set.Bindings.ToDictionary(b => b.Name!, b => b.StageFlags);
 
-        // Conservative by design: Slang's global-scope reflection does not attribute a parameter
-        // to specific entry points, so all program stages are reported. Over-permitting is safe;
-        // omitting a stage that reads the binding would be a validation error.
-        Assert.All(set.Bindings, b => Assert.Equal(expected, b.StageFlags));
+        Assert.Equal(VulkanShaderStages.Vertex | VulkanShaderStages.Fragment, byName["u"]);
+        Assert.Equal(VulkanShaderStages.Fragment, byName["albedo"]);
+        Assert.Equal(VulkanShaderStages.Fragment, byName["albedoSampler"]);
+        Assert.Equal(VulkanShaderStages.Fragment, byName["outBuffer"]);
+    }
+
+    [NativeFact]
+    public void A_binding_no_stage_claims_is_visible_everywhere_rather_than_nowhere()
+    {
+        // The direction that matters. Vulkan rejects a binding with a non-zero descriptor count
+        // and no stage flags, and an omitted stage that really reads the binding is a driver
+        // rejection where a surplus one costs nothing — so "nobody claims it" has to widen, not
+        // narrow. `unread` is declared, laid out, and touched by no generated code.
+        const string Unread = """
+            Texture2D    urRead;
+            Texture2D    urUnread;
+            SamplerState urSampler;
+
+            [shader("vertex")]
+            float4 vertexMain(float3 p : POSITION) : SV_Position { return float4(p, 1); }
+
+            [shader("fragment")]
+            float4 fragmentMain() : SV_Target { return urRead.Sample(urSampler, 0); }
+            """;
+
+        var set = Assert.Single(Project(Unread, "vertexMain", "fragmentMain").DescriptorSets);
+        var byName = set.Bindings.ToDictionary(b => b.Name!, b => b.StageFlags);
+
+        Assert.Equal(VulkanShaderStages.Fragment, byName["urRead"]);
+        Assert.Equal(VulkanShaderStages.Vertex | VulkanShaderStages.Fragment, byName["urUnread"]);
     }
 
     [NativeFact]

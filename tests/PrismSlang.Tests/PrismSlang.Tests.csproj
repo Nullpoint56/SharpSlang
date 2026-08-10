@@ -47,6 +47,14 @@
     <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
 
     <!--
+      Renders an assembly's public surface as C#. Three packages carry a semver promise the moment
+      one of them is 1.0, and nothing was checking the promise: a member could be removed, a
+      parameter reordered or a type made internal, and the only signal would be a consumer's build
+      breaking. The approved files beside PublicApiTests are that signal, moved to review time.
+    -->
+    <PackageReference Include="PublicApiGenerator" Version="11.4.6" />
+
+    <!--
       The oracle for VulkanEnums, and the only reason this dependency exists. PrismSlang.Vulkan
       mirrors ~48 Vulkan enum values by hand so that it ships standalone — a consumer should not
       inherit somebody else's choice of Vulkan binding behind a small mapping. That reasoning is

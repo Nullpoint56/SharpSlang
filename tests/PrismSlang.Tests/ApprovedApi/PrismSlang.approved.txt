@@ -1,0 +1,1954 @@
+namespace PrismSlang.Baking
+{
+    public static class ShaderPackageBaker
+    {
+        public static PrismSlang.Baking.ShaderPackage Bake(PrismSlang.LinkedProgram program, PrismSlang.SlangModule module, int targetIndex = 0) { }
+        public static PrismSlang.Baking.ShaderPackage Bake(PrismSlang.LinkedProgram program, string source, int targetIndex = 0) { }
+    }
+}
+namespace PrismSlang
+{
+    public readonly struct GenericArgument
+    {
+        public override string ToString() { }
+        public static PrismSlang.GenericArgument OfBool(bool value) { }
+        public static PrismSlang.GenericArgument OfInt(long value) { }
+        public static PrismSlang.GenericArgument OfType(PrismSlang.SlangType type) { }
+    }
+    public sealed class GlobalSessionOptions
+    {
+        public GlobalSessionOptions() { }
+        public bool EnableGlsl { get; init; }
+        public bool RequirePinnedSlangVersion { get; init; }
+        public bool RequireSpirvOptimizer { get; init; }
+    }
+    public sealed class LinkOptions
+    {
+        public LinkOptions() { }
+        public PrismSlang.LinkTimeOptions? CompilerOptions { get; init; }
+        public System.Collections.Generic.IReadOnlyList<PrismSlang.SlangType> SpecializationArguments { get; init; }
+        public System.Collections.Generic.IReadOnlyList<PrismSlang.TypeConformance> TypeConformances { get; init; }
+    }
+    public sealed class LinkTimeOptions
+    {
+        public LinkTimeOptions() { }
+        public PrismSlang.Native.SlangFloatingPointMode? FloatingPointMode { get; init; }
+        public PrismSlang.Native.SlangOptimizationLevel? Optimization { get; init; }
+        public System.Collections.Generic.IReadOnlyList<PrismSlang.RawCompilerOption> RawEntries { get; init; }
+    }
+    public sealed class LinkedProgram : PrismSlang.Interop.SlangObject<PrismSlang.Native.IComponentType>
+    {
+        public System.Collections.Generic.IReadOnlyList<string> EntryPointNames { get; }
+        public long SpecializationParameterCount { get; }
+        public PrismSlang.Reflection.FunctionSignature? FindFunction(string name) { }
+        public PrismSlang.Reflection.FunctionSignature? FindFunction(PrismSlang.SlangType type, string name) { }
+        public PrismSlang.SlangType? FindType(string name) { }
+        public PrismSlang.Interop.SlangBlob GetEntryPointCode(int entryPointIndex, int targetIndex = 0) { }
+        public byte[] GetEntryPointCodeBytes(int entryPointIndex, int targetIndex = 0) { }
+        public byte[] GetEntryPointCodeBytes(string entryPointName, int targetIndex = 0) { }
+        public PrismSlang.Reflection.SlangMetadata GetEntryPointMetadata(int entryPointIndex, int targetIndex = 0) { }
+        public PrismSlang.Spirv.SpirvEntryPoint GetSpirvEntryPoint(int entryPointIndex, int targetIndex = 0) { }
+        public PrismSlang.Interop.SlangBlob GetTargetCode(int targetIndex = 0) { }
+        public PrismSlang.Reflection.SlangMetadata GetTargetMetadata(int targetIndex = 0) { }
+        public bool IsSubType(PrismSlang.SlangType type, PrismSlang.SlangType baseType) { }
+        public PrismSlang.Reflection.FunctionSignature? ResolveOverload(string name, [System.Runtime.CompilerServices.ParamCollection] [System.Runtime.CompilerServices.ScopedRef] System.ReadOnlySpan<PrismSlang.SlangType> argumentTypes) { }
+        public PrismSlang.Reflection.SpecializedType? SpecializeGeneric(string genericName, [System.Runtime.CompilerServices.ParamCollection] [System.Runtime.CompilerServices.ScopedRef] System.ReadOnlySpan<PrismSlang.GenericArgument> arguments) { }
+        public string? ToJson() { }
+    }
+    public readonly struct RawCompilerOption : System.IEquatable<PrismSlang.RawCompilerOption>
+    {
+        public RawCompilerOption(PrismSlang.Native.CompilerOptionName Name, int IntValue = 0, string? StringValue = null) { }
+        public int IntValue { get; init; }
+        public PrismSlang.Native.CompilerOptionName Name { get; init; }
+        public string? StringValue { get; init; }
+    }
+    public sealed class SessionOptions
+    {
+        public SessionOptions() { }
+        public bool AllowGlslSyntax { get; init; }
+        public PrismSlang.Hosting.SlangFileSystem? FileSystem { get; init; }
+        public PrismSlang.Native.SlangMatrixLayoutMode MatrixLayout { get; init; }
+        public System.Collections.Generic.IReadOnlyDictionary<string, string> PreprocessorMacros { get; init; }
+        public System.Collections.Generic.IReadOnlyList<string> SearchPaths { get; init; }
+        public bool SkipSpirvValidation { get; init; }
+        public System.Collections.Generic.IReadOnlyList<PrismSlang.TargetOptions> Targets { get; init; }
+    }
+    public sealed class SlangEntryPoint : PrismSlang.Interop.SlangObject<PrismSlang.Native.IEntryPoint>
+    {
+        public string Name { get; }
+    }
+    public sealed class SlangGlobalSession : PrismSlang.Interop.SlangObject<PrismSlang.Native.IGlobalSession>
+    {
+        public static string BuildTag { get; }
+        public static string PinnedBuildTag { get; }
+        public PrismSlang.SlangSession CreateSession(PrismSlang.SessionOptions options) { }
+        public PrismSlang.Native.SlangCapabilityID FindCapability(string name) { }
+        public PrismSlang.Native.SlangProfileID FindProfile(string name) { }
+        public bool IsDownstreamCompilerAvailable(PrismSlang.Native.SlangPassThrough compiler) { }
+        public void RequireSpirvOptimizer() { }
+        public bool SupportsTarget(PrismSlang.Native.SlangCompileTarget target) { }
+        public static PrismSlang.SlangGlobalSession Create(PrismSlang.GlobalSessionOptions? options = null) { }
+        public static uint HashString(string value) { }
+        public static void RequirePinnedVersion() { }
+    }
+    public sealed class SlangModule : PrismSlang.Interop.SlangObject<PrismSlang.Native.IModule>
+    {
+        public string? DeclaredName { get; }
+        public System.Collections.Generic.IReadOnlyList<string> DependencyFilePaths { get; }
+        public int EntryPointCount { get; }
+        public string? FilePath { get; }
+        public string Name { get; }
+        public string? UniqueIdentity { get; }
+        public PrismSlang.SlangEntryPoint[] EntryPoints() { }
+        public PrismSlang.SlangEntryPoint FindEntryPoint(string name) { }
+        public PrismSlang.SlangType? FindType(string name) { }
+        public PrismSlang.SlangType RequireType(string name) { }
+        public PrismSlang.Interop.SlangBlob Serialize() { }
+        public void WriteToFile(string path) { }
+    }
+    public static class SlangResult
+    {
+        public const int Ok = 0;
+        public static readonly int Abort;
+        public static readonly int BufferTooSmall;
+        public static readonly int CannotOpen;
+        public static readonly int Fail;
+        public static readonly int InternalFail;
+        public static readonly int InvalidArg;
+        public static readonly int InvalidHandle;
+        public static readonly int NoInterface;
+        public static readonly int NotAvailable;
+        public static readonly int NotFound;
+        public static readonly int NotImplemented;
+        public static readonly int OutOfMemory;
+        public static readonly int Pending;
+        public static readonly int TimeOut;
+        public static readonly int Uninitialized;
+        public static int Code(int r) { }
+        public static string Describe(int r) { }
+        public static int Facility(int r) { }
+        public static bool Failed(int status) { }
+        public static bool Succeeded(int status) { }
+    }
+    public sealed class SlangSession : PrismSlang.Interop.SlangObject<PrismSlang.Native.ISession>
+    {
+        public PrismSlang.TypeConformance CreateTypeConformance(PrismSlang.SlangType type, PrismSlang.SlangType interfaceType, int? conformanceId = default) { }
+        public bool IsBinaryModuleUpToDate(string modulePath, System.ReadOnlySpan<byte> ir) { }
+        public PrismSlang.LinkedProgram Link(PrismSlang.SlangModule module, [System.Runtime.CompilerServices.ParamCollection] [System.Runtime.CompilerServices.ScopedRef] System.ReadOnlySpan<PrismSlang.SlangEntryPoint> entryPoints) { }
+        public PrismSlang.LinkedProgram Link(PrismSlang.SlangModule module, System.ReadOnlySpan<PrismSlang.SlangEntryPoint> entryPoints, PrismSlang.LinkOptions? options) { }
+        public PrismSlang.SlangModule LoadModule(string moduleName) { }
+        public PrismSlang.SlangModule LoadModuleFromIRBlob(string moduleName, string path, System.ReadOnlySpan<byte> ir) { }
+        public PrismSlang.SlangModule LoadModuleFromSource(string moduleName, string path, string source) { }
+        [return: System.Runtime.CompilerServices.TupleElementNames(new string[] {
+                "Name",
+                "Version",
+                "CompilerVersion"})]
+        public System.ValueTuple<string?, long, string?> ReadModuleInfo(System.ReadOnlySpan<byte> ir) { }
+    }
+    public sealed class SlangType
+    {
+        [System.Runtime.CompilerServices.TupleElementNames(new string[] {
+                "Name",
+                "Type"})]
+        public System.Collections.Generic.IReadOnlyList<System.ValueTuple<string, string>> Fields { get; }
+        public string Name { get; }
+        public PrismSlang.Reflection.UserAttribute? FindAttribute(string name) { }
+        public override string ToString() { }
+    }
+    public sealed class TargetOptions
+    {
+        public TargetOptions() { }
+        public bool EmitSpirvDirectly { get; init; }
+        public PrismSlang.Native.SlangFloatingPointMode FloatingPointMode { get; init; }
+        public bool ForceGlslScalarBufferLayout { get; init; }
+        public PrismSlang.Native.SlangCompileTarget Format { get; init; }
+        public bool ParameterBlocksUseRegisterSpaces { get; init; }
+        public string? Profile { get; init; }
+        public PrismSlang.Spirv.SpirvVersion? SpirvVersion { get; init; }
+        public bool UseEntryPointNameInSpirv { get; init; }
+        public bool VerifyEmittedSpirv { get; init; }
+    }
+    public sealed class TypeConformance : PrismSlang.Interop.SlangObject<PrismSlang.Native.ITypeConformance> { }
+}
+namespace PrismSlang.Hosting
+{
+    public interface ISlangFileProvider
+    {
+        byte[]? TryRead(string path);
+    }
+    public sealed class InMemoryFileProvider : PrismSlang.Hosting.ISlangFileProvider
+    {
+        public InMemoryFileProvider(System.Collections.Generic.IReadOnlyDictionary<string, string> files) { }
+        public byte[]? TryRead(string path) { }
+    }
+    public sealed class SlangFileSystem : System.IDisposable
+    {
+        public SlangFileSystem(PrismSlang.Hosting.ISlangFileProvider provider) { }
+        public void Dispose() { }
+    }
+}
+namespace PrismSlang.Interop
+{
+    public sealed class SlangBlob : PrismSlang.Interop.SlangObject<PrismSlang.Native.ISlangBlob>
+    {
+        public int Length { get; }
+        public System.ReadOnlySpan<byte> Span { get; }
+        public string AsText() { }
+        public byte[] ToArray() { }
+        public override string ToString() { }
+    }
+    public delegate void SlangDiagnosticHandler(string operation, PrismSlang.Interop.SlangDiagnosticSeverity severity, string diagnostics);
+    public enum SlangDiagnosticPolicy
+    {
+        ThrowOnError = 0,
+        Report = 1,
+        Ignore = 2,
+    }
+    public enum SlangDiagnosticSeverity
+    {
+        Note = 0,
+        Warning = 1,
+        Error = 2,
+        Fatal = 3,
+    }
+    public static class SlangDiagnostics
+    {
+        public static PrismSlang.Interop.SlangDiagnosticHandler Handler { get; set; }
+        public static PrismSlang.Interop.SlangDiagnosticPolicy Policy { get; set; }
+        public static PrismSlang.Interop.SlangDiagnosticSeverity Classify(string? diagnostics) { }
+    }
+    public sealed class SlangException : System.Exception
+    {
+        public SlangException(int result, string operation, string? diagnostics) { }
+        public string? Diagnostics { get; }
+        public int Result { get; }
+    }
+    public abstract class SlangObject : System.IDisposable
+    {
+        public bool IsDisposed { get; }
+        public void Dispose() { }
+        public override string ToString() { }
+    }
+    public abstract class SlangObject<T> : PrismSlang.Interop.SlangObject
+        where T :  unmanaged { }
+    public sealed class SlangVersionMismatchException : System.Exception
+    {
+        public SlangVersionMismatchException(string expected, string loaded, string message) { }
+        public string Expected { get; }
+        public string Loaded { get; }
+    }
+}
+namespace PrismSlang.Native
+{
+    public struct BufferReflection { }
+    public enum BuiltinModuleName
+    {
+        Core = 0,
+        GLSL = 1,
+    }
+    public struct ByteCodeFuncInfo
+    {
+        public uint parameterCount;
+        public uint returnValueSize;
+    }
+    public struct ByteCodeRunnerDesc
+    {
+        public System.UIntPtr structSize;
+    }
+    public struct CompileCoreModuleFlag
+    {
+        public enum Enum : uint
+        {
+            WriteDocumentation = 1u,
+        }
+    }
+    public struct CompilerOptionEntry
+    {
+        public PrismSlang.Native.CompilerOptionName name;
+        public PrismSlang.Native.CompilerOptionValue value;
+    }
+    public enum CompilerOptionName
+    {
+        MacroDefine = 0,
+        DepFile = 1,
+        EntryPointName = 2,
+        Specialize = 3,
+        Help = 4,
+        HelpStyle = 5,
+        Include = 6,
+        Language = 7,
+        MatrixLayoutColumn = 8,
+        MatrixLayoutRow = 9,
+        ZeroInitialize = 10,
+        IgnoreCapabilities = 11,
+        RestrictiveCapabilityCheck = 12,
+        ModuleName = 13,
+        Output = 14,
+        Profile = 15,
+        Stage = 16,
+        Target = 17,
+        Version = 18,
+        WarningsAsErrors = 19,
+        DisableWarnings = 20,
+        EnableWarning = 21,
+        DisableWarning = 22,
+        DumpWarningDiagnostics = 23,
+        InputFilesRemain = 24,
+        EmitIr = 25,
+        ReportDownstreamTime = 26,
+        ReportPerfBenchmark = 27,
+        ReportCheckpointIntermediates = 28,
+        SkipSPIRVValidation = 29,
+        SourceEmbedStyle = 30,
+        SourceEmbedName = 31,
+        SourceEmbedLanguage = 32,
+        DisableShortCircuit = 33,
+        MinimumSlangOptimization = 34,
+        DisableNonEssentialValidations = 35,
+        DisableSourceMap = 36,
+        UnscopedEnum = 37,
+        PreserveParameters = 38,
+        Capability = 39,
+        DefaultImageFormatUnknown = 40,
+        DisableDynamicDispatch = 41,
+        DisableSpecialization = 42,
+        FloatingPointMode = 43,
+        DebugInformation = 44,
+        LineDirectiveMode = 45,
+        Optimization = 46,
+        Obfuscate = 47,
+        VulkanBindShift = 48,
+        VulkanBindGlobals = 49,
+        VulkanInvertY = 50,
+        VulkanUseDxPositionW = 51,
+        VulkanUseEntryPointName = 52,
+        VulkanUseGLLayout = 53,
+        VulkanEmitReflection = 54,
+        GLSLForceScalarLayout = 55,
+        EnableEffectAnnotations = 56,
+        EmitSpirvViaGLSL = 57,
+        EmitSpirvDirectly = 58,
+        SPIRVCoreGrammarJSON = 59,
+        IncompleteLibrary = 60,
+        CompilerPath = 61,
+        DefaultDownstreamCompiler = 62,
+        DownstreamArgs = 63,
+        PassThrough = 64,
+        DumpRepro = 65,
+        DumpReproOnError = 66,
+        ExtractRepro = 67,
+        LoadRepro = 68,
+        LoadReproDirectory = 69,
+        ReproFallbackDirectory = 70,
+        DumpAst = 71,
+        DumpIntermediatePrefix = 72,
+        DumpIntermediates = 73,
+        DumpIr = 74,
+        DumpIrIds = 75,
+        PreprocessorOutput = 76,
+        OutputIncludes = 77,
+        ReproFileSystem = 78,
+        REMOVED_SerialIR = 79,
+        SkipCodeGen = 80,
+        ValidateIr = 81,
+        VerbosePaths = 82,
+        VerifyDebugSerialIr = 83,
+        NoCodeGen = 84,
+        FileSystem = 85,
+        Heterogeneous = 86,
+        NoMangle = 87,
+        NoHLSLBinding = 88,
+        NoHLSLPackConstantBufferElements = 89,
+        ValidateUniformity = 90,
+        AllowGLSL = 91,
+        EnableExperimentalPasses = 92,
+        BindlessSpaceIndex = 93,
+        SPIRVResourceHeapStride = 94,
+        SPIRVSamplerHeapStride = 95,
+        ArchiveType = 96,
+        CompileCoreModule = 97,
+        Doc = 98,
+        IrCompression = 99,
+        LoadCoreModule = 100,
+        ReferenceModule = 101,
+        SaveCoreModule = 102,
+        SaveCoreModuleBinSource = 103,
+        TrackLiveness = 104,
+        LoopInversion = 105,
+        ParameterBlocksUseRegisterSpaces = 106,
+        LanguageVersion = 107,
+        TypeConformance = 108,
+        EnableExperimentalDynamicDispatch = 109,
+        EmitReflectionJSON = 110,
+        CountOfParsableOptions = 111,
+        DebugInformationFormat = 112,
+        VulkanBindShiftAll = 113,
+        GenerateWholeProgram = 114,
+        UseUpToDateBinaryModule = 115,
+        EmbedDownstreamIR = 116,
+        ForceDXLayout = 117,
+        EmitSpirvMethod = 118,
+        SaveGLSLModuleBinSource = 119,
+        SkipDownstreamLinking = 120,
+        DumpModule = 121,
+        GetModuleInfo = 122,
+        GetSupportedModuleVersions = 123,
+        EmitSeparateDebug = 124,
+        DenormalModeFp16 = 125,
+        DenormalModeFp32 = 126,
+        DenormalModeFp64 = 127,
+        UseMSVCStyleBitfieldPacking = 128,
+        ForceCLayout = 129,
+        ExperimentalFeature = 130,
+        ReportDetailedPerfBenchmark = 131,
+        ValidateIRDetailed = 132,
+        DumpIRBefore = 133,
+        DumpIRAfter = 134,
+        EmitCPUMethod = 135,
+        EmitCPUViaCPP = 136,
+        EmitCPUViaLLVM = 137,
+        LLVMTargetTriple = 138,
+        LLVMCPU = 139,
+        LLVMFeatures = 140,
+        EnableRichDiagnostics = 141,
+        ReportDynamicDispatchSites = 142,
+        EnableMachineReadableDiagnostics = 143,
+        DiagnosticColor = 144,
+        TraceCoverage = 145,
+        TraceCoverageBinding = 146,
+        TraceCoverageReservedSpace = 147,
+        TraceFunctionCoverage = 148,
+        TraceBranchCoverage = 149,
+        CoverageManifestOutput = 150,
+        TraceCoverageCounterByteWidth = 151,
+        TraceCoverageBoolean = 152,
+        CompilerVersion = 153,
+        SPIRVUnifiedDescriptorHeapStride = 154,
+        WarningLevel = 155,
+        SeparateDebugInfoOutput = 156,
+        DebugInfoIncludeSource = 157,
+        CountOf = 158,
+    }
+    public struct CompilerOptionValue
+    {
+        public int intValue0;
+        public int intValue1;
+        public PrismSlang.Native.CompilerOptionValueKind kind;
+        public unsafe sbyte* stringValue0;
+        public unsafe sbyte* stringValue1;
+    }
+    public enum CompilerOptionValueKind
+    {
+        Int = 0,
+        String = 1,
+    }
+    public enum ContainerType
+    {
+        None = 0,
+        UnsizedArray = 1,
+        StructuredBuffer = 2,
+        ConstantBuffer = 3,
+        ParameterBlock = 4,
+    }
+    public struct CooperativeMatrixCombination
+    {
+        public PrismSlang.Native.SlangScalarType componentTypeA;
+        public PrismSlang.Native.SlangScalarType componentTypeB;
+        public PrismSlang.Native.SlangScalarType componentTypeC;
+        public PrismSlang.Native.SlangScalarType componentTypeResult;
+        public uint k;
+        public uint m;
+        public uint n;
+        public byte saturate;
+        public PrismSlang.Native.SlangScope scope;
+    }
+    public struct CooperativeMatrixType
+    {
+        public uint columnCount;
+        public PrismSlang.Native.SlangScalarType componentType;
+        public uint rowCount;
+        public PrismSlang.Native.SlangScope scope;
+        public PrismSlang.Native.SlangCooperativeMatrixUse use;
+    }
+    public struct CooperativeVectorCombination
+    {
+        public PrismSlang.Native.SlangScalarType biasInterpretation;
+        public PrismSlang.Native.SlangScalarType inputInterpretation;
+        public uint inputPackingFactor;
+        public PrismSlang.Native.SlangScalarType inputType;
+        public PrismSlang.Native.SlangScalarType matrixInterpretation;
+        public PrismSlang.Native.SlangScalarType resultType;
+        public byte transpose;
+    }
+    public struct CooperativeVectorTypeUsageInfo
+    {
+        public PrismSlang.Native.SlangScalarType componentType;
+        public uint maxSize;
+        public byte usedForTrainingOp;
+    }
+    public enum CoverageBranchArmKind : uint
+    {
+        Unknown = 0u,
+        TrueArm = 1u,
+        FalseArm = 2u,
+        CaseArm = 3u,
+        DefaultArm = 4u,
+    }
+    public struct CoverageBufferInfo
+    {
+        public int binding;
+        public uint elementByteWidth;
+        public int space;
+        public System.UIntPtr structSize;
+    }
+    public enum CoverageCounterMode : uint
+    {
+        Count = 0u,
+        Boolean = 1u,
+    }
+    public struct CoverageEntryInfo
+    {
+        public uint branchArmID;
+        public PrismSlang.Native.CoverageBranchArmKind branchArmKind;
+        public uint branchSiteID;
+        public uint counterIndex;
+        public PrismSlang.Native.CoverageCounterMode counterMode;
+        public uint endColumn;
+        public uint endLine;
+        public unsafe sbyte* file;
+        public unsafe sbyte* functionMangledName;
+        public unsafe sbyte* functionName;
+        public PrismSlang.Native.CoverageEntryKind kind;
+        public uint line;
+        public uint startColumn;
+        public System.UIntPtr structSize;
+    }
+    public enum CoverageEntryKind : uint
+    {
+        Unknown = 0u,
+        Line = 1u,
+        Branch = 2u,
+        Function = 3u,
+        Region = 4u,
+    }
+    public struct DeclReflection { }
+    public struct EntryPointReflection { }
+    public struct FunctionReflection { }
+    public struct GenericArgReflection
+    {
+        public byte boolVal;
+        public long intVal;
+        public unsafe PrismSlang.Native.TypeReflection* typeVal;
+    }
+    public struct GenericReflection { }
+    public struct IBindlessResourceMetadata
+    {
+        public unsafe void** lpVtbl;
+        public uint AddRef() { }
+        public unsafe int QueryInterface(System.Guid* uuid, void** outObject) { }
+        public uint Release() { }
+        public uint addRef() { }
+        public unsafe void* castAs(PrismSlang.Native.SlangUUID* guid) { }
+        public unsafe int queryInterface(PrismSlang.Native.SlangUUID* uuid, void** outObject) { }
+        public uint release() { }
+        public bool usesBindlessResourceHeap() { }
+    }
+    public struct IByteCodeRunner
+    {
+        public unsafe void** lpVtbl;
+        public uint AddRef() { }
+        public unsafe int QueryInterface(System.Guid* uuid, void** outObject) { }
+        public uint Release() { }
+        public uint addRef() { }
+        public unsafe int execute(void* argumentData, nuint argumentSize) { }
+        public unsafe int findFunctionByName(sbyte* name) { }
+        public unsafe void* getCurrentWorkingSet() { }
+        public unsafe void getErrorString(PrismSlang.Native.ISlangBlob** outBlob) { }
+        public unsafe int getFunctionInfo(uint index, PrismSlang.Native.ByteCodeFuncInfo* outInfo) { }
+        public unsafe void* getReturnValue(System.UIntPtr* outValueSize) { }
+        public unsafe int loadModule(PrismSlang.Native.ISlangBlob* moduleBlob) { }
+        public unsafe int queryInterface(PrismSlang.Native.SlangUUID* uuid, void** outObject) { }
+        public unsafe int registerExtCall(sbyte* name, method functionPtr) { }
+        public uint release() { }
+        public int selectFunctionByIndex(uint functionIndex) { }
+        public unsafe void setExtInstHandlerUserData(void* userData) { }
+        public unsafe int setPrintCallback(method callback, void* userData) { }
+    }
+    public struct ICompileRequest
+    {
+        public unsafe void** lpVtbl;
+        public uint AddRef() { }
+        public unsafe int QueryInterface(System.Guid* uuid, void** outObject) { }
+        public uint Release() { }
+        public int addCodeGenTarget(PrismSlang.Native.SlangCompileTarget target) { }
+        public unsafe int addEntryPoint(int translationUnitIndex, sbyte* name, PrismSlang.Native.SlangStage stage) { }
+        public unsafe int addEntryPointEx(int translationUnitIndex, sbyte* name, PrismSlang.Native.SlangStage stage, int genericArgCount, sbyte** genericArgs) { }
+        public unsafe int addLibraryReference(sbyte* basePath, void* libData, nuint libDataSize) { }
+        public unsafe void addPreprocessorDefine(sbyte* key, sbyte* value) { }
+        public uint addRef() { }
+        public unsafe void addSearchPath(sbyte* searchDir) { }
+        public int addTargetCapability(long targetIndex, PrismSlang.Native.SlangCapabilityID capability) { }
+        public unsafe int addTranslationUnit(PrismSlang.Native.SlangSourceLanguage language, sbyte* name) { }
+        public unsafe void addTranslationUnitPreprocessorDefine(int translationUnitIndex, sbyte* key, sbyte* value) { }
+        public unsafe void addTranslationUnitSourceBlob(int translationUnitIndex, sbyte* path, PrismSlang.Native.ISlangBlob* sourceBlob) { }
+        public unsafe void addTranslationUnitSourceFile(int translationUnitIndex, sbyte* path) { }
+        public unsafe void addTranslationUnitSourceString(int translationUnitIndex, sbyte* path, sbyte* source) { }
+        public unsafe void addTranslationUnitSourceStringSpan(int translationUnitIndex, sbyte* path, sbyte* sourceBegin, sbyte* sourceEnd) { }
+        public int compile() { }
+        public int enableReproCapture() { }
+        public uint getCompileFlags() { }
+        public unsafe void* getCompileRequestCode(System.UIntPtr* outSize) { }
+        public unsafe PrismSlang.Native.ISlangMutableFileSystem* getCompileRequestResultAsFileSystem() { }
+        public unsafe int getCompileTimeProfile(PrismSlang.Native.ISlangProfiler** compileTimeProfile, byte shouldClear) { }
+        public unsafe int getContainerCode(PrismSlang.Native.ISlangBlob** outBlob) { }
+        public int getDependencyFileCount() { }
+        public unsafe sbyte* getDependencyFilePath(int index) { }
+        public int getDiagnosticFlags() { }
+        public unsafe sbyte* getDiagnosticOutput() { }
+        public unsafe int getDiagnosticOutputBlob(PrismSlang.Native.ISlangBlob** outBlob) { }
+        public unsafe int getEntryPoint(long entryPointIndex, PrismSlang.Native.IComponentType** outEntryPoint) { }
+        public unsafe void* getEntryPointCode(int entryPointIndex, System.UIntPtr* outSize) { }
+        public unsafe int getEntryPointCodeBlob(int entryPointIndex, int targetIndex, PrismSlang.Native.ISlangBlob** outBlob) { }
+        public unsafe int getEntryPointHostCallable(int entryPointIndex, int targetIndex, PrismSlang.Native.ISlangSharedLibrary** outSharedLibrary) { }
+        public unsafe sbyte* getEntryPointSource(int entryPointIndex) { }
+        public unsafe int getModule(long translationUnitIndex, PrismSlang.Native.IModule** outModule) { }
+        public unsafe int getProgram(PrismSlang.Native.IComponentType** outProgram) { }
+        public unsafe int getProgramWithEntryPoints(PrismSlang.Native.IComponentType** outProgram) { }
+        public unsafe PrismSlang.Native.SlangProgramLayout* getReflection() { }
+        public unsafe int getSession(PrismSlang.Native.ISession** outSession) { }
+        public unsafe int getTargetCodeBlob(int targetIndex, PrismSlang.Native.ISlangBlob** outBlob) { }
+        public unsafe int getTargetHostCallable(int targetIndex, PrismSlang.Native.ISlangSharedLibrary** outSharedLibrary) { }
+        public int getTranslationUnitCount() { }
+        public unsafe PrismSlang.Native.ISlangWriter* getWriter(PrismSlang.Native.SlangWriterChannel channel) { }
+        public unsafe int isParameterLocationUsed(long entryPointIndex, long targetIndex, PrismSlang.Native.SlangParameterCategory category, ulong spaceIndex, ulong registerIndex, bool* outUsed) { }
+        public unsafe int loadRepro(PrismSlang.Native.ISlangFileSystem* fileSystem, void* data, nuint size) { }
+        public void overrideDiagnosticSeverity(long messageID, PrismSlang.Native.SlangSeverity overrideSeverity) { }
+        public unsafe int processCommandLineArguments(sbyte** args, int argCount) { }
+        public unsafe int queryInterface(PrismSlang.Native.SlangUUID* uuid, void** outObject) { }
+        public uint release() { }
+        public unsafe int saveRepro(PrismSlang.Native.ISlangBlob** outBlob) { }
+        public void setAllowGLSLInput(byte value) { }
+        public void setCodeGenTarget(PrismSlang.Native.SlangCompileTarget target) { }
+        public void setCommandLineCompilerMode() { }
+        public void setCompileFlags(uint flags) { }
+        public void setDebugInfoFormat(PrismSlang.Native.SlangDebugInfoFormat debugFormat) { }
+        public void setDebugInfoLevel(PrismSlang.Native.SlangDebugInfoLevel level) { }
+        public unsafe void setDefaultModuleName(sbyte* defaultModuleName) { }
+        public unsafe void setDiagnosticCallback(method callback, void* userData) { }
+        public void setDiagnosticFlags(int flags) { }
+        public unsafe void setDumpIntermediatePrefix(sbyte* prefix) { }
+        public void setDumpIntermediates(int enable) { }
+        public void setEnableEffectAnnotations(byte value) { }
+        public unsafe void setFileSystem(PrismSlang.Native.ISlangFileSystem* fileSystem) { }
+        public unsafe int setGlobalGenericArgs(int genericArgCount, sbyte** genericArgs) { }
+        public void setIgnoreCapabilityCheck(byte value) { }
+        public void setLineDirectiveMode(PrismSlang.Native.SlangLineDirectiveMode mode) { }
+        public void setMatrixLayoutMode(PrismSlang.Native.SlangMatrixLayoutMode mode) { }
+        public void setOptimizationLevel(PrismSlang.Native.SlangOptimizationLevel level) { }
+        public void setOutputContainerFormat(PrismSlang.Native.SlangContainerFormat format) { }
+        public void setPassThrough(PrismSlang.Native.SlangPassThrough passThrough) { }
+        public void setReportDownstreamTime(byte value) { }
+        public void setReportPerfBenchmark(byte value) { }
+        public void setSkipSPIRVValidation(byte value) { }
+        public void setTargetEmbedDownstreamIR(int targetIndex, byte value) { }
+        public void setTargetFlags(int targetIndex, uint flags) { }
+        public void setTargetFloatingPointMode(int targetIndex, PrismSlang.Native.SlangFloatingPointMode mode) { }
+        public void setTargetForceCLayout(int targetIndex, byte value) { }
+        public void setTargetForceDXLayout(int targetIndex, byte value) { }
+        public void setTargetForceGLSLScalarBufferLayout(int targetIndex, byte forceScalarLayout) { }
+        public void setTargetGenerateWholeProgram(int targetIndex, byte value) { }
+        public void setTargetLineDirectiveMode(long targetIndex, PrismSlang.Native.SlangLineDirectiveMode mode) { }
+        public void setTargetMatrixLayoutMode(int targetIndex, PrismSlang.Native.SlangMatrixLayoutMode mode) { }
+        public void setTargetProfile(int targetIndex, PrismSlang.Native.SlangProfileID profile) { }
+        public void setTargetUseMinimumSlangOptimization(int targetIndex, byte value) { }
+        public unsafe int setTypeNameForEntryPointExistentialTypeParam(int entryPointIndex, int slotIndex, sbyte* typeName) { }
+        public unsafe int setTypeNameForGlobalExistentialTypeParam(int slotIndex, sbyte* typeName) { }
+        public unsafe void setWriter(PrismSlang.Native.SlangWriterChannel channel, PrismSlang.Native.ISlangWriter* writer) { }
+    }
+    public struct ICompileResult
+    {
+        public unsafe void** lpVtbl;
+        public uint AddRef() { }
+        public unsafe int QueryInterface(System.Guid* uuid, void** outObject) { }
+        public uint Release() { }
+        public uint addRef() { }
+        public unsafe void* castAs(PrismSlang.Native.SlangUUID* guid) { }
+        public uint getItemCount() { }
+        public unsafe int getItemData(uint index, PrismSlang.Native.ISlangBlob** outblob) { }
+        public unsafe int getMetadata(PrismSlang.Native.IMetadata** outMetadata) { }
+        public unsafe int queryInterface(PrismSlang.Native.SlangUUID* uuid, void** outObject) { }
+        public uint release() { }
+    }
+    public struct IComponentType
+    {
+        public unsafe void** lpVtbl;
+        public uint AddRef() { }
+        public unsafe int QueryInterface(System.Guid* uuid, void** outObject) { }
+        public uint Release() { }
+        public uint addRef() { }
+        public unsafe int getEntryPointCode(long entryPointIndex, long targetIndex, PrismSlang.Native.ISlangBlob** outCode, PrismSlang.Native.ISlangBlob** outDiagnostics = null) { }
+        public unsafe void getEntryPointHash(long entryPointIndex, long targetIndex, PrismSlang.Native.ISlangBlob** outHash) { }
+        public unsafe int getEntryPointHostCallable(int entryPointIndex, int targetIndex, PrismSlang.Native.ISlangSharedLibrary** outSharedLibrary, PrismSlang.Native.ISlangBlob** outDiagnostics = null) { }
+        public unsafe int getEntryPointMetadata(long entryPointIndex, long targetIndex, PrismSlang.Native.IMetadata** outMetadata, PrismSlang.Native.ISlangBlob** outDiagnostics = null) { }
+        public unsafe PrismSlang.Native.ShaderReflection* getLayout(long targetIndex = 0, PrismSlang.Native.ISlangBlob** outDiagnostics = null) { }
+        public unsafe int getResultAsFileSystem(long entryPointIndex, long targetIndex, PrismSlang.Native.ISlangMutableFileSystem** outFileSystem) { }
+        public unsafe PrismSlang.Native.ISession* getSession() { }
+        public long getSpecializationParamCount() { }
+        public unsafe int getTargetCode(long targetIndex, PrismSlang.Native.ISlangBlob** outCode, PrismSlang.Native.ISlangBlob** outDiagnostics = null) { }
+        public unsafe int getTargetMetadata(long targetIndex, PrismSlang.Native.IMetadata** outMetadata, PrismSlang.Native.ISlangBlob** outDiagnostics = null) { }
+        public unsafe int link(PrismSlang.Native.IComponentType** outLinkedComponentType, PrismSlang.Native.ISlangBlob** outDiagnostics = null) { }
+        public unsafe int linkWithOptions(PrismSlang.Native.IComponentType** outLinkedComponentType, uint compilerOptionEntryCount, PrismSlang.Native.CompilerOptionEntry* compilerOptionEntries, PrismSlang.Native.ISlangBlob** outDiagnostics = null) { }
+        public unsafe int queryInterface(PrismSlang.Native.SlangUUID* uuid, void** outObject) { }
+        public uint release() { }
+        public unsafe int renameEntryPoint(sbyte* newName, PrismSlang.Native.IComponentType** outEntryPoint) { }
+        public unsafe int specialize(PrismSlang.Native.SpecializationArg* specializationArgs, long specializationArgCount, PrismSlang.Native.IComponentType** outSpecializedComponentType, PrismSlang.Native.ISlangBlob** outDiagnostics = null) { }
+    }
+    public struct IComponentType2
+    {
+        public unsafe void** lpVtbl;
+        public uint AddRef() { }
+        public unsafe int QueryInterface(System.Guid* uuid, void** outObject) { }
+        public uint Release() { }
+        public uint addRef() { }
+        public unsafe int getEntryPointCompileResult(long entryPointIndex, long targetIndex, PrismSlang.Native.ICompileResult** outCompileResult, PrismSlang.Native.ISlangBlob** outDiagnostics = null) { }
+        public unsafe int getTargetCompileResult(long targetIndex, PrismSlang.Native.ICompileResult** outCompileResult, PrismSlang.Native.ISlangBlob** outDiagnostics = null) { }
+        public unsafe int getTargetHostCallable(int targetIndex, PrismSlang.Native.ISlangSharedLibrary** outSharedLibrary, PrismSlang.Native.ISlangBlob** outDiagnostics = null) { }
+        public unsafe int queryInterface(PrismSlang.Native.SlangUUID* uuid, void** outObject) { }
+        public uint release() { }
+    }
+    public struct ICooperativeTypesMetadata
+    {
+        public unsafe void** lpVtbl;
+        public uint AddRef() { }
+        public unsafe int QueryInterface(System.Guid* uuid, void** outObject) { }
+        public uint Release() { }
+        public uint addRef() { }
+        public unsafe void* castAs(PrismSlang.Native.SlangUUID* guid) { }
+        public unsafe int getCooperativeMatrixCombinationByIndex(ulong index, PrismSlang.Native.CooperativeMatrixCombination* outCombination) { }
+        public ulong getCooperativeMatrixCombinationCount() { }
+        public unsafe int getCooperativeMatrixTypeByIndex(ulong index, PrismSlang.Native.CooperativeMatrixType* outType) { }
+        public ulong getCooperativeMatrixTypeCount() { }
+        public unsafe int getCooperativeVectorCombinationByIndex(ulong index, PrismSlang.Native.CooperativeVectorCombination* outCombination) { }
+        public ulong getCooperativeVectorCombinationCount() { }
+        public unsafe int getCooperativeVectorTypeByIndex(ulong index, PrismSlang.Native.CooperativeVectorTypeUsageInfo* outType) { }
+        public ulong getCooperativeVectorTypeCount() { }
+        public unsafe int queryInterface(PrismSlang.Native.SlangUUID* uuid, void** outObject) { }
+        public uint release() { }
+    }
+    public struct ICoverageTracingMetadata
+    {
+        public unsafe void** lpVtbl;
+        public uint AddRef() { }
+        public unsafe int QueryInterface(System.Guid* uuid, void** outObject) { }
+        public uint Release() { }
+        public uint addRef() { }
+        public unsafe void* castAs(PrismSlang.Native.SlangUUID* guid) { }
+        public unsafe int getBufferInfo(PrismSlang.Native.CoverageBufferInfo* outInfo) { }
+        public uint getCounterCount() { }
+        public uint getEntryCount() { }
+        public unsafe int getEntryInfo(uint index, PrismSlang.Native.CoverageEntryInfo* outInfo) { }
+        public unsafe int queryInterface(PrismSlang.Native.SlangUUID* uuid, void** outObject) { }
+        public uint release() { }
+    }
+    public struct IEntryPoint
+    {
+        public unsafe void** lpVtbl;
+        public uint AddRef() { }
+        public unsafe int QueryInterface(System.Guid* uuid, void** outObject) { }
+        public uint Release() { }
+        public uint addRef() { }
+        public unsafe int getEntryPointCode(long entryPointIndex, long targetIndex, PrismSlang.Native.ISlangBlob** outCode, PrismSlang.Native.ISlangBlob** outDiagnostics = null) { }
+        public unsafe void getEntryPointHash(long entryPointIndex, long targetIndex, PrismSlang.Native.ISlangBlob** outHash) { }
+        public unsafe int getEntryPointHostCallable(int entryPointIndex, int targetIndex, PrismSlang.Native.ISlangSharedLibrary** outSharedLibrary, PrismSlang.Native.ISlangBlob** outDiagnostics = null) { }
+        public unsafe int getEntryPointMetadata(long entryPointIndex, long targetIndex, PrismSlang.Native.IMetadata** outMetadata, PrismSlang.Native.ISlangBlob** outDiagnostics = null) { }
+        public unsafe PrismSlang.Native.FunctionReflection* getFunctionReflection() { }
+        public unsafe PrismSlang.Native.ShaderReflection* getLayout(long targetIndex = 0, PrismSlang.Native.ISlangBlob** outDiagnostics = null) { }
+        public unsafe int getResultAsFileSystem(long entryPointIndex, long targetIndex, PrismSlang.Native.ISlangMutableFileSystem** outFileSystem) { }
+        public unsafe PrismSlang.Native.ISession* getSession() { }
+        public long getSpecializationParamCount() { }
+        public unsafe int getTargetCode(long targetIndex, PrismSlang.Native.ISlangBlob** outCode, PrismSlang.Native.ISlangBlob** outDiagnostics = null) { }
+        public unsafe int getTargetMetadata(long targetIndex, PrismSlang.Native.IMetadata** outMetadata, PrismSlang.Native.ISlangBlob** outDiagnostics = null) { }
+        public unsafe int link(PrismSlang.Native.IComponentType** outLinkedComponentType, PrismSlang.Native.ISlangBlob** outDiagnostics = null) { }
+        public unsafe int linkWithOptions(PrismSlang.Native.IComponentType** outLinkedComponentType, uint compilerOptionEntryCount, PrismSlang.Native.CompilerOptionEntry* compilerOptionEntries, PrismSlang.Native.ISlangBlob** outDiagnostics = null) { }
+        public unsafe int queryInterface(PrismSlang.Native.SlangUUID* uuid, void** outObject) { }
+        public uint release() { }
+        public unsafe int renameEntryPoint(sbyte* newName, PrismSlang.Native.IComponentType** outEntryPoint) { }
+        public unsafe int specialize(PrismSlang.Native.SpecializationArg* specializationArgs, long specializationArgCount, PrismSlang.Native.IComponentType** outSpecializedComponentType, PrismSlang.Native.ISlangBlob** outDiagnostics = null) { }
+    }
+    public struct IGlobalSession
+    {
+        public unsafe void** lpVtbl;
+        public uint AddRef() { }
+        public unsafe int QueryInterface(System.Guid* uuid, void** outObject) { }
+        public uint Release() { }
+        public unsafe void addBuiltins(sbyte* sourcePath, sbyte* sourceString) { }
+        public uint addRef() { }
+        public int checkCompileTargetSupport(PrismSlang.Native.SlangCompileTarget target) { }
+        public int checkPassThroughSupport(PrismSlang.Native.SlangPassThrough passThrough) { }
+        public int compileBuiltinModule(PrismSlang.Native.BuiltinModuleName module, uint flags) { }
+        public int compileCoreModule(uint flags) { }
+        [System.Obsolete]
+        public unsafe int createCompileRequest(PrismSlang.Native.ICompileRequest** outCompileRequest) { }
+        public unsafe int createSession(PrismSlang.Native.SessionDesc* desc, PrismSlang.Native.ISession** outSession) { }
+        public unsafe PrismSlang.Native.SlangCapabilityID findCapability(sbyte* name) { }
+        public unsafe PrismSlang.Native.SlangProfileID findProfile(sbyte* name) { }
+        public unsafe sbyte* getBuildTagString() { }
+        public unsafe void getCompilerElapsedTime(double* outTotalTime, double* outDownstreamTime) { }
+        public PrismSlang.Native.SlangPassThrough getDefaultDownstreamCompiler(PrismSlang.Native.SlangSourceLanguage sourceLanguage) { }
+        public PrismSlang.Native.SlangPassThrough getDownstreamCompilerForTransition(PrismSlang.Native.SlangCompileTarget source, PrismSlang.Native.SlangCompileTarget target) { }
+        public unsafe void getDownstreamCompilerPrelude(PrismSlang.Native.SlangPassThrough passThrough, PrismSlang.Native.ISlangBlob** outPrelude) { }
+        public unsafe int getDownstreamCompilerVersion(PrismSlang.Native.SlangPassThrough passThrough, int* outMajor, int* outMinor) { }
+        public unsafe void getLanguagePrelude(PrismSlang.Native.SlangSourceLanguage sourceLanguage, PrismSlang.Native.ISlangBlob** outPrelude) { }
+        public unsafe int getSessionDescDigest(PrismSlang.Native.SessionDesc* sessionDesc, PrismSlang.Native.ISlangBlob** outBlob) { }
+        public unsafe PrismSlang.Native.ISlangSharedLibraryLoader* getSharedLibraryLoader() { }
+        public unsafe int loadBuiltinModule(PrismSlang.Native.BuiltinModuleName module, void* moduleData, nuint sizeInBytes) { }
+        public unsafe int loadCoreModule(void* coreModule, nuint coreModuleSizeInBytes) { }
+        public unsafe int parseCommandLineArguments(int argc, sbyte** argv, PrismSlang.Native.SessionDesc* outSessionDesc, PrismSlang.Native.ISlangUnknown** outAuxAllocation) { }
+        public unsafe int queryInterface(PrismSlang.Native.SlangUUID* uuid, void** outObject) { }
+        public uint release() { }
+        public unsafe int saveBuiltinModule(PrismSlang.Native.BuiltinModuleName module, PrismSlang.Native.SlangArchiveType archiveType, PrismSlang.Native.ISlangBlob** outBlob) { }
+        public unsafe int saveCoreModule(PrismSlang.Native.SlangArchiveType archiveType, PrismSlang.Native.ISlangBlob** outBlob) { }
+        public int setDefaultDownstreamCompiler(PrismSlang.Native.SlangSourceLanguage sourceLanguage, PrismSlang.Native.SlangPassThrough defaultCompiler) { }
+        public void setDownstreamCompilerForTransition(PrismSlang.Native.SlangCompileTarget source, PrismSlang.Native.SlangCompileTarget target, PrismSlang.Native.SlangPassThrough compiler) { }
+        public unsafe void setDownstreamCompilerPath(PrismSlang.Native.SlangPassThrough passThrough, sbyte* path) { }
+        public unsafe void setDownstreamCompilerPrelude(PrismSlang.Native.SlangPassThrough passThrough, sbyte* preludeText) { }
+        public unsafe void setLanguagePrelude(PrismSlang.Native.SlangSourceLanguage sourceLanguage, sbyte* preludeText) { }
+        public unsafe int setSPIRVCoreGrammar(sbyte* jsonPath) { }
+        public unsafe void setSharedLibraryLoader(PrismSlang.Native.ISlangSharedLibraryLoader* loader) { }
+    }
+    public struct IMetadata
+    {
+        public unsafe void** lpVtbl;
+        public uint AddRef() { }
+        public unsafe int QueryInterface(System.Guid* uuid, void** outObject) { }
+        public uint Release() { }
+        public uint addRef() { }
+        public unsafe void* castAs(PrismSlang.Native.SlangUUID* guid) { }
+        public unsafe sbyte* getDebugBuildIdentifier() { }
+        public unsafe int isParameterLocationUsed(PrismSlang.Native.SlangParameterCategory category, ulong spaceIndex, ulong registerIndex, bool* outUsed) { }
+        public unsafe int queryInterface(PrismSlang.Native.SlangUUID* uuid, void** outObject) { }
+        public uint release() { }
+    }
+    public struct IModule
+    {
+        public unsafe void** lpVtbl;
+        public uint AddRef() { }
+        public unsafe int QueryInterface(System.Guid* uuid, void** outObject) { }
+        public uint Release() { }
+        public uint addRef() { }
+        public unsafe int disassemble(PrismSlang.Native.ISlangBlob** outDisassembledBlob) { }
+        public unsafe int findAndCheckEntryPoint(sbyte* name, PrismSlang.Native.SlangStage stage, PrismSlang.Native.IEntryPoint** outEntryPoint, PrismSlang.Native.ISlangBlob** outDiagnostics) { }
+        public unsafe int findEntryPointByName(sbyte* name, PrismSlang.Native.IEntryPoint** outEntryPoint) { }
+        public unsafe int getDefinedEntryPoint(int index, PrismSlang.Native.IEntryPoint** outEntryPoint) { }
+        public int getDefinedEntryPointCount() { }
+        public int getDependencyFileCount() { }
+        public unsafe sbyte* getDependencyFilePath(int index) { }
+        public unsafe int getEntryPointCode(long entryPointIndex, long targetIndex, PrismSlang.Native.ISlangBlob** outCode, PrismSlang.Native.ISlangBlob** outDiagnostics = null) { }
+        public unsafe void getEntryPointHash(long entryPointIndex, long targetIndex, PrismSlang.Native.ISlangBlob** outHash) { }
+        public unsafe int getEntryPointHostCallable(int entryPointIndex, int targetIndex, PrismSlang.Native.ISlangSharedLibrary** outSharedLibrary, PrismSlang.Native.ISlangBlob** outDiagnostics = null) { }
+        public unsafe int getEntryPointMetadata(long entryPointIndex, long targetIndex, PrismSlang.Native.IMetadata** outMetadata, PrismSlang.Native.ISlangBlob** outDiagnostics = null) { }
+        public unsafe sbyte* getFilePath() { }
+        public unsafe PrismSlang.Native.ShaderReflection* getLayout(long targetIndex = 0, PrismSlang.Native.ISlangBlob** outDiagnostics = null) { }
+        public unsafe PrismSlang.Native.DeclReflection* getModuleReflection() { }
+        public unsafe sbyte* getName() { }
+        public unsafe int getResultAsFileSystem(long entryPointIndex, long targetIndex, PrismSlang.Native.ISlangMutableFileSystem** outFileSystem) { }
+        public unsafe PrismSlang.Native.ISession* getSession() { }
+        public long getSpecializationParamCount() { }
+        public unsafe int getTargetCode(long targetIndex, PrismSlang.Native.ISlangBlob** outCode, PrismSlang.Native.ISlangBlob** outDiagnostics = null) { }
+        public unsafe int getTargetMetadata(long targetIndex, PrismSlang.Native.IMetadata** outMetadata, PrismSlang.Native.ISlangBlob** outDiagnostics = null) { }
+        public unsafe sbyte* getUniqueIdentity() { }
+        public unsafe int link(PrismSlang.Native.IComponentType** outLinkedComponentType, PrismSlang.Native.ISlangBlob** outDiagnostics = null) { }
+        public unsafe int linkWithOptions(PrismSlang.Native.IComponentType** outLinkedComponentType, uint compilerOptionEntryCount, PrismSlang.Native.CompilerOptionEntry* compilerOptionEntries, PrismSlang.Native.ISlangBlob** outDiagnostics = null) { }
+        public unsafe int queryInterface(PrismSlang.Native.SlangUUID* uuid, void** outObject) { }
+        public uint release() { }
+        public unsafe int renameEntryPoint(sbyte* newName, PrismSlang.Native.IComponentType** outEntryPoint) { }
+        public unsafe int serialize(PrismSlang.Native.ISlangBlob** outSerializedBlob) { }
+        public unsafe int specialize(PrismSlang.Native.SpecializationArg* specializationArgs, long specializationArgCount, PrismSlang.Native.IComponentType** outSpecializedComponentType, PrismSlang.Native.ISlangBlob** outDiagnostics = null) { }
+        public unsafe int writeToFile(sbyte* fileName) { }
+    }
+    public struct IModulePrecompileService_Experimental
+    {
+        public unsafe void** lpVtbl;
+        public uint AddRef() { }
+        public unsafe int QueryInterface(System.Guid* uuid, void** outObject) { }
+        public uint Release() { }
+        public uint addRef() { }
+        public unsafe int getModuleDependency(long dependencyIndex, PrismSlang.Native.IModule** outModule, PrismSlang.Native.ISlangBlob** outDiagnostics = null) { }
+        public long getModuleDependencyCount() { }
+        public unsafe int getPrecompiledTargetCode(PrismSlang.Native.SlangCompileTarget target, PrismSlang.Native.ISlangBlob** outCode, PrismSlang.Native.ISlangBlob** outDiagnostics = null) { }
+        public unsafe int precompileForTarget(PrismSlang.Native.SlangCompileTarget target, PrismSlang.Native.ISlangBlob** outDiagnostics) { }
+        public unsafe int queryInterface(PrismSlang.Native.SlangUUID* uuid, void** outObject) { }
+        public uint release() { }
+    }
+    public struct ISession
+    {
+        public unsafe void** lpVtbl;
+        public uint AddRef() { }
+        public unsafe int QueryInterface(System.Guid* uuid, void** outObject) { }
+        public uint Release() { }
+        public uint addRef() { }
+        public unsafe int createCompileRequest(PrismSlang.Native.ICompileRequest** outCompileRequest) { }
+        public unsafe int createCompositeComponentType(PrismSlang.Native.IComponentType** componentTypes, long componentTypeCount, PrismSlang.Native.IComponentType** outCompositeComponentType, PrismSlang.Native.ISlangBlob** outDiagnostics = null) { }
+        public unsafe int createTypeConformanceComponentType(PrismSlang.Native.TypeReflection* type, PrismSlang.Native.TypeReflection* interfaceType, PrismSlang.Native.ITypeConformance** outConformance, long conformanceIdOverride, PrismSlang.Native.ISlangBlob** outDiagnostics) { }
+        public unsafe PrismSlang.Native.TypeReflection* getContainerType(PrismSlang.Native.TypeReflection* elementType, PrismSlang.Native.ContainerType containerType, PrismSlang.Native.ISlangBlob** outDiagnostics = null) { }
+        public unsafe int getDeclSourceLocation(PrismSlang.Native.DeclReflection* decl, PrismSlang.Native.SourceLocation* outLocation) { }
+        public unsafe int getDynamicObjectRTTIBytes(PrismSlang.Native.TypeReflection* type, PrismSlang.Native.TypeReflection* interfaceType, uint* outRTTIDataBuffer, uint bufferSizeInBytes) { }
+        public unsafe PrismSlang.Native.TypeReflection* getDynamicType() { }
+        public unsafe PrismSlang.Native.IGlobalSession* getGlobalSession() { }
+        public unsafe PrismSlang.Native.IModule* getLoadedModule(long index) { }
+        public long getLoadedModuleCount() { }
+        public unsafe int getTypeConformanceWitnessMangledName(PrismSlang.Native.TypeReflection* type, PrismSlang.Native.TypeReflection* interfaceType, PrismSlang.Native.ISlangBlob** outNameBlob) { }
+        public unsafe int getTypeConformanceWitnessSequentialID(PrismSlang.Native.TypeReflection* type, PrismSlang.Native.TypeReflection* interfaceType, uint* outId) { }
+        public unsafe PrismSlang.Native.TypeLayoutReflection* getTypeLayout(PrismSlang.Native.TypeReflection* type, long targetIndex = 0, PrismSlang.Native.LayoutRules rules = 0, PrismSlang.Native.ISlangBlob** outDiagnostics = null) { }
+        public unsafe int getTypeRTTIMangledName(PrismSlang.Native.TypeReflection* type, PrismSlang.Native.ISlangBlob** outNameBlob) { }
+        public unsafe bool isBinaryModuleUpToDate(sbyte* modulePath, PrismSlang.Native.ISlangBlob* binaryModuleBlob) { }
+        public unsafe PrismSlang.Native.IModule* loadModule(sbyte* moduleName, PrismSlang.Native.ISlangBlob** outDiagnostics = null) { }
+        public unsafe PrismSlang.Native.IModule* loadModuleFromIRBlob(sbyte* moduleName, sbyte* path, PrismSlang.Native.ISlangBlob* source, PrismSlang.Native.ISlangBlob** outDiagnostics = null) { }
+        public unsafe PrismSlang.Native.IModule* loadModuleFromSource(sbyte* moduleName, sbyte* path, PrismSlang.Native.ISlangBlob* source, PrismSlang.Native.ISlangBlob** outDiagnostics = null) { }
+        public unsafe PrismSlang.Native.IModule* loadModuleFromSourceString(sbyte* moduleName, sbyte* path, sbyte* @string, PrismSlang.Native.ISlangBlob** outDiagnostics = null) { }
+        public unsafe int loadModuleInfoFromIRBlob(PrismSlang.Native.ISlangBlob* source, long* outModuleVersion, sbyte** outModuleCompilerVersion, sbyte** outModuleName) { }
+        public unsafe int queryInterface(PrismSlang.Native.SlangUUID* uuid, void** outObject) { }
+        public uint release() { }
+        public unsafe PrismSlang.Native.TypeReflection* specializeType(PrismSlang.Native.TypeReflection* type, PrismSlang.Native.SpecializationArg* specializationArgs, long specializationArgCount, PrismSlang.Native.ISlangBlob** outDiagnostics = null) { }
+    }
+    public struct ISlangBlob
+    {
+        public unsafe void** lpVtbl;
+        public uint AddRef() { }
+        public unsafe int QueryInterface(System.Guid* uuid, void** outObject) { }
+        public uint Release() { }
+        public uint addRef() { }
+        public unsafe void* getBufferPointer() { }
+        public nuint getBufferSize() { }
+        public unsafe int queryInterface(PrismSlang.Native.SlangUUID* uuid, void** outObject) { }
+        public uint release() { }
+    }
+    public struct ISlangCastable
+    {
+        public unsafe void** lpVtbl;
+        public uint AddRef() { }
+        public unsafe int QueryInterface(System.Guid* uuid, void** outObject) { }
+        public uint Release() { }
+        public uint addRef() { }
+        public unsafe void* castAs(PrismSlang.Native.SlangUUID* guid) { }
+        public unsafe int queryInterface(PrismSlang.Native.SlangUUID* uuid, void** outObject) { }
+        public uint release() { }
+    }
+    public struct ISlangClonable
+    {
+        public unsafe void** lpVtbl;
+        public uint AddRef() { }
+        public unsafe int QueryInterface(System.Guid* uuid, void** outObject) { }
+        public uint Release() { }
+        public uint addRef() { }
+        public unsafe void* castAs(PrismSlang.Native.SlangUUID* guid) { }
+        public unsafe void* clone(PrismSlang.Native.SlangUUID* guid) { }
+        public unsafe int queryInterface(PrismSlang.Native.SlangUUID* uuid, void** outObject) { }
+        public uint release() { }
+    }
+    public struct ISlangFileSystem
+    {
+        public unsafe void** lpVtbl;
+        public uint AddRef() { }
+        public unsafe int QueryInterface(System.Guid* uuid, void** outObject) { }
+        public uint Release() { }
+        public uint addRef() { }
+        public unsafe void* castAs(PrismSlang.Native.SlangUUID* guid) { }
+        public unsafe int loadFile(sbyte* path, PrismSlang.Native.ISlangBlob** outBlob) { }
+        public unsafe int queryInterface(PrismSlang.Native.SlangUUID* uuid, void** outObject) { }
+        public uint release() { }
+    }
+    public struct ISlangFileSystemExt
+    {
+        public unsafe void** lpVtbl;
+        public uint AddRef() { }
+        public unsafe int QueryInterface(System.Guid* uuid, void** outObject) { }
+        public uint Release() { }
+        public uint addRef() { }
+        public unsafe int calcCombinedPath(PrismSlang.Native.SlangPathType fromPathType, sbyte* fromPath, sbyte* path, PrismSlang.Native.ISlangBlob** pathOut) { }
+        public unsafe void* castAs(PrismSlang.Native.SlangUUID* guid) { }
+        public void clearCache() { }
+        public unsafe int enumeratePathContents(sbyte* path, method callback, void* userData) { }
+        public unsafe int getFileUniqueIdentity(sbyte* path, PrismSlang.Native.ISlangBlob** outUniqueIdentity) { }
+        public PrismSlang.Native.OSPathKind getOSPathKind() { }
+        public unsafe int getPath(PrismSlang.Native.PathKind kind, sbyte* path, PrismSlang.Native.ISlangBlob** outPath) { }
+        public unsafe int getPathType(sbyte* path, PrismSlang.Native.SlangPathType* pathTypeOut) { }
+        public unsafe int loadFile(sbyte* path, PrismSlang.Native.ISlangBlob** outBlob) { }
+        public unsafe int queryInterface(PrismSlang.Native.SlangUUID* uuid, void** outObject) { }
+        public uint release() { }
+    }
+    public struct ISlangMutableFileSystem
+    {
+        public unsafe void** lpVtbl;
+        public uint AddRef() { }
+        public unsafe int QueryInterface(System.Guid* uuid, void** outObject) { }
+        public uint Release() { }
+        public uint addRef() { }
+        public unsafe int calcCombinedPath(PrismSlang.Native.SlangPathType fromPathType, sbyte* fromPath, sbyte* path, PrismSlang.Native.ISlangBlob** pathOut) { }
+        public unsafe void* castAs(PrismSlang.Native.SlangUUID* guid) { }
+        public void clearCache() { }
+        public unsafe int createDirectory(sbyte* path) { }
+        public unsafe int enumeratePathContents(sbyte* path, method callback, void* userData) { }
+        public unsafe int getFileUniqueIdentity(sbyte* path, PrismSlang.Native.ISlangBlob** outUniqueIdentity) { }
+        public PrismSlang.Native.OSPathKind getOSPathKind() { }
+        public unsafe int getPath(PrismSlang.Native.PathKind kind, sbyte* path, PrismSlang.Native.ISlangBlob** outPath) { }
+        public unsafe int getPathType(sbyte* path, PrismSlang.Native.SlangPathType* pathTypeOut) { }
+        public unsafe int loadFile(sbyte* path, PrismSlang.Native.ISlangBlob** outBlob) { }
+        public unsafe int queryInterface(PrismSlang.Native.SlangUUID* uuid, void** outObject) { }
+        public uint release() { }
+        public unsafe int remove(sbyte* path) { }
+        public unsafe int saveFile(sbyte* path, void* data, nuint size) { }
+        public unsafe int saveFileBlob(sbyte* path, PrismSlang.Native.ISlangBlob* dataBlob) { }
+    }
+    public struct ISlangProfiler
+    {
+        public unsafe void** lpVtbl;
+        public uint AddRef() { }
+        public unsafe int QueryInterface(System.Guid* uuid, void** outObject) { }
+        public uint Release() { }
+        public uint addRef() { }
+        public nuint getEntryCount() { }
+        public uint getEntryInvocationTimes(uint index) { }
+        public unsafe sbyte* getEntryName(uint index) { }
+        public int getEntryTimeMS(uint index) { }
+        public unsafe int queryInterface(PrismSlang.Native.SlangUUID* uuid, void** outObject) { }
+        public uint release() { }
+    }
+    public struct ISlangSharedLibrary
+    {
+        public unsafe void** lpVtbl;
+        public uint AddRef() { }
+        public unsafe int QueryInterface(System.Guid* uuid, void** outObject) { }
+        public uint Release() { }
+        public uint addRef() { }
+        public unsafe void* castAs(PrismSlang.Native.SlangUUID* guid) { }
+        public unsafe method findFuncByName(sbyte* name) { }
+        public unsafe void* findSymbolAddressByName(sbyte* name) { }
+        public unsafe int queryInterface(PrismSlang.Native.SlangUUID* uuid, void** outObject) { }
+        public uint release() { }
+    }
+    public struct ISlangSharedLibraryLoader
+    {
+        public unsafe void** lpVtbl;
+        public uint AddRef() { }
+        public unsafe int QueryInterface(System.Guid* uuid, void** outObject) { }
+        public uint Release() { }
+        public uint addRef() { }
+        public unsafe int loadSharedLibrary(sbyte* path, PrismSlang.Native.ISlangSharedLibrary** sharedLibraryOut) { }
+        public unsafe int queryInterface(PrismSlang.Native.SlangUUID* uuid, void** outObject) { }
+        public uint release() { }
+    }
+    public struct ISlangSharedLibrary_Dep1
+    {
+        public unsafe void** lpVtbl;
+        public uint AddRef() { }
+        public unsafe int QueryInterface(System.Guid* uuid, void** outObject) { }
+        public uint Release() { }
+        public uint addRef() { }
+        public unsafe void* findSymbolAddressByName(sbyte* name) { }
+        public unsafe int queryInterface(PrismSlang.Native.SlangUUID* uuid, void** outObject) { }
+        public uint release() { }
+    }
+    public struct ISlangUnknown
+    {
+        public unsafe void** lpVtbl;
+        public uint AddRef() { }
+        public unsafe int QueryInterface(System.Guid* uuid, void** outObject) { }
+        public uint Release() { }
+        public uint addRef() { }
+        public unsafe int queryInterface(PrismSlang.Native.SlangUUID* uuid, void** outObject) { }
+        public uint release() { }
+    }
+    public struct ISlangWriter
+    {
+        public unsafe void** lpVtbl;
+        public uint AddRef() { }
+        public unsafe int QueryInterface(System.Guid* uuid, void** outObject) { }
+        public uint Release() { }
+        public uint addRef() { }
+        public unsafe sbyte* beginAppendBuffer(nuint maxNumChars) { }
+        public unsafe int endAppendBuffer(sbyte* buffer, nuint numChars) { }
+        public void flush() { }
+        public bool isConsole() { }
+        public unsafe int queryInterface(PrismSlang.Native.SlangUUID* uuid, void** outObject) { }
+        public uint release() { }
+        public int setMode(PrismSlang.Native.SlangWriterMode mode) { }
+        public unsafe int write(sbyte* chars, nuint numChars) { }
+    }
+    public struct ISyntheticResourceMetadata
+    {
+        public unsafe void** lpVtbl;
+        public uint AddRef() { }
+        public unsafe int QueryInterface(System.Guid* uuid, void** outObject) { }
+        public uint Release() { }
+        public uint addRef() { }
+        public unsafe void* castAs(PrismSlang.Native.SlangUUID* guid) { }
+        public unsafe int findResourceIndexByID(uint id, uint* outIndex) { }
+        public uint getResourceCount() { }
+        public unsafe int getResourceInfo(uint index, PrismSlang.Native.SyntheticResourceInfo* outInfo) { }
+        public unsafe int queryInterface(PrismSlang.Native.SlangUUID* uuid, void** outObject) { }
+        public uint release() { }
+    }
+    public struct ITypeConformance
+    {
+        public unsafe void** lpVtbl;
+        public uint AddRef() { }
+        public unsafe int QueryInterface(System.Guid* uuid, void** outObject) { }
+        public uint Release() { }
+        public uint addRef() { }
+        public unsafe int getEntryPointCode(long entryPointIndex, long targetIndex, PrismSlang.Native.ISlangBlob** outCode, PrismSlang.Native.ISlangBlob** outDiagnostics = null) { }
+        public unsafe void getEntryPointHash(long entryPointIndex, long targetIndex, PrismSlang.Native.ISlangBlob** outHash) { }
+        public unsafe int getEntryPointHostCallable(int entryPointIndex, int targetIndex, PrismSlang.Native.ISlangSharedLibrary** outSharedLibrary, PrismSlang.Native.ISlangBlob** outDiagnostics = null) { }
+        public unsafe int getEntryPointMetadata(long entryPointIndex, long targetIndex, PrismSlang.Native.IMetadata** outMetadata, PrismSlang.Native.ISlangBlob** outDiagnostics = null) { }
+        public unsafe PrismSlang.Native.ShaderReflection* getLayout(long targetIndex = 0, PrismSlang.Native.ISlangBlob** outDiagnostics = null) { }
+        public unsafe int getResultAsFileSystem(long entryPointIndex, long targetIndex, PrismSlang.Native.ISlangMutableFileSystem** outFileSystem) { }
+        public unsafe PrismSlang.Native.ISession* getSession() { }
+        public long getSpecializationParamCount() { }
+        public unsafe int getTargetCode(long targetIndex, PrismSlang.Native.ISlangBlob** outCode, PrismSlang.Native.ISlangBlob** outDiagnostics = null) { }
+        public unsafe int getTargetMetadata(long targetIndex, PrismSlang.Native.IMetadata** outMetadata, PrismSlang.Native.ISlangBlob** outDiagnostics = null) { }
+        public unsafe int link(PrismSlang.Native.IComponentType** outLinkedComponentType, PrismSlang.Native.ISlangBlob** outDiagnostics = null) { }
+        public unsafe int linkWithOptions(PrismSlang.Native.IComponentType** outLinkedComponentType, uint compilerOptionEntryCount, PrismSlang.Native.CompilerOptionEntry* compilerOptionEntries, PrismSlang.Native.ISlangBlob** outDiagnostics = null) { }
+        public unsafe int queryInterface(PrismSlang.Native.SlangUUID* uuid, void** outObject) { }
+        public uint release() { }
+        public unsafe int renameEntryPoint(sbyte* newName, PrismSlang.Native.IComponentType** outEntryPoint) { }
+        public unsafe int specialize(PrismSlang.Native.SpecializationArg* specializationArgs, long specializationArgCount, PrismSlang.Native.IComponentType** outSpecializedComponentType, PrismSlang.Native.ISlangBlob** outDiagnostics = null) { }
+    }
+    public enum LayoutRules : uint
+    {
+        Default = 0u,
+        MetalArgumentBufferTier2 = 1u,
+        DefaultStructuredBuffer = 2u,
+        DefaultConstantBuffer = 3u,
+    }
+    public struct Modifier { }
+    public enum OSPathKind : byte
+    {
+        None = 0,
+        Direct = 1,
+        OperatingSystem = 2,
+    }
+    public enum OperandDataType
+    {
+        General = 0,
+        Int32 = 1,
+        Int64 = 2,
+        Float32 = 3,
+        Float64 = 4,
+        String = 5,
+    }
+    public enum ParameterCategory : uint
+    {
+        None = 0u,
+        Mixed = 1u,
+        ConstantBuffer = 2u,
+        ShaderResource = 3u,
+        UnorderedAccess = 4u,
+        VaryingInput = 5u,
+        VaryingOutput = 6u,
+        SamplerState = 7u,
+        Uniform = 8u,
+        DescriptorTableSlot = 9u,
+        SpecializationConstant = 10u,
+        PushConstantBuffer = 11u,
+        RegisterSpace = 12u,
+        GenericResource = 13u,
+        RayPayload = 14u,
+        HitAttributes = 15u,
+        CallablePayload = 16u,
+        ShaderRecord = 17u,
+        ExistentialTypeParam = 18u,
+        ExistentialObjectParam = 19u,
+        SubElementRegisterSpace = 20u,
+        InputAttachmentIndex = 21u,
+        MetalBuffer = 2u,
+        MetalTexture = 3u,
+        MetalArgumentBufferElement = 22u,
+        MetalAttribute = 23u,
+        MetalPayload = 24u,
+        VertexInput = 5u,
+        FragmentOutput = 6u,
+    }
+    public enum PathKind
+    {
+        Simplified = 0,
+        Canonical = 1,
+        Display = 2,
+        OperatingSystem = 3,
+        CountOf = 4,
+    }
+    public struct PreprocessorMacroDesc
+    {
+        public unsafe sbyte* name;
+        public unsafe sbyte* value;
+    }
+    public struct SessionDesc
+    {
+        public byte allowGLSLSyntax;
+        public unsafe PrismSlang.Native.CompilerOptionEntry* compilerOptionEntries;
+        public uint compilerOptionEntryCount;
+        public PrismSlang.Native.SlangMatrixLayoutMode defaultMatrixLayoutMode;
+        public byte enableEffectAnnotations;
+        public unsafe PrismSlang.Native.ISlangFileSystem* fileSystem;
+        public uint flags;
+        public long preprocessorMacroCount;
+        public unsafe PrismSlang.Native.PreprocessorMacroDesc* preprocessorMacros;
+        public long searchPathCount;
+        public unsafe sbyte** searchPaths;
+        public byte skipSPIRVValidation;
+        public System.UIntPtr structureSize;
+        public long targetCount;
+        public unsafe PrismSlang.Native.TargetDesc* targets;
+    }
+    public struct ShaderReflection { }
+    public static class SlangApi
+    {
+        public const int SLANG_COMPILE_FLAG_NO_CHECKING = 0;
+        public const int SLANG_COMPILE_FLAG_NO_CODEGEN = 16;
+        public const int SLANG_COMPILE_FLAG_NO_MANGLING = 8;
+        public const int SLANG_COMPILE_FLAG_OBFUSCATE = 32;
+        public const int SLANG_COMPILE_FLAG_SPLIT_MIXED_TYPES = 0;
+        public const int SLANG_DIAGNOSTIC_FLAG_TREAT_WARNINGS_AS_ERRORS = 2;
+        public const int SLANG_DIAGNOSTIC_FLAG_VERBOSE_PATHS = 1;
+        public const int SLANG_TARGET_FLAG_DUMP_IR = 512;
+        public const int SLANG_TARGET_FLAG_GENERATE_SPIRV_DIRECTLY = 1024;
+        public const int SLANG_TARGET_FLAG_GENERATE_WHOLE_PROGRAM = 256;
+        public const int SLANG_TARGET_FLAG_PARAMETER_BLOCKS_USE_REGISTER_SPACES = 16;
+        public const uint kDefaultTargetFlags = 1024u;
+        public const uint kInvalidCoverageCounterIndex = 4294967295u;
+        public const int kSessionFlags_None = 0;
+        public static unsafe sbyte* getLastInternalErrorMessage() { }
+        public static void shutdown() { }
+        public static unsafe PrismSlang.Native.ISlangBlob* slang_createBlob(void* data, nuint size) { }
+        public static unsafe int slang_createByteCodeRunner(PrismSlang.Native.ByteCodeRunnerDesc* desc, PrismSlang.Native.IByteCodeRunner** outByteCodeRunner) { }
+        public static unsafe int slang_createGlobalSession(long apiVersion, PrismSlang.Native.IGlobalSession** outGlobalSession) { }
+        public static unsafe int slang_createGlobalSession2(PrismSlang.Native.SlangGlobalSessionDesc* desc, PrismSlang.Native.IGlobalSession** outGlobalSession) { }
+        public static unsafe int slang_createGlobalSessionWithoutCoreModule(long apiVersion, PrismSlang.Native.IGlobalSession** outGlobalSession) { }
+        public static unsafe int slang_disassembleByteCode(PrismSlang.Native.ISlangBlob* moduleBlob, PrismSlang.Native.ISlangBlob** outDisassemblyBlob) { }
+        public static void slang_enableRecordLayer(byte enable) { }
+        public static unsafe sbyte* slang_getCurrentReplayPath() { }
+        public static unsafe sbyte* slang_getLastInternalErrorMessage() { }
+        public static unsafe sbyte* slang_getReplayDirectory() { }
+        public static byte slang_isRecordLayerEnabled() { }
+        public static int slang_loadLatestReplay() { }
+        public static unsafe PrismSlang.Native.IModule* slang_loadModuleFromIRBlob(PrismSlang.Native.ISession* session, sbyte* moduleName, sbyte* path, void* source, nuint sourceSize, PrismSlang.Native.ISlangBlob** outDiagnostics = null) { }
+        public static unsafe PrismSlang.Native.IModule* slang_loadModuleFromSource(PrismSlang.Native.ISession* session, sbyte* moduleName, sbyte* path, sbyte* source, nuint sourceSize, PrismSlang.Native.ISlangBlob** outDiagnostics = null) { }
+        public static unsafe int slang_loadModuleInfoFromIRBlob(PrismSlang.Native.ISession* session, void* source, nuint sourceSize, long* outModuleVersion, sbyte** outModuleCompilerVersion, sbyte** outModuleName) { }
+        public static unsafe int slang_loadReplay(sbyte* folderPath) { }
+        public static unsafe void slang_replayMarker(sbyte* label) { }
+        public static unsafe void slang_setReplayDirectory(sbyte* path) { }
+        public static void slang_shutdown() { }
+        public static unsafe int slang_writeCoverageManifestJson(PrismSlang.Native.ICoverageTracingMetadata* metadata, PrismSlang.Native.ISlangBlob** outBlob) { }
+        public static unsafe void spAddBuiltins(PrismSlang.Native.IGlobalSession* session, sbyte* sourcePath, sbyte* sourceString) { }
+        public static unsafe int spAddCodeGenTarget(PrismSlang.Native.ICompileRequest* request, PrismSlang.Native.SlangCompileTarget target) { }
+        public static unsafe int spAddEntryPoint(PrismSlang.Native.ICompileRequest* request, int translationUnitIndex, sbyte* name, PrismSlang.Native.SlangStage stage) { }
+        public static unsafe int spAddEntryPointEx(PrismSlang.Native.ICompileRequest* request, int translationUnitIndex, sbyte* name, PrismSlang.Native.SlangStage stage, int genericArgCount, sbyte** genericArgs) { }
+        public static unsafe int spAddLibraryReference(PrismSlang.Native.ICompileRequest* request, sbyte* basePath, void* libData, nuint libDataSize) { }
+        public static unsafe void spAddPreprocessorDefine(PrismSlang.Native.ICompileRequest* request, sbyte* key, sbyte* value) { }
+        public static unsafe void spAddSearchPath(PrismSlang.Native.ICompileRequest* request, sbyte* searchDir) { }
+        public static unsafe void spAddTargetCapability(PrismSlang.Native.ICompileRequest* request, int targetIndex, PrismSlang.Native.SlangCapabilityID capability) { }
+        public static unsafe int spAddTranslationUnit(PrismSlang.Native.ICompileRequest* request, PrismSlang.Native.SlangSourceLanguage language, sbyte* name) { }
+        public static unsafe void spAddTranslationUnitSourceBlob(PrismSlang.Native.ICompileRequest* request, int translationUnitIndex, sbyte* path, PrismSlang.Native.ISlangBlob* sourceBlob) { }
+        public static unsafe void spAddTranslationUnitSourceFile(PrismSlang.Native.ICompileRequest* request, int translationUnitIndex, sbyte* path) { }
+        public static unsafe void spAddTranslationUnitSourceString(PrismSlang.Native.ICompileRequest* request, int translationUnitIndex, sbyte* path, sbyte* source) { }
+        public static unsafe void spAddTranslationUnitSourceStringSpan(PrismSlang.Native.ICompileRequest* request, int translationUnitIndex, sbyte* path, sbyte* sourceBegin, sbyte* sourceEnd) { }
+        public static unsafe int spCompile(PrismSlang.Native.ICompileRequest* request) { }
+        public static unsafe int spCompileRequest_getEntryPoint(PrismSlang.Native.ICompileRequest* request, long entryPointIndex, PrismSlang.Native.IComponentType** outEntryPoint) { }
+        public static unsafe int spCompileRequest_getModule(PrismSlang.Native.ICompileRequest* request, long translationUnitIndex, PrismSlang.Native.IModule** outModule) { }
+        public static unsafe int spCompileRequest_getProgram(PrismSlang.Native.ICompileRequest* request, PrismSlang.Native.IComponentType** outProgram) { }
+        public static unsafe int spCompileRequest_getProgramWithEntryPoints(PrismSlang.Native.ICompileRequest* request, PrismSlang.Native.IComponentType** outProgram) { }
+        public static unsafe int spCompileRequest_getSession(PrismSlang.Native.ICompileRequest* request, PrismSlang.Native.ISession** outSession) { }
+        public static unsafe uint spComputeStringHash(sbyte* chars, nuint count) { }
+        public static unsafe PrismSlang.Native.ICompileRequest* spCreateCompileRequest(PrismSlang.Native.IGlobalSession* session) { }
+        public static unsafe PrismSlang.Native.IGlobalSession* spCreateSession(sbyte* deprecated = null) { }
+        public static unsafe void spDestroyCompileRequest(PrismSlang.Native.ICompileRequest* request) { }
+        public static unsafe void spDestroySession(PrismSlang.Native.IGlobalSession* session) { }
+        public static unsafe int spEnableReproCapture(PrismSlang.Native.ICompileRequest* request) { }
+        public static unsafe int spExtractRepro(PrismSlang.Native.IGlobalSession* session, void* reproData, nuint reproDataSize, PrismSlang.Native.ISlangMutableFileSystem* fileSystem) { }
+        public static unsafe PrismSlang.Native.SlangCapabilityID spFindCapability(PrismSlang.Native.IGlobalSession* session, sbyte* name) { }
+        public static unsafe PrismSlang.Native.SlangProfileID spFindProfile(PrismSlang.Native.IGlobalSession* session, sbyte* name) { }
+        public static unsafe sbyte* spGetBuildTagString() { }
+        public static unsafe uint spGetCompileFlags(PrismSlang.Native.ICompileRequest* request) { }
+        public static unsafe void* spGetCompileRequestCode(PrismSlang.Native.ICompileRequest* request, System.UIntPtr* outSize) { }
+        public static unsafe int spGetCompileTimeProfile(PrismSlang.Native.ICompileRequest* request, PrismSlang.Native.ISlangProfiler** compileTimeProfile, byte shouldClear) { }
+        public static unsafe int spGetContainerCode(PrismSlang.Native.ICompileRequest* request, PrismSlang.Native.ISlangBlob** outBlob) { }
+        public static unsafe int spGetDependencyFileCount(PrismSlang.Native.ICompileRequest* request) { }
+        public static unsafe sbyte* spGetDependencyFilePath(PrismSlang.Native.ICompileRequest* request, int index) { }
+        public static unsafe int spGetDiagnosticFlags(PrismSlang.Native.ICompileRequest* request) { }
+        public static unsafe sbyte* spGetDiagnosticOutput(PrismSlang.Native.ICompileRequest* request) { }
+        public static unsafe int spGetDiagnosticOutputBlob(PrismSlang.Native.ICompileRequest* request, PrismSlang.Native.ISlangBlob** outBlob) { }
+        public static unsafe void* spGetEntryPointCode(PrismSlang.Native.ICompileRequest* request, int entryPointIndex, System.UIntPtr* outSize) { }
+        public static unsafe int spGetEntryPointCodeBlob(PrismSlang.Native.ICompileRequest* request, int entryPointIndex, int targetIndex, PrismSlang.Native.ISlangBlob** outBlob) { }
+        public static unsafe int spGetEntryPointHostCallable(PrismSlang.Native.ICompileRequest* request, int entryPointIndex, int targetIndex, PrismSlang.Native.ISlangSharedLibrary** outSharedLibrary) { }
+        public static unsafe sbyte* spGetEntryPointSource(PrismSlang.Native.ICompileRequest* request, int entryPointIndex) { }
+        public static unsafe PrismSlang.Native.SlangProgramLayout* spGetReflection(PrismSlang.Native.ICompileRequest* request) { }
+        public static unsafe int spGetTargetCodeBlob(PrismSlang.Native.ICompileRequest* request, int targetIndex, PrismSlang.Native.ISlangBlob** outBlob) { }
+        public static unsafe int spGetTargetHostCallable(PrismSlang.Native.ICompileRequest* request, int targetIndex, PrismSlang.Native.ISlangSharedLibrary** outSharedLibrary) { }
+        public static unsafe int spGetTranslationUnitCount(PrismSlang.Native.ICompileRequest* request) { }
+        public static unsafe sbyte* spGetTranslationUnitSource(PrismSlang.Native.ICompileRequest* request, int translationUnitIndex) { }
+        public static unsafe PrismSlang.Native.ISlangWriter* spGetWriter(PrismSlang.Native.ICompileRequest* request, PrismSlang.Native.SlangWriterChannel channel) { }
+        public static unsafe int spIsParameterLocationUsed(PrismSlang.Native.ICompileRequest* request, long entryPointIndex, long targetIndex, PrismSlang.Native.SlangParameterCategory category, ulong spaceIndex, ulong registerIndex, bool* outUsed) { }
+        public static unsafe int spLoadRepro(PrismSlang.Native.ICompileRequest* request, PrismSlang.Native.ISlangFileSystem* fileSystem, void* data, nuint size) { }
+        public static unsafe int spLoadReproAsFileSystem(PrismSlang.Native.IGlobalSession* session, void* reproData, nuint reproDataSize, PrismSlang.Native.ISlangFileSystem* replaceFileSystem, PrismSlang.Native.ISlangFileSystemExt** outFileSystem) { }
+        public static unsafe void spOverrideDiagnosticSeverity(PrismSlang.Native.ICompileRequest* request, long messageID, PrismSlang.Native.SlangSeverity overrideSeverity) { }
+        public static unsafe int spProcessCommandLineArguments(PrismSlang.Native.ICompileRequest* request, sbyte** args, int argCount) { }
+        public static unsafe PrismSlang.Native.SlangReflectionFunction* spReflectionDecl_castToFunction(PrismSlang.Native.SlangReflectionDecl* decl) { }
+        public static unsafe PrismSlang.Native.SlangReflectionGeneric* spReflectionDecl_castToGeneric(PrismSlang.Native.SlangReflectionDecl* decl) { }
+        public static unsafe PrismSlang.Native.SlangReflectionVariable* spReflectionDecl_castToVariable(PrismSlang.Native.SlangReflectionDecl* decl) { }
+        public static unsafe PrismSlang.Native.SlangReflectionModifier* spReflectionDecl_findModifier(PrismSlang.Native.SlangReflectionDecl* decl, PrismSlang.Native.SlangModifierID modifierID) { }
+        public static unsafe PrismSlang.Native.SlangReflectionDecl* spReflectionDecl_getChild(PrismSlang.Native.SlangReflectionDecl* parentDecl, uint index) { }
+        public static unsafe uint spReflectionDecl_getChildrenCount(PrismSlang.Native.SlangReflectionDecl* parentDecl) { }
+        public static unsafe PrismSlang.Native.SlangDeclKind spReflectionDecl_getKind(PrismSlang.Native.SlangReflectionDecl* decl) { }
+        public static unsafe sbyte* spReflectionDecl_getName(PrismSlang.Native.SlangReflectionDecl* decl) { }
+        public static unsafe PrismSlang.Native.SlangReflectionDecl* spReflectionDecl_getParent(PrismSlang.Native.SlangReflectionDecl* decl) { }
+        public static unsafe void spReflectionEntryPoint_getComputeThreadGroupSize(PrismSlang.Native.SlangEntryPointLayout* entryPoint, ulong axisCount, ulong* outSizeAlongAxis) { }
+        public static unsafe void spReflectionEntryPoint_getComputeWaveSize(PrismSlang.Native.SlangEntryPointLayout* entryPoint, ulong* outWaveSize) { }
+        public static unsafe PrismSlang.Native.SlangReflectionFunction* spReflectionEntryPoint_getFunction(PrismSlang.Native.SlangEntryPointLayout* entryPoint) { }
+        public static unsafe sbyte* spReflectionEntryPoint_getName(PrismSlang.Native.SlangEntryPointLayout* entryPoint) { }
+        public static unsafe sbyte* spReflectionEntryPoint_getNameOverride(PrismSlang.Native.SlangEntryPointLayout* entryPoint) { }
+        public static unsafe PrismSlang.Native.SlangReflectionVariableLayout* spReflectionEntryPoint_getParameterByIndex(PrismSlang.Native.SlangEntryPointLayout* entryPoint, uint index) { }
+        public static unsafe uint spReflectionEntryPoint_getParameterCount(PrismSlang.Native.SlangEntryPointLayout* entryPoint) { }
+        public static unsafe PrismSlang.Native.SlangReflectionVariableLayout* spReflectionEntryPoint_getResultVarLayout(PrismSlang.Native.SlangEntryPointLayout* entryPoint) { }
+        public static unsafe PrismSlang.Native.SlangStage spReflectionEntryPoint_getStage(PrismSlang.Native.SlangEntryPointLayout* entryPoint) { }
+        public static unsafe PrismSlang.Native.SlangReflectionVariableLayout* spReflectionEntryPoint_getVarLayout(PrismSlang.Native.SlangEntryPointLayout* entryPoint) { }
+        public static unsafe int spReflectionEntryPoint_hasDefaultConstantBuffer(PrismSlang.Native.SlangEntryPointLayout* entryPoint) { }
+        public static unsafe int spReflectionEntryPoint_usesAnySampleRateInput(PrismSlang.Native.SlangEntryPointLayout* entryPoint) { }
+        public static unsafe PrismSlang.Native.SlangReflectionModifier* spReflectionFunction_FindModifier(PrismSlang.Native.SlangReflectionFunction* var, PrismSlang.Native.SlangModifierID modifierID) { }
+        public static unsafe PrismSlang.Native.SlangReflectionUserAttribute* spReflectionFunction_FindUserAttributeByName(PrismSlang.Native.SlangReflectionFunction* func, PrismSlang.Native.IGlobalSession* globalSession, sbyte* name) { }
+        public static unsafe PrismSlang.Native.SlangReflectionGeneric* spReflectionFunction_GetGenericContainer(PrismSlang.Native.SlangReflectionFunction* func) { }
+        public static unsafe sbyte* spReflectionFunction_GetName(PrismSlang.Native.SlangReflectionFunction* func) { }
+        public static unsafe PrismSlang.Native.SlangReflectionVariable* spReflectionFunction_GetParameter(PrismSlang.Native.SlangReflectionFunction* func, uint index) { }
+        public static unsafe uint spReflectionFunction_GetParameterCount(PrismSlang.Native.SlangReflectionFunction* func) { }
+        public static unsafe PrismSlang.Native.SlangReflectionType* spReflectionFunction_GetResultType(PrismSlang.Native.SlangReflectionFunction* func) { }
+        public static unsafe PrismSlang.Native.SlangReflectionUserAttribute* spReflectionFunction_GetUserAttribute(PrismSlang.Native.SlangReflectionFunction* func, uint index) { }
+        public static unsafe uint spReflectionFunction_GetUserAttributeCount(PrismSlang.Native.SlangReflectionFunction* func) { }
+        public static unsafe PrismSlang.Native.SlangReflectionFunction* spReflectionFunction_applySpecializations(PrismSlang.Native.SlangReflectionFunction* func, PrismSlang.Native.SlangReflectionGeneric* generic) { }
+        public static unsafe PrismSlang.Native.SlangReflectionDecl* spReflectionFunction_asDecl(PrismSlang.Native.SlangReflectionFunction* func) { }
+        public static unsafe PrismSlang.Native.SlangReflectionFunction* spReflectionFunction_getOverload(PrismSlang.Native.SlangReflectionFunction* func, uint index) { }
+        public static unsafe uint spReflectionFunction_getOverloadCount(PrismSlang.Native.SlangReflectionFunction* func) { }
+        public static unsafe byte spReflectionFunction_isOverloaded(PrismSlang.Native.SlangReflectionFunction* func) { }
+        public static unsafe PrismSlang.Native.SlangReflectionFunction* spReflectionFunction_specializeWithArgTypes(PrismSlang.Native.SlangReflectionFunction* func, long argTypeCount, PrismSlang.Native.SlangReflectionType** argTypes) { }
+        public static unsafe long spReflectionGeneric_GetConcreteIntVal(PrismSlang.Native.SlangReflectionGeneric* generic, PrismSlang.Native.SlangReflectionVariable* valueParam) { }
+        public static unsafe PrismSlang.Native.SlangReflectionType* spReflectionGeneric_GetConcreteType(PrismSlang.Native.SlangReflectionGeneric* generic, PrismSlang.Native.SlangReflectionVariable* typeParam) { }
+        public static unsafe PrismSlang.Native.SlangReflectionDecl* spReflectionGeneric_GetInnerDecl(PrismSlang.Native.SlangReflectionGeneric* generic) { }
+        public static unsafe PrismSlang.Native.SlangDeclKind spReflectionGeneric_GetInnerKind(PrismSlang.Native.SlangReflectionGeneric* generic) { }
+        public static unsafe sbyte* spReflectionGeneric_GetName(PrismSlang.Native.SlangReflectionGeneric* generic) { }
+        public static unsafe PrismSlang.Native.SlangReflectionGeneric* spReflectionGeneric_GetOuterGenericContainer(PrismSlang.Native.SlangReflectionGeneric* generic) { }
+        public static unsafe PrismSlang.Native.SlangReflectionVariable* spReflectionGeneric_GetTypeParameter(PrismSlang.Native.SlangReflectionGeneric* generic, uint index) { }
+        public static unsafe uint spReflectionGeneric_GetTypeParameterConstraintCount(PrismSlang.Native.SlangReflectionGeneric* generic, PrismSlang.Native.SlangReflectionVariable* typeParam) { }
+        public static unsafe PrismSlang.Native.SlangReflectionType* spReflectionGeneric_GetTypeParameterConstraintType(PrismSlang.Native.SlangReflectionGeneric* generic, PrismSlang.Native.SlangReflectionVariable* typeParam, uint index) { }
+        public static unsafe uint spReflectionGeneric_GetTypeParameterCount(PrismSlang.Native.SlangReflectionGeneric* generic) { }
+        public static unsafe PrismSlang.Native.SlangReflectionVariable* spReflectionGeneric_GetValueParameter(PrismSlang.Native.SlangReflectionGeneric* generic, uint index) { }
+        public static unsafe uint spReflectionGeneric_GetValueParameterCount(PrismSlang.Native.SlangReflectionGeneric* generic) { }
+        public static unsafe PrismSlang.Native.SlangReflectionGeneric* spReflectionGeneric_applySpecializations(PrismSlang.Native.SlangReflectionGeneric* currGeneric, PrismSlang.Native.SlangReflectionGeneric* generic) { }
+        public static unsafe PrismSlang.Native.SlangReflectionDecl* spReflectionGeneric_asDecl(PrismSlang.Native.SlangReflectionGeneric* generic) { }
+        public static unsafe uint spReflectionParameter_GetBindingIndex(PrismSlang.Native.SlangReflectionVariableLayout* parameter) { }
+        public static unsafe uint spReflectionParameter_GetBindingSpace(PrismSlang.Native.SlangReflectionVariableLayout* parameter) { }
+        public static unsafe PrismSlang.Native.SlangParameterCategory spReflectionTypeLayout_GetCategoryByIndex(PrismSlang.Native.SlangReflectionTypeLayout* type, uint index) { }
+        public static unsafe uint spReflectionTypeLayout_GetCategoryCount(PrismSlang.Native.SlangReflectionTypeLayout* type) { }
+        public static unsafe System.UIntPtr spReflectionTypeLayout_GetElementStride(PrismSlang.Native.SlangReflectionTypeLayout* type, PrismSlang.Native.SlangParameterCategory category) { }
+        public static unsafe PrismSlang.Native.SlangReflectionTypeLayout* spReflectionTypeLayout_GetElementTypeLayout(PrismSlang.Native.SlangReflectionTypeLayout* type) { }
+        public static unsafe PrismSlang.Native.SlangReflectionVariableLayout* spReflectionTypeLayout_GetElementVarLayout(PrismSlang.Native.SlangReflectionTypeLayout* type) { }
+        public static unsafe PrismSlang.Native.SlangReflectionVariableLayout* spReflectionTypeLayout_GetExplicitCounter(PrismSlang.Native.SlangReflectionTypeLayout* typeLayout) { }
+        public static unsafe PrismSlang.Native.SlangReflectionVariableLayout* spReflectionTypeLayout_GetFieldByIndex(PrismSlang.Native.SlangReflectionTypeLayout* type, uint index) { }
+        public static unsafe uint spReflectionTypeLayout_GetFieldCount(PrismSlang.Native.SlangReflectionTypeLayout* type) { }
+        public static unsafe PrismSlang.Native.SlangMatrixLayoutMode spReflectionTypeLayout_GetMatrixLayoutMode(PrismSlang.Native.SlangReflectionTypeLayout* type) { }
+        public static unsafe PrismSlang.Native.SlangParameterCategory spReflectionTypeLayout_GetParameterCategory(PrismSlang.Native.SlangReflectionTypeLayout* type) { }
+        public static unsafe System.UIntPtr spReflectionTypeLayout_GetSize(PrismSlang.Native.SlangReflectionTypeLayout* type, PrismSlang.Native.SlangParameterCategory category) { }
+        public static unsafe System.UIntPtr spReflectionTypeLayout_GetStride(PrismSlang.Native.SlangReflectionTypeLayout* type, PrismSlang.Native.SlangParameterCategory category) { }
+        public static unsafe PrismSlang.Native.SlangReflectionType* spReflectionTypeLayout_GetType(PrismSlang.Native.SlangReflectionTypeLayout* type) { }
+        public static unsafe long spReflectionTypeLayout_findFieldIndexByName(PrismSlang.Native.SlangReflectionTypeLayout* typeLayout, sbyte* nameBegin, sbyte* nameEnd) { }
+        public static unsafe int spReflectionTypeLayout_getAlignment(PrismSlang.Native.SlangReflectionTypeLayout* type, PrismSlang.Native.SlangParameterCategory category) { }
+        public static unsafe long spReflectionTypeLayout_getBindingRangeBindingCount(PrismSlang.Native.SlangReflectionTypeLayout* typeLayout, long index) { }
+        public static unsafe long spReflectionTypeLayout_getBindingRangeCount(PrismSlang.Native.SlangReflectionTypeLayout* typeLayout) { }
+        public static unsafe long spReflectionTypeLayout_getBindingRangeDescriptorRangeCount(PrismSlang.Native.SlangReflectionTypeLayout* typeLayout, long index) { }
+        public static unsafe long spReflectionTypeLayout_getBindingRangeDescriptorSetIndex(PrismSlang.Native.SlangReflectionTypeLayout* typeLayout, long index) { }
+        public static unsafe long spReflectionTypeLayout_getBindingRangeFirstDescriptorRangeIndex(PrismSlang.Native.SlangReflectionTypeLayout* typeLayout, long index) { }
+        public static unsafe PrismSlang.Native.SlangImageFormat spReflectionTypeLayout_getBindingRangeImageFormat(PrismSlang.Native.SlangReflectionTypeLayout* typeLayout, long index) { }
+        public static unsafe PrismSlang.Native.SlangReflectionTypeLayout* spReflectionTypeLayout_getBindingRangeLeafTypeLayout(PrismSlang.Native.SlangReflectionTypeLayout* typeLayout, long index) { }
+        public static unsafe PrismSlang.Native.SlangReflectionVariable* spReflectionTypeLayout_getBindingRangeLeafVariable(PrismSlang.Native.SlangReflectionTypeLayout* typeLayout, long index) { }
+        public static unsafe PrismSlang.Native.SlangBindingType spReflectionTypeLayout_getBindingRangeType(PrismSlang.Native.SlangReflectionTypeLayout* typeLayout, long index) { }
+        public static unsafe PrismSlang.Native.SlangReflectionVariableLayout* spReflectionTypeLayout_getContainerVarLayout(PrismSlang.Native.SlangReflectionTypeLayout* type) { }
+        public static unsafe long spReflectionTypeLayout_getDescriptorSetCount(PrismSlang.Native.SlangReflectionTypeLayout* typeLayout) { }
+        public static unsafe PrismSlang.Native.SlangParameterCategory spReflectionTypeLayout_getDescriptorSetDescriptorRangeCategory(PrismSlang.Native.SlangReflectionTypeLayout* typeLayout, long setIndex, long rangeIndex) { }
+        public static unsafe long spReflectionTypeLayout_getDescriptorSetDescriptorRangeCount(PrismSlang.Native.SlangReflectionTypeLayout* typeLayout, long setIndex) { }
+        public static unsafe long spReflectionTypeLayout_getDescriptorSetDescriptorRangeDescriptorCount(PrismSlang.Native.SlangReflectionTypeLayout* typeLayout, long setIndex, long rangeIndex) { }
+        public static unsafe long spReflectionTypeLayout_getDescriptorSetDescriptorRangeIndexOffset(PrismSlang.Native.SlangReflectionTypeLayout* typeLayout, long setIndex, long rangeIndex) { }
+        public static unsafe PrismSlang.Native.SlangBindingType spReflectionTypeLayout_getDescriptorSetDescriptorRangeType(PrismSlang.Native.SlangReflectionTypeLayout* typeLayout, long setIndex, long rangeIndex) { }
+        public static unsafe long spReflectionTypeLayout_getDescriptorSetSpaceOffset(PrismSlang.Native.SlangReflectionTypeLayout* typeLayout, long setIndex) { }
+        public static unsafe long spReflectionTypeLayout_getExplicitCounterBindingRangeOffset(PrismSlang.Native.SlangReflectionTypeLayout* inTypeLayout) { }
+        public static unsafe long spReflectionTypeLayout_getFieldBindingRangeOffset(PrismSlang.Native.SlangReflectionTypeLayout* typeLayout, long fieldIndex) { }
+        public static unsafe int spReflectionTypeLayout_getGenericParamIndex(PrismSlang.Native.SlangReflectionTypeLayout* type) { }
+        public static unsafe PrismSlang.Native.SlangTypeKind spReflectionTypeLayout_getKind(PrismSlang.Native.SlangReflectionTypeLayout* type) { }
+        public static unsafe PrismSlang.Native.SlangReflectionTypeLayout* spReflectionTypeLayout_getPendingDataTypeLayout(PrismSlang.Native.SlangReflectionTypeLayout* type) { }
+        public static unsafe PrismSlang.Native.SlangReflectionVariableLayout* spReflectionTypeLayout_getSpecializedTypePendingDataVarLayout(PrismSlang.Native.SlangReflectionTypeLayout* type) { }
+        public static unsafe long spReflectionTypeLayout_getSubObjectRangeBindingRangeIndex(PrismSlang.Native.SlangReflectionTypeLayout* typeLayout, long subObjectRangeIndex) { }
+        public static unsafe long spReflectionTypeLayout_getSubObjectRangeCount(PrismSlang.Native.SlangReflectionTypeLayout* typeLayout) { }
+        public static unsafe PrismSlang.Native.SlangReflectionVariableLayout* spReflectionTypeLayout_getSubObjectRangeOffset(PrismSlang.Native.SlangReflectionTypeLayout* typeLayout, long subObjectRangeIndex) { }
+        public static unsafe long spReflectionTypeLayout_getSubObjectRangeSpaceOffset(PrismSlang.Native.SlangReflectionTypeLayout* typeLayout, long subObjectRangeIndex) { }
+        public static unsafe long spReflectionTypeLayout_isBindingRangeSpecializable(PrismSlang.Native.SlangReflectionTypeLayout* typeLayout, long index) { }
+        public static unsafe PrismSlang.Native.SlangReflectionType* spReflectionTypeParameter_GetConstraintByIndex(PrismSlang.Native.SlangReflectionTypeParameter* typeParam, uint index) { }
+        public static unsafe uint spReflectionTypeParameter_GetConstraintCount(PrismSlang.Native.SlangReflectionTypeParameter* typeParam) { }
+        public static unsafe uint spReflectionTypeParameter_GetIndex(PrismSlang.Native.SlangReflectionTypeParameter* typeParam) { }
+        public static unsafe sbyte* spReflectionTypeParameter_GetName(PrismSlang.Native.SlangReflectionTypeParameter* typeParam) { }
+        public static unsafe PrismSlang.Native.SlangReflectionUserAttribute* spReflectionType_FindUserAttributeByName(PrismSlang.Native.SlangReflectionType* type, sbyte* name) { }
+        public static unsafe uint spReflectionType_GetColumnCount(PrismSlang.Native.SlangReflectionType* type) { }
+        public static unsafe System.UIntPtr spReflectionType_GetElementCount(PrismSlang.Native.SlangReflectionType* type) { }
+        public static unsafe PrismSlang.Native.SlangReflectionType* spReflectionType_GetElementType(PrismSlang.Native.SlangReflectionType* type) { }
+        public static unsafe PrismSlang.Native.SlangReflectionVariable* spReflectionType_GetFieldByIndex(PrismSlang.Native.SlangReflectionType* type, uint index) { }
+        public static unsafe uint spReflectionType_GetFieldCount(PrismSlang.Native.SlangReflectionType* type) { }
+        public static unsafe int spReflectionType_GetFullName(PrismSlang.Native.SlangReflectionType* type, PrismSlang.Native.ISlangBlob** outNameBlob) { }
+        public static unsafe PrismSlang.Native.SlangReflectionGeneric* spReflectionType_GetGenericContainer(PrismSlang.Native.SlangReflectionType* type) { }
+        public static unsafe PrismSlang.Native.SlangTypeKind spReflectionType_GetKind(PrismSlang.Native.SlangReflectionType* type) { }
+        public static unsafe sbyte* spReflectionType_GetName(PrismSlang.Native.SlangReflectionType* type) { }
+        public static unsafe PrismSlang.Native.SlangResourceAccess spReflectionType_GetResourceAccess(PrismSlang.Native.SlangReflectionType* type) { }
+        public static unsafe PrismSlang.Native.SlangReflectionType* spReflectionType_GetResourceResultType(PrismSlang.Native.SlangReflectionType* type) { }
+        public static unsafe PrismSlang.Native.SlangResourceShape spReflectionType_GetResourceShape(PrismSlang.Native.SlangReflectionType* type) { }
+        public static unsafe uint spReflectionType_GetRowCount(PrismSlang.Native.SlangReflectionType* type) { }
+        public static unsafe PrismSlang.Native.SlangScalarType spReflectionType_GetScalarType(PrismSlang.Native.SlangReflectionType* type) { }
+        public static unsafe System.UIntPtr spReflectionType_GetSpecializedElementCount(PrismSlang.Native.SlangReflectionType* type, PrismSlang.Native.SlangProgramLayout* reflection) { }
+        public static unsafe PrismSlang.Native.SlangReflectionUserAttribute* spReflectionType_GetUserAttribute(PrismSlang.Native.SlangReflectionType* type, uint index) { }
+        public static unsafe uint spReflectionType_GetUserAttributeCount(PrismSlang.Native.SlangReflectionType* type) { }
+        public static unsafe PrismSlang.Native.SlangReflectionType* spReflectionType_applySpecializations(PrismSlang.Native.SlangReflectionType* type, PrismSlang.Native.SlangReflectionGeneric* generic) { }
+        public static unsafe long spReflectionType_getSpecializedTypeArgCount(PrismSlang.Native.SlangReflectionType* type) { }
+        public static unsafe PrismSlang.Native.SlangReflectionType* spReflectionType_getSpecializedTypeArgType(PrismSlang.Native.SlangReflectionType* type, long index) { }
+        public static unsafe uint spReflectionUserAttribute_GetArgumentCount(PrismSlang.Native.SlangReflectionUserAttribute* attrib) { }
+        public static unsafe PrismSlang.Native.SlangReflectionType* spReflectionUserAttribute_GetArgumentType(PrismSlang.Native.SlangReflectionUserAttribute* attrib, uint index) { }
+        public static unsafe int spReflectionUserAttribute_GetArgumentValueFloat(PrismSlang.Native.SlangReflectionUserAttribute* attrib, uint index, float* rs) { }
+        public static unsafe int spReflectionUserAttribute_GetArgumentValueInt(PrismSlang.Native.SlangReflectionUserAttribute* attrib, uint index, int* rs) { }
+        public static unsafe sbyte* spReflectionUserAttribute_GetArgumentValueString(PrismSlang.Native.SlangReflectionUserAttribute* attrib, uint index, System.UIntPtr* outSize) { }
+        public static unsafe sbyte* spReflectionUserAttribute_GetName(PrismSlang.Native.SlangReflectionUserAttribute* attrib) { }
+        public static unsafe PrismSlang.Native.SlangImageFormat spReflectionVariableLayout_GetImageFormat(PrismSlang.Native.SlangReflectionVariableLayout* var) { }
+        public static unsafe System.UIntPtr spReflectionVariableLayout_GetOffset(PrismSlang.Native.SlangReflectionVariableLayout* var, PrismSlang.Native.SlangParameterCategory category) { }
+        public static unsafe System.UIntPtr spReflectionVariableLayout_GetSemanticIndex(PrismSlang.Native.SlangReflectionVariableLayout* var) { }
+        public static unsafe sbyte* spReflectionVariableLayout_GetSemanticName(PrismSlang.Native.SlangReflectionVariableLayout* var) { }
+        public static unsafe System.UIntPtr spReflectionVariableLayout_GetSpace(PrismSlang.Native.SlangReflectionVariableLayout* var, PrismSlang.Native.SlangParameterCategory category) { }
+        public static unsafe PrismSlang.Native.SlangReflectionTypeLayout* spReflectionVariableLayout_GetTypeLayout(PrismSlang.Native.SlangReflectionVariableLayout* var) { }
+        public static unsafe PrismSlang.Native.SlangReflectionVariable* spReflectionVariableLayout_GetVariable(PrismSlang.Native.SlangReflectionVariableLayout* var) { }
+        public static unsafe PrismSlang.Native.SlangReflectionVariableLayout* spReflectionVariableLayout_getPendingDataLayout(PrismSlang.Native.SlangReflectionVariableLayout* var) { }
+        public static unsafe PrismSlang.Native.SlangStage spReflectionVariableLayout_getStage(PrismSlang.Native.SlangReflectionVariableLayout* var) { }
+        public static unsafe PrismSlang.Native.SlangReflectionModifier* spReflectionVariable_FindModifier(PrismSlang.Native.SlangReflectionVariable* var, PrismSlang.Native.SlangModifierID modifierID) { }
+        public static unsafe PrismSlang.Native.SlangReflectionUserAttribute* spReflectionVariable_FindUserAttributeByName(PrismSlang.Native.SlangReflectionVariable* var, PrismSlang.Native.IGlobalSession* globalSession, sbyte* name) { }
+        public static unsafe int spReflectionVariable_GetDefaultValueFloat(PrismSlang.Native.SlangReflectionVariable* inVar, float* rs) { }
+        public static unsafe int spReflectionVariable_GetDefaultValueInt(PrismSlang.Native.SlangReflectionVariable* inVar, long* rs) { }
+        public static unsafe PrismSlang.Native.SlangReflectionGeneric* spReflectionVariable_GetGenericContainer(PrismSlang.Native.SlangReflectionVariable* var) { }
+        public static unsafe sbyte* spReflectionVariable_GetName(PrismSlang.Native.SlangReflectionVariable* var) { }
+        public static unsafe PrismSlang.Native.SlangReflectionType* spReflectionVariable_GetType(PrismSlang.Native.SlangReflectionVariable* var) { }
+        public static unsafe PrismSlang.Native.SlangReflectionUserAttribute* spReflectionVariable_GetUserAttribute(PrismSlang.Native.SlangReflectionVariable* var, uint index) { }
+        public static unsafe uint spReflectionVariable_GetUserAttributeCount(PrismSlang.Native.SlangReflectionVariable* var) { }
+        public static unsafe byte spReflectionVariable_HasDefaultValue(PrismSlang.Native.SlangReflectionVariable* inVar) { }
+        public static unsafe PrismSlang.Native.SlangReflectionVariable* spReflectionVariable_applySpecializations(PrismSlang.Native.SlangReflectionVariable* var, PrismSlang.Native.SlangReflectionGeneric* generic) { }
+        public static unsafe PrismSlang.Native.SlangReflectionFunction* spReflection_FindFunctionByName(PrismSlang.Native.SlangProgramLayout* reflection, sbyte* name) { }
+        public static unsafe PrismSlang.Native.SlangReflectionFunction* spReflection_FindFunctionByNameInType(PrismSlang.Native.SlangProgramLayout* reflection, PrismSlang.Native.SlangReflectionType* reflType, sbyte* name) { }
+        public static unsafe PrismSlang.Native.SlangReflectionType* spReflection_FindTypeByName(PrismSlang.Native.SlangProgramLayout* reflection, sbyte* name) { }
+        public static unsafe PrismSlang.Native.SlangReflectionTypeParameter* spReflection_FindTypeParameter(PrismSlang.Native.SlangProgramLayout* reflection, sbyte* name) { }
+        public static unsafe PrismSlang.Native.SlangReflectionVariable* spReflection_FindVarByNameInType(PrismSlang.Native.SlangProgramLayout* reflection, PrismSlang.Native.SlangReflectionType* reflType, sbyte* name) { }
+        public static unsafe PrismSlang.Native.SlangReflectionVariableLayout* spReflection_GetParameterByIndex(PrismSlang.Native.SlangProgramLayout* reflection, uint index) { }
+        public static unsafe uint spReflection_GetParameterCount(PrismSlang.Native.SlangProgramLayout* reflection) { }
+        public static unsafe PrismSlang.Native.SlangReflectionTypeLayout* spReflection_GetTypeLayout(PrismSlang.Native.SlangProgramLayout* reflection, PrismSlang.Native.SlangReflectionType* reflectionType, PrismSlang.Native.SlangLayoutRules rules) { }
+        public static unsafe PrismSlang.Native.SlangReflectionTypeParameter* spReflection_GetTypeParameterByIndex(PrismSlang.Native.SlangProgramLayout* reflection, uint index) { }
+        public static unsafe uint spReflection_GetTypeParameterCount(PrismSlang.Native.SlangProgramLayout* reflection) { }
+        public static unsafe int spReflection_ToJson(PrismSlang.Native.SlangProgramLayout* reflection, PrismSlang.Native.ICompileRequest* request, PrismSlang.Native.ISlangBlob** outBlob) { }
+        public static unsafe PrismSlang.Native.SlangReflectionFunction* spReflection_TryResolveOverloadedFunction(PrismSlang.Native.SlangProgramLayout* reflection, uint candidateCount, PrismSlang.Native.SlangReflectionFunction** candidates) { }
+        public static unsafe PrismSlang.Native.SlangEntryPointLayout* spReflection_findEntryPointByName(PrismSlang.Native.SlangProgramLayout* reflection, sbyte* name) { }
+        public static unsafe long spReflection_getBindlessSpaceIndex(PrismSlang.Native.SlangProgramLayout* reflection) { }
+        public static unsafe PrismSlang.Native.SlangEntryPointLayout* spReflection_getEntryPointByIndex(PrismSlang.Native.SlangProgramLayout* reflection, ulong index) { }
+        public static unsafe ulong spReflection_getEntryPointCount(PrismSlang.Native.SlangProgramLayout* reflection) { }
+        public static unsafe ulong spReflection_getGlobalConstantBufferBinding(PrismSlang.Native.SlangProgramLayout* reflection) { }
+        public static unsafe System.UIntPtr spReflection_getGlobalConstantBufferSize(PrismSlang.Native.SlangProgramLayout* reflection) { }
+        public static unsafe PrismSlang.Native.SlangReflectionTypeLayout* spReflection_getGlobalParamsTypeLayout(PrismSlang.Native.SlangProgramLayout* reflection) { }
+        public static unsafe PrismSlang.Native.SlangReflectionVariableLayout* spReflection_getGlobalParamsVarLayout(PrismSlang.Native.SlangProgramLayout* reflection) { }
+        public static unsafe sbyte* spReflection_getHashedString(PrismSlang.Native.SlangProgramLayout* reflection, ulong index, System.UIntPtr* outCount) { }
+        public static unsafe ulong spReflection_getHashedStringCount(PrismSlang.Native.SlangProgramLayout* reflection) { }
+        public static unsafe PrismSlang.Native.SlangReflectionType* spReflection_getTypeFromDecl(PrismSlang.Native.SlangReflectionDecl* decl) { }
+        public static unsafe byte spReflection_isSubType(PrismSlang.Native.SlangProgramLayout* reflection, PrismSlang.Native.SlangReflectionType* subType, PrismSlang.Native.SlangReflectionType* superType) { }
+        public static unsafe PrismSlang.Native.SlangReflectionGeneric* spReflection_specializeGeneric(PrismSlang.Native.SlangProgramLayout* inProgramLayout, PrismSlang.Native.SlangReflectionGeneric* generic, long argCount, PrismSlang.Native.SlangReflectionGenericArgType* argTypes, PrismSlang.Native.SlangReflectionGenericArg* args, PrismSlang.Native.ISlangBlob** outDiagnostics) { }
+        public static unsafe PrismSlang.Native.SlangReflectionType* spReflection_specializeType(PrismSlang.Native.SlangProgramLayout* reflection, PrismSlang.Native.SlangReflectionType* type, long specializationArgCount, PrismSlang.Native.SlangReflectionType** specializationArgs, PrismSlang.Native.ISlangBlob** outDiagnostics) { }
+        public static unsafe int spSaveRepro(PrismSlang.Native.ICompileRequest* request, PrismSlang.Native.ISlangBlob** outBlob) { }
+        public static unsafe int spSessionCheckCompileTargetSupport(PrismSlang.Native.IGlobalSession* session, PrismSlang.Native.SlangCompileTarget target) { }
+        public static unsafe int spSessionCheckPassThroughSupport(PrismSlang.Native.IGlobalSession* session, PrismSlang.Native.SlangPassThrough passThrough) { }
+        public static unsafe PrismSlang.Native.ISlangSharedLibraryLoader* spSessionGetSharedLibraryLoader(PrismSlang.Native.IGlobalSession* session) { }
+        public static unsafe void spSessionSetSharedLibraryLoader(PrismSlang.Native.IGlobalSession* session, PrismSlang.Native.ISlangSharedLibraryLoader* loader) { }
+        public static unsafe void spSetCodeGenTarget(PrismSlang.Native.ICompileRequest* request, PrismSlang.Native.SlangCompileTarget target) { }
+        public static unsafe void spSetCompileFlags(PrismSlang.Native.ICompileRequest* request, uint flags) { }
+        public static unsafe void spSetDebugInfoFormat(PrismSlang.Native.ICompileRequest* request, PrismSlang.Native.SlangDebugInfoFormat format) { }
+        public static unsafe void spSetDebugInfoLevel(PrismSlang.Native.ICompileRequest* request, PrismSlang.Native.SlangDebugInfoLevel level) { }
+        public static unsafe void spSetDefaultModuleName(PrismSlang.Native.ICompileRequest* request, sbyte* defaultModuleName) { }
+        public static unsafe void spSetDiagnosticCallback(PrismSlang.Native.ICompileRequest* request, method callback, void* userData) { }
+        public static unsafe void spSetDiagnosticFlags(PrismSlang.Native.ICompileRequest* request, int flags) { }
+        public static unsafe void spSetDumpIntermediatePrefix(PrismSlang.Native.ICompileRequest* request, sbyte* prefix) { }
+        public static unsafe void spSetDumpIntermediates(PrismSlang.Native.ICompileRequest* request, int enable) { }
+        public static unsafe void spSetFileSystem(PrismSlang.Native.ICompileRequest* request, PrismSlang.Native.ISlangFileSystem* fileSystem) { }
+        public static unsafe int spSetGlobalGenericArgs(PrismSlang.Native.ICompileRequest* request, int genericArgCount, sbyte** genericArgs) { }
+        public static unsafe void spSetIgnoreCapabilityCheck(PrismSlang.Native.ICompileRequest* request, byte val) { }
+        public static unsafe void spSetLineDirectiveMode(PrismSlang.Native.ICompileRequest* request, PrismSlang.Native.SlangLineDirectiveMode mode) { }
+        public static unsafe void spSetMatrixLayoutMode(PrismSlang.Native.ICompileRequest* request, PrismSlang.Native.SlangMatrixLayoutMode mode) { }
+        public static unsafe void spSetOptimizationLevel(PrismSlang.Native.ICompileRequest* request, PrismSlang.Native.SlangOptimizationLevel level) { }
+        public static unsafe void spSetOutputContainerFormat(PrismSlang.Native.ICompileRequest* request, PrismSlang.Native.SlangContainerFormat format) { }
+        public static unsafe void spSetPassThrough(PrismSlang.Native.ICompileRequest* request, PrismSlang.Native.SlangPassThrough passThrough) { }
+        public static unsafe void spSetTargetFlags(PrismSlang.Native.ICompileRequest* request, int targetIndex, uint flags) { }
+        public static unsafe void spSetTargetFloatingPointMode(PrismSlang.Native.ICompileRequest* request, int targetIndex, PrismSlang.Native.SlangFloatingPointMode mode) { }
+        public static unsafe void spSetTargetForceGLSLScalarBufferLayout(PrismSlang.Native.ICompileRequest* request, int targetIndex, byte forceScalarLayout) { }
+        public static unsafe void spSetTargetLineDirectiveMode(PrismSlang.Native.ICompileRequest* request, int targetIndex, PrismSlang.Native.SlangLineDirectiveMode mode) { }
+        public static unsafe void spSetTargetMatrixLayoutMode(PrismSlang.Native.ICompileRequest* request, int targetIndex, PrismSlang.Native.SlangMatrixLayoutMode mode) { }
+        public static unsafe void spSetTargetProfile(PrismSlang.Native.ICompileRequest* request, int targetIndex, PrismSlang.Native.SlangProfileID profile) { }
+        public static unsafe void spSetTargetUseMinimumSlangOptimization(PrismSlang.Native.ICompileRequest* request, int targetIndex, byte val) { }
+        public static unsafe int spSetTypeNameForEntryPointExistentialTypeParam(PrismSlang.Native.ICompileRequest* request, int entryPointIndex, int slotIndex, sbyte* typeName) { }
+        public static unsafe int spSetTypeNameForGlobalExistentialTypeParam(PrismSlang.Native.ICompileRequest* request, int slotIndex, sbyte* typeName) { }
+        public static unsafe void spSetWriter(PrismSlang.Native.ICompileRequest* request, PrismSlang.Native.SlangWriterChannel channel, PrismSlang.Native.ISlangWriter* writer) { }
+        public static unsafe void spTranslationUnit_addPreprocessorDefine(PrismSlang.Native.ICompileRequest* request, int translationUnitIndex, sbyte* key, sbyte* value) { }
+    }
+    public enum SlangArchiveType
+    {
+        SLANG_ARCHIVE_TYPE_UNDEFINED = 0,
+        SLANG_ARCHIVE_TYPE_ZIP = 1,
+        SLANG_ARCHIVE_TYPE_RIFF = 2,
+        SLANG_ARCHIVE_TYPE_RIFF_DEFLATE = 3,
+        SLANG_ARCHIVE_TYPE_RIFF_LZ4 = 4,
+        SLANG_ARCHIVE_TYPE_COUNT_OF = 5,
+    }
+    public struct SlangAttribute { }
+    public enum SlangBindableResourceType
+    {
+        SLANG_NON_BINDABLE = 0,
+        SLANG_TEXTURE = 1,
+        SLANG_SAMPLER = 2,
+        SLANG_UNIFORM_BUFFER = 3,
+        SLANG_STORAGE_BUFFER = 4,
+    }
+    public enum SlangCapabilityID
+    {
+        SLANG_CAPABILITY_UNKNOWN = 0,
+    }
+    public enum SlangCompileTarget
+    {
+        SLANG_TARGET_UNKNOWN = 0,
+        SLANG_TARGET_NONE = 1,
+        SLANG_GLSL = 2,
+        SLANG_GLSL_VULKAN_DEPRECATED = 3,
+        SLANG_GLSL_VULKAN_ONE_DESC_DEPRECATED = 4,
+        SLANG_HLSL = 5,
+        SLANG_SPIRV = 6,
+        SLANG_SPIRV_ASM = 7,
+        SLANG_DXBC = 8,
+        SLANG_DXBC_ASM = 9,
+        SLANG_DXIL = 10,
+        SLANG_DXIL_ASM = 11,
+        SLANG_C_SOURCE = 12,
+        SLANG_CPP_SOURCE = 13,
+        SLANG_HOST_EXECUTABLE = 14,
+        SLANG_SHADER_SHARED_LIBRARY = 15,
+        SLANG_SHADER_HOST_CALLABLE = 16,
+        SLANG_CUDA_SOURCE = 17,
+        SLANG_PTX = 18,
+        SLANG_CUDA_OBJECT_CODE = 19,
+        SLANG_OBJECT_CODE = 20,
+        SLANG_HOST_CPP_SOURCE = 21,
+        SLANG_HOST_HOST_CALLABLE = 22,
+        SLANG_CPP_PYTORCH_BINDING = 23,
+        SLANG_METAL = 24,
+        SLANG_METAL_LIB = 25,
+        SLANG_METAL_LIB_ASM = 26,
+        SLANG_HOST_SHARED_LIBRARY = 27,
+        SLANG_WGSL = 28,
+        SLANG_WGSL_SPIRV_ASM = 29,
+        SLANG_WGSL_SPIRV = 30,
+        SLANG_HOST_VM = 31,
+        SLANG_CPP_HEADER = 32,
+        SLANG_CUDA_HEADER = 33,
+        SLANG_HOST_OBJECT_CODE = 34,
+        SLANG_HOST_LLVM_IR = 35,
+        SLANG_SHADER_LLVM_IR = 36,
+        SLANG_TARGET_COUNT_OF = 37,
+    }
+    public enum SlangContainerFormat
+    {
+        SLANG_CONTAINER_FORMAT_NONE = 0,
+        SLANG_CONTAINER_FORMAT_SLANG_MODULE = 1,
+    }
+    public enum SlangCooperativeMatrixUse : uint
+    {
+        SLANG_COOPERATIVE_MATRIX_USE_A = 0u,
+        SLANG_COOPERATIVE_MATRIX_USE_B = 1u,
+        SLANG_COOPERATIVE_MATRIX_USE_ACCUMULATOR = 2u,
+    }
+    public enum SlangCooperativeVectorMatrixLayout : uint
+    {
+        SLANG_COOPERATIVE_VECTOR_MATRIX_LAYOUT_ROW_MAJOR = 0u,
+        SLANG_COOPERATIVE_VECTOR_MATRIX_LAYOUT_COLUMN_MAJOR = 1u,
+        SLANG_COOPERATIVE_VECTOR_MATRIX_LAYOUT_INFERENCING_OPTIMAL = 2u,
+        SLANG_COOPERATIVE_VECTOR_MATRIX_LAYOUT_TRAINING_OPTIMAL = 3u,
+    }
+    public enum SlangDebugInfoFormat : uint
+    {
+        SLANG_DEBUG_INFO_FORMAT_DEFAULT = 0u,
+        SLANG_DEBUG_INFO_FORMAT_C7 = 1u,
+        SLANG_DEBUG_INFO_FORMAT_PDB = 2u,
+        SLANG_DEBUG_INFO_FORMAT_STABS = 3u,
+        SLANG_DEBUG_INFO_FORMAT_COFF = 4u,
+        SLANG_DEBUG_INFO_FORMAT_DWARF = 5u,
+        SLANG_DEBUG_INFO_FORMAT_COUNT_OF = 6u,
+    }
+    public enum SlangDebugInfoLevel : uint
+    {
+        SLANG_DEBUG_INFO_LEVEL_NONE = 0u,
+        SLANG_DEBUG_INFO_LEVEL_MINIMAL = 1u,
+        SLANG_DEBUG_INFO_LEVEL_STANDARD = 2u,
+        SLANG_DEBUG_INFO_LEVEL_MAXIMAL = 3u,
+    }
+    public enum SlangDiagnosticColor
+    {
+        SLANG_DIAGNOSTIC_COLOR_AUTO = 0,
+        SLANG_DIAGNOSTIC_COLOR_ALWAYS = 1,
+        SLANG_DIAGNOSTIC_COLOR_NEVER = 2,
+    }
+    public enum SlangEmitCPUMethod
+    {
+        SLANG_EMIT_CPU_DEFAULT = 0,
+        SLANG_EMIT_CPU_VIA_CPP = 1,
+        SLANG_EMIT_CPU_VIA_LLVM = 2,
+    }
+    public enum SlangEmitSpirvMethod
+    {
+        SLANG_EMIT_SPIRV_DEFAULT = 0,
+        SLANG_EMIT_SPIRV_VIA_GLSL = 1,
+        SLANG_EMIT_SPIRV_DIRECTLY = 2,
+    }
+    public struct SlangEntryPoint { }
+    public struct SlangEntryPointLayout { }
+    public enum SlangFloatingPointMode : uint
+    {
+        SLANG_FLOATING_POINT_MODE_DEFAULT = 0u,
+        SLANG_FLOATING_POINT_MODE_FAST = 1u,
+        SLANG_FLOATING_POINT_MODE_PRECISE = 2u,
+    }
+    public enum SlangFpDenormalMode : uint
+    {
+        SLANG_FP_DENORM_MODE_ANY = 0u,
+        SLANG_FP_DENORM_MODE_PRESERVE = 1u,
+        SLANG_FP_DENORM_MODE_FTZ = 2u,
+    }
+    public struct SlangGlobalSessionDesc
+    {
+        public uint apiVersion;
+        public byte enableGLSL;
+        public uint minLanguageVersion;
+        public PrismSlang.Native.SlangGlobalSessionDesc._reserved_e__FixedBuffer reserved;
+        public uint structureSize;
+        [System.Runtime.CompilerServices.InlineArray(16)]
+        public struct _reserved_e__FixedBuffer
+        {
+            public uint e0;
+        }
+    }
+    public static class SlangIID
+    {
+        public static System.Guid& IBindlessResourceMetadata { get; }
+        public static System.Guid& IByteCodeRunner { get; }
+        public static System.Guid& ICompileResult { get; }
+        public static System.Guid& IComponentType { get; }
+        public static System.Guid& IComponentType2 { get; }
+        public static System.Guid& ICooperativeTypesMetadata { get; }
+        public static System.Guid& ICoverageTracingMetadata { get; }
+        public static System.Guid& IEntryPoint { get; }
+        public static System.Guid& IGlobalSession { get; }
+        public static System.Guid& IMetadata { get; }
+        public static System.Guid& IModule { get; }
+        public static System.Guid& IModulePrecompileService_Experimental { get; }
+        public static System.Guid& ISession { get; }
+        public static System.Guid& ISlangBlob { get; }
+        public static System.Guid& ISlangCastable { get; }
+        public static System.Guid& ISlangClonable { get; }
+        public static System.Guid& ISlangFileSystem { get; }
+        public static System.Guid& ISlangFileSystemExt { get; }
+        public static System.Guid& ISlangMutableFileSystem { get; }
+        public static System.Guid& ISlangProfiler { get; }
+        public static System.Guid& ISlangSharedLibrary { get; }
+        public static System.Guid& ISlangSharedLibraryLoader { get; }
+        public static System.Guid& ISlangSharedLibrary_Dep1 { get; }
+        public static System.Guid& ISlangUnknown { get; }
+        public static System.Guid& ISlangWriter { get; }
+        public static System.Guid& ISyntheticResourceMetadata { get; }
+        public static System.Guid& ITypeConformance { get; }
+    }
+    public enum SlangLanguageVersion
+    {
+        SLANG_LANGUAGE_VERSION_UNKNOWN = 0,
+        SLANG_LANGUAGE_VERSION_LEGACY = 2018,
+        SLANG_LANGUAGE_VERSION_2025 = 2025,
+        SLANG_LANGUAGE_VERSION_2026 = 2026,
+        SLANG_LANGAUGE_VERSION_DEFAULT = 2018,
+        SLANG_LANGUAGE_VERSION_DEFAULT = 2018,
+        SLANG_LANGUAGE_VERSION_LATEST = 2026,
+    }
+    public enum SlangLayoutRules : uint
+    {
+        SLANG_LAYOUT_RULES_DEFAULT = 0u,
+        SLANG_LAYOUT_RULES_METAL_ARGUMENT_BUFFER_TIER_2 = 1u,
+        SLANG_LAYOUT_RULES_DEFAULT_STRUCTURED_BUFFER = 2u,
+        SLANG_LAYOUT_RULES_DEFAULT_CONSTANT_BUFFER = 3u,
+    }
+    public enum SlangLineDirectiveMode : uint
+    {
+        SLANG_LINE_DIRECTIVE_MODE_DEFAULT = 0u,
+        SLANG_LINE_DIRECTIVE_MODE_NONE = 1u,
+        SLANG_LINE_DIRECTIVE_MODE_STANDARD = 2u,
+        SLANG_LINE_DIRECTIVE_MODE_GLSL = 3u,
+        SLANG_LINE_DIRECTIVE_MODE_SOURCE_MAP = 4u,
+    }
+    public enum SlangModifierID : uint
+    {
+        SLANG_MODIFIER_SHARED = 0u,
+        SLANG_MODIFIER_NO_DIFF = 1u,
+        SLANG_MODIFIER_STATIC = 2u,
+        SLANG_MODIFIER_CONST = 3u,
+        SLANG_MODIFIER_EXPORT = 4u,
+        SLANG_MODIFIER_EXTERN = 5u,
+        SLANG_MODIFIER_DIFFERENTIABLE = 6u,
+        SLANG_MODIFIER_MUTATING = 7u,
+        SLANG_MODIFIER_IN = 8u,
+        SLANG_MODIFIER_OUT = 9u,
+        SLANG_MODIFIER_INOUT = 10u,
+    }
+    public enum SlangOptimizationLevel : uint
+    {
+        SLANG_OPTIMIZATION_LEVEL_NONE = 0u,
+        SLANG_OPTIMIZATION_LEVEL_DEFAULT = 1u,
+        SLANG_OPTIMIZATION_LEVEL_HIGH = 2u,
+        SLANG_OPTIMIZATION_LEVEL_MAXIMAL = 3u,
+    }
+    public enum SlangPassThrough
+    {
+        SLANG_PASS_THROUGH_NONE = 0,
+        SLANG_PASS_THROUGH_FXC = 1,
+        SLANG_PASS_THROUGH_DXC = 2,
+        SLANG_PASS_THROUGH_GLSLANG = 3,
+        SLANG_PASS_THROUGH_SPIRV_DIS = 4,
+        SLANG_PASS_THROUGH_CLANG = 5,
+        SLANG_PASS_THROUGH_VISUAL_STUDIO = 6,
+        SLANG_PASS_THROUGH_GCC = 7,
+        SLANG_PASS_THROUGH_GENERIC_C_CPP = 8,
+        SLANG_PASS_THROUGH_NVRTC = 9,
+        SLANG_PASS_THROUGH_LLVM = 10,
+        SLANG_PASS_THROUGH_SPIRV_OPT = 11,
+        SLANG_PASS_THROUGH_METAL = 12,
+        SLANG_PASS_THROUGH_TINT = 13,
+        SLANG_PASS_THROUGH_SPIRV_LINK = 14,
+        SLANG_PASS_THROUGH_COUNT_OF = 15,
+    }
+    public enum SlangPathType : uint
+    {
+        SLANG_PATH_TYPE_DIRECTORY = 0u,
+        SLANG_PATH_TYPE_FILE = 1u,
+    }
+    public enum SlangProfileID : uint
+    {
+        SLANG_PROFILE_UNKNOWN = 0u,
+    }
+    public struct SlangProgramLayout { }
+    public struct SlangReflectionDecl { }
+    public struct SlangReflectionFunction { }
+    public struct SlangReflectionGeneric { }
+    public struct SlangReflectionGenericArg
+    {
+        public byte boolVal;
+        public long intVal;
+        public unsafe PrismSlang.Native.SlangReflectionType* typeVal;
+    }
+    public enum SlangReflectionGenericArgType
+    {
+        SLANG_GENERIC_ARG_TYPE = 0,
+        SLANG_GENERIC_ARG_INT = 1,
+        SLANG_GENERIC_ARG_BOOL = 2,
+    }
+    public struct SlangReflectionModifier { }
+    public struct SlangReflectionType { }
+    public struct SlangReflectionTypeLayout { }
+    public struct SlangReflectionTypeParameter { }
+    public struct SlangReflectionUserAttribute { }
+    public struct SlangReflectionVariable { }
+    public struct SlangReflectionVariableLayout { }
+    public enum SlangScope : uint
+    {
+        SLANG_SCOPE_NONE = 0u,
+        SLANG_SCOPE_THREAD = 1u,
+        SLANG_SCOPE_WAVE = 2u,
+        SLANG_SCOPE_THREAD_GROUP = 3u,
+    }
+    public enum SlangSeverity
+    {
+        SLANG_SEVERITY_DISABLED = 0,
+        SLANG_SEVERITY_NOTE = 1,
+        SLANG_SEVERITY_WARNING = 2,
+        SLANG_SEVERITY_ERROR = 3,
+        SLANG_SEVERITY_FATAL = 4,
+        SLANG_SEVERITY_INTERNAL = 5,
+    }
+    public enum SlangSourceLanguage
+    {
+        SLANG_SOURCE_LANGUAGE_UNKNOWN = 0,
+        SLANG_SOURCE_LANGUAGE_SLANG = 1,
+        SLANG_SOURCE_LANGUAGE_HLSL = 2,
+        SLANG_SOURCE_LANGUAGE_GLSL = 3,
+        SLANG_SOURCE_LANGUAGE_C = 4,
+        SLANG_SOURCE_LANGUAGE_CPP = 5,
+        SLANG_SOURCE_LANGUAGE_CUDA = 6,
+        SLANG_SOURCE_LANGUAGE_SPIRV = 7,
+        SLANG_SOURCE_LANGUAGE_METAL = 8,
+        SLANG_SOURCE_LANGUAGE_WGSL = 9,
+        SLANG_SOURCE_LANGUAGE_LLVM = 10,
+        SLANG_SOURCE_LANGUAGE_COUNT_OF = 11,
+    }
+    public struct SlangTerminatedChars
+    {
+        public PrismSlang.Native.SlangTerminatedChars._chars_e__FixedBuffer chars;
+        public unsafe sbyte* ToSBytePointer() { }
+        public struct _chars_e__FixedBuffer
+        {
+            public sbyte e0;
+            [System.Diagnostics.CodeAnalysis.UnscopedRef]
+            public System.SByte& this[int index] { get; }
+            [System.Diagnostics.CodeAnalysis.UnscopedRef]
+            public System.Span<sbyte> AsSpan(int length) { }
+        }
+    }
+    public struct SlangUUID
+    {
+        public uint data1;
+        public ushort data2;
+        public ushort data3;
+        public PrismSlang.Native.SlangUUID._data4_e__FixedBuffer data4;
+        [System.Runtime.CompilerServices.InlineArray(8)]
+        public struct _data4_e__FixedBuffer
+        {
+            public byte e0;
+        }
+    }
+    public enum SlangWarningLevel
+    {
+        SLANG_WARNING_LEVEL_DEFAULT = 0,
+        SLANG_WARNING_LEVEL_ALL = 1,
+        SLANG_WARNING_LEVEL_EXTRA = 2,
+        SLANG_WARNING_LEVEL_PEDANTIC = 3,
+    }
+    public enum SlangWriterChannel : uint
+    {
+        SLANG_WRITER_CHANNEL_DIAGNOSTIC = 0u,
+        SLANG_WRITER_CHANNEL_STD_OUTPUT = 1u,
+        SLANG_WRITER_CHANNEL_STD_ERROR = 2u,
+        SLANG_WRITER_CHANNEL_COUNT_OF = 3u,
+    }
+    public enum SlangWriterMode : uint
+    {
+        SLANG_WRITER_MODE_TEXT = 0u,
+        SLANG_WRITER_MODE_BINARY = 1u,
+    }
+    public struct SourceLocation
+    {
+        public long column;
+        public unsafe sbyte* filePath;
+        public long line;
+    }
+    public struct SpecializationArg
+    {
+        public PrismSlang.Native.SpecializationArg._Anonymous_e__Union Anonymous;
+        public PrismSlang.Native.SpecializationArg.Kind kind;
+        [System.Diagnostics.CodeAnalysis.UnscopedRef]
+        public System.SByte*& expr { get; }
+        [System.Diagnostics.CodeAnalysis.UnscopedRef]
+        public PrismSlang.Native.TypeReflection*& type { get; }
+        public static unsafe PrismSlang.Native.SpecializationArg fromExpr(sbyte* inExpr) { }
+        public static unsafe PrismSlang.Native.SpecializationArg fromType(PrismSlang.Native.TypeReflection* inType) { }
+        public enum Kind
+        {
+            Unknown = 0,
+            Type = 1,
+            Expr = 2,
+        }
+        public struct _Anonymous_e__Union
+        {
+            public unsafe sbyte* expr;
+            public unsafe PrismSlang.Native.TypeReflection* type;
+        }
+    }
+    public enum SyntheticResourceAccess : uint
+    {
+        Read = 0u,
+        Write = 1u,
+        ReadWrite = 2u,
+    }
+    public struct SyntheticResourceInfo
+    {
+        public PrismSlang.Native.SyntheticResourceAccess access;
+        public uint arraySize;
+        public int binding;
+        public PrismSlang.Native.BindingType bindingType;
+        public unsafe sbyte* debugName;
+        public int entryPointIndex;
+        public uint id;
+        public PrismSlang.Native.SyntheticResourceScope scope;
+        public int space;
+        public System.UIntPtr structSize;
+        public int uniformOffset;
+        public int uniformStride;
+    }
+    public enum SyntheticResourceScope : uint
+    {
+        Global = 0u,
+        EntryPoint = 1u,
+    }
+    public struct TargetDesc
+    {
+        public unsafe PrismSlang.Native.CompilerOptionEntry* compilerOptionEntries;
+        public uint compilerOptionEntryCount;
+        public uint flags;
+        public PrismSlang.Native.SlangFloatingPointMode floatingPointMode;
+        public byte forceGLSLScalarBufferLayout;
+        public PrismSlang.Native.SlangCompileTarget format;
+        public PrismSlang.Native.SlangLineDirectiveMode lineDirectiveMode;
+        public PrismSlang.Native.SlangProfileID profile;
+        public System.UIntPtr structureSize;
+    }
+    public struct TypeLayoutReflection { }
+    public struct TypeParameterReflection { }
+    public struct TypeReflection { }
+    public struct VMExecInstHeader
+    {
+        public method functionPtr;
+        public uint opcodeExtension;
+        public uint operandCount;
+        public unsafe PrismSlang.Native.VMExecInstHeader* getNextInst() { }
+        public unsafe PrismSlang.Native.VMExecOperand* getOperand(long index) { }
+    }
+    public struct VMExecOperand
+    {
+        public uint _bitfield;
+        public uint offset;
+        public unsafe byte** section;
+        public uint size { get; set; }
+        public uint type { get; set; }
+        public unsafe void* getPtr() { }
+        public PrismSlang.Native.OperandDataType getType() { }
+    }
+    public struct VariableLayoutReflection { }
+    public struct VariableReflection { }
+}
+namespace PrismSlang.Reflection
+{
+    public static class LinkedProgramReflectionExtensions
+    {
+        public static PrismSlang.Reflection.ProgramLayout Reflect(this PrismSlang.LinkedProgram program, int targetIndex = 0) { }
+        public static PrismSlang.Reflection.DeclarationNode ReflectDeclarations(this PrismSlang.SlangModule module) { }
+    }
+    public static class ReflectionWalker
+    {
+        public static PrismSlang.Reflection.ProgramLayout Walk(PrismSlang.LinkedProgram program, int targetIndex = 0) { }
+        public static PrismSlang.Reflection.DeclarationNode WalkDeclarations(PrismSlang.SlangModule module) { }
+    }
+    public sealed class SlangMetadata : PrismSlang.Interop.SlangObject<PrismSlang.Native.IMetadata>
+    {
+        public string? DebugBuildIdentifier { get; }
+        public bool IsUsed(PrismSlang.Native.SlangParameterCategory category, uint space, uint index) { }
+        public override string ToString() { }
+        public System.Collections.Generic.IReadOnlyList<PrismSlang.Reflection.ParameterBinding> UnusedBindings(PrismSlang.Reflection.ProgramLayout layout) { }
+    }
+}

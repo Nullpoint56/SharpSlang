@@ -6,7 +6,10 @@ name: CI
 # heap-corrupting ownership bug that had been passing green on Windows since the first commit
 # (ISession::loadModule* returns a borrowed pointer — see docs/findings.md §9.1). glibc
 # aborts on it; the Windows heap does not. Keeping Linux in the matrix is the control for that
-# entire class of bug.
+# entire class of bug — and it has paid twice: §9.22's fifth Slang crash returns null on Windows
+# and segfaults on Linux, and was found by this leg aborting a run that was green here.
+#
+# linux-arm64 is the third leg, added for the axis neither of the other two covers. See the matrix.
 #
 # The native payload is NOT committed — runtimes/ is gitignored. Each job fetches it from the
 # release pinned in Directory.Build.props, which also proves the fetch script still works against
@@ -47,6 +50,17 @@ jobs:
             rid: win-x64
           - os: ubuntu-latest
             rid: linux-x64
+          # arm64, and not for completeness. Two things here are architecture-sensitive and have
+          # never been executed on one: every vtable call in the generated layer is
+          # `delegate* unmanaged[Stdcall]`, and stdcall has no meaning on ARM64 — the runtime is
+          # expected to ignore it and fall back to the platform convention. So are the
+          # [UnmanagedCallersOnly] thunks Slang calls back into (§9.15). "Expected to" is the
+          # phrase this project has learned to measure.
+          #
+          # Slang publishes slang-<version>-linux-aarch64.zip and fetch-native.ps1 already maps it,
+          # so the payload side needed nothing.
+          - os: ubuntu-24.04-arm
+            rid: linux-arm64
 
     steps:
       - uses: actions/checkout@v4
@@ -94,7 +108,7 @@ jobs:
       # Mesa renamed the file from lvp_icd.x86_64.json to lvp_icd.json between the version in
       # Ubuntu 24.04's archive and the one in its updates.
       - name: Install lavapipe and the Vulkan validation layers
-        if: matrix.rid == 'linux-x64'
+        if: startsWith(matrix.rid, 'linux')
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq mesa-vulkan-drivers vulkan-validationlayers libvulkan1
@@ -142,6 +156,11 @@ jobs:
       # leave the whole validation harness silently switched off. Two of the three run on any
       # device; the third needs 64-bit vertex formats, which lavapipe does not offer, and skips
       # with that reason.
+      # linux-x64 only, deliberately, and staged rather than soft. The count check is proven there;
+      # arm64 is new, and if lavapipe does not load on it the right outcome for the first few runs
+      # is the skip reason in the log rather than a red build for a reason unrelated to the port.
+      # The validation tests themselves do run on both — this is only about the assertion that they
+      # ran. Tighten to startsWith(matrix.rid, 'linux') once an ARM run has shown lavapipe loading.
       - name: The validation-layer tests actually ran
         if: matrix.rid == 'linux-x64'
         env:

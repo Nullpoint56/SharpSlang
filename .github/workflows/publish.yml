@@ -12,10 +12,27 @@ name: Publish to GitHub Packages
 # the release pinned in Directory.Build.props. So this workflow stages every RID before packing —
 # a package missing a RID would fail at run time on that platform rather than here.
 
+# Rehearsal, and why there is one. Until a tag is pushed, everything below is code that has never
+# executed — the same category CI itself was in until its first run immediately caught two things
+# local runs could not. A tag is a bad place to discover that the three-RID staging is wrong,
+# because the failure arrives attached to a version number.
+#
+# So `workflow_dispatch` accepts `dry_run`, default true: every step runs except the push. It is the
+# whole path — staging win-x64, linux-x64 and osx-arm64 from a Windows runner, building, testing,
+# packing all three projects, and checking that every RID in the core package carries both the
+# compiler and the SPIR-V optimiser — with only the last step skipped. The .nupkg files are uploaded
+# either way, so a dry run leaves something to inspect.
+#
+# A tag still publishes for real. dry_run only applies to a manual run.
 on:
   push:
     tags: ['v*']
   workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Run everything except the push to GitHub Packages'
+        type: boolean
+        default: true
 
 permissions:
   contents: read
@@ -104,7 +121,19 @@ jobs:
             }
           } finally { $zip.Dispose() }
 
+      - name: Dry run — everything above ran, the push is skipped
+        if: inputs.dry_run
+        shell: pwsh
+        run: |
+          $pkgs = Get-ChildItem -Path artifacts -Filter *.nupkg
+          if (-not $pkgs) { throw "no .nupkg produced in artifacts/" }
+          Write-Host "would push:"
+          $pkgs | ForEach-Object { Write-Host ("    {0,-46} {1,7:N0} KB" -f $_.Name, ($_.Length / 1KB)) }
+          Write-Host ""
+          Write-Host "Dry run. Re-run with dry_run unchecked, or push a v* tag, to publish."
+
       - name: Push to GitHub Packages
+        if: ${{ !inputs.dry_run }}
         shell: pwsh
         run: |
           $pkgs = Get-ChildItem -Path artifacts -Filter *.nupkg

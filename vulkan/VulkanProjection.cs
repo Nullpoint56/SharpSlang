@@ -30,7 +30,7 @@ public static class VulkanProjection
                     r.IndexOffset,
                     ToDescriptorType(r.BindingType),
                     r.DescriptorCount,
-                    VisibleStages(ToDescriptorType(r.BindingType), stages),
+                    VisibleStages(ToDescriptorType(r.BindingType), StagesFor(r, stages)),
                     // The range's own name where the walk could attribute one — that is the only
                     // source that reaches inside a ParameterBlock. The scan below is the fallback
                     // for ranges Slang's binding-range view does not cover.
@@ -604,19 +604,41 @@ public static class VulkanProjection
     }
 
     /// <summary>
-    /// Which stages touch each space.
+    /// Which stages touch each space, as the fallback when a binding does not say.
     /// </summary>
     /// <remarks>
-    /// Slang's global-scope reflection does not attribute a parameter to the entry points that use
-    /// it, so per-binding stage flags cannot be derived exactly from the snapshot alone. Every
-    /// stage in the program is reported, which is conservative: it over-permits visibility rather
-    /// than omitting a stage that actually reads the binding, and an omission would be a runtime
-    /// validation error. A renderer that wants tighter flags can narrow them per pipeline.
+    /// This used to be the whole answer, and the remark here used to explain why: Slang's
+    /// global-scope reflection does not attribute a parameter to the entry points that use it, so
+    /// every stage in the program was reported on every binding. Conservative and correct, and a
+    /// renderer wanting tight <c>stageFlags</c> had to narrow them itself.
+    ///
+    /// <c>DescriptorRange.Stages</c> now carries the attribution, from the per-entry-point metadata
+    /// the reflection walk collects while the program is still alive (§9.24). This remains the
+    /// answer for a range that claims no stage — see <see cref="StagesFor"/>.
     /// </remarks>
     private static Dictionary<uint, VulkanShaderStages> StagesPerSpace(ProgramLayout layout)
     {
         var all = AllStages(layout);
         return layout.DescriptorSets.ToDictionary(s => s.SpaceOffset, _ => all);
+    }
+
+    /// <summary>
+    /// The stages a binding is visible to: the ones that read it, or all of them if none is known.
+    /// </summary>
+    /// <remarks>
+    /// The empty case is not "no stage". Vulkan rejects a <c>VkDescriptorSetLayoutBinding</c> with
+    /// a non-zero descriptor count and no stage flags, and a binding nothing is known to read still
+    /// has to be declared somewhere. Widening back is also the only safe direction: an omitted
+    /// stage that really reads the binding is a driver rejection, where a surplus one costs
+    /// nothing.
+    /// </remarks>
+    private static VulkanShaderStages StagesFor(DescriptorRange range, VulkanShaderStages fallback)
+    {
+        if (range.Stages is not { Count: > 0 } stages) return fallback;
+
+        var narrowed = VulkanShaderStages.None;
+        foreach (var stage in stages) narrowed |= ToStage(stage);
+        return narrowed == VulkanShaderStages.None ? fallback : narrowed;
     }
 
     private static VulkanShaderStages AllStages(ProgramLayout layout)

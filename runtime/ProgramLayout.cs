@@ -169,6 +169,21 @@ public sealed record ShaderParameter(
 /// flag exists because Slang exposes the question and a host reading a layout from an unlinked
 /// component would need the answer.
 /// </param>
+/// <param name="Stages">
+/// The entry point stages whose generated code reads this binding.
+/// </param>
+/// <remarks>
+/// Empty means <em>every</em> stage, not <em>no</em> stage — a binding no stage is known to touch
+/// still has to be declared visible somewhere, because Vulkan rejects a
+/// <c>VkDescriptorSetLayoutBinding</c> with a non-zero descriptor count and no stage flags. Reading
+/// this as a set to intersect with rather than a set to trust is the difference between a tighter
+/// descriptor set layout and one the driver refuses.
+///
+/// Reflection alone cannot produce this: Slang's global-scope view does not attribute a parameter
+/// to the entry points that use it. It comes from <c>IMetadata</c>, asked once per stage per
+/// binding while the program is still alive (§9.24), which is also why it is on the snapshot rather
+/// than computed later — the compiler is gone by then.
+/// </remarks>
 public sealed record DescriptorRange(
     SlangBindingType BindingType,
     uint IndexOffset,
@@ -179,7 +194,8 @@ public sealed record DescriptorRange(
     uint? InputAttachmentIndex = null,
     SlangImageFormat ImageFormat = SlangImageFormat.SLANG_IMAGE_FORMAT_unknown,
     uint? CounterBinding = null,
-    bool IsSpecializable = false)
+    bool IsSpecializable = false,
+    IReadOnlyList<SlangStage>? Stages = null)
 {
     /// <summary>
     /// Whether this range is a counter belonging to an append/consume buffer rather than something

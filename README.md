@@ -76,6 +76,7 @@ a message naming the shader construct that caused it.
 |---|---|
 | `win-x64` | verified, in CI |
 | `linux-x64` | verified, in CI — including the Vulkan validation layers via lavapipe |
+| `linux-arm64` | in CI on `ubuntu-24.04-arm` — the only leg that exercises ARM64 calling conventions |
 | `osx-arm64` | mapped in `fetch-native.ps1`, **never executed** |
 
 .NET 10, C# 14. Slang is pinned in `Directory.Build.props`; the pin is the single source of truth
@@ -111,12 +112,12 @@ traps worth knowing before you hit them.
 not a question of signatures — it is that `loadModule` returns a borrowed pointer where every other
 call returns an owned one, that `getEntryPointCode` names every module `main`, that a specialization
 constant used as an array length makes reflection kill the process on Linux and throw on Windows.
-Twenty-three sections of that, each one measured, several of them mistakes this binding made and then
+Twenty-four sections of that, each one measured, several of them mistakes this binding made and then
 caught.
 
 ## Testing
 
-492 tests. The interesting ones do not assert against numbers someone typed:
+497 tests. The interesting ones do not assert against numbers someone typed:
 
 - **`ModuleAgreementTests`** compiles a 28-shader corpus and requires the reflection snapshot and
   the emitted SPIR-V to state *the same set of facts, in both directions* — so a fact one side
@@ -145,6 +146,9 @@ caught.
   ([§9.21](docs/findings.md#921-the-four-crashes-what-upstream-says-and-whether-they-are-ours)).
 - **`DocumentedFactsTests`** compares the numbers in these documents against the code they describe.
   Both files said "27-shader corpus" while the corpus had 28.
+- **`PublicApiTests`** renders each package's public surface and diffs it against a checked-in file,
+  so a removed member or a reordered parameter is a review comment rather than a consumer's broken
+  build. Regenerate with `PRISMSLANG_APPROVE_API=1` and *read* the diff.
 
 The Linux job runs the whole suite under `MALLOC_PERTURB_`, so freed memory is overwritten rather
 than left intact and every test becomes an ownership test.
