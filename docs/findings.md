@@ -41,6 +41,7 @@ so a bare `§4.4` or `§9.8` in a code comment is unambiguous.
 | [9.17](#917-the-fourth-oracle-and-the-question-it-settled) | The fourth oracle | the validation layers, and what they decided |
 | [9.18](#918-what-the-layers-said-about-the-whole-corpus) | The layers, on the whole corpus | three findings, and a gate that excluded everything |
 | [9.19](#919-closing-the-reflection-gaps-and-what-three-of-them-turned-out-to-be) | Closing the reflection gaps | signatures, a module cache, and three APIs that under-deliver |
+| [9.20](#920-the-last-two-gaps-one-of-which-crashes) | The last two gaps | a descriptor with no parameter, and the fourth crash |
 
 ### The four oracles
 
@@ -1387,4 +1388,81 @@ agree on those by being equally silent. It is per-target and per-entry-point, so
 `ProgramLayout`: a binding the fragment stage reads and the vertex stage does not is used by the
 program and unused by one of its stages, and only `GetEntryPointMetadata` tells them apart.
 
-453 tests.
+460 tests.
+
+### 9.20 The last two gaps, one of which crashes
+
+§9.19 left two categories: the append/consume counter, and link-time specialization introspection.
+Both are closed. Between them they produced a defect in this binding's own output and the fourth
+Slang crash this project has measured — and the crash is the worst of the four, because it is an
+ordinary caller mistake rather than an exotic shader.
+
+#### An `AppendStructuredBuffer` costs two descriptors, and one of them is not a parameter
+
+Slang emits a separate storage buffer to hold the count and reports it as an ordinary binding range
+named `counter`. The corpus's `append-buffers` shader declares three buffers and produces **five
+bindings**, while `ProgramLayout.Parameters` has three entries — at bindings 0, 2 and 4.
+
+A renderer that builds its descriptor set layout from the parameter list, which is the obvious
+thing to do, is short two storage buffers the shader will read.
+
+Worse for a shader with both an append and a consume buffer: **both counters are named `counter`**,
+so even reading the descriptor-set view there is nothing to say which belongs to which. That is
+what `DescriptorRange.CounterBinding` is for — it names the counter's binding on the buffer that
+owns it, and survives into `VulkanBinding` because `VkDescriptorSetLayoutBinding` has no concept of
+one and the pairing would otherwise be lost at the last step.
+
+`RequireEveryParameterIsPlaced` could not have caught this: it checks that every parameter has a
+binding, and this is a binding with no parameter.
+
+#### Specializing a generic: the working route is not the one the names suggest
+
+`spReflection_specializeType` takes a type and argument types and looks like exactly the call for
+"what would `Wrapper<Lambert>` lay out as". Against a generic reached by `FindTypeByName` it returns
+**null, with no diagnostics at all**.
+
+What works is to take the type's *generic container* and specialize that:
+
+```
+FindTypeByName("Wrapper")            -> a struct whose full name is Wrapper<T>
+  GetGenericContainer                -> the generic
+  specializeGeneric(TYPE, Lambert)   -> a specialized generic
+    GetTypeParameter + GetConcreteType   -> T = Lambert
+    GetInnerDecl -> getTypeFromDecl -> applySpecializations -> Wrapper<Lambert>
+      GetTypeLayout                  -> field offsets, sizes, strides
+```
+
+That is `LinkedProgram.SpecializeGeneric`, and the payoff is the question a material system asks
+after choosing an implementation: `SgWrapper<SgLambert>` is 32 bytes with `tint` at 16;
+`SgWrapper<SgEmissive>` is 48 with `tint` at 32. Previously the only way to learn that was to author
+a shader per candidate and reflect it.
+
+Value generics work the same way and are the case Slang's *program-level* specialization API cannot
+express at all — it reports type parameters exclusively — so this is the only route to
+`Cascades<4>` being 64 bytes and `Cascades<8>` being 128.
+
+`getSpecializedTypeArgCount` reports **0** on every path tried, including on a type written as
+`Wrapper<Lambert>` in source and on the specialized type produced above. The arguments are
+recoverable from `GetFullName`, which is where they are read from.
+
+#### And the crash
+
+Hand `spReflection_specializeGeneric` an `int` where a type parameter belongs and it
+**access-violates**. Not a null, not a diagnostic — `0xC0000005`, which on Windows the CLR does not
+convert into anything catchable. The whole test run aborted the first time, which is how it was
+found.
+
+That makes it the fourth measured Slang crash and the only one fatal on Windows as well as Linux.
+It is also the easiest to hit: two arguments in the wrong order is enough.
+
+Unlike §9.12's specialization-sized resource array, **this one is detectable**. The generic reports
+how many parameters of each kind it takes, so `SpecializeGeneric` compares before calling and
+refuses with a message naming what was expected against what arrived. `ProberTests` asserts the
+unguarded behaviour from a child process, so the day Slang starts reporting it the guard can become
+a pass-through and a red test will say so.
+
+One residue, stated because it is not covered: a generic mixing type and value parameters reports
+the two as separate lists, so their interleaving in the declaration is not recoverable and the
+counts can match while the order is wrong. That combination reaches Slang unguarded.
+
+469 tests.

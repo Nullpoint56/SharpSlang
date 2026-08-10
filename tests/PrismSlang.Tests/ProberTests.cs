@@ -109,6 +109,28 @@ public class ProberTests
     }
 
     [NativeFact]
+    public void A_generic_argument_of_the_wrong_kind_ends_the_process_on_every_platform()
+    {
+        // §9.20. An integer where a type parameter belongs, handed straight to
+        // spReflection_specializeGeneric. Not an exception and not a null: an access violation.
+        //
+        // Sharper than §9.12 in two ways. It is fatal on Windows too — 0xC0000005, which the CLR
+        // does not convert into anything catchable — and unlike a spec-sized resource array it is
+        // an ordinary caller mistake rather than an exotic shader. LinkedProgram.SpecializeGeneric
+        // refuses the combination before Slang sees it, which is why this has to reach past it to
+        // the flat API.
+        //
+        // If this ever fails, Slang has started reporting the mismatch and the guard could become
+        // a pass-through. Read the guard's remarks before relaxing it.
+        var outcome = Run("generic-argument-kind-mismatch");
+
+        Assert.True(outcome.ExitCode is not (0 or 1 or 2),
+            "specializing a generic with the wrong kind of argument no longer ends the process. "
+            + $"That is an upstream fix, and §9.20 plus the guard in SpecializeGeneric are what "
+            + $"need revisiting.\n{outcome}");
+    }
+
+    [NativeFact]
     public void How_it_fails_depends_on_the_platform()
     {
         // Measured, and not what §9.12 said. Slang throws a C++ `Slang::InternalError` out through

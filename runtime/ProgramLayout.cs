@@ -158,6 +158,10 @@ public sealed record ShaderParameter(
 /// <c>VK_DESCRIPTOR_BINDING_VARIABLE_DESCRIPTOR_COUNT_BIT</c> and the device's
 /// <c>maxPerStageDescriptor*</c> limits. Measured against slang-compiler 2026.14.1.
 /// </remarks>
+/// <param name="CounterBinding">
+/// For an <c>AppendStructuredBuffer</c> or <c>ConsumeStructuredBuffer</c>, the binding index within
+/// this same set of the separate buffer holding its count. Null for everything else.
+/// </param>
 public sealed record DescriptorRange(
     SlangBindingType BindingType,
     uint IndexOffset,
@@ -166,7 +170,25 @@ public sealed record DescriptorRange(
     string? Name = null,
     bool IsUnbounded = false,
     uint? InputAttachmentIndex = null,
-    SlangImageFormat ImageFormat = SlangImageFormat.SLANG_IMAGE_FORMAT_unknown);
+    SlangImageFormat ImageFormat = SlangImageFormat.SLANG_IMAGE_FORMAT_unknown,
+    uint? CounterBinding = null)
+{
+    /// <summary>
+    /// Whether this range is a counter belonging to an append/consume buffer rather than something
+    /// the shader declared.
+    /// </summary>
+    /// <remarks>
+    /// An <c>AppendStructuredBuffer</c> costs two descriptors, and Slang reports the second as an
+    /// ordinary binding range named <c>counter</c>. A shader with an append buffer and a consume
+    /// buffer therefore produces two bindings both called <c>counter</c>, and neither appears in
+    /// <see cref="ProgramLayout.Parameters"/> — a host that builds its descriptor set layout from
+    /// the parameter list is short two storage buffers the shader will read. Use
+    /// <see cref="CounterBinding"/> on the owning range to pair them up; this is only the coarse
+    /// test.
+    /// </remarks>
+    [JsonIgnore]
+    public bool IsCounter => string.Equals(Name, "counter", StringComparison.Ordinal);
+}
 
 /// <summary>A descriptor set (register space) and the ranges within it.</summary>
 public sealed record DescriptorSet(uint SpaceOffset, IReadOnlyList<DescriptorRange> Ranges);
@@ -441,6 +463,50 @@ public enum DeclarationKind
     Variable,
     Namespace,
     Enum,
+}
+
+/// <summary>One generic parameter, with the argument it was given.</summary>
+/// <param name="Parameter">The parameter's declared name — <c>T</c>, <c>N</c>.</param>
+/// <param name="Kind">Whether it takes a type or a value.</param>
+/// <param name="Type">The concrete type's name, for a <see cref="GenericParameterKind.Type"/>.</param>
+/// <param name="Value">The concrete value, for a <see cref="GenericParameterKind.Value"/>.</param>
+public readonly record struct GenericArgumentBinding(
+    string Parameter,
+    GenericParameterKind Kind,
+    string? Type = null,
+    long? Value = null)
+{
+    public override string ToString() =>
+        $"{Parameter} = {(Kind == GenericParameterKind.Type ? Type ?? "?" : Value?.ToString() ?? "?")}";
+}
+
+/// <summary>
+/// A generic declaration with concrete arguments supplied, and the layout that results.
+/// </summary>
+/// <remarks>
+/// <para>
+/// The answer to "what would <c>Wrapper&lt;Lambert&gt;</c> lay out as" for a host that has not
+/// written a shader using it. A material system choosing an implementation needs the byte offsets
+/// before it can fill a buffer, and until this existed the only way to get them was to author a
+/// shader that declared the specialization and reflect that.
+/// </para>
+/// <para>
+/// A snapshot like everything else in this namespace: no native pointer survives the call, so it
+/// outlives the program it came from.
+/// </para>
+/// </remarks>
+/// <param name="Name">The specialized type's full name, e.g. <c>Wrapper&lt;Lambert&gt;</c>.</param>
+/// <param name="Arguments">Each generic parameter and what it was bound to.</param>
+/// <param name="Layout">
+/// The specialized type's layout — field offsets, sizes, strides. Null if Slang produced the type
+/// but could not lay it out, which is not expected and is reported rather than hidden.
+/// </param>
+public sealed record SpecializedType(
+    string Name,
+    IReadOnlyList<GenericArgumentBinding> Arguments,
+    TypeLayout? Layout)
+{
+    public override string ToString() => Name;
 }
 
 /// <summary>How a function parameter is passed.</summary>

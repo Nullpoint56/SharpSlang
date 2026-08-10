@@ -221,6 +221,72 @@ public static unsafe class ReflectionWalker
     internal static FunctionSignature ReadFunctionSignature(SlangReflectionFunction* function) =>
         ReadFunction(function, expandOverloads: true);
 
+    /// <summary>
+    /// What a specialized generic came out as: the bindings, the name, and the layout.
+    /// </summary>
+    /// <remarks>
+    /// The bindings come from asking the <em>specialized</em> generic for its parameters and then
+    /// for each parameter's concrete argument — <c>GetConcreteType</c> / <c>GetConcreteIntVal</c>,
+    /// which only mean anything on a generic that has been specialized.
+    ///
+    /// The type comes the long way round: the generic's inner declaration, turned back into a type,
+    /// with the specialization applied. <c>getSpecializedTypeArgCount</c> looks like the shortcut
+    /// and reports 0 here — as it does everywhere else this project has asked it, including on
+    /// types written as <c>Wrapper&lt;Lambert&gt;</c> in source. See §9.20.
+    /// </remarks>
+    internal static SpecializedType ReadSpecialization(
+        SlangProgramLayout* shader, SlangReflectionGeneric* specialized)
+    {
+        var bindings = new List<GenericArgumentBinding>();
+
+        var typeCount = SlangApi.spReflectionGeneric_GetTypeParameterCount(specialized);
+        for (uint i = 0; i < typeCount; i++)
+        {
+            var parameter = SlangApi.spReflectionGeneric_GetTypeParameter(specialized, i);
+            if (parameter is null) continue;
+
+            var concrete = SlangApi.spReflectionGeneric_GetConcreteType(specialized, parameter);
+            bindings.Add(new GenericArgumentBinding(
+                Utf8.Read(SlangApi.spReflectionVariable_GetName(parameter)) ?? "",
+                GenericParameterKind.Type,
+                Type: concrete is null ? null : FullTypeName(concrete)));
+        }
+
+        var valueCount = SlangApi.spReflectionGeneric_GetValueParameterCount(specialized);
+        for (uint i = 0; i < valueCount; i++)
+        {
+            var parameter = SlangApi.spReflectionGeneric_GetValueParameter(specialized, i);
+            if (parameter is null) continue;
+
+            bindings.Add(new GenericArgumentBinding(
+                Utf8.Read(SlangApi.spReflectionVariable_GetName(parameter)) ?? "",
+                GenericParameterKind.Value,
+                Value: SlangApi.spReflectionGeneric_GetConcreteIntVal(specialized, parameter)));
+        }
+
+        var inner = SlangApi.spReflectionGeneric_GetInnerDecl(specialized);
+        var innerType = inner is null ? null : SlangApi.spReflection_getTypeFromDecl(inner);
+        var applied = innerType is null
+            ? null
+            : SlangApi.spReflectionType_applySpecializations(innerType, specialized);
+
+        if (applied is null)
+        {
+            return new SpecializedType(
+                Utf8.Read(SlangApi.spReflectionGeneric_GetName(specialized)) ?? "<unnamed>",
+                bindings,
+                null);
+        }
+
+        var typeLayout = SlangApi.spReflection_GetTypeLayout(
+            shader, applied, SlangLayoutRules.SLANG_LAYOUT_RULES_DEFAULT);
+
+        return new SpecializedType(
+            FullTypeName(applied),
+            bindings,
+            typeLayout is null ? null : ReadTypeLayout(typeLayout, new Dictionary<nint, TypeLayout>()));
+    }
+
     /// <summary>The signature of a function declaration.</summary>
     private static FunctionSignature? ReadFunction(SlangReflectionDecl* decl)
     {
@@ -870,7 +936,8 @@ public static unsafe class ReflectionWalker
                     category,
                     Name: leaf.Name,
                     IsUnbounded: unbounded,
-                    ImageFormat: leaf.Format));
+                    ImageFormat: leaf.Format,
+                    CounterBinding: leaf.CounterOffset is { } counter ? index + counter : null));
             }
         }
     }
@@ -901,10 +968,10 @@ public static unsafe class ReflectionWalker
     /// range, measured against slang-compiler 2026.14.1. Only texture-shaped ranges are asked.
     /// </para>
     /// </remarks>
-    private static Dictionary<(long Set, long Range), (string? Name, SlangImageFormat Format)>
+    private static Dictionary<(long Set, long Range), BindingRangeLeaf>
         ReadBindingRanges(SlangReflectionTypeLayout* tl)
     {
-        var result = new Dictionary<(long, long), (string?, SlangImageFormat)>();
+        var result = new Dictionary<(long, long), BindingRangeLeaf>();
 
         var count = SlangApi.spReflectionTypeLayout_getBindingRangeCount(tl);
         for (long b = 0; b < count; b++)
@@ -923,10 +990,43 @@ public static unsafe class ReflectionWalker
 
             var first = SlangApi.spReflectionTypeLayout_getBindingRangeFirstDescriptorRangeIndex(tl, b);
             var spanned = SlangApi.spReflectionTypeLayout_getBindingRangeDescriptorRangeCount(tl, b);
-            for (long r = 0; r < spanned; r++) result[(set, first + r)] = (name, format);
+            var counter = CounterOffset(tl, b);
+            for (long r = 0; r < spanned; r++) result[(set, first + r)] = new(name, format, counter);
         }
 
         return result;
+    }
+
+    /// <summary>What a binding range's leaf tells us that its descriptor range does not.</summary>
+    private readonly record struct BindingRangeLeaf(
+        string? Name, SlangImageFormat Format, uint? CounterOffset);
+
+    /// <summary>
+    /// How far past a buffer its own counter sits, in descriptor slots, or null if it has none.
+    /// </summary>
+    /// <remarks>
+    /// An <c>AppendStructuredBuffer</c> costs <em>two</em> Vulkan descriptors: the data and a
+    /// separate storage buffer holding the count. Slang reports the second as an ordinary binding
+    /// range named <c>counter</c>, so a shader with an append and a consume buffer produces two
+    /// bindings both called <c>counter</c> and nothing to tell them apart — and the parameter list
+    /// omits both, because neither is a declared parameter. Measured on 2026.14.1: three declared
+    /// buffers, five bindings.
+    ///
+    /// The offset is relative to the owning buffer's own descriptor index, so the caller adds it to
+    /// the absolute index it already has.
+    /// </remarks>
+    private static uint? CounterOffset(SlangReflectionTypeLayout* tl, long bindingRange)
+    {
+        var leaf = SlangApi.spReflectionTypeLayout_getBindingRangeLeafTypeLayout(tl, bindingRange);
+        if (leaf is null) return null;
+
+        var counter = SlangApi.spReflectionTypeLayout_GetExplicitCounter(leaf);
+        if (counter is null) return null;
+
+        var offset = SlangApi.spReflectionVariableLayout_GetOffset(
+            counter, SlangParameterCategory.SLANG_PARAMETER_CATEGORY_DESCRIPTOR_TABLE_SLOT);
+
+        return offset < 0 ? null : (uint)offset;
     }
 
     /// <summary>

@@ -37,7 +37,8 @@ public static class VulkanProjection
                     r.Name ?? names.GetValueOrDefault(r.IndexOffset),
                     r.IsUnbounded,
                     r.InputAttachmentIndex,
-                    r.ImageFormat))
+                    r.ImageFormat,
+                    r.CounterBinding))
                 .OrderBy(b => b.Binding)
                 .ToList();
 

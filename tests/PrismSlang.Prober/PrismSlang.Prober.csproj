@@ -20,6 +20,8 @@
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <!-- One case reaches past the managed guard to the flat API it guards; that needs pointers. -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <RootNamespace>PrismSlang.Prober</RootNamespace>
     <AssemblyName>PrismSlang.Prober</AssemblyName>
     <IsPackable>false</IsPackable>

@@ -58,6 +58,11 @@ namespace PrismSlang.Vulkan;
 /// that requirement, and lets the renderer check the image view it is about to bind agrees.
 /// </para>
 /// </remarks>
+/// <param name="CounterBinding">
+/// For an <c>AppendStructuredBuffer</c> or <c>ConsumeStructuredBuffer</c>, the binding in this same
+/// set of the storage buffer holding its count — a second descriptor the renderer must allocate and
+/// bind. Null for everything else.
+/// </param>
 public sealed record VulkanBinding(
     uint Binding,
     VulkanDescriptorType DescriptorType,
@@ -66,7 +71,8 @@ public sealed record VulkanBinding(
     string? Name = null,
     bool IsUnbounded = false,
     uint? InputAttachmentIndex = null,
-    SlangImageFormat ImageFormat = SlangImageFormat.SLANG_IMAGE_FORMAT_unknown);
+    SlangImageFormat ImageFormat = SlangImageFormat.SLANG_IMAGE_FORMAT_unknown,
+    uint? CounterBinding = null);
 
 /// <summary>
 /// One colour attachment the fragment stage writes, for

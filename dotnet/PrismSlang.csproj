@@ -45,6 +45,13 @@
          the point: once L2 existed the sample stopped needing internal access at all. If a future
          sample needs it back, that is a signal the public API has a hole. -->
     <InternalsVisibleTo Include="PrismSlang.Tests" />
+
+    <!--
+      The crash prober, for the same reason. Its whole job is to demonstrate what a managed guard
+      prevents, which means calling the layer the guard sits on top of — and that layer is internal
+      precisely so nobody else does.
+    -->
+    <InternalsVisibleTo Include="PrismSlang.Prober" />
   </ItemGroup>
 
   <!--

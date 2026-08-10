@@ -15,6 +15,8 @@
 // meant to demonstrate, which is why `healthy` exists and why the test runs it first.
 
 using PrismSlang;
+using PrismSlang.Interop;
+using PrismSlang.Native;
 using PrismSlang.Reflection;
 
 if (args.Length != 1)
@@ -75,7 +77,53 @@ internal static class Cases
             [shader("fragment")]
             float4 scFragment() : SV_Target { return scArray[0].Sample(scSampler, 0); }
             """),
+
+        // §9.20. An integer argument where a type parameter belongs. LinkedProgram.SpecializeGeneric
+        // refuses this before Slang sees it, because Slang does not refuse it — it access-violates.
+        // Reaching past the guard is the point, so this calls the flat API directly.
+        ["generic-argument-kind-mismatch"] = MismatchedGenericArgument,
     };
+
+    private static unsafe void MismatchedGenericArgument()
+    {
+        const string Source = """
+            interface IMgMaterial { float3 shade(float3 albedo); }
+            struct MgLambert : IMgMaterial { float3 shade(float3 a) { return a; } }
+            struct MgWrapper<T : IMgMaterial> { T inner; float4 tint; };
+
+            [shader("fragment")]
+            float4 mgFragment() : SV_Target { return 1; }
+            """;
+
+        using var global = SlangGlobalSession.Create();
+        using var session = global.CreateSession(
+            new SessionOptions { Targets = [new TargetOptions()] });
+        using var module = session.LoadModuleFromSource("mg", "mg.slang", Source);
+        using var entry = module.FindEntryPoint("mgFragment");
+        using var program = session.Link(module, entry);
+
+        var shader = (SlangProgramLayout*)program.GetLayout(0);
+
+        SlangReflectionType* declared;
+        using (Utf8.Scoped n = new("MgWrapper"))
+        {
+            declared = SlangApi.spReflection_FindTypeByName(shader, n);
+        }
+
+        if (declared is null) throw new InvalidOperationException("MgWrapper not found");
+
+        var generic = SlangApi.spReflectionType_GetGenericContainer(declared);
+        if (generic is null) throw new InvalidOperationException("MgWrapper is not generic");
+
+        var kind = SlangReflectionGenericArgType.SLANG_GENERIC_ARG_INT;
+        var arg = new SlangReflectionGenericArg { intVal = 3 };
+        ISlangBlob* diagnostics = null;
+
+        var specialized = SlangApi.spReflection_specializeGeneric(
+            shader, generic, 1, &kind, &arg, &diagnostics);
+
+        Console.Out.WriteLine(specialized is null ? "refused" : "specialized");
+    }
 
     /// <summary>Compiles a shader and walks its layout, which is where the process is lost.</summary>
     private static void Reflect(string source)

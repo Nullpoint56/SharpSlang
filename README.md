@@ -111,12 +111,12 @@ traps worth knowing before you hit them.
 not a question of signatures — it is that `loadModule` returns a borrowed pointer where every other
 call returns an owned one, that `getEntryPointCode` names every module `main`, that a specialization
 constant used as an array length makes reflection kill the process on Linux and throw on Windows.
-Nineteen sections of that, each one measured, several of them mistakes this binding made and then
+Twenty sections of that, each one measured, several of them mistakes this binding made and then
 caught.
 
 ## Testing
 
-453 tests. The interesting ones do not assert against numbers someone typed:
+469 tests. The interesting ones do not assert against numbers someone typed:
 
 - **`ModuleAgreementTests`** compiles a 28-shader corpus and requires the reflection snapshot and
   the emitted SPIR-V to state *the same set of facts, in both directions* — so a fact one side

@@ -20,6 +20,7 @@ recalled — and the traps flagged along the way are the ones that actually bit 
 - [Serving shaders from your own filesystem](#serving-shaders-from-your-own-filesystem)
 - [Diagnostics](#diagnostics)
 - [Reading a shader's functions](#reading-a-shaders-functions)
+- [Laying out a generic before you use it](#laying-out-a-generic-before-you-use-it)
 - [Which bindings the code actually reads](#which-bindings-the-code-actually-reads)
 - [Caching parsed modules](#caching-parsed-modules)
 - [The payload has to be the pinned one](#the-payload-has-to-be-the-pinned-one)
@@ -334,6 +335,30 @@ Two things to know before matching on strings:
   signatures; `FindFunction` gives one function with `IsOverloaded` set, `Overloads` populated, and
   its *own* signature empty. Check `IsOverloaded` before reading `Parameters`.
 
+## Laying out a generic before you use it
+
+"What would `Wrapper<Lambert>` lay out as" — asked without authoring a shader that declares one,
+which is what a material system needs after it picks an implementation.
+
+```csharp
+var specialized = program.SpecializeGeneric("Wrapper", GenericArgument.OfType(lambert));
+// specialized.Name       -> "Wrapper<Lambert>"
+// specialized.Arguments  -> [T = Lambert]
+// specialized.Layout     -> field offsets, sizes, strides — a snapshot, so it outlives the program
+
+var cascades = program.SpecializeGeneric("Cascades", GenericArgument.OfInt(4));   // Cascades<4>
+```
+
+Value generics are only reachable this way: `LinkOptions.SpecializationArguments` specializes the
+*program* and reports type parameters exclusively.
+
+**Argument kinds are checked before Slang sees them, and that is not politeness.** Given a value
+where a type parameter belongs, `spReflection_specializeGeneric` access-violates and ends the
+process on every platform. `SpecializeGeneric` refuses the combination with a message naming what
+was expected. A generic mixing type *and* value parameters can still be given them in the wrong
+order — the counts match, and Slang reports the two lists separately so the interleaving is not
+recoverable ([§9.20](findings.md#920-the-last-two-gaps-one-of-which-crashes)).
+
 ## Which bindings the code actually reads
 
 Reflection reports the shader's interface, which includes parameters the emitted code never touches.
@@ -418,6 +443,7 @@ recognise the shape if you meet a cousin of one.
 | A specialized workgroup size is `0` | Check `ThreadGroupSize.IsSpecialized`; do not divide by it. |
 | `double3`/`double4` vertex attributes | Slang assigns one location where Vulkan requires two. The projection refuses it — the module is invalid SPIR-V, confirmed by the validation layers ([§9.17](findings.md#917-the-fourth-oracle-and-the-question-it-settled)). |
 | A spec-constant-sized resource array | `Texture2D t[kCount]` never reflects: on Linux it **ends the process** inside Slang's reflection, on Windows it surfaces as a catchable `SEHException`. Not detectable in advance; also unusable on Vulkan, where `descriptorCount` is fixed before specialization exists. Do not write one. |
+| An `AppendStructuredBuffer` costs two descriptors | Slang emits a separate storage buffer for the count, reported as a binding named `counter` and absent from `Parameters`. Build the descriptor set layout from `DescriptorSets`, and pair counters with `CounterBinding` — with both an append and a consume buffer, the two counters have identical names ([§9.20](findings.md#920-the-last-two-gaps-one-of-which-crashes)). |
 | An unbounded array that is not the last binding | `VK_DESCRIPTOR_BINDING_VARIABLE_DESCRIPTOR_COUNT_BIT` is legal only on a set's highest-numbered binding, and Slang does not arrange for that. Check `VulkanBinding.Binding` against the set before reaching for it; `PARTIALLY_BOUND` with a fixed cap is legal anywhere ([§9.18](findings.md#918-what-the-layers-said-about-the-whole-corpus)). |
 | The `sample` interpolation modifier | Slang emits `OpDecorate … Sample` without declaring `OpCapability SampleRateShading`, which spirv-val rejects as malformed. No device feature changes it. |
 | `ParameterBlocksUseRegisterSpaces` | Byte-for-byte inert on SPIR-V. A `ParameterBlock` takes a space of its own either way. |
