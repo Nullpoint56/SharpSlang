@@ -438,42 +438,74 @@ argument both for using it and for not expecting more from it.
 
 ## 4.6 Prior art — what already exists in C#
 
-Surveyed August 2026. There is no `SlangSharp`; the name does not exist on GitHub or NuGet.
+Surveyed August 2026, and **re-surveyed 2026-08-10 after the reflection surface was finished** —
+because the first survey was written before any of this existed and two of its load-bearing claims
+turned out to be wrong. Both corrections are below rather than quietly edited away: this document
+citing something untrue about a project it declined to adopt is the same defect it keeps finding
+elsewhere.
+
+There is no `SlangSharp`; the name does not exist on GitHub or NuGet.
 
 | | Slang.Sdk | Slangc.NET | PrismSlang |
 |---|---|---|---|
-| Approach | C++/CLI interop layer | in-process `slangc` CLI | pure managed P/Invoke |
-| Public API | typed compilation + reflection | `byte[] Compile(string[] args)` | L0 raw + emerging L1 |
-| Reflection | nearly complete (no `DeclReflection`) | **none** | not yet started |
-| Platforms | Windows x64/ARM64 only | any .NET RID | any RID Slang publishes |
-| Slang pinned to | 2025.13.2 | current | 2026.14.1 |
-| Latest release | **0.5.1, Aug 2025** | 2026.5.1, current | — |
+| Approach | C# over a **hand-written native C++ shim** | in-process `slangc` CLI | pure managed P/Invoke, no shim |
+| Native code in-repo | 64 files, one `.vcxproj` | none | **none** |
+| Reflection entry points | ~158 through the shim | **none** | **172 of 172 exercised** |
+| Reflection model | live handles (`TypeLayoutReflectionHandle`) | — | immutable snapshot (§4.4) |
+| Beyond reflection | — | — | Vulkan projection, baking, managed VFS |
+| Platforms | Windows (build system, not language) | any .NET RID | win-x64 + linux-x64 in CI |
+| Slang pinned to | 2025.13.2 | **2026.14.1** | 2026.14.1 |
+| Latest release | 0.5.1, Aug 2025 | 2026.14.1, Jul 2026 | — |
+| Last commit | `release/0.7.0`, Mar 2026 | current | current |
 | Self-described status | "alpha… do not include in production builds" | maintained | pre-alpha |
 
-**Slangc.NET solves a different problem.** Its entire surface is `SlangCompiler.Compile(args)` —
-the `slangc` command line, in-process, returning bytes. That is a fine build-tool wrapper and it is
-genuinely current, but it exposes no reflection at all. Reflection is the reason PrismEngine wants
-Slang, so this cannot be the engine's binding regardless of quality.
+### Two corrections
 
-**Slang.Sdk is the real comparable, and it is further along than PrismSlang on ergonomics.** Its
-reflection abstraction is close to complete; ours has not started. Being behind on that is worth
-stating plainly.
+**It is not C++/CLI.** This document said Slang.Sdk was "a C++/CLI interop layer" and built the
+whole case against adopting it on that: *"C++/CLI does not exist off Windows on modern .NET… that is
+not a maturity gap that time closes, it is the implementation choice."* Checked: `src/Native` is
+**plain C++** — 24 `.cpp`, 40 `.h`, no `<CLRSupport>`, no managed syntax — wrapping `slang::` types
+and exporting a C surface that C# calls with `[LibraryImport]`. What ties it to Windows is a single
+`.vcxproj` with no CMake beside it. That is a build-system gap, not a language one, and closing it
+is a port rather than a rewrite. The argument as written was wrong.
 
-It is nevertheless not adoptable here, for reasons that are structural rather than fixable:
+**It is not abandoned.** "Nothing has shipped in 2026" is true of *releases* — 0.5.1 is still the
+latest on NuGet, from August 2025 — and misleading about the project. `release/0.7.0` has commits
+into March 2026 and `development` into February. The most recent of them is *"expand lifetime
+regression tests beyond single session/module loop scenario"*, which is the same ground §9.1 covers
+and suggests they have met the same class of problem.
 
-- **C++/CLI does not exist off Windows on modern .NET.** Its own matrix lists Linux and macOS as
-  "planned"; that is not a maturity gap that time closes, it is the implementation choice. Making
-  it cross-platform means abandoning C++/CLI — i.e. the rewrite this repository already is.
-  foundation.md requires Linux x64 at V1.0 and forbids structurally excluding macOS.
-- **Stale.** v0.5.1 is the latest, from August 2025; the roadmap targeted v1.0.0 for early October
-  2025. Nothing has shipped in 2026. It is pinned to Slang 2025.13.2 — many releases behind, and
-  crucially predating the `slang.dll` → `slang-compiler.dll` rename (§3.4).
-- **Alpha by its own declaration**, for a component that sits under every shader the engine loads.
+### What is actually different
 
-So the duplicated effort is real but narrow: the compilation and reflection *wrappers*. The
-foundation differs in kind — no native build, current Slang, generated-and-diffable L0, drift
-tests. Contributing upstream to Slang.Sdk was considered and rejected: the blocker is its
-interop mechanism, so "fixing" it is a rewrite, not a patch.
+The reflection surfaces are **comparable in breadth**, and saying otherwise would be flattering
+ourselves: 158 shim entry points across `ShaderReflection`, `TypeReflection`, `TypeLayoutReflection`,
+`VariableLayoutReflection`, `EntryPointReflection`, `FunctionReflection`, `GenericReflection`,
+`VariableReflection`, `TypeParameterReflection` and `Attribute`, against our 172. This is not a
+coverage gap. The differences are structural:
+
+- **A shim, or no shim.** Theirs is 64 files of C++ that must be built for every platform, and is a
+  second place a defect can live. Ours is generated from the pinned header, and CI fails if the
+  committed L0 does not match what the generator produces (§4.3).
+- **Handles, or a snapshot.** `TypeLayoutReflectionHandle` is live and borrows from the program that
+  produced it; `TypeLayout` is immutable managed data that outlives it (§4.4). That is the choice
+  their recent lifetime work is about, from the other side.
+- **Where it stops.** Slang.Sdk ends at reflection. PrismSlang goes on to descriptor set layouts,
+  push constant ranges, vertex attributes, workgroup sizes, baked shader packages and a managed
+  filesystem — which is most of what an engine actually needs and none of what a binding is
+  obliged to provide.
+- **Currency.** 2025.13.2 predates the `slang.dll` → `slang-compiler.dll` rename (§3.4).
+
+**Slangc.NET solves a different problem, and solves it well.** Its entire surface is
+`SlangCompiler.Compile(args)` — the `slangc` command line, in-process, returning bytes — with no
+reflection at all. It also tracks Slang closely: its NuGet version *is* the Slang version, and
+2026.14.1 shipped ten days before this survey. As a build-tool wrapper it is the better-maintained
+package here. Reflection is the reason PrismEngine wants Slang, so it still cannot be the engine's
+binding.
+
+Contributing upstream to Slang.Sdk was reconsidered with the corrected picture. The blocker is no
+longer "the interop mechanism cannot be ported" — it can. It is that the two projects disagree about
+the reflection model itself: handles against a snapshot is not a patch, and everything past
+reflection, which is where the engine's requirements live, does not exist there to extend.
 
 ---
 
