@@ -170,7 +170,7 @@ the file mixes two populations:
 Slang cannot drop the reflection exports without rewriting its own public C++ reflection API. The
 warning is a filing accident: the declarations live in the legacy header for historical reasons.
 
-**Mitigation, not faith:** pin the native payload per PrismSlang release (§5.4), and carry a
+**Mitigation, not faith:** pin the native payload per PrismSlang release (§3.5), and carry a
 smoke test that resolves every bound symbol from the shipped binary at CI time. A rename then
 fails the build instead of the game.
 
@@ -560,15 +560,36 @@ flat-copy for `ProjectReference` — with three changes:
 
 ## 7. Risks
 
-| Risk | Severity | Mitigation |
+This table was written before the binding existed and is now maintained against it. Each row names
+the **artefact** that enforces the mitigation — a test class or a CI job — rather than a section of
+this document, for a reason worth stating plainly: the vtable row below spent its whole life citing
+§4.3 in support of "hand-maintained and reviewed, not generated", and §4.3 is the section that
+overturns exactly that, in a sentence beginning *"This supersedes an earlier guess in this
+document."* The citation resolved, the heading existed, and the claim was backwards.
+
+Naming an artefact instead does not make a mitigation true, but it makes the claim falsifiable by
+someone who is not reading carefully: `tools/ci/check-docs.sh` fails if a test named here does not
+exist.
+
+| Risk | Severity | Enforced by |
 |---|---|---|
-| Reflection C API relocated or renamed out of `slang-deprecated.h` | Medium | Pinned version + CI symbol-resolution test over every bound export (§3.3) |
-| Unstable ABI across Slang versions | Medium | One PrismSlang release pins one Slang release; `spGetBuildTagString` assert on load |
-| `slang.dll` alias removal, end of 2026 | **Already handled** | Bind `slang-compiler` from the first commit |
-| Vtable layout drift on version bump | Medium | Hand-maintained and reviewed, not generated (§4.3); ordering-sensitive by nature |
-| Reverse-interop lifetime bugs (L4) | Medium | Isolate in one assembly; `GCHandle` discipline; fuzz the VFS callbacks |
-| `slang-glslang` needed at runtime after all | Low | Ship it; ~few MB |
-| Monthly upstream cadence outpacing maintenance | Low | L0 generated; bumps are a regenerate-and-diff, not a rewrite |
+| Reflection C API relocated or renamed out of `slang-deprecated.h` (§3.3) | Medium | `NativeExportTests` resolves all 278 bound exports against the shipped binary, so a rename fails CI rather than surfacing as a `DllNotFoundException` in a consumer's build |
+| Unstable ABI across Slang versions (§3.5) | Medium | `SlangGlobalSession.Create` refuses a payload whose build tag is not the pinned one; `Build_tag_matches_the_pinned_version` ties the pin itself to `Directory.Build.props` |
+| `slang.dll` alias removal, end of 2026 (§3.4) | **Already handled** | `slang-compiler` bound from the first commit; the export test above would catch a regression |
+| Vtable layout drift on version bump | Medium | **Generated** from the pinned header (§4.3). The `regen` CI job regenerates and fails on any diff against the committed `dotnet/Native/`, so a reordering — which compiles fine and calls the wrong function — cannot land without a human reading it |
+| Reverse-interop lifetime bugs (L4) | Medium | `CallbackBoundaryTests` drives every vtable slot with a null `this`, a null out-parameter and a provider that throws from inside a read; `LifetimeTests` covers ownership; the linux CI job runs the whole suite under `MALLOC_PERTURB_`, so a freed block is no longer quietly readable |
+| `slang-glslang` needed at runtime after all | Low | Shipped. `DownstreamCompilerTests` asserts it from inside the process and a CI step asserts it in the staged payload, because its absence is reported once, on a *successful* result (§9.8) |
+| Monthly upstream cadence outpacing maintenance | Low | L0 is generated, so a bump is a regenerate-and-diff. `DefaultsDriftTests` and `SlangResultDriftTests` re-read the pinned header and fail on a changed constant or struct offset |
+
+Two mitigations proposed here were **not** built as written. Recording that is cheaper than leaving
+the rows to imply otherwise:
+
+- *"Isolate [reverse interop] in one assembly."* It lives in `dotnet/Hosting/`, inside `PrismSlang`.
+  The assembly split that did happen was a different one — the reader half into
+  `PrismSlang.Runtime` — driven by a consumer's requirement rather than by this risk.
+- *"Fuzz the VFS callbacks."* They are boundary-tested exhaustively instead: every slot, every null,
+  an exception thrown from inside a read. The fuzzer that exists, `MalformedInputTests`, points at
+  the two file readers, which is where malformed bytes actually arrive from outside.
 
 ---
 

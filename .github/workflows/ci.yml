@@ -114,7 +114,28 @@ jobs:
       - name: Build
         run: dotnet build PrismSlang.slnx -c Release --nologo -warnaserror
 
+      # MALLOC_PERTURB_ makes the allocator the assertion, on every test rather than the few that
+      # were written to look for it. glibc fills freshly malloc'd memory with the complement of the
+      # byte and freed memory with the byte itself, so a use-after-free reads 0xa5a5a5a5a5a5a5a5 —
+      # non-canonical on x86-64, therefore a segfault the moment it is dereferenced as a pointer —
+      # instead of the stale-but-intact data that makes these bugs pass. Both bugs in §9.1 lived on
+      # paths LifetimeTests had no reason to walk; this covers all 393.
+      #
+      # Set on both legs rather than gated on the RID: it is a glibc variable, so the Windows job
+      # ignores it, and a conditional here would be more machinery than the thing it configures.
+      # Windows has no equivalent knob and does not need one — the reason Linux is in this matrix
+      # at all is that its allocator is the strict one (see the header of this file).
+      #
+      # MALLOC_CHECK_=3 is the usual companion and is deliberately absent. Measured on glibc 2.39,
+      # which is what ubuntu-latest ships: it is ignored unless libc_malloc_debug.so.0 is
+      # LD_PRELOADed, because glibc 2.34 moved that checking out of libc — so the obvious spelling
+      # is a no-op that looks like coverage. Preloading it is worse than nothing: with the debug
+      # allocator installed, a one-chunk heap overflow that plain glibc 2.39 aborts on ran to
+      # completion and exited 0. The default hardening is what caught the double free in §9.1, and
+      # MALLOC_CHECK_ would have replaced it with something weaker.
       - name: Test
+        env:
+          MALLOC_PERTURB_: 165
         run: dotnet test PrismSlang.slnx -c Release --no-build --nologo --logger "trx;LogFileName=results.trx"
 
       # A skipped test is green, so installing lavapipe and never noticing it failed to load would
@@ -123,6 +144,8 @@ jobs:
       # with that reason.
       - name: The validation-layer tests actually ran
         if: matrix.rid == 'linux-x64'
+        env:
+          MALLOC_PERTURB_: 165
         run: |
           # The count comes from the TRX, not from the console. The first version of this step
           # scraped the one-line "Passed!  - Failed: 0, Passed: 2, ..." summary, which is what the
@@ -149,6 +172,8 @@ jobs:
           echo "$passed validation-layer test(s) ran against lavapipe"
 
       - name: Tier 0 spike
+        env:
+          MALLOC_PERTURB_: 165
         run: dotnet run --project samples/PrismSlang.Smoke -c Release --no-build
 
       - uses: actions/upload-artifact@v4

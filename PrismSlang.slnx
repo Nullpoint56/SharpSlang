@@ -28,5 +28,6 @@
   <Project Path="vulkan/PrismSlang.Vulkan.csproj" />
   <Project Path="tests/PrismSlang.Tests/PrismSlang.Tests.csproj" />
   <Project Path="tests/PrismSlang.Runtime.Consumer/PrismSlang.Runtime.Consumer.csproj" />
+  <Project Path="tests/PrismSlang.Prober/PrismSlang.Prober.csproj" />
   <Project Path="samples/PrismSlang.Smoke/PrismSlang.Smoke.csproj" />
 </Solution>

@@ -1,6 +1,6 @@
 // Does every function we say exists actually exist?
 //
-// L0 declares 280 DllImports against slang-compiler. A DllImport is a promise checked at the moment
+// L0 declares 278 DllImports against slang-compiler. A DllImport is a promise checked at the moment
 // of the first call and not before, so an export Slang renames or drops is not a build error, not a
 // startup error, and not a test failure until something happens to call it — at which point it is
 // an EntryPointNotFoundException from deep inside a cook, naming a function nobody recognises.
@@ -36,10 +36,15 @@ public class NativeExportTests
     }
 
     [NativeFact]
-    public void The_binding_declares_the_number_of_entry_points_the_docs_claim()
+    public void A_regeneration_that_dropped_most_of_L0_would_not_go_unnoticed()
     {
         // A tripwire on the generator: if a regeneration silently drops half of L0, every other
         // test here still passes because it only exercises what it calls.
+        //
+        // This was called The_binding_declares_the_number_of_entry_points_the_docs_claim, and it
+        // did not do that — a 200-wide range is not a comparison with a document, and the document
+        // said 280 while L0 declared 278. The check the old name described now exists, in
+        // DocumentedFactsTests, and this one keeps the name it earned.
         Assert.InRange(Declared().Count, 200, 400);
     }
 

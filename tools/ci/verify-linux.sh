@@ -44,6 +44,11 @@ echo "===== BUILD ====="
 if ! "$DOTNET" build PrismSlang.slnx -v q --nologo; then status=1; fi
 
 echo "===== TESTS ====="
+# Same allocator settings as the linux CI job, so a local run and CI find the same class of bug —
+# freed memory is overwritten rather than left intact. See the comment on ci.yml's Test step for
+# why MALLOC_CHECK_ is not here with it.
+export MALLOC_PERTURB_=165
+
 # A test-host crash is the signal this script exists to catch, so grep for it explicitly:
 # the runner can report "Passed!" for the tests that completed before the process died.
 out="$("$DOTNET" test PrismSlang.slnx --no-build --nologo -v q 2>&1)"

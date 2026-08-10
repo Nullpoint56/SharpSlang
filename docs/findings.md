@@ -39,6 +39,7 @@ so a bare `§4.4` or `§9.8` in a code comment is unambiguous.
 | [9.15](#915-the-last-two-rows-lifetime-and-the-callback-boundary) | Lifetime, and the callback boundary | one of five thunks kept its promise |
 | [9.16](#916-splitting-the-reader-out-of-the-compiler) | Splitting the reader out of the compiler | so a game ships no compiler |
 | [9.17](#917-the-fourth-oracle-and-the-question-it-settled) | The fourth oracle | the validation layers, and what they decided |
+| [9.18](#918-what-the-layers-said-about-the-whole-corpus) | The layers, on the whole corpus | three findings, and a gate that excluded everything |
 
 ### The four oracles
 
@@ -81,7 +82,7 @@ a full reflection walk on both.
 | `fetch-native.ps1` | win-x64 + linux-x64 verified; osx-arm64 mapped, unrun |
 | `tools/ci/verify-linux.sh` | build + tests + spike under WSL |
 | `.github/workflows` | CI matrix, regeneration check, package-contents check, publish, lavapipe + validation layers on linux-x64 |
-| Tests | 384. `ModuleAgreementTests` diffs a 27-shader corpus against the emitted module as sets, both directions; `SurfaceCoverageTests` fails on any Slang enum value the corpus neither exercises nor declares untried. See §9.11 and §9.13 |
+| Tests | `ModuleAgreementTests` diffs a 28-shader corpus against the emitted module as sets, both directions; `SurfaceCoverageTests` fails on any Slang enum value the corpus neither exercises nor declares untried. See §9.11 and §9.13 |
 
 Package sizes tell the story of the split: `PrismSlang` is 34 MB (it carries the compiler for every
 RID), `PrismSlang.Vulkan` is **10 KB**. A D3D12 consumer pays nothing for Vulkan.
@@ -680,6 +681,21 @@ process**. Not an exception: `spReflectionTypeLayout_getBindingRangeCount` on a 
 containing one exits with no managed stack and no diagnostic, so reflecting such a shader kills the
 cooker.
 
+> **Amended, once it could be measured from outside.** That sentence was written on Windows and is
+> true on Linux. Slang throws a C++ `Slang::InternalError` out through an `extern "C"` boundary, and
+> the two runtimes disagree about what that is: on linux-x64 there is no handler, `std::terminate`
+> runs and the process takes SIGABRT — exit 134, *terminate called after throwing an instance of
+> 'Slang::InternalError'*. On win-x64 SEH carries it to the CLR, which surfaces a catchable
+> `SEHException`, and the cooker loses the shader rather than itself.
+>
+> Both are now asserted, from a child process, because a test cannot assert the Linux behaviour
+> inside the runner it would take down: `tests/PrismSlang.Prober` performs one reflection and exits,
+> and `ProberTests` reads the exit code. The control case matters more than the crashing one — a
+> prober that cannot find its payload also dies, and it caught exactly that twice while this was
+> being written. For an engine this platform split is the operational fact: a Linux cook farm dies
+> mid-batch where a Windows workstation reports one failed shader. Same shape as §9.1, and the same
+> reason it took a second platform to see.
+
 It is not guarded, because it cannot be detected. Measured side by side, a spec-sized texture array
 and a fixed-size one are identical on every query that does not crash — same categories, same
 `DESCRIPTOR_TABLE_SLOT=1`, same stride of 0, same alignment, same `genericParamIndex` of -1 — and
@@ -1178,3 +1194,105 @@ silence, which is the failure mode this section exists to avoid — the same sha
 confidently reported the layer missing on a machine that had it.
 
 384 tests: 381 everywhere, 383 on lavapipe, 384 on a device with 64-bit vertex formats.
+
+### 9.18 What the layers said about the whole corpus
+
+§9.17 built the fourth oracle and pointed it at three hand-written shaders. That left the only
+oracle in the suite that is not Slang describing itself reading three shaders while
+`ModuleAgreementTests` read twenty-eight — the most valuable instrument, aimed at the narrowest
+target. So the same move that produced §9.11: stop choosing what to look at.
+
+`VulkanCorpusValidationTests` compiles every corpus shader, projects it, and builds the descriptor
+set layouts, pipeline layout and pipeline the projection describes. Nothing is adjusted on the way
+through. Getting it to run at all took two harness fixes, and then it found three things.
+
+**Two harness bugs first, because both would have made a green run meaningless.**
+
+`pSetLayouts` is indexed by set number, so a shader using sets 0 and 2 needs three entries with an
+empty one between them. The first version packed them, which would have moved set 2's bindings to
+set 1 and created the pipeline successfully — the harness lying about the projection rather than
+the projection being wrong. `explicit-spaces` and `parameter-blocks` both produce gaps.
+
+The second is the one worth remembering. Sixteen of the twenty-eight shaders declare a fragment
+stage and nothing else. That reflects perfectly well and it is not a Vulkan graphics pipeline, so
+the first run reported *"raster stages but no vertex stage"* for most of the corpus and passed —
+a gate that excluded almost everything, reporting the same green as a gate that excluded nothing.
+The driver now supplies a vertex stage: a trivial one writing only `SV_Position`, or the case's own
+`ValidationVertex` where the fragment stage reads a varying. Adding an entry point to a program is
+not obviously inert, so `RequireTheAddedStageChangedNothing` re-projects the case without it and
+requires the descriptor sets, push constants and fragment outputs to be identical.
+
+**Then four rejections that were the test device, not the projection.** `shaderDrawParameters`,
+`shaderOutputLayer`, `sampleRateShading` and `maintenance4` were all absent from `VulkanTestDevice`,
+whose comment already said *"everything a corpus shader might declare, where the device has it"* —
+true of the shaders it had seen. `maintenance4` is the interesting one: Slang emits `LocalSizeId`
+rather than `LocalSize` whenever a workgroup dimension is a specialization constant, and
+`LocalSizeId` is illegal without it.
+
+#### A projection defect: input attachments are fragment-only
+
+`VUID-VkDescriptorSetLayoutBinding-descriptorType-01510`. Per-binding stage visibility is
+deliberately conservative here — Slang's snapshot cannot say which stage reads which binding, so
+every binding is reported visible to every stage in the program, which over-permits rather than
+omitting. For `VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT` that is not a conservative choice, it is an
+invalid one: Vulkan requires input attachments to be fragment-only, and the object rejected is not
+the pipeline but `vkCreateDescriptorSetLayout` — a host following the projection literally cannot
+create it at all.
+
+Fixed in `VulkanProjection.VisibleStages`. Nothing else in the suite could have found it: the
+layout and the module agreed, because the module is not where the rule lives.
+
+#### A constraint the projection should have named: unbounded is not always last
+
+`VUID-VkDescriptorSetLayoutBindingFlagsCreateInfo-pBindingFlags-03004`.
+`VK_DESCRIPTOR_BINDING_VARIABLE_DESCRIPTOR_COUNT_BIT` is legal only on the highest-numbered binding
+in a set. Slang does not arrange for the unbounded array to be last: in `descriptor-arrays` the
+unbounded texture array is binding 1 and an ordinary sampler is binding 2.
+
+The projection is not wrong about the shader — the constraint is Vulkan's and the choice is the
+host's — but `IsUnbounded` reads as an invitation to reach for variable count, and a host that does
+is refused by `vkCreateDescriptorSetLayout`. Documented on `VulkanBinding` with the alternative that
+is legal anywhere: `PARTIALLY_BOUND` with a fixed cap, which is what the harness now does.
+
+#### A third Slang finding: `sample` without its capability
+
+`interpolation-modifiers` is rejected by spirv-val, not by any device:
+
+```
+Operand 2 of Decorate requires one of these capabilities: SampleRateShading
+  OpDecorate %v_imPerSample Sample
+```
+
+The module carries `Decoration::Sample` and does not declare `Capability::SampleRateShading`. That
+is malformed SPIR-V rather than unsupported SPIR-V — no feature and no extension changes the answer
+— and enabling `sampleRateShading` on the device, which fixed the other four, made no difference
+here. Asserted directly against the module's own capability list by
+`The_sample_interpolation_modifier_emits_a_module_spirv_val_rejects`, so the day it is fixed
+upstream arrives as a failing test rather than as nothing.
+
+Third of three, with the wide-64-bit vertex numbering (§9.14) and the specialization-sized resource
+array (§9.12), and unreported for the same stated reason.
+
+#### What is still out of reach, and why that is written down
+
+Four shaders are excluded by name, each with its reason, checked against the corpus so a rename
+cannot leave a dead entry excusing nothing:
+
+| Shader | Why |
+|---|---|
+| `mesh`, `amplification` | need `VK_EXT_mesh_shader`, which lavapipe does not offer |
+| `ray-tracing` | needs a ray tracing pipeline and a shader binding table; not a layout question |
+| `tessellation`, `geometry` | hull/domain/geometry with no vertex stage, and a supplied one would have to reproduce the exact input patch or primitive — writing a second shader to test the first |
+| `wide-vertex-inputs` | the projection refuses it on purpose (§9.14) |
+| `interpolation-modifiers` | the module is invalid, above |
+
+Two more things are reported rather than hidden. A device gap — a capability, extension or
+zero-valued limit the module needs and the device lacks, like `descriptor-kinds`' ray query on
+lavapipe — is printed with the layer's own text instead of being folded into a pass; the filter is
+narrow on purpose, because a projection defect appears as a VUID about a binding, a stage, a
+location or a range and none of those can match it. And `subpass-inputs` has its descriptor set
+layouts and pipeline layout built and checked, with only the pipeline skipped: an input attachment
+needs a render pass or Vulkan 1.4's `dynamicRenderingLocalRead`, and the part where the defect
+above lived is not the part that was skipped.
+
+427 tests.

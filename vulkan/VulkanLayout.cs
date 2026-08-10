@@ -33,10 +33,22 @@ namespace PrismSlang.Vulkan;
 /// <para>
 /// When <paramref name="IsUnbounded"/> the shader has said nothing about how many descriptors
 /// there are, and <paramref name="DescriptorCount"/> is 0 rather than a count. The renderer picks
-/// the cap and declares it with <c>VK_DESCRIPTOR_BINDING_VARIABLE_DESCRIPTOR_COUNT_BIT</c>, bounded
-/// by the device's <c>maxPerStageDescriptor*</c> limits; only the last binding in a set may be
-/// unbounded. Slang's own answer for this case is <c>0xFFFFFFFF</c>, which is not a count and is
-/// normalised away here so it cannot reach a driver.
+/// the cap, bounded by the device's <c>maxPerStageDescriptor*</c> limits. Slang's own answer for
+/// this case is <c>0xFFFFFFFF</c>, which is not a count and is normalised away here so it cannot
+/// reach a driver.
+/// </para>
+/// <para>
+/// <strong>Check the binding index before reaching for
+/// <c>VK_DESCRIPTOR_BINDING_VARIABLE_DESCRIPTOR_COUNT_BIT</c>.</strong> Vulkan allows that flag
+/// only on the highest-numbered binding in a set
+/// (<c>VUID-VkDescriptorSetLayoutBindingFlagsCreateInfo-pBindingFlags-03004</c>), and Slang does
+/// not arrange for the unbounded array to be last: in the corpus's <c>descriptor-arrays</c> shader
+/// the unbounded texture array is binding 1 and an ordinary sampler is binding 2. Nothing here is
+/// wrong about the shader — the constraint is Vulkan's and the choice is the host's — but a host
+/// that maps <c>IsUnbounded</c> straight onto variable count is refused by
+/// <c>vkCreateDescriptorSetLayout</c> rather than by a driver at draw time. When the binding is not
+/// last, <c>VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT</c> with a fixed cap is legal anywhere and is
+/// what the validation harness does (§9.18).
 /// </para>
 /// <para>
 /// A <see cref="VulkanDescriptorType.StorageImage"/> whose <paramref name="ImageFormat"/> is

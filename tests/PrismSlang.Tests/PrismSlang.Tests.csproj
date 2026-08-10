@@ -27,6 +27,14 @@
     -->
     <AssemblyMetadata Include="RuntimeConsumerOutput"
                       Value="$(MSBuildThisFileDirectory)..\PrismSlang.Runtime.Consumer\bin\$(Configuration)\$(TargetFramework)" />
+
+    <!--
+      Where the crash prober builds to. ProberTests launches it as a child process, because the
+      reflection call it performs does not throw — it ends the process, and there is no way to
+      assert that from inside the runner it would take down with it. See docs/findings.md §9.12.
+    -->
+    <AssemblyMetadata Include="ProberOutput"
+                      Value="$(MSBuildThisFileDirectory)..\PrismSlang.Prober\bin\$(Configuration)\$(TargetFramework)" />
   </ItemGroup>
 
   <ItemGroup>
@@ -61,6 +69,11 @@
       the compiler payload lives, and there would be nothing left to measure.
     -->
     <ProjectReference Include="..\PrismSlang.Runtime.Consumer\PrismSlang.Runtime.Consumer.csproj"
+                      ReferenceOutputAssembly="false"
+                      Private="false" />
+
+    <!-- Same arrangement, for the same reason: built so ProberTests can spawn it, not linked. -->
+    <ProjectReference Include="..\PrismSlang.Prober\PrismSlang.Prober.csproj"
                       ReferenceOutputAssembly="false"
                       Private="false" />
   </ItemGroup>

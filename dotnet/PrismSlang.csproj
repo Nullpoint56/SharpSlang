@@ -48,6 +48,16 @@
   </ItemGroup>
 
   <!--
+    The pin, carried into the assembly so SlangGlobalSession.Create can compare it against what the
+    loaded library reports. Slang's ABI is explicitly unstable (docs/design.md §3.5), so a payload
+    from a different release is undefined behaviour dressed as a working build: the vtables the
+    generated layer indexes into are the pinned header's, not the payload's.
+  -->
+  <ItemGroup>
+    <AssemblyMetadata Include="SlangVersion" Value="$(SlangVersion)" />
+  </ItemGroup>
+
+  <!--
     The reader half. PrismSlang.Runtime holds ShaderPackage, the reflection snapshot, the SPIR-V
     reader and the generated enums those name — everything that works without the native payload.
     Referencing it here rather than duplicating means one definition of ProgramLayout, so a type

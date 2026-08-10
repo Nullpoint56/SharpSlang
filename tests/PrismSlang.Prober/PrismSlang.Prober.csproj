@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    A child process for the reflection calls that do not fail — they end.
+
+    §9.12 found that reflecting a resource array sized by a specialization constant terminates the
+    process inside spReflectionTypeLayout_getBindingRangeCount: no exception, no managed stack, no
+    diagnostic. A test cannot assert that in-process, because asserting it is fatal to the runner,
+    so the construct sat in the documentation as a sentence nothing checked.
+
+    Here it is a program. LifetimeTests spawns it and reads the exit code, which turns "we believe
+    this kills the process" into a test — and, more usefully, turns the day Slang fixes it into a
+    failing test rather than into nothing at all.
+
+    Not a sample and not shipped: IsPackable is off and nothing references it.
+  -->
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>PrismSlang.Prober</RootNamespace>
+    <AssemblyName>PrismSlang.Prober</AssemblyName>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\dotnet\PrismSlang.csproj" />
+  </ItemGroup>
+
+</Project>

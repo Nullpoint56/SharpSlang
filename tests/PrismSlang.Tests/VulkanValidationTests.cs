@@ -22,116 +22,20 @@ public sealed unsafe class VulkanValidationTests : IDisposable
     private readonly VulkanTestDevice? _vulkan =
         VulkanTestDevice.Unavailable is null && SlangNative.Available ? new VulkanTestDevice() : null;
 
+    private VulkanPipelines? _pipelines;
+
     public void Dispose() => _vulkan?.Dispose();
 
     private VulkanTestDevice Vulkan => _vulkan ?? throw new InvalidOperationException("no device");
 
-    // ---------------------------------------------------------------- building from the projection
+    // The Vulkan object-building lives in VulkanPipelines, shared with the corpus driver. These
+    // three cases stay hand-written because each asks one specific question of one shader; the
+    // driver asks the same generic question of all 28.
+    private VulkanPipelines Pipelines => _pipelines ??= new VulkanPipelines(Vulkan);
 
-    /// <summary>Everything created for one pipeline, so it can all be torn down together.</summary>
-    private sealed class Built(VkDeviceApi api) : IDisposable
-    {
-        public List<VkDescriptorSetLayout> SetLayouts { get; } = [];
-        public List<VkShaderModule> Modules { get; } = [];
-        public VkPipelineLayout Layout;
-        public VkPipeline Pipeline;
+    private VulkanPipelines.Built BuildLayout(VulkanPipelineLayout layout) => Pipelines.BuildLayout(layout);
 
-        public void Dispose()
-        {
-            if (Pipeline.IsNotNull) api.vkDestroyPipeline(Pipeline);
-            if (Layout.IsNotNull) api.vkDestroyPipelineLayout(Layout);
-            foreach (var m in Modules) api.vkDestroyShaderModule(m);
-            foreach (var s in SetLayouts) api.vkDestroyDescriptorSetLayout(s);
-        }
-    }
-
-    /// <summary>
-    /// Descriptor set layouts and a pipeline layout, taken straight from the projection.
-    /// </summary>
-    /// <remarks>
-    /// Nothing is adjusted on the way through — the point is that what PrismSlang reports is what
-    /// gets built. The one place a decision is made is an unbounded binding, where the shader says
-    /// nothing about the count and the host has to choose; the projection says so with
-    /// <c>IsUnbounded</c> and this picks a cap, exactly as documented on <c>VulkanBinding</c>.
-    /// </remarks>
-    private Built BuildLayout(VulkanPipelineLayout layout)
-    {
-        var built = new Built(Vulkan.Api);
-
-        foreach (var set in layout.DescriptorSets)
-        {
-            var bindings = new VkDescriptorSetLayoutBinding[set.Bindings.Count];
-            var flags = new VkDescriptorBindingFlags[set.Bindings.Count];
-
-            for (var i = 0; i < set.Bindings.Count; i++)
-            {
-                var b = set.Bindings[i];
-                bindings[i] = new VkDescriptorSetLayoutBinding
-                {
-                    binding = b.Binding,
-                    descriptorType = (VkDescriptorType)b.DescriptorType,
-                    descriptorCount = b.IsUnbounded ? 64u : b.DescriptorCount,
-                    stageFlags = (VkShaderStageFlags)b.StageFlags,
-                };
-                flags[i] = b.IsUnbounded
-                    ? VkDescriptorBindingFlags.VariableDescriptorCount
-                      | VkDescriptorBindingFlags.PartiallyBound
-                    : VkDescriptorBindingFlags.None;
-            }
-
-            fixed (VkDescriptorSetLayoutBinding* pBindings = bindings)
-            fixed (VkDescriptorBindingFlags* pFlags = flags)
-            {
-                var flagsInfo = new VkDescriptorSetLayoutBindingFlagsCreateInfo
-                {
-                    bindingCount = (uint)flags.Length,
-                    pBindingFlags = pFlags,
-                };
-
-                var info = new VkDescriptorSetLayoutCreateInfo
-                {
-                    pNext = &flagsInfo,
-                    bindingCount = (uint)bindings.Length,
-                    pBindings = pBindings,
-                };
-
-                Check(Vulkan.Api.vkCreateDescriptorSetLayout(&info, out VkDescriptorSetLayout handle));
-                built.SetLayouts.Add(handle);
-            }
-        }
-
-        var ranges = layout.PushConstants
-            .Select(r => new VkPushConstantRange
-            {
-                stageFlags = (VkShaderStageFlags)r.StageFlags,
-                offset = r.Offset,
-                size = r.Size,
-            })
-            .ToArray();
-
-        var setHandles = built.SetLayouts.ToArray();
-        fixed (VkDescriptorSetLayout* pSets = setHandles)
-        fixed (VkPushConstantRange* pRanges = ranges)
-        {
-            var info = new VkPipelineLayoutCreateInfo
-            {
-                setLayoutCount = (uint)setHandles.Length,
-                pSetLayouts = pSets,
-                pushConstantRangeCount = (uint)ranges.Length,
-                pPushConstantRanges = pRanges,
-            };
-
-            Check(Vulkan.Api.vkCreatePipelineLayout(&info, out built.Layout));
-        }
-
-        return built;
-    }
-
-    private VkShaderModule CreateModule(byte[] spirv)
-    {
-        Check(Vulkan.Api.vkCreateShaderModule(spirv.AsSpan(), null, out VkShaderModule module));
-        return module;
-    }
+    private VkShaderModule CreateModule(byte[] spirv) => Pipelines.CreateModule(spirv);
 
     // ---------------------------------------------------------------- the tests
 
@@ -236,27 +140,8 @@ public sealed unsafe class VulkanValidationTests : IDisposable
         using var built = BuildLayout(layout);
         built.Modules.Add(CreateModule(code));
 
-        var entryName = "main"u8;
-        fixed (byte* pName = entryName)
-        {
-            var stage = new VkPipelineShaderStageCreateInfo
-            {
-                stage = VkShaderStageFlags.Compute,
-                module = built.Modules[0],
-                pName = pName,
-            };
-
-            var info = new VkComputePipelineCreateInfo
-            {
-                stage = stage,
-                layout = built.Layout,
-            };
-
-            fixed (VkPipeline* pPipeline = &built.Pipeline)
-            {
-                Vulkan.Api.vkCreateComputePipelines(VkPipelineCache.Null, 1, &info, pPipeline);
-            }
-        }
+        Pipelines.CreateComputePipeline(
+            built, new StageModule(VkShaderStageFlags.Compute, built.Modules[0], "main"));
 
         Assert.True(capture.Errors.Count == 0,
             $"the validation layers rejected a compute pipeline built from the projection:\n"
@@ -382,121 +267,26 @@ public sealed unsafe class VulkanValidationTests : IDisposable
 
     // ---------------------------------------------------------------- pipeline plumbing
 
-    private void CreateGraphicsPipeline(Built built, VulkanPipelineLayout layout)
-    {
-        var attributes = layout.VertexInputs
-            .Select((v, i) => new VkVertexInputAttributeDescription
+    private void CreateGraphicsPipeline(VulkanPipelines.Built built, VulkanPipelineLayout layout) =>
+        CreateGraphicsPipeline(built, layout.VertexInputs
+            .Select(v => new VkVertexInputAttributeDescription
             {
                 location = v.Location,
-                binding = 0,
+                binding = v.Location,
                 format = (VkFormat)v.Format,
-                offset = (uint)(i * 16),
+                offset = 0,
             })
-            .ToArray();
+            .ToArray());
 
-        CreateGraphicsPipeline(built, attributes);
-    }
-
-    /// <summary>
-    /// A pipeline with everything dynamic that can be, so nothing here is under test but the
-    /// layout and the shader interface.
-    /// </summary>
-    private void CreateGraphicsPipeline(Built built, VkVertexInputAttributeDescription[] attributes)
-    {
-        var entryName = "main"u8;
-
-        fixed (byte* pName = entryName)
-        fixed (VkVertexInputAttributeDescription* pAttributes = attributes)
-        {
-            var stages = stackalloc VkPipelineShaderStageCreateInfo[2];
-            stages[0] = new VkPipelineShaderStageCreateInfo
-            {
-                stage = VkShaderStageFlags.Vertex, module = built.Modules[0], pName = pName,
-            };
-            stages[1] = new VkPipelineShaderStageCreateInfo
-            {
-                stage = VkShaderStageFlags.Fragment, module = built.Modules[1], pName = pName,
-            };
-
-            var binding = new VkVertexInputBindingDescription
-            {
-                binding = 0, stride = 128, inputRate = VkVertexInputRate.Vertex,
-            };
-
-            var vertexInput = new VkPipelineVertexInputStateCreateInfo
-            {
-                vertexBindingDescriptionCount = attributes.Length == 0 ? 0u : 1u,
-                pVertexBindingDescriptions = attributes.Length == 0 ? null : &binding,
-                vertexAttributeDescriptionCount = (uint)attributes.Length,
-                pVertexAttributeDescriptions = pAttributes,
-            };
-
-            var assembly = new VkPipelineInputAssemblyStateCreateInfo
-            {
-                topology = VkPrimitiveTopology.TriangleList,
-            };
-            var viewport = new VkPipelineViewportStateCreateInfo { viewportCount = 1, scissorCount = 1 };
-            var raster = new VkPipelineRasterizationStateCreateInfo
-            {
-                polygonMode = VkPolygonMode.Fill,
-                cullMode = VkCullModeFlags.None,
-                frontFace = VkFrontFace.CounterClockwise,
-                lineWidth = 1.0f,
-            };
-            var multisample = new VkPipelineMultisampleStateCreateInfo
-            {
-                rasterizationSamples = VkSampleCountFlags.Count1,
-            };
-            var blendAttachment = new VkPipelineColorBlendAttachmentState
-            {
-                colorWriteMask = VkColorComponentFlags.All,
-            };
-            var blend = new VkPipelineColorBlendStateCreateInfo
-            {
-                attachmentCount = 1, pAttachments = &blendAttachment,
-            };
-
-            var dynamicStates = stackalloc VkDynamicState[2]
-            {
-                VkDynamicState.Viewport, VkDynamicState.Scissor,
-            };
-            var dynamic = new VkPipelineDynamicStateCreateInfo
-            {
-                dynamicStateCount = 2, pDynamicStates = dynamicStates,
-            };
-
-            // Dynamic rendering rather than a render pass: fewer objects, and nothing about a
-            // render pass is what this is testing.
-            var colourFormat = VkFormat.R8G8B8A8Unorm;
-            var rendering = new VkPipelineRenderingCreateInfo
-            {
-                colorAttachmentCount = 1, pColorAttachmentFormats = &colourFormat,
-            };
-
-            var info = new VkGraphicsPipelineCreateInfo
-            {
-                pNext = &rendering,
-                stageCount = 2,
-                pStages = stages,
-                pVertexInputState = &vertexInput,
-                pInputAssemblyState = &assembly,
-                pViewportState = &viewport,
-                pRasterizationState = &raster,
-                pMultisampleState = &multisample,
-                pColorBlendState = &blend,
-                pDynamicState = &dynamic,
-                layout = built.Layout,
-            };
-
-            fixed (VkPipeline* pPipeline = &built.Pipeline)
-            {
-                Vulkan.Api.vkCreateGraphicsPipelines(VkPipelineCache.Null, 1, &info, pPipeline);
-            }
-        }
-    }
-
-    private static void Check(VkResult result)
-    {
-        if (result != VkResult.Success) throw new InvalidOperationException(result.ToString());
-    }
+    /// <summary>Vertex and fragment, in that order, writing one colour attachment.</summary>
+    private void CreateGraphicsPipeline(
+        VulkanPipelines.Built built, VkVertexInputAttributeDescription[] attributes) =>
+        Pipelines.CreateGraphicsPipeline(
+            built,
+            [
+                new StageModule(VkShaderStageFlags.Vertex, built.Modules[0], "main"),
+                new StageModule(VkShaderStageFlags.Fragment, built.Modules[1], "main"),
+            ],
+            attributes,
+            [VkFormat.R8G8B8A8Unorm]);
 }

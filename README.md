@@ -110,28 +110,44 @@ traps worth knowing before you hit them.
 `findings.md` is the one worth reading even if you never use this library. Binding Slang is mostly
 not a question of signatures — it is that `loadModule` returns a borrowed pointer where every other
 call returns an owned one, that `getEntryPointCode` names every module `main`, that a specialization
-constant used as an array length makes reflection kill the process. Seventeen sections of that, each
-one measured, several of them mistakes this binding made and then caught.
+constant used as an array length makes reflection kill the process on Linux and throw on Windows.
+Eighteen sections of that, each one measured, several of them mistakes this binding made and then
+caught.
 
 ## Testing
 
-384 tests. The interesting ones do not assert against numbers someone typed:
+427 tests. The interesting ones do not assert against numbers someone typed:
 
-- **`ModuleAgreementTests`** compiles a 27-shader corpus and requires the reflection snapshot and
+- **`ModuleAgreementTests`** compiles a 28-shader corpus and requires the reflection snapshot and
   the emitted SPIR-V to state *the same set of facts, in both directions* — so a fact one side
   simply lacks is a difference rather than a silence. This is what found most of the defects in
   `findings.md`.
 - **`SurfaceCoverageTests`** fails on any value of Slang's enums the corpus neither exercises nor
   explicitly declares untried, because "nobody compiled that" is where every defect had been hiding.
-- **`VulkanValidationTests`** builds real `VkPipeline`s from the projection on a headless device
-  with the Khronos validation layers loaded — the only oracle in the suite that is not ultimately
-  Slang describing itself.
+- **`VulkanCorpusValidationTests`** puts the same 28-shader corpus in front of the Khronos
+  validation layers — descriptor set layouts, push constant ranges, vertex attributes and colour
+  attachments, built into real `VkPipeline`s on a headless device and judged by an implementation
+  of the specification rather than by Slang. The only oracle here that is not ultimately Slang
+  describing itself, and it found three things on its first complete run
+  ([§9.18](docs/findings.md#918-what-the-layers-said-about-the-whole-corpus)).
+- **`VulkanValidationTests`** is the hand-written half of the same idea: three shaders, each asking
+  one question the corpus driver cannot ask generically.
 - **`MalformedInputTests`** truncates and corrupts both file readers under a fixed seed.
 - **`NativeExportTests`** resolves all 278 `DllImport` entry points against the loaded library.
+- **`ProberTests`** spawns a child process for the one reflection call that does not fail but ends
+  — a resource array sized by a specialization constant — because the alternative is a sentence in
+  a document that nothing checks.
+- **`DocumentedFactsTests`** compares the numbers in these documents against the code they describe.
+  Both files said "27-shader corpus" while the corpus had 28.
 
-Markdown-only changes skip that matrix and run `tools/ci/check-docs.sh` instead, which verifies
-every internal link resolves and every `§N` a code comment cites is a real heading. The two
-documents share one numbering, and ~48 comments depend on it.
+The Linux job runs the whole suite under `MALLOC_PERTURB_`, so freed memory is overwritten rather
+than left intact and every test becomes an ownership test.
+
+Markdown-only changes skip that matrix and run `tools/ci/check-docs.sh` instead, which verifies that
+every internal link resolves, every `§N` cited from code *or from a document* is a real heading,
+every file the solution lists exists, and every test class the documents name is declared. What it
+cannot check is whether a cited section supports the claim citing it — one risk-table row spent its
+life citing the section that refuted it.
 
 ## Licence
 

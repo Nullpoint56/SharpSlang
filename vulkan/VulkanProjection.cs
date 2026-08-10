@@ -30,7 +30,7 @@ public static class VulkanProjection
                     r.IndexOffset,
                     ToDescriptorType(r.BindingType),
                     r.DescriptorCount,
-                    stages,
+                    VisibleStages(ToDescriptorType(r.BindingType), stages),
                     // The range's own name where the walk could attribute one — that is the only
                     // source that reaches inside a ParameterBlock. The scan below is the fallback
                     // for ranges Slang's binding-range view does not cover.
@@ -624,6 +624,28 @@ public static class VulkanProjection
         foreach (var e in layout.EntryPoints) stages |= ToStage(e.Stage);
         return stages;
     }
+
+    /// <summary>
+    /// The stages a binding of this type may be declared visible to.
+    /// </summary>
+    /// <remarks>
+    /// The conservative "every stage in the program" above is over-permission, which is normally
+    /// harmless. For an input attachment it is not: Vulkan requires
+    /// <c>VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT</c> to be fragment-only, and
+    /// <c>VUID-VkDescriptorSetLayoutBinding-descriptorType-01510</c> rejects the descriptor set
+    /// layout outright — not the pipeline, the set layout, so a host following the projection
+    /// literally cannot create the object at all.
+    ///
+    /// Found by putting the corpus in front of the validation layers (§9.18): the subpass-inputs
+    /// shader projected <c>VERTEX | FRAGMENT</c> onto both of its input attachments, and every
+    /// other test in this suite was content, because the only authority that knows this rule is
+    /// Vulkan and until then nothing here was asking Vulkan.
+    /// </remarks>
+    private static VulkanShaderStages VisibleStages(
+        VulkanDescriptorType type, VulkanShaderStages stages) =>
+        type == VulkanDescriptorType.InputAttachment
+            ? stages & VulkanShaderStages.Fragment
+            : stages;
 
     /// <summary>
     /// Names for the bindings of one space, so a descriptor can be reported as "albedo" rather

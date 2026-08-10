@@ -19,6 +19,7 @@ recalled — and the traps flagged along the way are the ones that actually bit 
 - [Baking and loading](#baking-and-loading)
 - [Serving shaders from your own filesystem](#serving-shaders-from-your-own-filesystem)
 - [Diagnostics](#diagnostics)
+- [The payload has to be the pinned one](#the-payload-has-to-be-the-pinned-one)
 - [Lifetime](#lifetime)
 - [Traps worth knowing](#traps-worth-knowing)
 
@@ -309,6 +310,25 @@ Because that diagnostic fires only once per session, there is a second, ordering
 mechanism: `GlobalSessionOptions.RequireSpirvOptimizer` (on by default) checks for the downstream
 compiler at session creation, before a single shader is compiled.
 
+## The payload has to be the pinned one
+
+`SlangGlobalSession.Create` refuses a `slang-compiler` that is not the release these bindings were
+generated from, and throws `SlangVersionMismatchException` naming both versions. Slang states its
+ABI is not stable between releases, and this layer calls COM vtables by slot ordinal taken from one
+specific header — a payload with a reordered interface links, calls, and calls the wrong function.
+
+The realistic way to hit it is undramatic: `runtimes/` is gitignored, so bumping `$(SlangVersion)`
+without re-running `fetch-native.ps1` leaves the previous release staged and everything builds.
+
+```csharp
+SlangGlobalSession.PinnedBuildTag    // what these bindings expect, e.g. "2026.14.1"
+SlangGlobalSession.BuildTag          // what the loaded library reports
+
+// Deliberately running something else:
+using var global = SlangGlobalSession.Create(
+    new GlobalSessionOptions { RequirePinnedSlangVersion = false });
+```
+
 ## Lifetime
 
 Dispose everything, in any order:
@@ -342,7 +362,9 @@ recognise the shape if you meet a cousin of one.
 | "Unknown" is a big number | `CategorySize.Unknown` is `ulong.MaxValue - 1`. Check `IsKnown` before arithmetic. |
 | A specialized workgroup size is `0` | Check `ThreadGroupSize.IsSpecialized`; do not divide by it. |
 | `double3`/`double4` vertex attributes | Slang assigns one location where Vulkan requires two. The projection refuses it — the module is invalid SPIR-V, confirmed by the validation layers ([§9.17](findings.md#917-the-fourth-oracle-and-the-question-it-settled)). |
-| A spec-constant-sized resource array | `Texture2D t[kCount]` **terminates the process** inside Slang's reflection. Not detectable in advance; also unusable on Vulkan, where `descriptorCount` is fixed before specialization exists. Do not write one. |
+| A spec-constant-sized resource array | `Texture2D t[kCount]` never reflects: on Linux it **ends the process** inside Slang's reflection, on Windows it surfaces as a catchable `SEHException`. Not detectable in advance; also unusable on Vulkan, where `descriptorCount` is fixed before specialization exists. Do not write one. |
+| An unbounded array that is not the last binding | `VK_DESCRIPTOR_BINDING_VARIABLE_DESCRIPTOR_COUNT_BIT` is legal only on a set's highest-numbered binding, and Slang does not arrange for that. Check `VulkanBinding.Binding` against the set before reaching for it; `PARTIALLY_BOUND` with a fixed cap is legal anywhere ([§9.18](findings.md#918-what-the-layers-said-about-the-whole-corpus)). |
+| The `sample` interpolation modifier | Slang emits `OpDecorate … Sample` without declaring `OpCapability SampleRateShading`, which spirv-val rejects as malformed. No device feature changes it. |
 | `ParameterBlocksUseRegisterSpaces` | Byte-for-byte inert on SPIR-V. A `ParameterBlock` takes a space of its own either way. |
 
 Reflection reports what Slang says. Where the two disagreed, the emitted module won — that is what

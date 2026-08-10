@@ -343,4 +343,65 @@ public class CompilationTests
         var pinned = SlangHeader.Pinned.Version.TrimStart('v');
         Assert.Equal(pinned, SlangGlobalSession.BuildTag);
     }
+
+    // ---------------------------------------------------------------- the pin, checked at load
+
+    [Fact]
+    public void The_pin_reaches_the_assembly_that_has_to_enforce_it()
+    {
+        // Two independent readings of one MSBuild property: the test assembly's metadata, which
+        // SlangHeader uses to fetch the right header, and PrismSlang's own, which Create compares
+        // against the payload. They are wired separately in two csproj files and nothing but this
+        // notices if one of them is dropped — at which point the load check either throws on every
+        // startup or silently compares the wrong thing.
+        Assert.Equal(SlangHeader.Pinned.Version.TrimStart('v'), SlangGlobalSession.PinnedBuildTag);
+    }
+
+    [NativeFact]
+    public void Creating_a_global_session_accepts_the_pinned_payload()
+    {
+        // The staged payload is the pinned one, so Create's default must not reject it. Trivially
+        // true today and the reason the check can be on by default; if a version bump ever landed
+        // without a re-fetch this is what would say so, instead of the vtables disagreeing quietly.
+        SlangGlobalSession.RequirePinnedVersion();
+        using var global = SlangGlobalSession.Create();
+        Assert.Equal(SlangGlobalSession.PinnedBuildTag, SlangGlobalSession.BuildTag);
+    }
+
+    [Fact]
+    public void A_payload_from_another_release_is_refused_by_name()
+    {
+        // The comparison and the message, which is all that can be wrong here. Staging a second
+        // Slang release to provoke it for real would cost 36 MB and prove the same thing.
+        var e = Assert.Throws<SlangVersionMismatchException>(
+            () => SlangGlobalSession.Verify("2026.14.1", "2026.9.2"));
+
+        Assert.Equal("2026.14.1", e.Expected);
+        Assert.Equal("2026.9.2", e.Loaded);
+
+        // Both versions in the text, not just the properties: an unhandled exception shows a
+        // message, and "the wrong Slang is loaded" without saying which is a bug report with the
+        // interesting half missing.
+        Assert.Contains("2026.14.1", e.Message);
+        Assert.Contains("2026.9.2", e.Message);
+        Assert.Contains("fetch-native.ps1", e.Message);
+        Assert.Contains(nameof(GlobalSessionOptions.RequirePinnedSlangVersion), e.Message);
+    }
+
+    [Fact]
+    public void The_matching_case_is_not_an_exception()
+    {
+        SlangGlobalSession.Verify("2026.14.1", "2026.14.1");
+    }
+
+    [NativeFact]
+    public void The_check_can_be_turned_off()
+    {
+        // The opt-out exists for a consumer who is deliberately running a different release, and
+        // an option nobody exercises is an option that stops compiling. It cannot be shown to skip
+        // the check here — the payload matches — only that it is honoured on the path that works.
+        using var global = SlangGlobalSession.Create(
+            new GlobalSessionOptions { RequirePinnedSlangVersion = false });
+        Assert.NotNull(global);
+    }
 }

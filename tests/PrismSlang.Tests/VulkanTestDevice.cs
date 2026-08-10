@@ -135,6 +135,28 @@ public sealed unsafe class VulkanTestDevice : IDisposable
         return (properties.bufferFeatures & VkFormatFeatureFlags.VertexBuffer) != 0;
     }
 
+    /// <summary>Whether the device offers geometry shaders. CreateDevice enables them if so.</summary>
+    public bool SupportsGeometryShaders => Features.geometryShader;
+
+    /// <summary>Whether the device offers tessellation. CreateDevice enables it if so.</summary>
+    public bool SupportsTessellationShaders => Features.tessellationShader;
+
+    /// <summary>
+    /// What the physical device reports, asked once. Read here as well as in
+    /// <c>CreateDevice</c> so the corpus driver can gate on the same answer the device was created
+    /// with — asking the driver twice and getting two answers is not a failure mode worth leaving
+    /// open, given the whole point of the gate is to be right about what is enabled.
+    /// </summary>
+    private VkPhysicalDeviceFeatures Features
+    {
+        get
+        {
+            var supported = new VkPhysicalDeviceFeatures();
+            InstanceApi.vkGetPhysicalDeviceFeatures(PhysicalDevice, &supported);
+            return supported;
+        }
+    }
+
     public VulkanTestDevice()
     {
         using var layers = new VkStringArray([ValidationLayer]);
@@ -212,22 +234,41 @@ public sealed unsafe class VulkanTestDevice : IDisposable
         };
 
         // Everything a corpus shader might declare, where the device has it. Missing one turns a
-        // layout question into a feature-support question, which is not what is being asked.
+        // layout question into a feature-support question, which is not what is being asked — and
+        // four of them were missing until the corpus driver put all 28 shaders in front of the
+        // layers and got four "capability declared but the feature was not enabled" rejections
+        // that had nothing to do with any layout: shaderDrawParameters, shaderOutputLayer,
+        // sampleRateShading and maintenance4.
+        var supported11 = new VkPhysicalDeviceVulkan11Features();
+        var supported12 = new VkPhysicalDeviceVulkan12Features { pNext = &supported11 };
+        var supported13 = new VkPhysicalDeviceVulkan13Features { pNext = &supported12 };
+        var supported2 = new VkPhysicalDeviceFeatures2 { pNext = &supported13 };
+        InstanceApi.vkGetPhysicalDeviceFeatures2(physical, &supported2);
+        var supported = supported2.features;
+
+        var vulkan11 = new VkPhysicalDeviceVulkan11Features
+        {
+            // vertex-interface and system-values both emit the DrawParameters capability, for
+            // SV_VertexID and SV_InstanceID with their HLSL base-relative meaning.
+            shaderDrawParameters = supported11.shaderDrawParameters,
+        };
         var vulkan12 = new VkPhysicalDeviceVulkan12Features
         {
             runtimeDescriptorArray = true,
             descriptorBindingPartiallyBound = true,
             descriptorBindingVariableDescriptorCount = true,
             shaderSampledImageArrayNonUniformIndexing = true,
+            shaderOutputLayer = supported12.shaderOutputLayer,   // SV_RenderTargetArrayIndex
+            pNext = &vulkan11,
         };
         var vulkan13 = new VkPhysicalDeviceVulkan13Features
         {
             dynamicRendering = true,
+            // Slang emits LocalSizeId rather than LocalSize whenever a workgroup dimension is a
+            // specialization constant, and LocalSizeId is only legal with maintenance4.
+            maintenance4 = supported13.maintenance4,
             pNext = &vulkan12,
         };
-
-        var supported = new VkPhysicalDeviceFeatures();
-        InstanceApi.vkGetPhysicalDeviceFeatures(physical, &supported);
 
         var features = new VkPhysicalDeviceFeatures
         {
@@ -239,6 +280,7 @@ public sealed unsafe class VulkanTestDevice : IDisposable
             vertexPipelineStoresAndAtomics = supported.vertexPipelineStoresAndAtomics,
             geometryShader = supported.geometryShader,
             tessellationShader = supported.tessellationShader,
+            sampleRateShading = supported.sampleRateShading,     // the `sample` interpolation modifier
         };
 
         var deviceInfo = new VkDeviceCreateInfo

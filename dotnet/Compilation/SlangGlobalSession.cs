@@ -4,6 +4,7 @@
 // compiler registry, and creating one is expensive. Sessions created from it are the cheap,
 // per-configuration objects.
 
+using System.Reflection;
 using PrismSlang.Interop;
 using PrismSlang.Native;
 
@@ -31,6 +32,29 @@ public sealed class GlobalSessionOptions
     /// spirv-opt is never invoked and the output is byte-identical either way.
     /// </remarks>
     public bool RequireSpirvOptimizer { get; init; } = true;
+
+    /// <summary>
+    /// Fail creation unless the loaded <c>slang-compiler</c> is the release these bindings were
+    /// generated from.
+    /// </summary>
+    /// <remarks>
+    /// On by default. Slang states its public ABI is not stable and directs redistributors to ship
+    /// the libraries they built against (docs/design.md §3.5), so this is not defensive
+    /// housekeeping: <c>dotnet/Native/</c> indexes vtable slots by ordinal, taken from one specific
+    /// header. A payload with a reordered interface still links, still calls, and calls the wrong
+    /// function — the failure mode that <c>regen</c> guards against upstream and this guards
+    /// against downstream.
+    ///
+    /// The realistic way to hit it is not exotic. <c>runtimes/</c> is gitignored, so bumping
+    /// <c>$(SlangVersion)</c> without re-running <c>fetch-native.ps1</c> leaves the previous
+    /// release staged and everything builds. That mismatch is a CI failure here
+    /// (<c>Build_tag_matches_the_pinned_version</c>) and was nothing at all in a consumer's tree.
+    ///
+    /// Turn it off only when running a different Slang release is deliberate and the risk is
+    /// understood; <see cref="SlangVersionMismatchException"/> is thrown otherwise and names both
+    /// versions.
+    /// </remarks>
+    public bool RequirePinnedSlangVersion { get; init; } = true;
 }
 
 /// <summary>
@@ -49,6 +73,11 @@ public sealed unsafe class SlangGlobalSession : SlangObject<IGlobalSession>
     public static SlangGlobalSession Create(GlobalSessionOptions? options = null)
     {
         options ??= new GlobalSessionOptions();
+
+        // Before anything else, and deliberately: spGetBuildTagString is a flat `const char*()`
+        // with no receiver and no vtable, so it is the one call whose ABI cannot be wrong. Every
+        // later call's correctness depends on the answer.
+        if (options.RequirePinnedSlangVersion) RequirePinnedVersion();
 
         // Defaults.GlobalSessionDesc restores the C++ default member initializers ClangSharp drops
         // — notably structureSize, which Slang uses to version the struct. See docs §4.5.
@@ -113,6 +142,55 @@ public sealed unsafe class SlangGlobalSession : SlangObject<IGlobalSession>
 
     /// <summary>The Slang build this binding is talking to, e.g. <c>2026.14.1</c>.</summary>
     public static string BuildTag => Utf8.Read(SlangApi.spGetBuildTagString()) ?? "unknown";
+
+    /// <summary>
+    /// The Slang release these bindings were generated from, e.g. <c>2026.14.1</c> — the pin in
+    /// <c>Directory.Build.props</c>, baked in at build time.
+    /// </summary>
+    public static string PinnedBuildTag { get; } =
+        typeof(SlangGlobalSession).Assembly
+            .GetCustomAttributes<AssemblyMetadataAttribute>()
+            .FirstOrDefault(a => a.Key == "SlangVersion")?.Value?.TrimStart('v')
+        // Not reachable from a package this repo built: the metadata comes from $(SlangVersion) in
+        // Directory.Build.props, which every project imports. Reachable from a fork that dropped
+        // it, and saying so beats degrading to a check that silently passes.
+        ?? throw new InvalidOperationException(
+            "PrismSlang was built without SlangVersion assembly metadata, so the pinned Slang "
+            + "release is unknown and cannot be verified against the loaded library. The csproj "
+            + "must emit <AssemblyMetadata Include=\"SlangVersion\" Value=\"$(SlangVersion)\" />.");
+
+    /// <summary>
+    /// Throws unless the loaded library is the pinned release.
+    /// </summary>
+    /// <exception cref="SlangVersionMismatchException">It is some other release.</exception>
+    public static void RequirePinnedVersion() => Verify(PinnedBuildTag, BuildTag);
+
+    // Split out so the mismatch path is reachable from a test. Provoking it for real would mean
+    // staging a second Slang release beside the first; what can go wrong here is the comparison
+    // and the message, and both are testable with two strings.
+    internal static void Verify(string pinned, string loaded)
+    {
+        if (loaded == pinned) return;
+
+        throw new SlangVersionMismatchException(pinned, loaded, $$"""
+            PrismSlang was generated against Slang {{pinned}}, but the loaded
+            slang-compiler reports {{loaded}}.
+
+            Slang does not promise a stable ABI between releases. These bindings call COM vtables
+            by slot ordinal, taken from {{pinned}}'s headers; against a different release those
+            ordinals may name different functions, and the result is not a clean failure.
+
+            Stage the pinned payload:
+
+                pwsh tools/fetch-native.ps1 -Profile Spirv
+
+            If runtimes/ holds a payload from an earlier pin, that is the usual cause — the
+            directory is gitignored, so bumping the version alone does not replace it.
+
+            If running {{loaded}} is deliberate, pass
+            new GlobalSessionOptions { RequirePinnedSlangVersion = false } to Create.
+            """);
+    }
 
     /// <summary>
     /// Resolves a profile name such as <c>spirv_1_5</c> or <c>glsl_450</c>.

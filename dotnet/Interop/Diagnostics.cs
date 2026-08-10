@@ -40,6 +40,25 @@ public sealed class SlangException(int result, string operation, string? diagnos
     }
 }
 
+/// <summary>
+/// The loaded <c>slang-compiler</c> is not the release this binding was generated against.
+/// </summary>
+/// <remarks>
+/// Its own exception type because it is not a compiler error and there is no <c>SlangResult</c> to
+/// carry: nothing has been asked of Slang yet. It is a deployment fault, and the two recoveries a
+/// caller might want — re-stage the payload, or accept the mismatch deliberately — both need to
+/// distinguish it from a compile failure. See <c>docs/design.md</c> §3.5.
+/// </remarks>
+public sealed class SlangVersionMismatchException(string expected, string loaded, string message)
+    : Exception(message)
+{
+    /// <summary>The release this assembly's bindings were generated from.</summary>
+    public string Expected { get; } = expected;
+
+    /// <summary>What the loaded library reports via <c>spGetBuildTagString</c>.</summary>
+    public string Loaded { get; } = loaded;
+}
+
 /// <summary>How severe a Slang diagnostic is, read from its message prefix.</summary>
 public enum SlangDiagnosticSeverity
 {

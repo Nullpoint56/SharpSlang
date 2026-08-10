@@ -21,11 +21,21 @@ namespace PrismSlang.Tests;
 /// reason. See <see cref="ShaderCase.Gap"/>; the agreement test requires the difference to be
 /// <em>exactly</em> this set, so a gap can neither grow nor be quietly fixed.
 /// </param>
+/// <param name="ValidationVertex">
+/// A vertex entry point to pair with a fragment-only shader, for
+/// <see cref="VulkanCorpusValidationTests"/>. Sixteen of these shaders declare a fragment stage and
+/// nothing else, which reflects perfectly well and is not a graphics pipeline — Vulkan has no such
+/// thing without a vertex stage. The driver supplies a trivial one that writes only
+/// <c>SV_Position</c>; a fragment stage that reads a varying needs the vertex stage to write it,
+/// and says so here. Getting it wrong is not silent: an unwritten fragment input is
+/// <c>VUID-RuntimeSpirv-OpEntryPoint-08743</c>.
+/// </param>
 public sealed record ShaderCase(
     string Name,
     string Source,
     IReadOnlyList<string> EntryPoints,
-    IReadOnlyList<ShaderCase.Gap>? KnownGaps = null)
+    IReadOnlyList<ShaderCase.Gap>? KnownGaps = null,
+    string? ValidationVertex = null)
 {
     /// <summary>A difference between module and layout that is understood and accepted, for now.</summary>
     /// <param name="Fact">
@@ -90,7 +100,12 @@ public static class ShaderCorpus
                      + dkCombined.Sample(uv)
                      + dkSampled.SampleCmp(dkCompareSampler, uv, 0.5);
             }
-            """, ["dkFragment"]),
+            """, ["dkFragment"], ValidationVertex: """
+            struct DkVertexOut { float4 pos : SV_Position; float2 uv : TEXCOORD0; };
+            [shader("vertex")]
+            DkVertexOut dkValidationVertex()
+            { DkVertexOut o; o.pos = float4(0, 0, 0, 1); o.uv = 0; return o; }
+            """),
 
         new("descriptor-arrays", """
             Texture2D    daFixed[4];
@@ -102,7 +117,12 @@ public static class ShaderCorpus
             {
                 return daFixed[2].Sample(daSampler, 0) + daUnbounded[i].Sample(daSampler, 0);
             }
-            """, ["daFragment"]),
+            """, ["daFragment"], ValidationVertex: """
+            struct DaVertexOut { float4 pos : SV_Position; nointerpolation uint i : INDEX; };
+            [shader("vertex")]
+            DaVertexOut daValidationVertex()
+            { DaVertexOut o; o.pos = float4(0, 0, 0, 1); o.i = 0; return o; }
+            """),
 
         new("subpass-inputs", """
             [[vk::input_attachment_index(0)]] SubpassInput siGbufferA;
@@ -484,7 +504,12 @@ public static class ShaderCorpus
                      + baTexture.Sample(baSamplers[2], 0)
                      + baTexture.Sample(baUnbounded[i], 0);
             }
-            """, ["baFragment"]),
+            """, ["baFragment"], ValidationVertex: """
+            struct BaVertexOut { float4 pos : SV_Position; nointerpolation uint i : INDEX; };
+            [shader("vertex")]
+            BaVertexOut baValidationVertex()
+            { BaVertexOut o; o.pos = float4(0, 0, 0, 1); o.i = 0; return o; }
+            """),
 
         new("nested-uniform-structs", """
             struct NuInner  { float3 nuOffset; float nuWeight; };

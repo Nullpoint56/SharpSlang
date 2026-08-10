@@ -5,21 +5,36 @@
 # job, because two of the three properties below can be broken by a change that touches no markdown
 # at all.
 #
-# Three properties. Every one of them has already been broken here at least once:
+# Four properties. Every one of them has already been broken here at least once:
 #
 #   1. Every internal link resolves — the file exists and the anchor matches a real heading.
 #      Anchors are generated from heading text, so renaming a heading silently breaks every link
 #      to it and nothing complains until a reader clicks.
 #
-#   2. Every § reference in the source resolves to a heading in design.md or findings.md.
-#      The two documents share one numbering — §1-§8 in design, §9.x in findings — and ~48 code
-#      comments cite a bare section number relying on that. Splitting the documents was safe only
-#      because the numbers are unique; this is what keeps that true rather than assuming it.
+#   2. Every § reference resolves to a heading in design.md or findings.md — from the source *and*
+#      from the documents themselves. The two documents share one numbering — §1-§8 in design,
+#      §9.x in findings — and ~48 code comments cite a bare section number relying on that.
+#      The documents were excluded from this check at first, on the theory that a § in prose is
+#      about a neighbour and needs no verifying. Including them found a citation of section 5.4 in
+#      design.md, where section 5 has no numbered subsections at all and never has.
+#      (Written without the sigil on purpose: this file is scanned too, so a comment about a bad
+#      reference, spelled the normal way, is a bad reference.)
 #
 #   3. Every file the solution lists exists. Renaming binding-surface.md to design.md updated
 #      thirteen source references and left the one in PrismSlang.slnx pointing at nothing — a
 #      dangling entry the IDE shows as a missing file and no build ever complains about. The
 #      solution's non-project files are the docs and the scripts, so they belong in this check.
+#
+#   4. Every test class the documents name exists. §7's risk table names the test or CI job that
+#      enforces each mitigation, rather than citing a section of this document — a row that cited
+#      §4.3 in support of a claim §4.3 overturns is what prompted the change. Naming a control
+#      only helps if the control is real, so this checks that it is.
+#
+# What none of this can see: whether a cited section actually *supports* the claim citing it. This
+# validates the citation graph's edges, not its arguments. Four of the defects in findings.md were
+# of exactly that shape — a comment asserting something the code did not do — and the only reason
+# property 4 exists is that naming an artefact instead of a section moves part of that class from
+# unverifiable prose into a grep.
 #
 # Usage:  bash tools/ci/check-docs.sh
 
@@ -108,11 +123,16 @@ if [ ! -s "$sections" ]; then
     echo "found no numbered headings in docs/ - the extraction is broken, not the docs" >> "$problems"
 fi
 
-# Cited from code, scripts and project files. Excludes the docs themselves: a § inside findings.md
-# is prose about a neighbouring section and is covered by the link check where it is a link.
+# Cited from code, scripts, project files — and from the documents. A § in prose was assumed not to
+# need checking, because it points at a neighbour and a reader would notice. Nobody noticed 5.4.
+#
+# obj/ is excluded and must stay excluded: fetch-native.ps1 stages Slang's own release there,
+# user-guide markdown included, and scanning it would have this script grading upstream's prose.
 cited=$(grep -rhoE '§ ?[0-9]+(\.[0-9]+)?' \
             --include='*.cs' --include='*.csproj' --include='*.props' \
-            --include='*.ps1' --include='*.sh' --include='*.yml' . 2>/dev/null \
+            --include='*.ps1' --include='*.sh' --include='*.yml' \
+            --include='*.md' \
+            --exclude-dir=obj --exclude-dir=bin --exclude-dir=runtimes . 2>/dev/null \
         | sed 's/§ *//' | sort -u)
 
 for section in $cited; do
@@ -142,6 +162,27 @@ for expected in docs/*.md tools/*.ps1 tools/ci/*.sh README.md; do
     [ -f "$expected" ] || continue
     grep -qF "Path=\"$expected\"" ./*.slnx 2>/dev/null \
         || echo "$expected exists but no .slnx lists it" >> "$problems"
+done
+
+# ---------------------------------------------------------------- 4. named controls exist
+
+echo "==> named tests"
+
+# §7 names the test class or CI job that enforces each mitigation instead of citing a section of
+# design.md, after a row spent its life citing the section that refuted it. That only helps if the
+# names are real, so: every `SomethingTests` and every `Method_named_like_this` the documents put in
+# backticks must be declared under tests/.
+#
+# Deliberately narrow. Both patterns match this repo's own conventions and nothing else — a class
+# suffixed Tests, and xunit's sentence-shaped method names. Widening it to "any backticked
+# identifier" would start grading upstream's vocabulary, and a check with false positives gets
+# muted, which is worse than not having it.
+named=$(grep -rhoE '`([A-Za-z0-9]+Tests|[A-Z][a-z0-9]*(_[a-z0-9]+)+)`' "${DOCS[@]}" 2>/dev/null \
+        | tr -d '`' | sort -u)
+
+for name in $named; do
+    grep -rqE "(class|void) +$name\b" tests/ --include='*.cs' \
+        || echo "docs name \`$name\`, which is not declared anywhere under tests/" >> "$problems"
 done
 
 # ---------------------------------------------------------------- verdict
