@@ -43,7 +43,8 @@ so a bare `§4.4` or `§9.8` in a code comment is unambiguous.
 | [9.19](#919-closing-the-reflection-gaps-and-what-three-of-them-turned-out-to-be) | Closing the reflection gaps | signatures, a module cache, and three APIs that under-deliver |
 | [9.20](#920-the-last-two-gaps-one-of-which-crashes) | The last two gaps | a descriptor with no parameter, and the fourth crash |
 | [9.21](#921-the-four-crashes-what-upstream-says-and-whether-they-are-ours) | The four crashes, checked | a closed audit's residue, and one claim of ours that expired |
-| [9.22](#922-the-rest-of-the-reflection-surface-and-what-closing-it-cost) | The rest of the surface | 130 of 172, and forty-two classified by evidence |
+| [9.22](#922-the-rest-of-the-reflection-surface-and-what-closing-it-cost) | The rest of the surface | 172 of 172, and a fifth crash the Linux leg found |
+| [9.23](#923-the-two-spec-conformance-bugs-rechecked--and-one-of-them-was-already-filed) | The two spec bugs, rechecked | one is #12441, filed a day before we found it |
 
 ### The four oracles
 
@@ -1701,5 +1702,68 @@ Outside the reflection API, twenty-four flat functions remain unreached and ever
 That is the whole surface accounted for. Not "95 of 278 and the rest unexamined" — every function
 either reached, exercised as a second opinion, pinned as silent, excluded with a measurement, or
 named as out of scope by a decision made in §5 before any of it was written.
+
+492 tests.
+
+### 9.23 The two spec-conformance bugs, rechecked — and one of them was already filed
+
+§9.21 checked the crashes. The other two Slang findings here are not crashes: they are modules that
+compile fine and then fail `spirv-val`. Both were rechecked against 2026.14.1 with **`slangc`
+alone** — no PrismSlang in the process — after the reflection surface was finished.
+
+Both still reproduce, and the emitted assembly is the whole argument.
+
+**A `double4` vertex input takes one location where Vulkan gives it two** (§9.17):
+
+```
+OpEntryPoint Vertex %vertexMain "main" %gl_Position %v_position %v_wide %v_after
+OpDecorate %v_position Location 0
+OpDecorate %v_wide     Location 1     ; double4 — consumes 1 and 2
+OpDecorate %v_after    Location 2     ; collides
+```
+
+**`sample` interpolation omits its capability** (§9.18):
+
+```
+OpCapability Shader                   ; the only one
+OpDecorate %v_uv Sample               ; requires SampleRateShading
+```
+
+Neither rests on our reading of the specification. `spirv-val` — Khronos's validator, not ours —
+rejects both, and `slangc` produces them with nothing of this package involved.
+
+#### The `sample` bug is reported, by someone else, one day before we found it
+
+[shader-slang/slang#12441](https://github.com/shader-slang/slang/issues/12441), opened 2026-08-09 by
+an NVIDIA engineer, labelled `bug` / `reproduced` / `SPIR-V`, still open. Same shader shape, same
+error string, and it names the cause we could only observe from outside:
+`_maybeEmitInterpolationModifierDecoration` in `slang-emit-spirv.cpp` writes `SpvDecorationSample`
+without a matching `requireSPIRVCapability`. Triaged at HEAD, with the fix agreed.
+
+Worth recording for two reasons beyond the bug. First, the question of whether to report this one is
+now moot, which is the cheapest possible resolution of it. Second, the report says these *"only
+surface with `SLANG_RUN_SPIRV_VALIDATION=1`, which the nightly sets, so they are invisible in a
+default local run"* — the same reason this project only found it after the validation layers were
+pointed at the whole corpus (§9.18). Two harnesses, independently, on the same day, for the same
+underlying reason.
+
+#### The 64-bit location bug is not reported, and the timing explains why
+
+No issue found for it, across searches for the VUID, the wording of the diagnostic, and the shader
+construct. What the tracker does show is a burst of invalid-SPIR-V reports in the last week —
+[#12423](https://github.com/shader-slang/slang/issues/12423) on the 7th,
+[#12435](https://github.com/shader-slang/slang/issues/12435) and #12441 both on the 9th — three days
+after [#12342](https://github.com/shader-slang/slang/issues/12342) closed:
+
+> `GlslangDownstreamCompiler::validate` conflates "validator unavailable" with "shader invalid", so
+> 0/N validation failures are indistinguishable from a mass regression
+
+That is a gate that was wrong, in exactly the sense §9.17 and the lavapipe layer probe are about,
+in Slang's own validation harness. Their spirv-val gate has only recently begun reporting reliably,
+and the reports are arriving now. A `double4` vertex input has not surfaced among them, which most
+likely means their corpus does not contain one — an inference, not a fact, but the only reading
+consistent with a validator that now works and a defect that reproduces in four lines of Slang.
+
+Neither has been reported by this project, for the reason given when the first one was found.
 
 492 tests.

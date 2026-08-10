@@ -111,7 +111,7 @@ traps worth knowing before you hit them.
 not a question of signatures — it is that `loadModule` returns a borrowed pointer where every other
 call returns an owned one, that `getEntryPointCode` names every module `main`, that a specialization
 constant used as an array length makes reflection kill the process on Linux and throw on Windows.
-Twenty-two sections of that, each one measured, several of them mistakes this binding made and then
+Twenty-three sections of that, each one measured, several of them mistakes this binding made and then
 caught.
 
 ## Testing
