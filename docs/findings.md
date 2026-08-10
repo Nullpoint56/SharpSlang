@@ -1892,6 +1892,46 @@ means nothing, which is the exact claim this document keeps catching in other pe
 Both are now three-way, and the macOS branch reports what happened and asserts only that the
 operation did not succeed. The first run turns each into a real assertion.
 
+#### What the first macOS run said
+
+It failed, which is the outcome that justifies the leg. Three results, in descending order of
+interest.
+
+**`specializeGeneric` does not crash on macOS — it diagnoses.** The two mismatch cases that
+access-violate on Windows and on both Linux architectures come back on osx-arm64 as
+
+```
+error[E30060]: expected a type            # an int where a type parameter belongs
+error[E39999]: too many arguments to call # two type arguments for one parameter
+```
+
+Same version, same source, three platforms, and one of them reports the mistake properly. That is
+the interesting half: **the diagnostic path exists and is reached somewhere**, so the other two are
+not crashing because the case is undiagnosable. §9.20 called this "the fourth measured Slang crash";
+it is a crash on two platforms out of three, and the test named
+`..._ends_the_process_on_every_platform` was simply wrong.
+
+It also makes the guard in `SpecializeGeneric` load-bearing everywhere for two different reasons.
+On Windows and Linux it prevents a dead process. On macOS the call returns a **non-null** generic
+*alongside* the error — so a caller checking only for null proceeds with a specialization Slang has
+already rejected, which is worse than a crash for being survivable.
+
+**The host crashed, and the reason it reported was a Slang warning about an uninitialized variable
+in a module three test classes earlier.** That is what a test-host crash always reports: whatever
+was on stderr. The TRX records every test that *completed*, so `ci.yml` gained a step that runs only
+on failure and prints the last fifteen in finish order — the crasher is the one after them. Worth
+having on every leg, since two of the crashes in this document were found by a host dying on one
+platform and not another.
+
+**Two questions were moved out of the runner on suspicion, and the suspicion is labelled as such.**
+`SecondOpinionTests` was asking for argument 0 of a specialization-argument list of length 0, and
+applying an unspecialized generic as its own substitution. Both are benign on Windows and Linux —
+measured, null and non-null respectively — and both were in-process purely because those two data
+points held. Asking a native API for an element it has just said does not exist is a caller mistake
+whoever survives it, so they are in the prober now.
+
+Neither is *proven* to be what killed the run. The diagnostic step will name the real one.
+
 #### What is left for v1.0
 
 Every supported RID is now in CI, so the list is short and none of it is a platform.
@@ -1908,4 +1948,4 @@ Every supported RID is now in CI, so the list is short and none of it is a platf
 - The implicit global constant buffer is still unnamed, and `getEntryPointHash` is still
   deliberately unbound (§9.7).
 
-497 tests.
+498 tests.

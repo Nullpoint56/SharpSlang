@@ -109,38 +109,61 @@ public class ProberTests(Xunit.Abstractions.ITestOutputHelper output)
     }
 
     [NativeFact]
-    public void A_generic_argument_of_the_wrong_kind_ends_the_process_on_every_platform()
+    public void A_mismatched_generic_argument_kind_crashes_on_two_platforms_and_diagnoses_on_the_third()
     {
-        // §9.20. An integer where a type parameter belongs, handed straight to
-        // spReflection_specializeGeneric. Not an exception and not a null: an access violation.
+        // §9.20, corrected by the first macOS run. This was called
+        // ..._ends_the_process_on_every_platform, and it does not.
         //
-        // Sharper than §9.12 in two ways. It is fatal on Windows too — 0xC0000005, which the CLR
-        // does not convert into anything catchable — and unlike a spec-sized resource array it is
-        // an ordinary caller mistake rather than an exotic shader. LinkedProgram.SpecializeGeneric
-        // refuses the combination before Slang sees it, which is why this has to reach past it to
-        // the flat API.
+        //   win-x64      0xC0000005, which the CLR does not convert into anything catchable
+        //   linux-*      access violation, both architectures
+        //   osx-arm64    error[E30060]: expected a type — a real diagnostic, exit 0
         //
-        // If this ever fails, Slang has started reporting the mismatch and the guard could become
-        // a pass-through. Read the guard's remarks before relaxing it.
-        var outcome = Run("generic-argument-kind-mismatch");
-
-        Assert.True(outcome.ExitCode is not (0 or 1 or 2),
-            "specializing a generic with the wrong kind of argument no longer ends the process. "
-            + $"That is an upstream fix, and §9.20 plus the guard in SpecializeGeneric are what "
-            + $"need revisiting.\n{outcome}");
+        // Same Slang version, same source, three platforms, and one of them reports the mistake
+        // properly. That is the interesting half: the diagnostic path exists and is reached
+        // somewhere, so the other two are not crashing because the case is undiagnosable.
+        //
+        // It also makes SpecializeGeneric's guard load-bearing everywhere for two different
+        // reasons. On Windows and Linux it prevents a crash. On macOS it prevents something worse
+        // than a crash: the call returns a **non-null** generic *alongside* the error, so a caller
+        // checking only for null proceeds with a specialization Slang has already rejected.
+        AssertMismatchRefused(Run("generic-argument-kind-mismatch"), "expected a type");
     }
 
     [NativeFact]
     public void The_argument_count_has_to_match_too_not_only_the_kinds()
     {
-        // The other half of SpecializeGeneric's guard. Two type arguments for one type parameter —
-        // the right kind, real types, nothing dangling — access-violates exactly as the wrong kind
-        // does. Measured separately because guarding both on the strength of measuring one is how
-        // a guard ends up wider than its evidence, and here the evidence turned out to cover it.
-        var outcome = Run("generic-argument-count-mismatch");
+        // The other half of SpecializeGeneric's guard: two type arguments for one type parameter —
+        // the right kind, real types, nothing dangling. Measured separately because guarding both
+        // on the strength of measuring one is how a guard ends up wider than its evidence, and it
+        // splits by platform exactly as the wrong kind does.
+        AssertMismatchRefused(Run("generic-argument-count-mismatch"), "too many arguments");
+    }
 
-        Assert.True(outcome.ExitCode is not (0 or 1 or 2),
-            $"a mismatched argument count is now handled rather than fatal.\n{outcome}");
+    /// <summary>
+    /// A mismatched argument list must not quietly produce a usable specialization, however the
+    /// platform expresses that.
+    /// </summary>
+    /// <param name="expectedDiagnostic">
+    /// Substring of the message the platform that diagnoses is expected to produce. Asserted rather
+    /// than accepting any diagnostic, so "Slang complained about something" cannot pass for
+    /// "Slang complained about this".
+    /// </param>
+    private void AssertMismatchRefused(Outcome outcome, string expectedDiagnostic)
+    {
+        if (OperatingSystem.IsWindows() || OperatingSystem.IsLinux())
+        {
+            Assert.True(outcome.ExitCode is not (0 or 1 or 2),
+                "specializing a generic with a mismatched argument list no longer ends the process "
+                + "here. That is an upstream fix, and §9.20 plus the guard in SpecializeGeneric are "
+                + $"what need revisiting — not this assertion.\n{outcome}");
+            return;
+        }
+
+        // macOS. The prober prints the diagnostic blob, which is the whole point of it being
+        // measured rather than assumed.
+        Assert.Equal(0, outcome.ExitCode);
+        Assert.Contains(expectedDiagnostic, outcome.Stdout, StringComparison.Ordinal);
+        Assert.Contains("error", outcome.Stdout, StringComparison.Ordinal);
     }
 
     [NativeFact]
@@ -198,6 +221,39 @@ public class ProberTests(Xunit.Abstractions.ITestOutputHelper output)
             + $"could be relaxed, and ArrayLayout.IsSpecializationSized reconsidered.\n{outcome}");
 
         Assert.Contains("SLANG_TYPE_KIND_ARRAY", outcome.Stdout, StringComparison.Ordinal);
+    }
+
+    [NativeFact]
+    public void Two_questions_moved_out_of_the_runner_on_suspicion_answer_here()
+    {
+        // Honest framing: neither of these is *proven* to be what killed the first macOS run. Both
+        // are benign on Windows and Linux — argument 0 of an empty list returns null, and applying
+        // an unspecialized generic to itself returns non-null — and both were being asked
+        // in-process on the strength of exactly those two data points.
+        //
+        // Asking a native API for an element it has just said does not exist is a caller mistake
+        // whoever survives it, and a question with no obvious right answer does not belong in a
+        // process that four hundred other tests are sharing. They are measured here instead, which
+        // costs nothing and cannot end a run.
+        foreach (var probe in (string[])["specialized-type-arg-out-of-range", "apply-generic-to-itself"])
+        {
+            var outcome = Run(probe);
+            output.WriteLine($"{probe}: {outcome}");
+
+            if (OperatingSystem.IsWindows() || OperatingSystem.IsLinux())
+            {
+                Assert.Equal(0, outcome.ExitCode);
+                Assert.Contains("completed", outcome.Stdout, StringComparison.Ordinal);
+            }
+            else
+            {
+                // Unmeasured on macOS, and this is where the answer arrives. If either exits
+                // abnormally, that is the crasher and §9.24 can stop saying "on suspicion".
+                Assert.True(outcome.ExitCode is 0 or 1,
+                    $"'{probe}' ended the prober on this platform — which makes it the candidate "
+                    + $"§9.24 could not name.\n{outcome}");
+            }
+        }
     }
 
     [NativeFact]

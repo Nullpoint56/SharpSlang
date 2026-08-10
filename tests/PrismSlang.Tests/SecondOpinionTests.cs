@@ -424,11 +424,11 @@ public unsafe class SecondOpinionTests(Xunit.Abstractions.ITestOutputHelper outp
         Assert.Equal(
             "adApply", Utf8.Read(SlangApi.spReflectionDecl_getName(genericDecl)));
 
-        // applySpecializations on the generic itself — the nested case, where the thing being
-        // specialized is another generic rather than a type or a function. Nothing here is nested,
-        // so the answer is the generic unchanged or null; both are reported, neither is fatal.
-        var applied = SlangApi.spReflectionGeneric_applySpecializations(generic, generic);
-        output.WriteLine($"generic applySpecializations -> {(applied is null ? "null" : "ok")}");
+        // spReflectionGeneric_applySpecializations is exercised from the prober
+        // (`apply-generic-to-itself`) rather than here. Applying an unspecialized generic as its
+        // own substitution is a question, not an operation with an obvious answer, and a question
+        // asked in-process is a question that can take the runner down with it — which is what
+        // happened to the first macOS run.
     }
 
     [NativeFact]
@@ -462,10 +462,13 @@ public unsafe class SecondOpinionTests(Xunit.Abstractions.ITestOutputHelper outp
         // 3-4. Specialized type arguments, on a type that has them in its own name.
         var block = loaded.Program.FindType("SoBlock");
         Assert.NotNull(block);
+        // Only the count, in-process. Asking for argument 0 of a list of length 0 is an
+        // out-of-range read, and this test used to do exactly that on the reasoning that Windows
+        // and Linux returned null for it. That is not a guarantee, it is two data points — and
+        // asking a native API for an element it has just said does not exist is the caller's
+        // mistake regardless of who survives it. The query lives in the prober now
+        // (`specialized-type-arg-out-of-range`), where the answer is measured rather than assumed.
         Assert.Equal(0, SlangApi.spReflectionType_getSpecializedTypeArgCount((SlangReflectionType*)block.Handle));
-        Assert.True(
-            SlangApi.spReflectionType_getSpecializedTypeArgType((SlangReflectionType*)block.Handle, 0) is null,
-            "getSpecializedTypeArgType answered where the count is zero");
 
         // 5. specializeType is not here. It is called from the prober instead: given a type that
         //    is not generic it returns null on Windows and *aborts* on Linux, which is the fifth

@@ -17,7 +17,7 @@ name: CI
 # the current upstream layout.
 
 # Markdown-only changes skip all of this and run docs.yml instead. A full run is four runners each
-# downloading a 36 MB payload, building, and executing 497 tests, plus a job that installs ClangSharp
+# downloading a 36 MB payload, building, and executing 498 tests, plus a job that installs ClangSharp
 # and regenerates the bindings — none of which a paragraph can affect.
 #
 # paths-ignore only skips when *every* changed file matches, so a commit touching a document and a
@@ -234,6 +234,36 @@ jobs:
           MallocScribble: 1
           MallocPreScribble: 1
         run: dotnet run --project samples/PrismSlang.Smoke -c Release --no-build
+
+      # A test-host crash reports whatever was on stderr as its "reason", which is never the cause:
+      # the first macOS run blamed a Slang warning about an uninitialized variable in a module three
+      # test classes earlier. The TRX records every test that *completed*, so the last few are where
+      # the crasher is, and printing them beats downloading an artifact to find out.
+      #
+      # Runs only on failure, so it costs nothing on a green run, and it is worth having on every
+      # leg: two of the three crashes in docs/findings.md were found by a host dying on one platform
+      # and not another.
+      - name: If the host crashed, name the last tests that ran
+        if: failure()
+        shell: pwsh
+        run: |
+          $trx = Get-ChildItem -Recurse -Filter results.trx -ErrorAction SilentlyContinue |
+                 Select-Object -First 1
+          if (-not $trx) { Write-Host "no TRX — the run did not get that far"; exit 0 }
+
+          [xml]$doc = Get-Content $trx.FullName
+          $ns = @{ t = 'http://microsoft.com/schemas/VisualStudio/TeamTest/2010' }
+          $results = Select-Xml -Xml $doc -Namespace $ns -XPath '//t:UnitTestResult'
+
+          Write-Host "$($results.Count) test(s) completed. The last 15, in finish order:"
+          $results |
+            ForEach-Object { $_.Node } |
+            Sort-Object { [datetime]$_.endTime } |
+            Select-Object -Last 15 |
+            ForEach-Object { Write-Host ("    {0,-8} {1}" -f $_.outcome, $_.testName) }
+
+          Write-Host ""
+          Write-Host "If the host crashed, the test after the last line above is the one to look at."
 
       - uses: actions/upload-artifact@v4
         if: always()

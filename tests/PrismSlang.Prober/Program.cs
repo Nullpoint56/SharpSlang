@@ -89,6 +89,13 @@ internal static class Cases
         // evidence.
         ["generic-argument-count-mismatch"] = () => MismatchedGenericArgument(wrongKind: false),
 
+        // §9.24. Two reflection questions that were being asked in-process on the strength of
+        // Windows and Linux tolerating them, and that the first macOS run turned into a dead test
+        // host. Both are caller mistakes rather than obvious Slang defects, which is exactly why
+        // the answer belongs somewhere a crash is the result rather than the end of the run.
+        ["specialized-type-arg-out-of-range"] = SpecializedTypeArgOutOfRange,
+        ["apply-generic-to-itself"] = ApplyGenericToItself,
+
         // §9.22. spReflection_specializeType handed a type that is not generic. Returns null on
         // Windows, aborts the process on Linux — the same platform split as §9.12, and found the
         // same way: by a test that passed on one platform and killed the runner on the other.
@@ -107,6 +114,51 @@ internal static class Cases
         // then dies asking the next question about it.
         ["image-format-on-parameter-block"] = ImageFormatOnParameterBlock,
     };
+
+    /// <summary>Argument 0 of a specialization argument list of length 0.</summary>
+    private static unsafe void SpecializedTypeArgOutOfRange()
+    {
+        using var loaded = LoadGenericProgram();
+
+        SlangReflectionType* block;
+        using (Utf8.Scoped n = new("MgWrapper"))
+        {
+            block = SlangApi.spReflection_FindTypeByName(loaded.Shader, n);
+        }
+
+        if (block is null) throw new InvalidOperationException("MgWrapper not found");
+
+        var count = SlangApi.spReflectionType_getSpecializedTypeArgCount(block);
+        Console.Out.WriteLine($"specializedTypeArgCount={count}");
+        Console.Out.Flush();
+
+        var arg = SlangApi.spReflectionType_getSpecializedTypeArgType(block, 0);
+        Console.Out.WriteLine($"arg[0] of {count} -> {(arg is null ? "null" : "non-null")}");
+    }
+
+    /// <summary>An unspecialized generic applied as its own substitution.</summary>
+    private static unsafe void ApplyGenericToItself()
+    {
+        using var loaded = LoadGenericProgram();
+
+        SlangReflectionType* declared;
+        using (Utf8.Scoped n = new("MgWrapper"))
+        {
+            declared = SlangApi.spReflection_FindTypeByName(loaded.Shader, n);
+        }
+
+        var generic = declared is null
+            ? null
+            : SlangApi.spReflectionType_GetGenericContainer(declared);
+
+        if (generic is null) throw new InvalidOperationException("MgWrapper is not generic");
+
+        Console.Out.WriteLine("applying the generic to itself");
+        Console.Out.Flush();
+
+        var applied = SlangApi.spReflectionGeneric_applySpecializations(generic, generic);
+        Console.Out.WriteLine($"applySpecializations(g, g) -> {(applied is null ? "null" : "non-null")}");
+    }
 
     private static unsafe void SpecializeNonGenericType()
     {
@@ -261,6 +313,41 @@ internal static class Cases
             var format = SlangApi.spReflectionTypeLayout_getBindingRangeImageFormat(scope, b);
             Console.Out.WriteLine($"    -> {format}");
         }
+    }
+
+    /// <summary>The generic-bearing program several cases share, with its pieces kept alive.</summary>
+    private sealed unsafe class GenericProgram(
+        SlangGlobalSession global, SlangSession session, SlangModule module, LinkedProgram program)
+        : IDisposable
+    {
+        public SlangProgramLayout* Shader => (SlangProgramLayout*)program.GetLayout(0);
+
+        public void Dispose()
+        {
+            program.Dispose();
+            module.Dispose();
+            session.Dispose();
+            global.Dispose();
+        }
+    }
+
+    private static GenericProgram LoadGenericProgram()
+    {
+        const string Source = """
+            interface IMgMaterial { float3 shade(float3 albedo); }
+            struct MgLambert : IMgMaterial { float3 shade(float3 a) { return a; } }
+            struct MgWrapper<T : IMgMaterial> { T inner; float4 tint; };
+
+            [shader("fragment")]
+            float4 mgFragment() : SV_Target { return 1; }
+            """;
+
+        var global = SlangGlobalSession.Create();
+        var session = global.CreateSession(new SessionOptions { Targets = [new TargetOptions()] });
+        var module = session.LoadModuleFromSource("mg", "mg.slang", Source);
+        using var entry = module.FindEntryPoint("mgFragment");
+        var program = session.Link(module, entry);
+        return new GenericProgram(global, session, module, program);
     }
 
     private static unsafe void MismatchedGenericArgument(bool wrongKind)

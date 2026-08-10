@@ -171,11 +171,19 @@ public sealed unsafe class LinkedProgram : SlangObject<IComponentType>
     /// Checks the arguments against the generic's declaration before Slang sees them.
     /// </summary>
     /// <remarks>
-    /// Not defensive tidiness — a guard against a crash. Handed an <c>int</c> where a type
-    /// parameter belongs, <c>spReflection_specializeGeneric</c> access-violates and takes the
-    /// process with it: no diagnostics, no result, nothing to catch. Measured on 2026.14.1 and
-    /// asserted from a child process by <c>ProberTests</c>, because it cannot be asserted from
-    /// inside the runner it would kill. See §9.20.
+    /// Not defensive tidiness, and load-bearing on every platform for two different reasons.
+    /// Handed an argument list that does not match the generic's parameters,
+    /// <c>spReflection_specializeGeneric</c> behaves three ways on 2026.14.1:
+    /// <list type="bullet">
+    /// <item>win-x64 — <c>0xC0000005</c>, which the CLR does not convert into anything catchable.</item>
+    /// <item>linux-x64 and linux-arm64 — an access violation, both architectures.</item>
+    /// <item>osx-arm64 — <c>error[E30060]: expected a type</c>, and a <b>non-null</b> generic
+    /// returned alongside it. Not a crash, and arguably worse: a caller checking only for null
+    /// proceeds with a specialization Slang has already rejected.</item>
+    /// </list>
+    /// So the guard prevents a dead process on two platforms and a silently bogus result on the
+    /// third. Asserted from a child process by <c>ProberTests</c>, because two of the three cannot
+    /// be asserted from inside the runner they would kill. See §9.20 and §9.24.
     ///
     /// Unlike §9.12's specialization-sized resource array, this one <em>is</em> detectable: the
     /// generic says how many parameters of each kind it takes, and comparing is cheap.

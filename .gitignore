@@ -18,3 +18,8 @@ runtimes/
 
 # TRX from the filtered validation-layer run in CI (ci.yml). A build artefact, not a result.
 vulkan-results/
+
+# Test run output. CI produces these deliberately (results.trx feeds the crash-diagnostic step
+# and the uploaded artifact); locally they are just noise from a run with a logger attached.
+TestResults/
+*.trx

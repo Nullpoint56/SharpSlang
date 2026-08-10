@@ -117,7 +117,7 @@ caught.
 
 ## Testing
 
-497 tests. The interesting ones do not assert against numbers someone typed:
+498 tests. The interesting ones do not assert against numbers someone typed:
 
 - **`ModuleAgreementTests`** compiles a 28-shader corpus and requires the reflection snapshot and
   the emitted SPIR-V to state *the same set of facts, in both directions* — so a fact one side
