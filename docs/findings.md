@@ -1932,6 +1932,27 @@ whoever survives it, so they are in the prober now.
 
 Neither is *proven* to be what killed the run. The diagnostic step will name the real one.
 
+#### The second macOS run, and two things done in the wrong order
+
+It crashed again, earlier — 145 tests instead of 382 — and the reported reason was again a Slang
+warning about a shader three classes away. Two corrections, both about method rather than about
+Slang.
+
+**Two variables changed in one commit.** The macOS leg arrived with `MallocScribble` and
+`MallocPreScribble` set, which fill freed memory with 0x55 and fresh allocations with 0xAA. That is
+*designed* to turn a latent read of freed or uninitialized memory into a fault — so on a platform
+whose allocator this code had never run under, "the platform is broken" and "the poisoning found
+something" are indistinguishable from the outside. They are off again until osx-arm64 is green
+without them, at which point they go back as a deliberate experiment with somewhere to look. One
+variable at a time is what the rest of this document insists on, and it was not applied here.
+
+**The tool for this already existed.** Two runs were diagnosed by reading test ordering off a
+*different* platform's TRX and assuming it matched — which is inference dressed as evidence, and it
+gave two different answers. `dotnet test --blame` writes a sequence file naming the test that was
+executing when the host died, and deletes it if the run completes, so it costs nothing on a green
+run. It is now on every leg, and the failure-only diagnostic step prints it alongside a per-class
+tally of what completed. That should have been the first move rather than the third.
+
 #### What is left for v1.0
 
 Every supported RID is now in CI, so the list is short and none of it is a platform.

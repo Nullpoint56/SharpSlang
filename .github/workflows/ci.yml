@@ -150,12 +150,20 @@ jobs:
       # paths LifetimeTests had no reason to walk; this covers all 393.
       #
       # Set unconditionally rather than gated on the RID: MALLOC_PERTURB_ is a glibc variable, so
-      # Windows ignores it, and a conditional would be more machinery than the thing it configures.
+      # Windows and macOS ignore it, and a conditional would be more machinery than the thing it
+      # configures.
       #
-      # macOS ignores it too, and has its own: MallocScribble fills freed memory with 0x55 and
-      # MallocPreScribble fills fresh allocations with 0xAA — the same idea by a different name, so
-      # the macOS leg is an ownership control and not merely a does-it-load check. Both are read by
-      # libmalloc at process start and cost nothing where they are not understood.
+      # macOS has its own pair — MallocScribble fills freed memory with 0x55, MallocPreScribble
+      # fills fresh allocations with 0xAA — and they were set here for the first two osx-arm64 runs.
+      # Both crashed the test host. They are off again, deliberately: the macOS leg and aggressive
+      # allocator poisoning arrived in the same commit, so a crash cannot be attributed to either.
+      # Poisoning is *designed* to turn a latent read of uninitialized or freed memory into a fault,
+      # and Slang is a large C++ codebase running under an allocator it has not been poisoned on
+      # before — so "the platform is broken" and "the poisoning found something" look identical from
+      # here.
+      #
+      # One variable at a time, which is what the rest of this repository insists on. Get osx-arm64
+      # green without them, then put them back as a deliberate experiment with somewhere to look.
       #
       # MALLOC_CHECK_=3 is the usual companion and is deliberately absent. Measured on glibc 2.39,
       # which is what ubuntu-latest ships: it is ignored unless libc_malloc_debug.so.0 is
@@ -167,9 +175,12 @@ jobs:
       - name: Test
         env:
           MALLOC_PERTURB_: 165
-          MallocScribble: 1
-          MallocPreScribble: 1
-        run: dotnet test PrismSlang.slnx -c Release --no-build --nologo --logger "trx;LogFileName=results.trx"
+        # --blame writes a Sequence.xml naming the test that was executing when the host died, and
+        # deletes it again if the run completes — so it costs nothing on a green run and is the
+        # difference between knowing the crasher and inferring it from test ordering on a different
+        # platform. Reached for after two macOS runs were diagnosed by guesswork; it is the tool
+        # that exists for this and should have been the first move.
+        run: dotnet test PrismSlang.slnx -c Release --no-build --nologo --blame --logger "trx;LogFileName=results.trx"
 
       # A skipped test is green, so installing lavapipe and never noticing it failed to load would
       # leave the whole validation harness silently switched off. Two of the three run on any
@@ -188,8 +199,6 @@ jobs:
         if: startsWith(matrix.rid, 'linux')
         env:
           MALLOC_PERTURB_: 165
-          MallocScribble: 1
-          MallocPreScribble: 1
         run: |
           # The count comes from the TRX, not from the console. The first version of this step
           # scraped the one-line "Passed!  - Failed: 0, Passed: 2, ..." summary, which is what the
@@ -231,8 +240,6 @@ jobs:
       - name: Tier 0 spike
         env:
           MALLOC_PERTURB_: 165
-          MallocScribble: 1
-          MallocPreScribble: 1
         run: dotnet run --project samples/PrismSlang.Smoke -c Release --no-build
 
       # A test-host crash reports whatever was on stderr as its "reason", which is never the cause:
@@ -251,19 +258,43 @@ jobs:
                  Select-Object -First 1
           if (-not $trx) { Write-Host "no TRX — the run did not get that far"; exit 0 }
 
+          # --blame's sequence file names the test that was executing when the host died. It only
+          # exists when the run did not finish, which is exactly when it is wanted.
+          $seq = Get-ChildItem -Recurse -Filter '*.Sequence.xml' -ErrorAction SilentlyContinue |
+                 Select-Object -First 1
+          if ($seq) {
+            Write-Host "=== the host died during:"
+            ([xml](Get-Content $seq.FullName)).TestSequence.Test |
+              ForEach-Object { Write-Host ("    {0}.{1}" -f $_.source, $_.fullyQualifiedName) }
+            Write-Host ""
+          } else {
+            Write-Host "no --blame sequence file: the host did not crash, or did not get that far."
+          }
+
           [xml]$doc = Get-Content $trx.FullName
           $ns = @{ t = 'http://microsoft.com/schemas/VisualStudio/TeamTest/2010' }
-          $results = Select-Xml -Xml $doc -Namespace $ns -XPath '//t:UnitTestResult'
+          $results = Select-Xml -Xml $doc -Namespace $ns -XPath '//t:UnitTestResult' |
+                     ForEach-Object { $_.Node }
 
-          Write-Host "$($results.Count) test(s) completed. The last 15, in finish order:"
+          Write-Host "=== $($results.Count) test(s) completed. The last 15, in finish order:"
           $results |
-            ForEach-Object { $_.Node } |
             Sort-Object { [datetime]$_.endTime } |
             Select-Object -Last 15 |
             ForEach-Object { Write-Host ("    {0,-8} {1}" -f $_.outcome, $_.testName) }
 
+          # Ordering differs between platforms, so a per-class tally says which class was mid-flight
+          # in a way a tail of the list cannot.
           Write-Host ""
-          Write-Host "If the host crashed, the test after the last line above is the one to look at."
+          Write-Host "=== completed per class:"
+          $results |
+            Group-Object {
+              # Theory display names carry their arguments, and those contain dots. Cut at the
+              # first '(' before splitting, or every theory case becomes its own "class".
+              $bare = ($_.testName -split '\(')[0]
+              ($bare -split '\.')[-2]
+            } |
+            Sort-Object Name |
+            ForEach-Object { Write-Host ("    {0,4}  {1}" -f $_.Count, $_.Name) }
 
       - uses: actions/upload-artifact@v4
         if: always()
