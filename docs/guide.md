@@ -430,7 +430,11 @@ using var session = global.CreateSession(options);
 using var module  = session.LoadModule("surface");
 ```
 
-- **Disposal order does not matter.** Each object holds its own reference to what it needs.
+- **Disposal order does not matter.** Each wrapper takes a native reference on the object above it,
+  so disposing a session while a module from it is still alive is safe. Slang does not guarantee
+  this on its own — `ISession` retains `IGlobalSession`, but `IModule` does *not* retain `ISession`
+  — and the difference was invisible on Windows and Linux until a macOS runner faulted on it
+  ([§9.25](findings.md#925-the-macos-leg-found-an-ownership-bug-in-this-binding)).
 - **Double dispose is a no-op**, including concurrently.
 - **Use after dispose throws** `ObjectDisposedException` rather than dereferencing.
 - **Forgetting to dispose leaks** until process exit — it does not corrupt. There is deliberately no

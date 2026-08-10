@@ -135,11 +135,55 @@ public class LifetimeTests
     // ---------------------------------------------------------------- disposal order
 
     [NativeFact]
+    public unsafe void Every_child_holds_a_native_reference_to_its_owner()
+    {
+        // The measurement the test below used to rest on a convention for.
+        //
+        // "Each object holds its own reference to what it needs" was read off COM convention and
+        // never checked. On 2026.14.1 it is true of some of Slang's objects and false of others:
+        // ISession retains IGlobalSession, and IModule does *not* retain ISession. So disposing a
+        // session while a module was alive dropped the last reference and destroyed it. Windows
+        // and both Linux allocators tolerated the use-after-free; macOS did not, and the test
+        // below is where its host died (§9.25).
+        //
+        // SlangObject now takes a native reference on its owner, which is what makes the ordering
+        // guarantee true. Asserted as a delta rather than an absolute: the absolute counts include
+        // Slang's own internal references — a module sits at 4 before anything of ours — and those
+        // are not ours to pin.
+        using var global = SlangGlobalSession.Create();
+        using var session = NewSession(global);
+
+        var sessionBefore = RefCount(session);
+        using var module = session.LoadModuleFromSource("rc", "rc.slang", Source);
+        Assert.True(RefCount(session) > sessionBefore,
+            "loading a module did not retain its session. Disposing the session first is then a "
+            + "use-after-free, which is what SlangObject's owner reference exists to prevent.");
+
+        var moduleBefore = RefCount(module);
+        using var entry = module.FindEntryPoint("fragmentMain");
+        Assert.True(RefCount(module) > moduleBefore, "an entry point did not retain its module");
+
+        var sessionBeforeLink = RefCount(session);
+        using var program = session.Link(module, entry);
+        Assert.True(RefCount(session) > sessionBeforeLink,
+            "a linked program did not retain its session");
+
+        // addRef then release leaves the count where it was and reports it on the way back down.
+        static uint RefCount(SlangObject o)
+        {
+            var p = (PrismSlang.Native.ISlangUnknown*)o.RawForTests;
+            p->addRef();
+            return p->release();
+        }
+    }
+
+    [NativeFact]
     public void An_owner_may_be_disposed_before_the_things_it_owns()
     {
-        // Out of order on purpose, outermost first. Under COM rules each object holds its own
-        // reference to whatever it needs, so releasing our reference to the session does not
-        // destroy it while a module is still alive. If that were wrong, this is a heap abort.
+        // Out of order on purpose, outermost first. This is only safe because SlangObject takes a
+        // native reference on its owner — Slang itself does not guarantee it, and the test above
+        // is the measurement. Before that reference existed this was a use-after-free that three
+        // of four platforms happened to survive.
         var global = SlangGlobalSession.Create();
         var session = NewSession(global);
         var module = session.LoadModuleFromSource("m", "m.slang", Source);

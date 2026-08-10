@@ -46,6 +46,7 @@ so a bare `§4.4` or `§9.8` in a code comment is unambiguous.
 | [9.22](#922-the-rest-of-the-reflection-surface-and-what-closing-it-cost) | The rest of the surface | 172 of 172, and a fifth crash the Linux leg found |
 | [9.23](#923-the-two-spec-conformance-bugs-rechecked--and-one-of-them-was-already-filed) | The two spec bugs, rechecked | one is #12441, filed a day before we found it |
 | [9.24](#924-three-of-the-v10-gaps-and-the-one-the-layers-had-to-judge) | Three v1.0 gaps | stage flags narrowed, the API written down, a third architecture |
+| [9.25](#925-the-macos-leg-found-an-ownership-bug-in-this-binding) | The macOS leg earned itself | a module does not retain its session, and three platforms shrugged |
 
 ### The four oracles
 
@@ -1969,4 +1970,80 @@ Every supported RID is now in CI, so the list is short and none of it is a platf
 - The implicit global constant buffer is still unnamed, and `getEntryPointHash` is still
   deliberately unbound (§9.7).
 
-498 tests.
+499 tests.
+
+### 9.25 The macOS leg found an ownership bug in this binding
+
+Three osx-arm64 runs, and the third one earned the platform.
+
+The first two were diagnosed by reading test ordering off a *different* platform's TRX and assuming
+it matched — inference dressed as evidence, and it gave two different answers. `dotnet test --blame`
+writes a sequence file naming the test that was executing when the host died. It answered
+immediately:
+
+```
+The test running when the crash occurred:
+PrismSlang.Tests.LifetimeTests.An_owner_may_be_disposed_before_the_things_it_owns
+```
+
+The test that asserts disposal order does not matter. It had this comment:
+
+> Out of order on purpose, outermost first. Under COM rules each object holds its own reference to
+> whatever it needs, so releasing our reference to the session does not destroy it while a module is
+> still alive. If that were wrong, this is a heap abort.
+
+It was wrong, and it was a heap abort.
+
+#### What the refcounts say
+
+`addRef` followed by `release` reports a count without changing it. Measured on 2026.14.1:
+
+| | before | after the fix |
+|---|---:|---:|
+| global, alone | 1 | 1 |
+| global, after `CreateSession` | 2 | 3 |
+| session, alone | 1 | 1 |
+| **session, after `LoadModule`** | **1** | **2** |
+| **session, after `Link`** | **1** | **3** |
+| module, after `FindEntryPoint` | 4 | 5 |
+
+`ISession` retains `IGlobalSession` — the convention holds there, which is exactly why nobody
+looked further. `IModule` does **not** retain `ISession`, and neither does a linked program. So
+
+```csharp
+global.Dispose();   // 2 -> 1, the session still holds one. Fine.
+session.Dispose();  // 1 -> 0. Destroyed, with a live module pointing into it.
+module.Dispose();   // use-after-free
+```
+
+Windows, linux-x64 and linux-arm64 all survived that. macOS did not.
+
+#### The fix, and why it belongs in `SlangObject`
+
+The managed `_owner` field stops the GC collecting the owner's *wrapper*. It does nothing about the
+owner's *native* refcount, and the two had been treated as one problem. `SlangObject` now takes a
+native reference on its owner in the constructor and releases it in `Dispose`, after releasing
+itself — so the owner cannot be destroyed while the child's own release is still running through it.
+The raw pointer is captured at construction rather than read back later, because by then the owner's
+wrapper may be disposed and `Raw` would throw.
+
+That makes the guarantee in `docs/guide.md` true rather than hoped for:
+
+> **Disposal order does not matter.** Each object holds its own reference to what it needs.
+
+It now does, because this package makes it so — not because COM convention says it should.
+
+#### The shape of it
+
+This is §9.1 again, one platform later. That was a *borrowed* pointer treated as owned, found by
+glibc aborting where the Windows heap shrugged. This is an owner *not* retained, found by Apple's
+allocator faulting where glibc shrugged. Both were invisible for the whole life of the code, both
+were asserted by a comment written by someone who had reasoned it out correctly and then reasoned
+one step too far, and both took a platform nobody had run on.
+
+The lesson each time is the same and it is not "test on more platforms" — it is that an ownership
+claim is a measurement, and `addRef`/`release` will answer it in four lines.
+`Every_child_holds_a_native_reference_to_its_owner` asks it now, as a delta rather than an absolute:
+Slang's internal counts are not ours to pin, but "loading a module increases the session's count" is.
+
+499 tests.

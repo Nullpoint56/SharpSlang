@@ -64,6 +64,31 @@ public abstract unsafe class SlangObject : IDisposable
     // module created from it is still in use.
     private readonly SlangObject? _owner;
 
+    // A *native* reference on the owner, and the reason it exists is worth reading before touching
+    // any of this.
+    //
+    // The managed reference above stops the GC collecting the owner's wrapper. It does nothing
+    // about the owner's native refcount, and the two were assumed to be the same problem because
+    // COM convention says a child retains its parent. Measured on 2026.14.1, that is true of some
+    // of Slang's objects and false of others:
+    //
+    //     global, alone                  1
+    //     global, after CreateSession    2      <- ISession does retain IGlobalSession
+    //     session, alone                 1
+    //     session, after LoadModule      1      <- IModule does NOT retain ISession
+    //     session, after Link            1      <- nor does the linked program
+    //
+    // So `session.Dispose()` while a module was still alive dropped the last reference and
+    // destroyed it, leaving every module and program pointing into freed memory. Windows and both
+    // Linux allocators tolerated that; macOS did not, and LifetimeTests's own
+    // An_owner_may_be_disposed_before_the_things_it_owns — the test that asserts disposal order
+    // does not matter — is where the host died (§9.25).
+    //
+    // Holding our own native reference on the owner makes the guarantee true rather than hoped for.
+    // The raw pointer is captured here rather than read from _owner later, because by then the
+    // owner's wrapper may be disposed and Raw would throw.
+    private readonly nint _ownerNative;
+
     // Releasing native objects while the runtime is tearing down a process can run after the
     // native library has already been unloaded. Leaking at exit is harmless; crashing is not.
     private static volatile bool s_processExiting;
@@ -80,10 +105,29 @@ public abstract unsafe class SlangObject : IDisposable
         _unknown = (nint)owned;
         _what = what;
         _owner = owner;
+
+        // Taken before anything can fail, and released exactly once in Dispose. An owner already
+        // disposed by the time a child is built is a caller error the child cannot recover from,
+        // so Raw's ObjectDisposedException is the right outcome and is left to propagate.
+        if (owner is not null)
+        {
+            _ownerNative = (nint)owner.Raw;
+            ((ISlangUnknown*)_ownerNative)->addRef();
+        }
     }
 
     /// <summary>True once the native reference has been released.</summary>
     public bool IsDisposed => Volatile.Read(ref _unknown) == 0;
+
+    /// <summary>
+    /// The live native pointer, for measuring reference counts from the prober.
+    /// </summary>
+    /// <remarks>
+    /// Internal and named so nobody reaches for it by accident. It exists because the claim that
+    /// "each object holds its own reference to what it needs" was read off COM convention and never
+    /// measured, and the only way to measure it is to ask Slang for the count — see §9.25.
+    /// </remarks>
+    internal void* RawForTests => Raw;
 
     /// <summary>
     /// The live native pointer. Throws rather than returning a dangling pointer, so a
@@ -116,6 +160,10 @@ public abstract unsafe class SlangObject : IDisposable
         if (p == 0 || s_processExiting) return;
 
         ((ISlangUnknown*)p)->release();
+
+        // Ours, taken in the constructor. Released after the child so the owner cannot be destroyed
+        // while the child's own release is still running through it.
+        if (_ownerNative != 0) ((ISlangUnknown*)_ownerNative)->release();
 
         // The owner must outlive this release, not merely reach it.
         GC.KeepAlive(_owner);

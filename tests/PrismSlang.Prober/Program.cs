@@ -89,6 +89,13 @@ internal static class Cases
         // evidence.
         ["generic-argument-count-mismatch"] = () => MismatchedGenericArgument(wrongKind: false),
 
+        // §9.25. Does creating a child actually retain its parent? LifetimeTests asserts that
+        // disposal order does not matter, on the stated premise that "each object holds its own
+        // reference to what it needs". That premise has never been measured — it was read off COM
+        // convention — and the macOS leg crashes in exactly the test that depends on it. addRef
+        // followed by release reports the count without changing it.
+        ["refcount-ownership"] = RefcountOwnership,
+
         // §9.24. Two reflection questions that were being asked in-process on the strength of
         // Windows and Linux tolerating them, and that the first macOS run turned into a dead test
         // host. Both are caller mistakes rather than obvious Slang defects, which is exactly why
@@ -114,6 +121,50 @@ internal static class Cases
         // then dies asking the next question about it.
         ["image-format-on-parameter-block"] = ImageFormatOnParameterBlock,
     };
+
+    /// <summary>
+    /// Whether each Slang object retains the one above it, measured rather than assumed.
+    /// </summary>
+    private static unsafe void RefcountOwnership()
+    {
+        const string Source = """
+            Texture2D    rcTexture;
+            SamplerState rcSampler;
+
+            [shader("fragment")]
+            float4 fragmentMain() : SV_Target { return rcTexture.Sample(rcSampler, 0); }
+            """;
+
+        using var global = SlangGlobalSession.Create();
+        Report("global, alone", global);
+
+        using var session = global.CreateSession(
+            new SessionOptions { Targets = [new TargetOptions()] });
+        Report("global, after CreateSession", global);
+        Report("session, alone", session);
+
+        using var module = session.LoadModuleFromSource("rc", "rc.slang", Source);
+        Report("global, after LoadModule", global);
+        Report("session, after LoadModule", session);
+        Report("module, alone", module);
+
+        using var entry = module.FindEntryPoint("fragmentMain");
+        Report("module, after FindEntryPoint", module);
+
+        using var program = session.Link(module, entry);
+        Report("global, after Link", global);
+        Report("session, after Link", session);
+        Report("module, after Link", module);
+
+        // addRef then release leaves the count where it started and reports it on the way back
+        // down, so this observes without disturbing.
+        static void Report(string what, SlangObject o)
+        {
+            var p = (ISlangUnknown*)o.RawForTests;
+            p->addRef();
+            Console.Out.WriteLine($"    {what,-32} refcount={p->release()}");
+        }
+    }
 
     /// <summary>Argument 0 of a specialization argument list of length 0.</summary>
     private static unsafe void SpecializedTypeArgOutOfRange()

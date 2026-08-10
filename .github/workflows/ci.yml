@@ -17,7 +17,7 @@ name: CI
 # the current upstream layout.
 
 # Markdown-only changes skip all of this and run docs.yml instead. A full run is four runners each
-# downloading a 36 MB payload, building, and executing 498 tests, plus a job that installs ClangSharp
+# downloading a 36 MB payload, building, and executing 499 tests, plus a job that installs ClangSharp
 # and regenerates the bindings — none of which a paragraph can affect.
 #
 # paths-ignore only skips when *every* changed file matches, so a commit touching a document and a
