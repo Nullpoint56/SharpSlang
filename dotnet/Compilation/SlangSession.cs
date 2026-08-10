@@ -177,6 +177,121 @@ public sealed unsafe class SlangSession : SlangObject<ISession>
     }
 
     /// <summary>
+    /// Loads a module from the binary IR <c>SlangModule.Serialize</c> produced, rather than from
+    /// source.
+    /// </summary>
+    /// <remarks>
+    /// The read side of a precompiled-module cache. Slang does not re-parse or re-check the
+    /// module; a cook that serializes its shared modules once pays for parsing them once, not once
+    /// per shader that imports them.
+    ///
+    /// The blob carries the compiler version that wrote it and Slang rejects one from a different
+    /// build. <see cref="ReadModuleInfo"/> reads that out without loading, and
+    /// <see cref="IsBinaryModuleUpToDate"/> answers the whole question in one call.
+    /// </remarks>
+    /// <param name="moduleName">Name to load it under, as other modules would <c>import</c> it.</param>
+    /// <param name="path">Path reported in diagnostics. Need not exist on disk.</param>
+    /// <param name="ir">Bytes from <c>SlangModule.Serialize</c>.</param>
+    /// <exception cref="SlangException">The blob is not loadable — wrong compiler version, or not IR.</exception>
+    public SlangModule LoadModuleFromIRBlob(string moduleName, string path, ReadOnlySpan<byte> ir)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(moduleName);
+        if (ir.IsEmpty) throw new ArgumentException("no IR bytes", nameof(ir));
+
+        ISlangBlob* diagnostics = null;
+        IModule* module;
+
+        fixed (byte* p = ir)
+        {
+            using var blob = Blob(p, ir.Length);
+            using Utf8.Scoped n = new(moduleName), f = new(path);
+            module = Ptr->loadModuleFromIRBlob(n, f, blob.Handle, &diagnostics);
+        }
+
+        Diagnostics.ThrowIfNull(module, $"load module '{moduleName}' from IR", diagnostics);
+        return new SlangModule(module, moduleName, this);
+    }
+
+    /// <summary>
+    /// What a serialized module says about itself, without loading it.
+    /// </summary>
+    /// <remarks>
+    /// Cheap enough to run over a whole cache directory at startup. The compiler version is the
+    /// field that matters: an IR blob is only loadable by the build that wrote it, so a cache
+    /// entry from a previous Slang release is not stale, it is unusable.
+    /// </remarks>
+    /// <returns>The module's own name, its version, and the compiler build that serialized it.</returns>
+    /// <exception cref="SlangException">The blob is not a serialized Slang module.</exception>
+    public (string? Name, long Version, string? CompilerVersion) ReadModuleInfo(ReadOnlySpan<byte> ir)
+    {
+        if (ir.IsEmpty) throw new ArgumentException("no IR bytes", nameof(ir));
+
+        long version;
+        sbyte* compilerVersion;
+        sbyte* name;
+
+        fixed (byte* p = ir)
+        {
+            using var blob = Blob(p, ir.Length);
+            var hr = Ptr->loadModuleInfoFromIRBlob(blob.Handle, &version, &compilerVersion, &name);
+            Diagnostics.ThrowIfFailed(hr, "ISession::loadModuleInfoFromIRBlob", null);
+        }
+
+        return (Utf8.Read(name), version, Utf8.Read(compilerVersion));
+    }
+
+    /// <summary>
+    /// Whether a serialized module is still current for the source at <paramref name="modulePath"/>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Slang's own staleness check for an IR cache entry. Distinct from
+    /// <c>ShaderPackage.IsUpToDate</c>, which is PrismSlang's content-hash check over a baked
+    /// <em>shader</em> — this one is about a cached <em>module</em>, one step earlier.
+    /// </para>
+    /// <para>
+    /// <strong>Ask it from a session that has not loaded the module.</strong> It is answered
+    /// against the session's own view of the file system, and a session populates that view when
+    /// it loads a file. So the natural sequence — load, serialize, ask — returns true
+    /// unconditionally, and keeps returning true after the source has changed on disk; it will
+    /// even return true for a path that has no file behind it at all. A fresh session reads disk
+    /// and answers correctly, which is what a cook has at startup and the only place this call is
+    /// worth making. Measured, not inferred: see
+    /// <c>The_staleness_check_answers_from_the_sessions_file_cache_not_from_disk</c>.
+    /// </para>
+    /// <para>
+    /// A malformed blob is rejected either way — that judgement is about the bytes rather than the
+    /// file.
+    /// </para>
+    /// </remarks>
+    public bool IsBinaryModuleUpToDate(string modulePath, ReadOnlySpan<byte> ir)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(modulePath);
+        if (ir.IsEmpty) return false;
+
+        fixed (byte* p = ir)
+        {
+            using var blob = Blob(p, ir.Length);
+            using Utf8.Scoped m = new(modulePath);
+            return Ptr->isBinaryModuleUpToDate(m, blob.Handle);
+        }
+    }
+
+    /// <summary>
+    /// Wraps managed bytes in an <c>ISlangBlob</c> Slang can read.
+    /// </summary>
+    /// <remarks>
+    /// <c>slang_createBlob</c> copies, so the caller's pinning only has to last the call. Owned,
+    /// so it must be released — hence the wrapper rather than a raw pointer.
+    /// </remarks>
+    private static SlangBlob Blob(byte* data, int length)
+    {
+        var blob = SlangApi.slang_createBlob(data, (nuint)length);
+        Diagnostics.ThrowIfNull(blob, "slang_createBlob", null);
+        return new SlangBlob(blob);
+    }
+
+    /// <summary>
     /// Composes a module with entry points into one program and links it. This is the step that
     /// resolves cross-module references and specialisation, and it must happen before code
     /// generation or reflection.

@@ -47,6 +47,65 @@ public sealed unsafe class SlangModule : SlangObject<IModule>
     public string? FilePath => Utf8.Read(Ptr->getFilePath());
 
     /// <summary>
+    /// The name Slang knows this module by, which is not necessarily the one it was loaded under.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="Name"/> is what the caller passed; this is what the compiler recorded. Measured
+    /// on 2026.14.1 they are the same even when the file is called something else — a module loaded
+    /// from <c>mslib.slang</c> under the name <c>loadedAs</c> reports <c>loadedAs</c>. Bound
+    /// anyway, because it is the compiler's answer rather than ours, and an <c>import</c> in
+    /// another module has to match this one.
+    /// </remarks>
+    public string? DeclaredName => Utf8.Read(Ptr->getName());
+
+    /// <summary>
+    /// Slang's identity for this module's source, used to decide whether two loads are the same
+    /// module.
+    /// </summary>
+    /// <remarks>
+    /// Normally the resolved absolute path. Not a content hash — it does not change when the file
+    /// does, so it answers "is this the same module" and never "is this module current". For the
+    /// latter see <c>ShaderPackage.IsUpToDate</c>, which hashes the whole import graph.
+    /// </remarks>
+    public string? UniqueIdentity => Utf8.Read(Ptr->getUniqueIdentity());
+
+    /// <summary>
+    /// Serializes this module to Slang's binary IR, for a precompiled-module cache.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The point is compile-once: a module parsed and checked at cook time can be reloaded from IR
+    /// by <c>SlangSession.LoadModuleFromIRBlob</c> without re-parsing its source or its imports.
+    /// For a shader library where twenty entry points import the same six modules, that is the
+    /// difference between six parses and a hundred and twenty.
+    /// </para>
+    /// <para>
+    /// The blob is Slang IR, not SPIR-V, and it is tied to the compiler version that produced it —
+    /// <c>SlangSession.ReadModuleInfo</c> reads that back out of a blob before trying to load it.
+    /// </para>
+    /// </remarks>
+    /// <returns>An owned blob; dispose it.</returns>
+    public SlangBlob Serialize()
+    {
+        ISlangBlob* blob = null;
+        var hr = Ptr->serialize(&blob);
+        Diagnostics.ThrowIfFailed(hr, $"IModule::serialize('{Name}')", null);
+        Diagnostics.ThrowIfNull(blob, $"IModule::serialize('{Name}')", null);
+
+        return new SlangBlob(blob, this);
+    }
+
+    /// <summary>Serializes this module straight to a file.</summary>
+    /// <param name="path">Destination. Slang overwrites it.</param>
+    public void WriteToFile(string path)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(path);
+
+        using Utf8.Scoped p = new(path);
+        Diagnostics.ThrowIfFailed(Ptr->writeToFile(p), $"IModule::writeToFile('{path}')", null);
+    }
+
+    /// <summary>
     /// Every file this module was compiled from — itself, everything it <c>import</c>s, and
     /// everything <c>#include</c>d, transitively.
     /// </summary>

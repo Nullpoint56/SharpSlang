@@ -2,6 +2,7 @@
 
 using PrismSlang.Interop;
 using PrismSlang.Native;
+using PrismSlang.Reflection;
 using PrismSlang.Spirv;
 
 namespace PrismSlang;
@@ -56,6 +57,104 @@ public sealed unsafe class LinkedProgram : SlangObject<IComponentType>
         using Utf8.Scoped n = new(name);
         var type = SlangApi.spReflection_FindTypeByName((SlangProgramLayout*)layout, n);
         return type is null ? null : new SlangType((TypeReflection*)type, this, name);
+    }
+
+    /// <summary>
+    /// What the compiler knows about the code generated for a target, beyond its interface.
+    /// </summary>
+    /// <remarks>
+    /// Chiefly which parameter locations the emitted code actually reads. See
+    /// <see cref="SlangMetadata"/> for why that is not a property of the reflection snapshot.
+    /// </remarks>
+    /// <param name="targetIndex">Index into the session's target list.</param>
+    public SlangMetadata GetTargetMetadata(int targetIndex = 0)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(targetIndex);
+
+        IMetadata* metadata = null;
+        ISlangBlob* diagnostics = null;
+        var hr = Ptr->getTargetMetadata(targetIndex, &metadata, &diagnostics);
+        Diagnostics.ThrowIfFailed(hr, "IComponentType::getTargetMetadata", diagnostics);
+        Diagnostics.ThrowIfNull(metadata, "IComponentType::getTargetMetadata", null);
+
+        return new SlangMetadata(metadata, this);
+    }
+
+    /// <summary>
+    /// The same, for one entry point — which is the useful granularity.
+    /// </summary>
+    /// <remarks>
+    /// A binding read by the fragment stage and not by the vertex stage is used by the program and
+    /// unused by one of its stages, and only this call can tell them apart.
+    /// </remarks>
+    public SlangMetadata GetEntryPointMetadata(int entryPointIndex, int targetIndex = 0)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(entryPointIndex);
+        ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(entryPointIndex, _entryPointNames.Length);
+        ArgumentOutOfRangeException.ThrowIfNegative(targetIndex);
+
+        IMetadata* metadata = null;
+        ISlangBlob* diagnostics = null;
+        var hr = Ptr->getEntryPointMetadata(entryPointIndex, targetIndex, &metadata, &diagnostics);
+        Diagnostics.ThrowIfFailed(hr, "IComponentType::getEntryPointMetadata", diagnostics);
+        Diagnostics.ThrowIfNull(metadata, "IComponentType::getEntryPointMetadata", null);
+
+        return new SlangMetadata(metadata, this);
+    }
+
+    /// <summary>
+    /// Finds a function by name and returns its signature, or null if the program has no such
+    /// function.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The complement to walking <see cref="SlangModule.ReflectDeclarations"/>: that enumerates
+    /// what exists, this answers about one name. Both return the same
+    /// <see cref="FunctionSignature"/> snapshot and neither lets a native pointer escape.
+    /// </para>
+    /// <para>
+    /// This is also the only way to see an <em>overload set</em>. The declaration tree reports two
+    /// declarations of the same name as two sibling nodes, each with its own signature, and
+    /// <c>IsOverloaded</c> is false on both. Resolved by name, Slang returns one function that says
+    /// it is overloaded and carries the real declarations underneath — so
+    /// <see cref="FunctionSignature.Overloads"/> is populated here and never there.
+    /// </para>
+    /// </remarks>
+    /// <param name="name">The function's name, unqualified.</param>
+    public FunctionSignature? FindFunction(string name)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(name);
+
+        ISlangBlob* diagnostics = null;
+        var layout = Ptr->getLayout(0, &diagnostics);
+        Diagnostics.ThrowIfNull(layout, "IComponentType::getLayout", diagnostics);
+
+        using Utf8.Scoped n = new(name);
+        var function = SlangApi.spReflection_FindFunctionByName((SlangProgramLayout*)layout, n);
+        return function is null ? null : ReflectionWalker.ReadFunctionSignature(function);
+    }
+
+    /// <summary>
+    /// Finds a method on a type by name and returns its signature, or null.
+    /// </summary>
+    /// <remarks>
+    /// What a material system asks when it has resolved a concrete type and needs to know whether
+    /// that type's <c>shade</c> takes the arguments it is about to pass.
+    /// </remarks>
+    public FunctionSignature? FindFunction(SlangType type, string name)
+    {
+        ArgumentNullException.ThrowIfNull(type);
+        ArgumentException.ThrowIfNullOrEmpty(name);
+
+        ISlangBlob* diagnostics = null;
+        var layout = Ptr->getLayout(0, &diagnostics);
+        Diagnostics.ThrowIfNull(layout, "IComponentType::getLayout", diagnostics);
+
+        using Utf8.Scoped n = new(name);
+        var function = SlangApi.spReflection_FindFunctionByNameInType(
+            (SlangProgramLayout*)layout, (SlangReflectionType*)type.Handle, n);
+
+        return function is null ? null : ReflectionWalker.ReadFunctionSignature(function);
     }
 
     /// <summary>

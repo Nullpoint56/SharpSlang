@@ -19,6 +19,9 @@ recalled — and the traps flagged along the way are the ones that actually bit 
 - [Baking and loading](#baking-and-loading)
 - [Serving shaders from your own filesystem](#serving-shaders-from-your-own-filesystem)
 - [Diagnostics](#diagnostics)
+- [Reading a shader's functions](#reading-a-shaders-functions)
+- [Which bindings the code actually reads](#which-bindings-the-code-actually-reads)
+- [Caching parsed modules](#caching-parsed-modules)
 - [The payload has to be the pinned one](#the-payload-has-to-be-the-pinned-one)
 - [Lifetime](#lifetime)
 - [Traps worth knowing](#traps-worth-knowing)
@@ -309,6 +312,58 @@ parsing message prefixes — so deriving it again means reimplementing `SlangDia
 Because that diagnostic fires only once per session, there is a second, ordering-independent
 mechanism: `GlobalSessionOptions.RequireSpirvOptimizer` (on by default) checks for the downstream
 compiler at session creation, before a single shader is compiled.
+
+## Reading a shader's functions
+
+The declaration tree says what a module offers; `FunctionSignature` says what each one looks like,
+which is what a material system needs to check a candidate against a hook.
+
+```csharp
+foreach (var d in module.ReflectDeclarations().Descendants(DeclarationKind.Func))
+    Console.WriteLine(d.Function);      // vector<float,3> shade(Surface s, out float occlusion)
+
+var fn = program.FindFunction("shade");                 // by name, across the linked program
+var m  = program.FindFunction(surfaceType, "tinted");   // a method on a type
+```
+
+Two things to know before matching on strings:
+
+- **Type names are Slang's canonical spelling.** `float3` is `vector<float,3>`, and
+  `StructuredBuffer<float4>` is `StructuredBuffer<vector<float,4>, DefaultDataLayout>`.
+- **Overloads are only visible by name.** The declaration tree gives two sibling nodes with real
+  signatures; `FindFunction` gives one function with `IsOverloaded` set, `Overloads` populated, and
+  its *own* signature empty. Check `IsOverloaded` before reading `Parameters`.
+
+## Which bindings the code actually reads
+
+Reflection reports the shader's interface, which includes parameters the emitted code never touches.
+`IMetadata` is the only thing that knows the difference, and the answer differs per stage.
+
+```csharp
+using var metadata = program.GetEntryPointMetadata(entryPointIndex);
+foreach (var b in metadata.UnusedBindings(layout))
+    log.Info($"{b.Category} set {b.Space} binding {b.Index} is declared but never read");
+```
+
+A binding reported unused still has to appear in the descriptor set layout — the SPIR-V declares it
+either way. What you save is the descriptor write and the resource behind it.
+
+## Caching parsed modules
+
+For a library where many entry points import the same modules, serialize the shared ones once.
+
+```csharp
+File.WriteAllBytes(cache, module.Serialize().ToArray());
+
+// Later, in a fresh session:
+if (session.IsBinaryModuleUpToDate(sourcePath, ir))
+    session.LoadModuleFromIRBlob("mylib", sourcePath, ir);
+```
+
+**Ask `IsBinaryModuleUpToDate` from a session that has not loaded the module.** It is answered from
+the session's own file-system view, so load-serialize-ask returns true unconditionally — even for a
+path with no file behind it. `ReadModuleInfo(ir)` reports the compiler build that wrote the blob,
+and a blob is only loadable by that build.
 
 ## The payload has to be the pinned one
 

@@ -40,6 +40,7 @@ so a bare `§4.4` or `§9.8` in a code comment is unambiguous.
 | [9.16](#916-splitting-the-reader-out-of-the-compiler) | Splitting the reader out of the compiler | so a game ships no compiler |
 | [9.17](#917-the-fourth-oracle-and-the-question-it-settled) | The fourth oracle | the validation layers, and what they decided |
 | [9.18](#918-what-the-layers-said-about-the-whole-corpus) | The layers, on the whole corpus | three findings, and a gate that excluded everything |
+| [9.19](#919-closing-the-reflection-gaps-and-what-three-of-them-turned-out-to-be) | Closing the reflection gaps | signatures, a module cache, and three APIs that under-deliver |
 
 ### The four oracles
 
@@ -1296,3 +1297,94 @@ needs a render pass or Vulkan 1.4's `dynamicRenderingLocalRead`, and the part wh
 above lived is not the part that was skipped.
 
 427 tests.
+
+### 9.19 Closing the reflection gaps, and what three of them turned out to be
+
+A count of the surface put the position plainly: 278 flat functions declared, 95 reached. The
+reflection number was the one that mattered — 91 of 172 — and most of the remainder fell into
+"covered in effect" rather than "missing". Closing the ones that were genuinely missing took the
+reachable set to **116 of 278, and 112 of 172 reflection functions**, and three of them did not
+behave the way their names read.
+
+#### Function signatures: the type names are not the source's
+
+`spReflectionFunction_*` was bound in L0 and reached from nothing, so the declaration tree could say
+a module offers `shade` and not what `shade` looks like. It now carries a `FunctionSignature`:
+parameters with `in`/`out`/`inout`, the result type, declaration modifiers, and user attributes.
+
+The surprise is in the spelling. `float3` in the source is `vector<float,3>` in reflection, and
+`StructuredBuffer<float4>` is `StructuredBuffer<vector<float,4>, DefaultDataLayout>` — the implicit
+layout parameter included. That is `GetFullName`, and it is the right call precisely because it
+keeps the generic arguments: `GetName` says `StructuredBuffer` and drops the element type, which is
+the part a hook check needs. A consumer matching against `"float3"` finds nothing.
+
+Overloads are the second surprise, and they need both views to see. The declaration tree reports two
+declarations of one name as two sibling nodes, each with a real signature, and `IsOverloaded` false
+on both. Resolved by name through `LinkedProgram.FindFunction`, Slang returns *one* function that
+says it is overloaded, with the real declarations underneath — and the outer signature is empty:
+`void overloaded()`, which is not a signature any declaration in the source has. A caller reading
+`Parameters` without checking `IsOverloaded` gets a function that appears to take nothing.
+
+#### `isBinaryModuleUpToDate` answers from the session's file cache
+
+Module serialization closes Tier 2's precompiled-module cache: `IModule.Serialize` writes Slang IR,
+`SlangSession.LoadModuleFromIRBlob` reads it back without re-parsing, and `ReadModuleInfo` reports
+the module's name and the compiler build that wrote it — the field that decides whether a cache
+entry is usable at all, since a blob is only loadable by the build that produced it.
+
+`ISession::isBinaryModuleUpToDate` is the staleness check, and the natural way to use it does not
+work. It is answered against the session's own view of the file system, which the session populated
+when it loaded the module. So:
+
+| | same session that loaded and serialized | fresh session |
+|---|---|---|
+| source unchanged | `true` | `true` |
+| source touched | **`true`** | `false` |
+| path with no file behind it | **`true`** | `false` |
+| malformed blob | `false` | `false` |
+
+Load, serialize, ask — the obvious sequence — returns true unconditionally, including for a path
+that has never existed. A cook doing that ships the version before last. A fresh session, which is
+what a process has at startup and the only place the call is worth making, reads disk and answers
+correctly. Nothing in the name says so.
+
+#### Sub-object ranges say less than they look like they do
+
+Slang's third view of the binding data was expected to connect the other two: the parameter list
+says `soMaterial` exists, the descriptor-set view says which set holds it, and this was going to say
+that the set *is* `soMaterial`. Two of the three things assumed about it were false.
+
+- **`getSubObjectRangeOffset` carries no name.** It returns a variable layout with no variable
+  behind it; every name came back null. They are reachable through
+  `getBindingRangeLeafVariable` on the binding range the sub-object points at — the same object,
+  reached the other way.
+- **Neither space call gives the set.** `getSubObjectRangeSpaceOffset` returns 0 for a block
+  occupying set 1 and 0 for one occupying set 2. `getBindingRangeDescriptorSetIndex` returns 0 for
+  both, being an index into the enclosing scope's own list. So `SubObjectRange` deliberately carries
+  no space at all, rather than a wrong number in an authoritative-looking field, and a caller joins
+  on the name against `DescriptorSets`.
+- **It is not a `ParameterBlock` detector.** A `ConstantBuffer<T>` holding nothing but values is
+  reported alongside the blocks. What survives is the distinction it does draw: containers versus
+  things bound directly.
+
+#### And the rest, classified rather than counted
+
+Sixty reflection functions remain unreached, and lumping them together as "coverage" would be the
+same mistake as reporting 95/278 was:
+
+| | | |
+|---|---:|---|
+| Lookup-by-name | 12 | `FindUserAttributeByName`, `findFieldIndexByName`, `findEntryPointByName`… The snapshot enumerates eagerly, so a consumer queries managed data. That was the §4.4 decision, and these are its cost. |
+| Alternate access paths | 8 | `VariableLayout_GetImageFormat` where the binding-range route is used, `Parameter_GetBindingIndex` where `ShaderParameter.Bindings` already carries it. Same facts, second door. |
+| Measured to return nothing | 2 | The two sub-object calls above. |
+| Structurally unreachable | 1 | `spReflection_ToJson` takes an `ICompileRequest` — the legacy API, which §5 puts in Tier 4. |
+| **Link-time specialization** | **~20** | `applySpecializations`, `specializeWithArgTypes`, `Generic_GetConcrete*`, `getPendingDataTypeLayout`, `getSpecializedTypeArg*`. Introspecting a *specialized* program rather than a generic one. The real remaining gap, and the one to close next. |
+| Append/consume counters | 2 | `GetExplicitCounter` and its binding-range offset. Narrow, real, and nothing asks for it yet. |
+
+Also closed alongside: `IMetadata::isParameterLocationUsed`, which is the only thing that knows a
+parameter was declared, laid out, and never read by the emitted code — reflection and the module
+agree on those by being equally silent. It is per-target and per-entry-point, so it cannot live on
+`ProgramLayout`: a binding the fragment stage reads and the vertex stage does not is used by the
+program and unused by one of its stages, and only `GetEntryPointMetadata` tells them apart.
+
+453 tests.

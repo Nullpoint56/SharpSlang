@@ -68,7 +68,52 @@ public static unsafe class ReflectionWalker
             HashedStrings = hashed,
             SpecializationParameters = ReadSpecializationParameters(shader),
             SpecializationConstants = specializationConstants.OrderBy(c => c.ConstantId).ToList(),
+            BindlessSpaceIndex = BindlessSpace(shader),
+            SubObjectRanges = ReadSubObjectRanges(shader),
         };
+    }
+
+    /// <summary>The space reserved for a bindless heap, or null for the usual "there isn't one".</summary>
+    private static uint? BindlessSpace(SlangProgramLayout* shader)
+    {
+        var index = SlangApi.spReflection_getBindlessSpaceIndex(shader);
+        return index < 0 ? null : (uint)index;
+    }
+
+    /// <summary>
+    /// The global scope's sub-object ranges: which of its binding ranges are objects with bindings
+    /// of their own, and which space each took.
+    /// </summary>
+    private static List<SubObjectRange> ReadSubObjectRanges(SlangProgramLayout* shader)
+    {
+        var result = new List<SubObjectRange>();
+
+        var globalScope = SlangApi.spReflection_getGlobalParamsTypeLayout(shader);
+        if (globalScope is null) return result;
+
+        var count = SlangApi.spReflectionTypeLayout_getSubObjectRangeCount(globalScope);
+        for (long i = 0; i < count; i++)
+        {
+            var bindingRange = SlangApi.spReflectionTypeLayout_getSubObjectRangeBindingRangeIndex(globalScope, i);
+            if (bindingRange < 0) continue;
+
+            // Not from getSubObjectRangeOffset. That returns a variable layout with no variable
+            // behind it — measured on 2026.14.1, every name came back null — so the name comes from
+            // the binding range it points at, which is the same object reached the other way.
+            var variable = SlangApi.spReflectionTypeLayout_getBindingRangeLeafVariable(
+                globalScope, bindingRange);
+
+            // No space here on purpose. getSubObjectRangeSpaceOffset reported 0 for a block
+            // occupying set 1 and 0 for one occupying set 2, and getBindingRangeDescriptorSetIndex
+            // reports 0 for both — it indexes the enclosing scope's own set list. Emitting either
+            // as "the set" would be a wrong number in a field that looks authoritative, so the
+            // record carries the name and the caller joins on DescriptorSets. See SubObjectRange.
+            result.Add(new SubObjectRange(
+                (uint)bindingRange,
+                variable is null ? null : Utf8.Read(SlangApi.spReflectionVariable_GetName(variable))));
+        }
+
+        return result;
     }
 
     /// <summary>
@@ -166,7 +211,139 @@ public static unsafe class ReflectionWalker
         }
 
         var generics = kind == DeclarationKind.Generic ? ReadGenericParameters(decl) : null;
-        return new DeclarationNode(name, kind, children, generics);
+        var function = kind == DeclarationKind.Func ? ReadFunction(decl) : null;
+        return new DeclarationNode(name, kind, children, generics, function);
+    }
+
+    /// <summary>
+    /// The signature of a function reached by name rather than through the declaration tree.
+    /// </summary>
+    internal static FunctionSignature ReadFunctionSignature(SlangReflectionFunction* function) =>
+        ReadFunction(function, expandOverloads: true);
+
+    /// <summary>The signature of a function declaration.</summary>
+    private static FunctionSignature? ReadFunction(SlangReflectionDecl* decl)
+    {
+        var function = SlangApi.spReflectionDecl_castToFunction(decl);
+        return function is null ? null : ReadFunction(function, expandOverloads: true);
+    }
+
+    private static FunctionSignature ReadFunction(SlangReflectionFunction* function, bool expandOverloads)
+    {
+        var parameterCount = SlangApi.spReflectionFunction_GetParameterCount(function);
+        var parameters = new List<FunctionParameter>((int)parameterCount);
+
+        for (uint i = 0; i < parameterCount; i++)
+        {
+            var parameter = SlangApi.spReflectionFunction_GetParameter(function, i);
+            if (parameter is null) continue;
+
+            parameters.Add(new FunctionParameter(
+                Utf8.Read(SlangApi.spReflectionVariable_GetName(parameter)) ?? "",
+                FullTypeName(SlangApi.spReflectionVariable_GetType(parameter)),
+                DirectionOf(parameter),
+                ReadAttributes(parameter)));
+        }
+
+        // Slang reports an overloaded name as one function with the real declarations underneath,
+        // and the outer one's own parameter list is whichever declaration it happened to pick.
+        // Expanding one level is enough — an overload is a concrete declaration and is not itself
+        // overloaded — and the recursion is bounded by that flag rather than by trust.
+        List<FunctionSignature>? overloads = null;
+        if (expandOverloads && SlangApi.spReflectionFunction_isOverloaded(function) != 0)
+        {
+            var count = SlangApi.spReflectionFunction_getOverloadCount(function);
+            overloads = new List<FunctionSignature>((int)count);
+            for (uint i = 0; i < count; i++)
+            {
+                var overload = SlangApi.spReflectionFunction_getOverload(function, i);
+                if (overload is not null) overloads.Add(ReadFunction(overload, expandOverloads: false));
+            }
+        }
+
+        return new FunctionSignature(
+            Utf8.Read(SlangApi.spReflectionFunction_GetName(function)) ?? "",
+            FullTypeName(SlangApi.spReflectionFunction_GetResultType(function)),
+            parameters,
+            ModifiersOf(function),
+            ReadFunctionAttributes(function),
+            overloads);
+    }
+
+    /// <summary>
+    /// Which of Slang's declaration modifiers a function carries.
+    /// </summary>
+    /// <remarks>
+    /// There is no "list the modifiers" query — only <c>FindModifier</c>, which answers about one
+    /// id — so this asks about each in turn. Eleven calls per function, all of them pointer
+    /// comparisons in Slang, and the alternative is not reporting them.
+    /// </remarks>
+    private static List<string>? ModifiersOf(SlangReflectionFunction* function)
+    {
+        List<string>? found = null;
+
+        foreach (var id in Enum.GetValues<SlangModifierID>())
+        {
+            if (SlangApi.spReflectionFunction_FindModifier(function, id) is null) continue;
+            (found ??= []).Add(ModifierName(id));
+        }
+
+        return found;
+    }
+
+    private static ParameterDirection DirectionOf(SlangReflectionVariable* parameter)
+    {
+        // Asked in this order because `inout` is its own id rather than the two flags together,
+        // and a parameter that is `out` is not also `in`.
+        if (SlangApi.spReflectionVariable_FindModifier(parameter, SlangModifierID.SLANG_MODIFIER_INOUT) is not null)
+            return ParameterDirection.InOut;
+        if (SlangApi.spReflectionVariable_FindModifier(parameter, SlangModifierID.SLANG_MODIFIER_OUT) is not null)
+            return ParameterDirection.Out;
+        return ParameterDirection.In;
+    }
+
+    /// <summary><c>SLANG_MODIFIER_NO_DIFF</c> becomes <c>no_diff</c>.</summary>
+    private static string ModifierName(SlangModifierID id) =>
+        id.ToString().Replace("SLANG_MODIFIER_", "", StringComparison.Ordinal).ToLowerInvariant();
+
+    /// <summary>
+    /// A type's full name, generic arguments included.
+    /// </summary>
+    /// <remarks>
+    /// <c>GetFullName</c> writes into a blob the caller owns, unlike <c>GetName</c> which returns
+    /// an interior pointer. It is the one worth having: <c>GetName</c> reports
+    /// <c>StructuredBuffer</c> where a signature check needs
+    /// <c>StructuredBuffer&lt;float4&gt;</c>. Falls back to the short name, then to <c>void</c>,
+    /// which is what a null result type means.
+    /// </remarks>
+    private static string FullTypeName(SlangReflectionType* type)
+    {
+        if (type is null) return "void";
+
+        ISlangBlob* blob = null;
+        if (SlangResult.Succeeded(SlangApi.spReflectionType_GetFullName(type, &blob)) && blob is not null)
+        {
+            using var owned = new SlangBlob(blob);
+            var text = owned.AsText();
+            if (!string.IsNullOrEmpty(text)) return text;
+        }
+
+        return Utf8.Read(SlangApi.spReflectionType_GetName(type)) ?? "void";
+    }
+
+    private static List<UserAttribute>? ReadFunctionAttributes(SlangReflectionFunction* function)
+    {
+        var count = SlangApi.spReflectionFunction_GetUserAttributeCount(function);
+        if (count == 0) return null;
+
+        var attributes = new List<UserAttribute>((int)count);
+        for (uint i = 0; i < count; i++)
+        {
+            var attr = SlangApi.spReflectionFunction_GetUserAttribute(function, i);
+            if (attr is not null) attributes.Add(ReadAttribute(attr));
+        }
+
+        return attributes.Count > 0 ? attributes : null;
     }
 
     /// <summary>
@@ -368,6 +545,17 @@ public static unsafe class ReflectionWalker
             }
         }
 
+        // Slang writes 0 when the entry point declared no [WaveSize(N)], and 0 threads per wave is
+        // not a thing — so null is the honest projection, the same reasoning as ThreadGroupSize's
+        // specialized dimensions.
+        ulong waveSize;
+        SlangApi.spReflectionEntryPoint_getComputeWaveSize(ep, &waveSize);
+
+        // Null rather than a repeat of Name. A caller wants to know that the module calls this
+        // entry point something else, and an override equal to the name is not that.
+        var nameOverride = Utf8.Read(SlangApi.spReflectionEntryPoint_getNameOverride(ep));
+        if (string.Equals(nameOverride, name, StringComparison.Ordinal)) nameOverride = null;
+
         return new EntryPointLayout(
             name,
             stage,
@@ -376,7 +564,10 @@ public static unsafe class ReflectionWalker
             SlangApi.spReflectionEntryPoint_usesAnySampleRateInput(ep) != 0,
             resultType,
             parameterBase,
-            uniformSize);
+            uniformSize,
+            nameOverride,
+            waveSize == 0 ? null : waveSize,
+            SlangApi.spReflectionEntryPoint_hasDefaultConstantBuffer(ep) != 0);
     }
 
     // ---------------------------------------------------------------- descriptor sets
@@ -1028,34 +1219,38 @@ public static unsafe class ReflectionWalker
         for (uint i = 0; i < count; i++)
         {
             var attr = SlangApi.spReflectionVariable_GetUserAttribute(variable, i);
-            if (attr is null) continue;
-
-            var name = Utf8.Read(SlangApi.spReflectionUserAttribute_GetName(attr)) ?? "<unnamed>";
-            var argCount = SlangApi.spReflectionUserAttribute_GetArgumentCount(attr);
-            var args = new List<object?>((int)argCount);
-
-            for (uint a = 0; a < argCount; a++)
-            {
-                // Slang has no "what type is this argument" query; the accessors report failure
-                // for the wrong type, so probe int, then float, then string.
-                int intValue;
-                float floatValue;
-                if (SlangResult.Succeeded(SlangApi.spReflectionUserAttribute_GetArgumentValueInt(attr, a, &intValue)))
-                    args.Add(intValue);
-                else if (SlangResult.Succeeded(SlangApi.spReflectionUserAttribute_GetArgumentValueFloat(attr, a, &floatValue)))
-                    args.Add(floatValue);
-                else
-                {
-                    nuint len;
-                    var s = SlangApi.spReflectionUserAttribute_GetArgumentValueString(attr, a, &len);
-                    args.Add(s is not null ? new string((sbyte*)s, 0, (int)len) : null);
-                }
-            }
-
-            attributes.Add(new UserAttribute(name, args));
+            if (attr is not null) attributes.Add(ReadAttribute(attr));
         }
 
         return attributes.Count > 0 ? attributes : null;
+    }
+
+    /// <summary>One user attribute, whatever it is hanging off.</summary>
+    private static UserAttribute ReadAttribute(SlangReflectionUserAttribute* attr)
+    {
+        var name = Utf8.Read(SlangApi.spReflectionUserAttribute_GetName(attr)) ?? "<unnamed>";
+        var argCount = SlangApi.spReflectionUserAttribute_GetArgumentCount(attr);
+        var args = new List<object?>((int)argCount);
+
+        for (uint a = 0; a < argCount; a++)
+        {
+            // Slang has no "what type is this argument" query; the accessors report failure
+            // for the wrong type, so probe int, then float, then string.
+            int intValue;
+            float floatValue;
+            if (SlangResult.Succeeded(SlangApi.spReflectionUserAttribute_GetArgumentValueInt(attr, a, &intValue)))
+                args.Add(intValue);
+            else if (SlangResult.Succeeded(SlangApi.spReflectionUserAttribute_GetArgumentValueFloat(attr, a, &floatValue)))
+                args.Add(floatValue);
+            else
+            {
+                nuint len;
+                var s = SlangApi.spReflectionUserAttribute_GetArgumentValueString(attr, a, &len);
+                args.Add(s is not null ? new string((sbyte*)s, 0, (int)len) : null);
+            }
+        }
+
+        return new UserAttribute(name, args);
     }
 
     /// <summary>

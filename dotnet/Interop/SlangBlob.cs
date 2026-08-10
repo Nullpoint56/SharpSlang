@@ -28,6 +28,9 @@ public sealed unsafe class SlangBlob : SlangObject<ISlangBlob>
     /// <summary>Length in bytes.</summary>
     public int Length => (int)Ptr->getBufferSize();
 
+    /// <summary>The live pointer, for passing a blob back into Slang. Throws if disposed.</summary>
+    internal ISlangBlob* Handle => Ptr;
+
     /// <summary>
     /// The bytes, without copying. Valid only until this blob is disposed — do not store it.
     /// Use <see cref="ToArray"/> if the data must outlive the blob.

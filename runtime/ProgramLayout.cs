@@ -171,6 +171,37 @@ public sealed record DescriptorRange(
 /// <summary>A descriptor set (register space) and the ranges within it.</summary>
 public sealed record DescriptorSet(uint SpaceOffset, IReadOnlyList<DescriptorRange> Ranges);
 
+/// <summary>
+/// A binding range that is itself an object with its own bindings — a <c>ParameterBlock</c> or a
+/// <c>ConstantBuffer</c> holding resources.
+/// </summary>
+/// <remarks>
+/// <para>
+/// Slang's third view of the same data. The parameter list says <c>soMaterial</c> exists; the
+/// descriptor-set view says which set holds it; this says it is a <em>container</em> — something
+/// with bindings inside it — rather than a texture or a sampler bound directly.
+/// </para>
+/// <para>
+/// Both kinds of container qualify, which is worth knowing before using it as a
+/// <c>ParameterBlock</c> detector: a <c>ConstantBuffer&lt;T&gt;</c> holding nothing but values is
+/// reported here alongside the <c>ParameterBlock</c>s. Measured on 2026.14.1.
+/// </para>
+/// <para>
+/// <strong>The set index is not in this view.</strong> Slang has a
+/// <c>getSubObjectRangeSpaceOffset</c> and it reported 0 for a block occupying set 1 and 0 for one
+/// occupying set 2; <c>getBindingRangeDescriptorSetIndex</c> reports 0 for both as well, being an
+/// index into the enclosing scope's own list rather than an absolute space. So this record does not
+/// carry one. Match <see cref="Name"/> against
+/// <see cref="ProgramLayout.DescriptorSets"/> for the set a host actually binds — that view is
+/// built from the descriptor-set API and is the one that agrees with the emitted module.
+/// </para>
+/// </remarks>
+/// <param name="BindingRangeIndex">
+/// Which binding range of the global scope this sub-object occupies.
+/// </param>
+/// <param name="Name">The parameter that produced it, where Slang could attribute one.</param>
+public sealed record SubObjectRange(uint BindingRangeIndex, string? Name = null);
+
 /// <summary>A shader entry point.</summary>
 /// <param name="Name">Function name.</param>
 /// <param name="Stage">Pipeline stage from its <c>[shader(...)]</c> attribute.</param>
@@ -187,6 +218,20 @@ public sealed record DescriptorSet(uint SpaceOffset, IReadOnlyList<DescriptorRan
 /// Bytes of the implicit buffer holding the entry point's <c>uniform</c> value parameters. Slang
 /// places these in a push-constant buffer. 0 when the entry point declares none.
 /// </param>
+/// <param name="NameOverride">
+/// The name the emitted module uses for this entry point, when the shader renamed it with
+/// <c>[shader("…")] [vk::name("…")]</c> or Slang chose a different one. Null when the module name
+/// and <paramref name="Name"/> agree.
+/// </param>
+/// <param name="WaveSize">
+/// Threads per wave, where the entry point declared <c>[WaveSize(N)]</c>. Null otherwise, which is
+/// the usual case and means the device's native wave size applies.
+/// </param>
+/// <param name="HasDefaultConstantBuffer">
+/// Whether Slang wrapped this entry point's <c>uniform</c> parameters in an implicit constant
+/// buffer. When false, <paramref name="UniformSize"/> being non-zero means those bytes are laid out
+/// somewhere other than a buffer of their own — on Vulkan, in the push-constant range.
+/// </param>
 public sealed record EntryPointLayout(
     string Name,
     SlangStage Stage,
@@ -195,7 +240,10 @@ public sealed record EntryPointLayout(
     bool UsesAnySampleRateInput = false,
     TypeLayout? ResultType = null,
     IReadOnlyList<ParameterBinding>? ParameterBase = null,
-    ulong UniformSize = 0)
+    ulong UniformSize = 0,
+    string? NameOverride = null,
+    ulong? WaveSize = null,
+    bool HasDefaultConstantBuffer = false)
 {
     /// <summary>The entry point's base offset in one category, or 0 if it occupies none.</summary>
     public uint BaseOffset(SlangParameterCategory category) =>
@@ -395,6 +443,95 @@ public enum DeclarationKind
     Enum,
 }
 
+/// <summary>How a function parameter is passed.</summary>
+[JsonConverter(typeof(JsonStringEnumConverter<ParameterDirection>))]
+public enum ParameterDirection
+{
+    /// <summary>Read by the function. Slang's default, and what an undecorated parameter is.</summary>
+    In,
+
+    /// <summary>Written by the function; its incoming value is not read.</summary>
+    Out,
+
+    /// <summary>Both.</summary>
+    InOut,
+}
+
+/// <summary>One parameter of a function declaration.</summary>
+/// <param name="Name">As declared.</param>
+/// <param name="Type">
+/// The full type name, generic arguments included — <c>StructuredBuffer&lt;float4&gt;</c> rather
+/// than <c>StructuredBuffer</c>.
+/// </param>
+/// <param name="Direction">Whether the function reads it, writes it, or both.</param>
+/// <param name="Attributes">User attributes on the parameter, if any.</param>
+/// <remarks>
+/// Deliberately carries no semantic. <c>GetSemanticName</c> exists only on a <em>variable
+/// layout</em>, and an ordinary function parameter has no layout — a semantic is a property of a
+/// pipeline interface, which is what <see cref="EntryPointLayout"/> reports. A nullable
+/// <c>Semantic</c> here would be a field that is always null, which is worse than its absence.
+/// </remarks>
+public sealed record FunctionParameter(
+    string Name,
+    string Type,
+    ParameterDirection Direction,
+    IReadOnlyList<UserAttribute>? Attributes = null);
+
+/// <summary>
+/// A function declaration's signature, as Slang reports it.
+/// </summary>
+/// <remarks>
+/// <para>
+/// The declaration tree says a function <em>exists</em>; this says what it looks like. That is the
+/// difference between a material system that can list a shader's hooks and one that can check a
+/// candidate function actually matches the hook it is being bound to.
+/// </para>
+/// <para>
+/// Not the same thing as <see cref="EntryPointLayout"/>. An entry point's parameters are a
+/// <em>pipeline interface</em> — varyings, system values and uniforms with bindings — and reflection
+/// reports them through the layout API. These are ordinary function parameters, with no binding and
+/// no layout, and they exist for every function in the module rather than only the entry points.
+/// </para>
+/// </remarks>
+/// <param name="Name">As declared.</param>
+/// <param name="ResultType">Full name of the return type; <c>void</c> for none.</param>
+/// <param name="Parameters">In declaration order.</param>
+/// <param name="Modifiers">
+/// Slang's declaration modifiers that are present — <c>static</c>, <c>mutating</c>,
+/// <c>differentiable</c>, <c>[no_diff]</c> and so on. Reported as the names Slang's
+/// <c>SlangModifierID</c> uses, lowercased.
+/// </param>
+/// <param name="Attributes">User attributes on the function, if any.</param>
+/// <param name="Overloads">
+/// The other declarations sharing this name, when the name is overloaded. Slang reports an
+/// overloaded name as a single function with the real declarations underneath, and the outer one's
+/// own signature is <em>empty</em> — <c>void overloaded()</c>, which is not a signature any
+/// declaration in the source has. So a caller that reads <see cref="Parameters"/> without checking
+/// <see cref="IsOverloaded"/> gets a function that appears to take nothing.
+///
+/// Only ever populated by <c>LinkedProgram.FindFunction</c>. The declaration tree reports the same
+/// two declarations as two sibling nodes with real signatures and this field null, which is the
+/// more useful view and the reason both exist.
+/// </param>
+public sealed record FunctionSignature(
+    string Name,
+    string ResultType,
+    IReadOnlyList<FunctionParameter> Parameters,
+    IReadOnlyList<string>? Modifiers = null,
+    IReadOnlyList<UserAttribute>? Attributes = null,
+    IReadOnlyList<FunctionSignature>? Overloads = null)
+{
+    /// <summary>Whether Slang reported more than one declaration under this name.</summary>
+    [JsonIgnore]
+    public bool IsOverloaded => Overloads is { Count: > 0 };
+
+    /// <summary>C-like rendering, for diagnostics and for reading a tree dump.</summary>
+    public override string ToString() =>
+        $"{ResultType} {Name}({string.Join(", ", Parameters.Select(p =>
+            (p.Direction == ParameterDirection.In ? "" : p.Direction.ToString().ToLowerInvariant() + " ")
+            + $"{p.Type} {p.Name}"))})";
+}
+
 /// <summary>
 /// A node in a module's declaration tree. Lets tooling enumerate what a shader offers — which
 /// structs implement which interfaces, which functions are available — without parsing source.
@@ -407,11 +544,15 @@ public enum DeclarationKind
 /// otherwise. This is where value generics surface — see
 /// <see cref="SpecializationParameterKind"/> for why they are not program-level parameters.
 /// </param>
+/// <param name="Function">
+/// For a <see cref="DeclarationKind.Func"/> node, its signature. Null otherwise.
+/// </param>
 public sealed record DeclarationNode(
     string Name,
     DeclarationKind Kind,
     IReadOnlyList<DeclarationNode> Children,
-    IReadOnlyList<GenericParameter>? GenericParameters = null)
+    IReadOnlyList<GenericParameter>? GenericParameters = null,
+    FunctionSignature? Function = null)
 {
     /// <summary>
     /// Whether this is a compiler-synthesised declaration rather than something the author wrote.
@@ -483,6 +624,26 @@ public sealed record ProgramLayout
     /// pipeline per <c>#ifdef</c> combination.
     /// </remarks>
     public IReadOnlyList<SpecializationParameter> SpecializationParameters { get; init; } = [];
+
+    /// <summary>
+    /// The register space Slang reserved for bindless resources, or null if the program uses none.
+    /// </summary>
+    /// <remarks>
+    /// Distinct from an unbounded descriptor array, which is an ordinary binding whose count the
+    /// host chooses. A bindless <em>heap</em> is a whole space Slang sets aside, and a host that
+    /// allocates descriptor sets by index has to know not to use it. Slang reports -1 for "none",
+    /// normalised to null here so it cannot be read as a space number.
+    /// </remarks>
+    public uint? BindlessSpaceIndex { get; init; }
+
+    /// <summary>
+    /// The global scope's binding ranges that are themselves objects with their own bindings.
+    /// </summary>
+    /// <remarks>
+    /// Empty for a shader whose parameters are all bound directly. See <see cref="SubObjectRange"/>
+    /// for why this is the only view that connects a space back to the parameter that owns it.
+    /// </remarks>
+    public IReadOnlyList<SubObjectRange> SubObjectRanges { get; init; } = [];
 
     /// <summary>
     /// The module's declaration tree — its structs, functions, interfaces and generics. Present
