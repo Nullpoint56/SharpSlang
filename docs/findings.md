@@ -1841,21 +1841,37 @@ abort on Linux; and §9.22's `specializeType`, which returns null on Windows and
 and was found by that leg aborting a run that was green here. A third architecture is the cheapest
 remaining place a defect of that shape could still be hiding.
 
-The validation-layer count check stays on `linux-x64` for now, and the comment in `ci.yml` says so
-and says when to widen it: an ARM run that shows lavapipe loading. A gate turned on before anyone
-has seen it work is the failure mode §9.17 is about.
+**It passed on its first run, and that is an answer rather than an absence of one.** All 497 tests
+ran on arm64, and the set includes every one that would have noticed: `CallbackBoundaryTests` drives
+each `[UnmanagedCallersOnly]` thunk through the function pointers Slang is handed, the entire
+reflection surface goes through `delegate* unmanaged[Stdcall]` vtable dispatch, and `LifetimeTests`
+under `MALLOC_PERTURB_` covers the ownership paths. So the calling-convention question is settled by
+measurement: the runtime does ignore `Stdcall` on ARM64, and the reverse-interop boundary holds
+there. Green is only evidence when the tests that would have gone red actually ran — these did.
+
+The validation-layer count check now runs on **both** linux legs, and fails on only one of them.
+linux-x64 is proven, so a short count there is an error; arm64 reports through `::notice::` instead,
+which puts "did lavapipe load on ARM?" in the run summary rather than in a log someone has to open.
+One line flips it to fatal once a run has answered yes.
+
+That shape is deliberate and it is narrow. A gate turned on before anyone has watched it work is the
+failure mode §9.17 is about — a probe that confidently reported a layer missing on a machine that
+had it. A gate that can never fail is the one §9.18's first corpus run was: *"raster stages but no
+vertex stage"* for most of the corpus, reporting the same green as a driver that excluded nothing.
+Reporting without asserting is only defensible while it is visibly temporary, which is what the
+comment on the step is for.
 
 #### What is left for v1.0
 
 - **osx-arm64, never executed.** The one hard blocker. `publish.yml` already stages a macOS payload
   into the package, so a release today would ship a library nobody has loaded.
-- **Never released.** No tags. The publish path can now be *rehearsed* — `workflow_dispatch` takes
-  a `dry_run` input, default true, that runs the whole thing except the push: three-RID staging from
-  a Windows runner, build, test, pack all three projects, and the check that every RID in the core
-  package carries both the compiler and the SPIR-V optimiser. The `.nupkg` files upload either way,
-  so there is something to inspect. A tag still publishes for real. Rehearsing it is not the same as
-  having released, but a tag is a bad place to discover that the staging is wrong, because the
-  failure arrives attached to a version number.
+- **Never released, but no longer unrehearsed.** `workflow_dispatch` takes a `dry_run` input,
+  default true, running the whole path except the push: three-RID staging from a Windows runner,
+  build, test, pack all three projects, and the check that every RID in the core package carries
+  both the compiler and the SPIR-V optimiser. It has run, green. That proves more than it sounds
+  like — **the osx-arm64 payload stages and packs correctly**, so what macOS is missing is a runner
+  that loads the library, not plumbing. A tag still publishes for real, and a tag is a bad place to
+  discover that staging is wrong, because the failure arrives attached to a version number.
 - The implicit global constant buffer is still unnamed, and `getEntryPointHash` is still
   deliberately unbound (§9.7).
 

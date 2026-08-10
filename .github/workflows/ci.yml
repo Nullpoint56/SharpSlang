@@ -156,13 +156,17 @@ jobs:
       # leave the whole validation harness silently switched off. Two of the three run on any
       # device; the third needs 64-bit vertex formats, which lavapipe does not offer, and skips
       # with that reason.
-      # linux-x64 only, deliberately, and staged rather than soft. The count check is proven there;
-      # arm64 is new, and if lavapipe does not load on it the right outcome for the first few runs
-      # is the skip reason in the log rather than a red build for a reason unrelated to the port.
-      # The validation tests themselves do run on both — this is only about the assertion that they
-      # ran. Tighten to startsWith(matrix.rid, 'linux') once an ARM run has shown lavapipe loading.
+      # Both linux legs, but only one of them fails on a short count. linux-x64 is proven; arm64 is
+      # new, and a build that goes red because lavapipe is unavailable on a runner would be red for
+      # a reason unrelated to the port. So arm64 runs the same check and reports through
+      # `::notice::` instead — which makes "did lavapipe load on ARM?" a line in the summary rather
+      # than something someone has to go and read the log for.
+      #
+      # Flip $fatal to true for arm64 once a run has answered yes. A gate turned on before anyone
+      # has watched it work is the failure mode §9.17 is about, and a gate that can never fail is
+      # the one §9.18's driver was.
       - name: The validation-layer tests actually ran
-        if: matrix.rid == 'linux-x64'
+        if: startsWith(matrix.rid, 'linux')
         env:
           MALLOC_PERTURB_: 165
         run: |
@@ -184,11 +188,19 @@ jobs:
           echo "$counters"
           passed=$(echo "$counters" | sed -n 's/.*[^a-z]passed="\([0-9]*\)".*/\1/p')
 
+          fatal=$([ "${{ matrix.rid }}" = "linux-x64" ] && echo true || echo false)
+
           if [ "${passed:-0}" -lt 2 ]; then
-            echo "::error::only ${passed:-0} validation-layer test(s) ran. lavapipe or the layers did not load; the skip reason is in the output above."
-            exit 1
+            message="only ${passed:-0} validation-layer test(s) ran on ${{ matrix.rid }}. lavapipe or the layers did not load; the skip reason is in the output above."
+            if [ "$fatal" = "true" ]; then
+              echo "::error::$message"
+              exit 1
+            fi
+            echo "::notice::$message This is not fatal on ${{ matrix.rid }} yet — see the comment on this step."
+            exit 0
           fi
-          echo "$passed validation-layer test(s) ran against lavapipe"
+
+          echo "::notice::$passed validation-layer test(s) ran against lavapipe on ${{ matrix.rid }}"
 
       - name: Tier 0 spike
         env:

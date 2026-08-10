@@ -76,8 +76,8 @@ a message naming the shader construct that caused it.
 |---|---|
 | `win-x64` | verified, in CI |
 | `linux-x64` | verified, in CI — including the Vulkan validation layers via lavapipe |
-| `linux-arm64` | in CI on `ubuntu-24.04-arm` — the only leg that exercises ARM64 calling conventions |
-| `osx-arm64` | mapped in `fetch-native.ps1`, **never executed** |
+| `linux-arm64` | verified, in CI on `ubuntu-24.04-arm` — the only leg exercising ARM64 calling conventions |
+| `osx-arm64` | payload stages and packs, verified by the publish dry run; **the library has never been loaded** |
 
 .NET 10, C# 14. Slang is pinned in `Directory.Build.props`; the pin is the single source of truth
 for both the payload fetch and the binding regeneration, because Slang's ABI is explicitly not
