@@ -111,12 +111,12 @@ traps worth knowing before you hit them.
 not a question of signatures — it is that `loadModule` returns a borrowed pointer where every other
 call returns an owned one, that `getEntryPointCode` names every module `main`, that a specialization
 constant used as an array length makes reflection kill the process on Linux and throw on Windows.
-Twenty sections of that, each one measured, several of them mistakes this binding made and then
+Twenty-two sections of that, each one measured, several of them mistakes this binding made and then
 caught.
 
 ## Testing
 
-469 tests. The interesting ones do not assert against numbers someone typed:
+492 tests. The interesting ones do not assert against numbers someone typed:
 
 - **`ModuleAgreementTests`** compiles a 28-shader corpus and requires the reflection snapshot and
   the emitted SPIR-V to state *the same set of facts, in both directions* — so a fact one side
@@ -134,9 +134,15 @@ caught.
   one question the corpus driver cannot ask generically.
 - **`MalformedInputTests`** truncates and corrupts both file readers under a fixed seed.
 - **`NativeExportTests`** resolves all 278 `DllImport` entry points against the loaded library.
-- **`ProberTests`** spawns a child process for the one reflection call that does not fail but ends
-  — a resource array sized by a specialization constant — because the alternative is a sentence in
-  a document that nothing checks.
+- **`SecondOpinionTests`** calls Slang's *alternate* route to every fact the projection already
+  reports — a parameter's binding from the parameter rather than from its layout, a field by name
+  rather than by index — and requires the two to agree. That is how the reflection surface reached
+  **172 of 172 exercised** without growing an API nobody asked for.
+- **`ProberTests`** spawns a child process for the reflection calls that do not fail but end — a
+  resource array sized by a specialization constant, a mismatched generic argument list — because
+  the alternative is a sentence in a document that nothing checks. One of its cases asserts the
+  *absence* of a crash this document used to claim
+  ([§9.21](docs/findings.md#921-the-four-crashes-what-upstream-says-and-whether-they-are-ours)).
 - **`DocumentedFactsTests`** compares the numbers in these documents against the code they describe.
   Both files said "27-shader corpus" while the corpus had 28.
 

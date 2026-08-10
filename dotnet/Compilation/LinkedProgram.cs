@@ -109,23 +109,36 @@ public sealed unsafe class LinkedProgram : SlangObject<IComponentType>
 
         var shader = (SlangProgramLayout*)layout;
 
-        SlangReflectionType* declared;
+        SlangReflectionType* declaredType;
+        SlangReflectionFunction* declaredFunction;
         using (Utf8.Scoped n = new(genericName))
         {
-            declared = SlangApi.spReflection_FindTypeByName(shader, n);
+            declaredType = SlangApi.spReflection_FindTypeByName(shader, n);
+            declaredFunction = SlangApi.spReflection_FindFunctionByName(shader, n);
         }
 
-        if (declared is null) return null;
+        // Both are asked, because a generic is a declaration of some kind with parameters attached
+        // and Slang looks the two up through different tables. `struct Wrapper<T>` is only findable
+        // as a type; `float3 apply<T>(…)` is only findable as a function, and looking for the
+        // second among types is how this returned null for every generic function.
+        //
+        // The generic *container*, not the declaration. FindTypeByName on `Wrapper` hands back a
+        // struct whose full name is `Wrapper<T>` — the declaration with its parameter still
+        // symbolic — and that is not what specializeGeneric takes.
+        var generic =
+            declaredType is not null ? SlangApi.spReflectionType_GetGenericContainer(declaredType) : null;
 
-        // The generic container, not the type. FindTypeByName on `Wrapper` hands back a struct
-        // whose full name is `Wrapper<T>` — the declaration with its parameter still symbolic —
-        // and that is not what specializeGeneric takes.
-        var generic = SlangApi.spReflectionType_GetGenericContainer(declared);
+        if (generic is null && declaredFunction is not null)
+            generic = SlangApi.spReflectionFunction_GetGenericContainer(declaredFunction);
+
+        if (declaredType is null && declaredFunction is null) return null;
+
         if (generic is null)
         {
             throw new ArgumentException(
-                $"'{genericName}' is a type in this program but not a generic one, so there is "
-                + "nothing to specialize.", nameof(genericName));
+                $"'{genericName}' is a {(declaredType is not null ? "type" : "function")} in this "
+                + "program but not a generic one, so there is nothing to specialize.",
+                nameof(genericName));
         }
 
         RequireArgumentsMatch(genericName, generic, arguments);
@@ -275,6 +288,101 @@ public sealed unsafe class LinkedProgram : SlangObject<IComponentType>
         using Utf8.Scoped n = new(name);
         var function = SlangApi.spReflection_FindFunctionByName((SlangProgramLayout*)layout, n);
         return function is null ? null : ReflectionWalker.ReadFunctionSignature(function);
+    }
+
+    /// <summary>
+    /// Picks the overload of <paramref name="name"/> that a call with these argument types would
+    /// resolve to, or null if none matches.
+    /// </summary>
+    /// <remarks>
+    /// The other half of <see cref="FindFunction(string)"/>, which reports that a name is
+    /// overloaded and hands back the candidates. This answers which one a call site gets — the
+    /// question a material system asks before binding a hook to a function it did not write.
+    ///
+    /// Two routes exist and both are used, because neither alone is enough. Slang's
+    /// <c>specializeWithArgTypes</c> resolves against a candidate set on the function itself;
+    /// <c>TryResolveOverloadedFunction</c> resolves across a list the caller assembles. The first is
+    /// tried, and the second picks up the case where an overloaded name does not narrow to one.
+    /// </remarks>
+    /// <param name="name">The function's name, unqualified.</param>
+    /// <param name="argumentTypes">The call's argument types, in order.</param>
+    public FunctionSignature? ResolveOverload(string name, params ReadOnlySpan<SlangType> argumentTypes)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(name);
+
+        ISlangBlob* diagnostics = null;
+        var layout = Ptr->getLayout(0, &diagnostics);
+        Diagnostics.ThrowIfNull(layout, "IComponentType::getLayout", diagnostics);
+
+        var shader = (SlangProgramLayout*)layout;
+
+        SlangReflectionFunction* function;
+        using (Utf8.Scoped n = new(name))
+        {
+            function = SlangApi.spReflection_FindFunctionByName(shader, n);
+        }
+
+        if (function is null) return null;
+
+        var types = new SlangReflectionType*[Math.Max(argumentTypes.Length, 1)];
+        for (var i = 0; i < argumentTypes.Length; i++)
+        {
+            ArgumentNullException.ThrowIfNull(argumentTypes[i]);
+            types[i] = (SlangReflectionType*)argumentTypes[i].Handle;
+        }
+
+        SlangReflectionFunction* resolved;
+        fixed (SlangReflectionType** pTypes = types)
+        {
+            resolved = SlangApi.spReflectionFunction_specializeWithArgTypes(
+                function, argumentTypes.Length, pTypes);
+        }
+
+        // Where the name is an overload set and the call did not narrow it, the candidates can be
+        // handed back for Slang to arbitrate. Only reached when the direct route declined.
+        if (resolved is null && SlangApi.spReflectionFunction_isOverloaded(function) != 0)
+        {
+            var count = SlangApi.spReflectionFunction_getOverloadCount(function);
+            var candidates = new SlangReflectionFunction*[Math.Max((int)count, 1)];
+            for (uint i = 0; i < count; i++)
+                candidates[i] = SlangApi.spReflectionFunction_getOverload(function, i);
+
+            fixed (SlangReflectionFunction** pCandidates = candidates)
+            {
+                resolved = SlangApi.spReflection_TryResolveOverloadedFunction(
+                    shader, count, pCandidates);
+            }
+        }
+
+        return resolved is null ? null : ReflectionWalker.ReadFunctionSignature(resolved);
+    }
+
+    /// <summary>
+    /// Slang's own reflection dump for this program, as JSON.
+    /// </summary>
+    /// <remarks>
+    /// The same text <c>slangc -reflection-json</c> writes. Not the shape anything here reads —
+    /// <see cref="ProgramLayout"/> is — but a second opinion in a bug report, and the only view
+    /// that is Slang's own formatting rather than this package's reading of it.
+    ///
+    /// <c>spReflection_ToJson</c> takes an <c>ICompileRequest</c>, which belongs to the legacy API
+    /// this binding does not bind (§5, Tier 4). Null is passed, and measured to work; a release
+    /// that starts dereferencing it makes this return null rather than crash, because the result is
+    /// checked rather than assumed.
+    /// </remarks>
+    /// <returns>The JSON, or null if Slang produced none.</returns>
+    public string? ToJson()
+    {
+        ISlangBlob* diagnostics = null;
+        var layout = Ptr->getLayout(0, &diagnostics);
+        Diagnostics.ThrowIfNull(layout, "IComponentType::getLayout", diagnostics);
+
+        ISlangBlob* json = null;
+        var hr = SlangApi.spReflection_ToJson((SlangProgramLayout*)layout, null, &json);
+        if (SlangResult.Failed(hr) || json is null) return null;
+
+        using var blob = new SlangBlob(json);
+        return blob.AsText();
     }
 
     /// <summary>

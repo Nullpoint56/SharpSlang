@@ -95,6 +95,39 @@ public abstract record TypeLayout
     /// <summary>Byte alignment of the uniform footprint, or 0 if it has none.</summary>
     public int Alignment { get; init; }
 
+    /// <summary>
+    /// User attributes on the type's own declaration — <c>[MyTag(3)] struct Material</c> — or null.
+    /// </summary>
+    /// <remarks>
+    /// Distinct from <see cref="FieldLayout.Attributes"/>, which are on a field, and reached by a
+    /// different call. A material system tagging its <em>types</em> rather than its fields had no
+    /// path to these at all: variables and functions reported their attributes and types did not.
+    /// </remarks>
+    public IReadOnlyList<UserAttribute>? Attributes { get; init; }
+
+    /// <summary>
+    /// Which generic parameter this type <em>is</em>, for a layout standing in for an unbound
+    /// <c>T</c>; null for an ordinary type.
+    /// </summary>
+    /// <remarks>
+    /// Slang reports -1 for "not a generic parameter", normalised away here. Non-null has not been
+    /// observed on any shader this project compiles — a linked program has its generics resolved,
+    /// which is what linking is — so treat it as the marker for a layout obtained before that.
+    /// </remarks>
+    public uint? GenericParameterIndex { get; init; }
+
+    /// <summary>
+    /// Whether Slang attached <em>pending</em> layout data to this type — bytes whose position is
+    /// not decided until specialization is.
+    /// </summary>
+    /// <remarks>
+    /// Null on every shader tried here, specialized and unspecialized alike, which is why this is
+    /// a flag rather than a projected sub-layout: reporting the shape of something never seen
+    /// would be inventing it. If this ever comes back true, the layout it refers to is reachable
+    /// through <c>getPendingDataTypeLayout</c> and worth projecting properly (§9.22).
+    /// </remarks>
+    public bool HasPendingData { get; init; }
+
     /// <summary>Convenience: the uniform (byte) footprint, or 0 if this type occupies no bytes.</summary>
     /// <remarks>
     /// Reports Slang's answer as given, markers included — see <see cref="CategorySize.IsKnown"/>
@@ -377,4 +410,20 @@ public sealed record OpaqueLayout : TypeLayout;
 /// </summary>
 /// <param name="Name">Attribute name without brackets.</param>
 /// <param name="Arguments">Positional arguments, boxed as int, float, or string.</param>
-public sealed record UserAttribute(string Name, IReadOnlyList<object?> Arguments);
+/// <param name="ArgumentTypes">
+/// The declared type name of each argument, positionally — <c>int</c>, <c>float</c>,
+/// <c>String</c>. Null when Slang reported none.
+/// </param>
+/// <remarks>
+/// <see cref="Arguments"/> used to be built by probing: try the int accessor, then the float one,
+/// then the string one, and take whichever succeeded. That works and it guesses — a
+/// <c>float</c> argument whose value happens to be integral is a case where the guess and the
+/// declaration can disagree. <see cref="ArgumentTypes"/> is what Slang says the argument
+/// <em>is</em>, so a consumer that cares can read the declaration rather than the boxed result.
+/// The probe still fills <see cref="Arguments"/>, because the accessors are the only way to get a
+/// value and they are keyed by type rather than returning a variant.
+/// </remarks>
+public sealed record UserAttribute(
+    string Name,
+    IReadOnlyList<object?> Arguments,
+    IReadOnlyList<string>? ArgumentTypes = null);

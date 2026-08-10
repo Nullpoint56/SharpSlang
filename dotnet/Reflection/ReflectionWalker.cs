@@ -212,7 +212,79 @@ public static unsafe class ReflectionWalker
 
         var generics = kind == DeclarationKind.Generic ? ReadGenericParameters(decl) : null;
         var function = kind == DeclarationKind.Func ? ReadFunction(decl) : null;
-        return new DeclarationNode(name, kind, children, generics, function);
+
+        // The declared type of a `let`/`static` at namespace or struct scope. castToVariable is
+        // the only way in: a variable declaration is a decl node like any other and its type is
+        // not on the node.
+        string? variableType = null;
+        if (kind == DeclarationKind.Variable)
+        {
+            var variable = SlangApi.spReflectionDecl_castToVariable(decl);
+            if (variable is not null)
+                variableType = FullTypeName(SlangApi.spReflectionVariable_GetType(variable));
+        }
+
+        // Nesting, for a generic inside a generic.
+        string? outerGeneric = null;
+        if (kind == DeclarationKind.Generic)
+        {
+            var generic = SlangApi.spReflectionDecl_castToGeneric(decl);
+            var outer = generic is null
+                ? null
+                : SlangApi.spReflectionGeneric_GetOuterGenericContainer(generic);
+
+            if (outer is not null)
+                outerGeneric = Utf8.Read(SlangApi.spReflectionGeneric_GetName(outer));
+        }
+
+        return new DeclarationNode(
+            name, kind, children, generics, function,
+            QualifiedNameOf(decl, name), ModifiersOfDecl(decl), variableType, outerGeneric);
+    }
+
+    /// <summary>
+    /// The declaration's name with its enclosing declarations, dotted.
+    /// </summary>
+    /// <remarks>
+    /// Walked upward with <c>getParent</c> rather than joined on the way down, so it reports the
+    /// compiler's nesting rather than this walk's. The module node at the root is dropped: every
+    /// name would otherwise begin with it, which is noise.
+    /// </remarks>
+    private static string QualifiedNameOf(SlangReflectionDecl* decl, string name)
+    {
+        var parts = new List<string> { name };
+
+        var parent = SlangApi.spReflectionDecl_getParent(decl);
+        for (var depth = 0; parent is not null && depth < MaxDeclarationDepth; depth++)
+        {
+            if (SlangApi.spReflectionDecl_getKind(parent) == SlangDeclKind.SLANG_DECL_KIND_MODULE) break;
+
+            var parentName = Utf8.Read(SlangApi.spReflectionDecl_getName(parent));
+            if (!string.IsNullOrEmpty(parentName)) parts.Add(parentName);
+
+            parent = SlangApi.spReflectionDecl_getParent(parent);
+        }
+
+        parts.Reverse();
+        return string.Join('.', parts);
+    }
+
+    /// <summary>Which of Slang's declaration modifiers this declaration carries.</summary>
+    /// <remarks>
+    /// Same shape as <see cref="ModifiersOf(SlangReflectionFunction*)"/> and for the same reason:
+    /// there is no "list the modifiers" query, only one that answers about a single id.
+    /// </remarks>
+    private static List<string>? ModifiersOfDecl(SlangReflectionDecl* decl)
+    {
+        List<string>? found = null;
+
+        foreach (var id in Enum.GetValues<SlangModifierID>())
+        {
+            if (SlangApi.spReflectionDecl_findModifier(decl, id) is null) continue;
+            (found ??= []).Add(ModifierName(id));
+        }
+
+        return found;
     }
 
     /// <summary>
@@ -264,27 +336,59 @@ public static unsafe class ReflectionWalker
                 Value: SlangApi.spReflectionGeneric_GetConcreteIntVal(specialized, parameter)));
         }
 
+        var name = Utf8.Read(SlangApi.spReflectionGeneric_GetName(specialized)) ?? "<unnamed>";
         var inner = SlangApi.spReflectionGeneric_GetInnerDecl(specialized);
+
+        // What the generic wraps. `struct Wrapper<T>` and `float3 shade<T>(…)` are both generics,
+        // and the caller specialized one by name — so it has to be told which it got, rather than
+        // being handed a null layout and left to infer.
+        var kind = SlangApi.spReflectionGeneric_GetInnerKind(specialized) switch
+        {
+            SlangDeclKind.SLANG_DECL_KIND_STRUCT => DeclarationKind.Struct,
+            SlangDeclKind.SLANG_DECL_KIND_FUNC => DeclarationKind.Func,
+            SlangDeclKind.SLANG_DECL_KIND_VARIABLE => DeclarationKind.Variable,
+            SlangDeclKind.SLANG_DECL_KIND_ENUM => DeclarationKind.Enum,
+            SlangDeclKind.SLANG_DECL_KIND_NAMESPACE => DeclarationKind.Namespace,
+            SlangDeclKind.SLANG_DECL_KIND_MODULE => DeclarationKind.Module,
+            SlangDeclKind.SLANG_DECL_KIND_GENERIC => DeclarationKind.Generic,
+            _ => DeclarationKind.Unsupported,
+        };
+
+        if (kind == DeclarationKind.Func)
+        {
+            // A generic function's parameter types come back substituted rather than symbolic —
+            // `shade(SgLambert m, vector<float,3> a)` rather than `shade(T m, vector<float,3> a)`.
+            // That is the whole reason to specialize a function you are not going to call.
+            var function = inner is null ? null : SlangApi.spReflectionDecl_castToFunction(inner);
+            var applied = function is null
+                ? null
+                : SlangApi.spReflectionFunction_applySpecializations(function, specialized);
+
+            // applySpecializations where it works, the unspecialized declaration where it does not
+            // — a symbolic signature is more use than none, and the bindings say what it was given.
+            var resolved = applied is not null ? applied : function;
+            var signature = resolved is null
+                ? null
+                : ReadFunction(resolved, expandOverloads: false, substitute: specialized);
+
+            return new SpecializedType(signature?.ToString() ?? name, bindings, null, kind, signature);
+        }
+
         var innerType = inner is null ? null : SlangApi.spReflection_getTypeFromDecl(inner);
-        var applied = innerType is null
+        var appliedType = innerType is null
             ? null
             : SlangApi.spReflectionType_applySpecializations(innerType, specialized);
 
-        if (applied is null)
-        {
-            return new SpecializedType(
-                Utf8.Read(SlangApi.spReflectionGeneric_GetName(specialized)) ?? "<unnamed>",
-                bindings,
-                null);
-        }
+        if (appliedType is null) return new SpecializedType(name, bindings, null, kind);
 
         var typeLayout = SlangApi.spReflection_GetTypeLayout(
-            shader, applied, SlangLayoutRules.SLANG_LAYOUT_RULES_DEFAULT);
+            shader, appliedType, SlangLayoutRules.SLANG_LAYOUT_RULES_DEFAULT);
 
         return new SpecializedType(
-            FullTypeName(applied),
+            FullTypeName(appliedType),
             bindings,
-            typeLayout is null ? null : ReadTypeLayout(typeLayout, new Dictionary<nint, TypeLayout>()));
+            typeLayout is null ? null : ReadTypeLayout(typeLayout, new Dictionary<nint, TypeLayout>()),
+            kind);
     }
 
     /// <summary>The signature of a function declaration.</summary>
@@ -294,7 +398,22 @@ public static unsafe class ReflectionWalker
         return function is null ? null : ReadFunction(function, expandOverloads: true);
     }
 
-    private static FunctionSignature ReadFunction(SlangReflectionFunction* function, bool expandOverloads)
+    /// <param name="substitute">
+    /// A specialized generic whose arguments should be applied to each parameter and to the result
+    /// type, or null to report the declaration as written.
+    /// </param>
+    /// <remarks>
+    /// The substitution has to be pushed through each node rather than applied once to the
+    /// function. <c>spReflectionFunction_applySpecializations</c> returns a function whose
+    /// parameters still report <c>T</c>; running the same generic through each parameter's
+    /// <em>variable</em> and through the result <em>type</em> is what turns
+    /// <c>sgApply(T m, ...)</c> into <c>sgApply(SgEmissive m, ...)</c>. Measured, after the obvious
+    /// call left the signature symbolic.
+    /// </remarks>
+    private static FunctionSignature ReadFunction(
+        SlangReflectionFunction* function,
+        bool expandOverloads,
+        SlangReflectionGeneric* substitute = null)
     {
         var parameterCount = SlangApi.spReflectionFunction_GetParameterCount(function);
         var parameters = new List<FunctionParameter>((int)parameterCount);
@@ -304,9 +423,15 @@ public static unsafe class ReflectionWalker
             var parameter = SlangApi.spReflectionFunction_GetParameter(function, i);
             if (parameter is null) continue;
 
+            if (substitute is not null)
+            {
+                var appliedVariable = SlangApi.spReflectionVariable_applySpecializations(parameter, substitute);
+                if (appliedVariable is not null) parameter = appliedVariable;
+            }
+
             parameters.Add(new FunctionParameter(
                 Utf8.Read(SlangApi.spReflectionVariable_GetName(parameter)) ?? "",
-                FullTypeName(SlangApi.spReflectionVariable_GetType(parameter)),
+                FullTypeName(Substituted(SlangApi.spReflectionVariable_GetType(parameter), substitute)),
                 DirectionOf(parameter),
                 ReadAttributes(parameter)));
         }
@@ -329,11 +454,20 @@ public static unsafe class ReflectionWalker
 
         return new FunctionSignature(
             Utf8.Read(SlangApi.spReflectionFunction_GetName(function)) ?? "",
-            FullTypeName(SlangApi.spReflectionFunction_GetResultType(function)),
+            FullTypeName(Substituted(SlangApi.spReflectionFunction_GetResultType(function), substitute)),
             parameters,
             ModifiersOf(function),
             ReadFunctionAttributes(function),
             overloads);
+    }
+
+    /// <summary>The type with a specialization applied, where there is one to apply.</summary>
+    private static SlangReflectionType* Substituted(
+        SlangReflectionType* type, SlangReflectionGeneric* substitute)
+    {
+        if (type is null || substitute is null) return type;
+        var applied = SlangApi.spReflectionType_applySpecializations(type, substitute);
+        return applied is not null ? applied : type;
     }
 
     /// <summary>
@@ -527,7 +661,8 @@ public static unsafe class ReflectionWalker
             ReadBindings(varLayout, typeLayout),
             semantic,
             (uint)SlangApi.spReflectionVariableLayout_GetSemanticIndex(varLayout),
-            ReadAttributes(variable));
+            ReadAttributes(variable),
+            SlangApi.spReflectionVariableLayout_getStage(varLayout));
     }
 
     /// <summary>
@@ -633,7 +768,20 @@ public static unsafe class ReflectionWalker
             uniformSize,
             nameOverride,
             waveSize == 0 ? null : waveSize,
-            SlangApi.spReflectionEntryPoint_hasDefaultConstantBuffer(ep) != 0);
+            SlangApi.spReflectionEntryPoint_hasDefaultConstantBuffer(ep) != 0,
+            ReadEntryPointFunction(ep));
+    }
+
+    /// <summary>The entry point read as an ordinary function declaration.</summary>
+    /// <remarks>
+    /// A different question from the one the rest of this method answers. The layout describes the
+    /// pipeline interface; this describes the declaration — modifiers, user attributes, and the
+    /// source-level result type rather than the varying it becomes.
+    /// </remarks>
+    private static FunctionSignature? ReadEntryPointFunction(SlangEntryPointLayout* ep)
+    {
+        var function = SlangApi.spReflectionEntryPoint_getFunction(ep);
+        return function is null ? null : ReadFunction(function, expandOverloads: false);
     }
 
     // ---------------------------------------------------------------- descriptor sets
@@ -937,7 +1085,8 @@ public static unsafe class ReflectionWalker
                     Name: leaf.Name,
                     IsUnbounded: unbounded,
                     ImageFormat: leaf.Format,
-                    CounterBinding: leaf.CounterOffset is { } counter ? index + counter : null));
+                    CounterBinding: leaf.CounterOffset is { } counter ? index + counter : null,
+                    IsSpecializable: leaf.IsSpecializable));
             }
         }
     }
@@ -962,10 +1111,20 @@ public static unsafe class ReflectionWalker
     /// walk recurses into the element.
     /// </para>
     /// <para>
-    /// <b>The image format call is guarded deliberately.</b>
-    /// <c>spReflectionTypeLayout_getBindingRangeImageFormat</c> access-violates — not returns
-    /// <c>unknown</c>, crashes the process — when asked about a <c>PARAMETER_BLOCK</c> binding
-    /// range, measured against slang-compiler 2026.14.1. Only texture-shaped ranges are asked.
+    /// <b>The image format call is guarded, and the guard has outlived its reason.</b> This said
+    /// <c>spReflectionTypeLayout_getBindingRangeImageFormat</c> access-violates on a
+    /// <c>PARAMETER_BLOCK</c> binding range "measured against slang-compiler 2026.14.1". Re-measured
+    /// against 2026.14.1 it does not: it returns <c>unknown</c>, for a parameter block and for
+    /// every other non-texture shape a shader can produce — constant buffer, sampler, raw buffer,
+    /// acceleration structure. Either the crash was measured on an earlier pin and the version
+    /// travelled with the sentence, or the original shape had an ingredient not reconstructed here;
+    /// there is no way to tell from this side, and claiming either would be inventing history.
+    ///
+    /// The guard stays. Dropping it would trade a free branch for a class of failure that ends the
+    /// process, on the strength of one release behaving. What has changed is that the claim is now
+    /// tested rather than remembered — <c>ProberTests</c> runs the call across every binding-range
+    /// shape in a child process, so if it ever crashes again that is a red test rather than a dead
+    /// runner. See §9.21.
     /// </para>
     /// </remarks>
     private static Dictionary<(long Set, long Range), BindingRangeLeaf>
@@ -991,7 +1150,9 @@ public static unsafe class ReflectionWalker
             var first = SlangApi.spReflectionTypeLayout_getBindingRangeFirstDescriptorRangeIndex(tl, b);
             var spanned = SlangApi.spReflectionTypeLayout_getBindingRangeDescriptorRangeCount(tl, b);
             var counter = CounterOffset(tl, b);
-            for (long r = 0; r < spanned; r++) result[(set, first + r)] = new(name, format, counter);
+            var specializable = SlangApi.spReflectionTypeLayout_isBindingRangeSpecializable(tl, b) != 0;
+            for (long r = 0; r < spanned; r++)
+                result[(set, first + r)] = new(name, format, counter, specializable);
         }
 
         return result;
@@ -999,7 +1160,7 @@ public static unsafe class ReflectionWalker
 
     /// <summary>What a binding range's leaf tells us that its descriptor range does not.</summary>
     private readonly record struct BindingRangeLeaf(
-        string? Name, SlangImageFormat Format, uint? CounterOffset);
+        string? Name, SlangImageFormat Format, uint? CounterOffset, bool IsSpecializable);
 
     /// <summary>
     /// How far past a buffer its own counter sits, in descriptor slots, or null if it has none.
@@ -1113,9 +1274,23 @@ public static unsafe class ReflectionWalker
         // Insert a placeholder before recursing so a self-referential type cannot loop forever.
         cache[(nint)tl] = new OpaqueLayout { Kind = LayoutKind.Unknown, Name = "<recursive>" };
 
-        var built = Build(tl, cache);
+        // The two facts every kind of layout can carry, applied once here rather than threaded
+        // through eight construction sites. `with` on an abstract record clones the concrete one.
+        var built = Build(tl, cache) with
+        {
+            GenericParameterIndex = GenericParameterIndex(tl),
+            HasPendingData = SlangApi.spReflectionTypeLayout_getPendingDataTypeLayout(tl) is not null,
+        };
+
         cache[(nint)tl] = built;
         return built;
+    }
+
+    /// <summary>Which generic parameter this layout stands in for, or null.</summary>
+    private static uint? GenericParameterIndex(SlangReflectionTypeLayout* tl)
+    {
+        var index = SlangApi.spReflectionTypeLayout_getGenericParamIndex(tl);
+        return index < 0 ? null : (uint)index;
     }
 
     private static TypeLayout Build(SlangReflectionTypeLayout* tl, Dictionary<nint, TypeLayout> cache)
@@ -1166,6 +1341,10 @@ public static unsafe class ReflectionWalker
                 {
                     Kind = LayoutKind.Struct, Name = name, Sizes = sizes, Alignment = alignment,
                     Fields = ReadFields(tl, cache),
+                    // Only on struct: an attribute is written on a declaration, and the other
+                    // kinds are built-in types nobody can attach one to. Asked of every kind it
+                    // would be a call per node of the tree for an answer that is always null.
+                    Attributes = ReadTypeAttributes(type),
                 };
 
             case SlangTypeKind.SLANG_TYPE_KIND_ARRAY:
@@ -1325,12 +1504,49 @@ public static unsafe class ReflectionWalker
         return attributes.Count > 0 ? attributes : null;
     }
 
+    /// <summary>A type's full name, for callers outside this walk.</summary>
+    internal static string TypeName(SlangReflectionType* type) => FullTypeName(type);
+
+    /// <summary>One user attribute, for callers outside this walk.</summary>
+    internal static UserAttribute Attribute(SlangReflectionUserAttribute* attribute) =>
+        ReadAttribute(attribute);
+
+    /// <summary>User attributes on a type's own declaration, or null.</summary>
+    private static List<UserAttribute>? ReadTypeAttributes(SlangReflectionType* type)
+    {
+        if (type is null) return null;
+
+        var count = SlangApi.spReflectionType_GetUserAttributeCount(type);
+        if (count == 0) return null;
+
+        var attributes = new List<UserAttribute>((int)count);
+        for (uint i = 0; i < count; i++)
+        {
+            var attr = SlangApi.spReflectionType_GetUserAttribute(type, i);
+            if (attr is not null) attributes.Add(ReadAttribute(attr));
+        }
+
+        return attributes.Count > 0 ? attributes : null;
+    }
+
     /// <summary>One user attribute, whatever it is hanging off.</summary>
     private static UserAttribute ReadAttribute(SlangReflectionUserAttribute* attr)
     {
         var name = Utf8.Read(SlangApi.spReflectionUserAttribute_GetName(attr)) ?? "<unnamed>";
         var argCount = SlangApi.spReflectionUserAttribute_GetArgumentCount(attr);
         var args = new List<object?>((int)argCount);
+        var types = new List<string>((int)argCount);
+
+        for (uint a = 0; a < argCount; a++)
+        {
+            // The declared type, alongside the probed value. Slang has no variant accessor, so the
+            // value still has to be guessed at by trying each; this at least records what it was
+            // supposed to be.
+            var declared = SlangApi.spReflectionUserAttribute_GetArgumentType(attr, a);
+            types.Add(declared is null
+                ? "<unknown>"
+                : Utf8.Read(SlangApi.spReflectionType_GetName(declared)) ?? "<unnamed>");
+        }
 
         for (uint a = 0; a < argCount; a++)
         {
@@ -1350,7 +1566,7 @@ public static unsafe class ReflectionWalker
             }
         }
 
-        return new UserAttribute(name, args);
+        return new UserAttribute(name, args, types.Count > 0 ? types : null);
     }
 
     /// <summary>

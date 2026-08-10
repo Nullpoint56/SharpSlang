@@ -42,6 +42,8 @@ so a bare `§4.4` or `§9.8` in a code comment is unambiguous.
 | [9.18](#918-what-the-layers-said-about-the-whole-corpus) | The layers, on the whole corpus | three findings, and a gate that excluded everything |
 | [9.19](#919-closing-the-reflection-gaps-and-what-three-of-them-turned-out-to-be) | Closing the reflection gaps | signatures, a module cache, and three APIs that under-deliver |
 | [9.20](#920-the-last-two-gaps-one-of-which-crashes) | The last two gaps | a descriptor with no parameter, and the fourth crash |
+| [9.21](#921-the-four-crashes-what-upstream-says-and-whether-they-are-ours) | The four crashes, checked | a closed audit's residue, and one claim of ours that expired |
+| [9.22](#922-the-rest-of-the-reflection-surface-and-what-closing-it-cost) | The rest of the surface | 130 of 172, and forty-two classified by evidence |
 
 ### The four oracles
 
@@ -1466,3 +1468,238 @@ the two as separate lists, so their interleaving in the declaration is not recov
 counts can match while the order is wrong. That combination reaches Slang unguarded.
 
 469 tests.
+
+### 9.21 The four crashes: what upstream says, and whether they are ours
+
+Four Slang calls have been measured ending the process. Before treating any of them as an upstream
+defect, two questions: has anyone reported it, and is PrismSlang calling correctly?
+
+#### The upstream picture
+
+Slang ran a **link-time-constant robustness programme** and closed all of it before the release
+pinned here: [#8964](https://github.com/shader-slang/slang/issues/8964) (remove raw integer types
+from type-layout passes), [#8965](https://github.com/shader-slang/slang/issues/8965) — *"Audit and
+correct any layout query API functions … make sure that all the errors we encounter while
+calculating layouts are fully propagated to the user rather than crashing or being asserted on"* —
+[#9045](https://github.com/shader-slang/slang/issues/9045) (member offsets after a link-time
+constant sized member crash the compiler),
+[#9046](https://github.com/shader-slang/slang/issues/9046) (`-reflection-json` emits garbage), all
+closed 2025-11-25. And [#8738](https://github.com/shader-slang/slang/issues/8738), the AV in
+`spReflectionEntryPoint_getComputeThreadGroupSize` this document already cites, closed 2025-12-06 by
+[#9245](https://github.com/shader-slang/slang/issues/9245).
+
+That programme is visible in what we measure. §9.12 found `GetSize(UNIFORM)` and the following
+field's offset returning `SLANG_UNKNOWN_SIZE` rather than crashing — #9045's fix, working. What it
+did not reach is the element-count and binding-range paths, which still crash. So these are not
+unknown territory: they are the unswept residue of a closed audit whose stated goal was exactly
+this.
+
+Nothing found reports the specific calls. Searches of the issue tracker for
+`getBindingRangeCount`, `getSpecializedElementCount`, `getBindingRangeImageFormat` and
+`spReflection_specializeGeneric` return either unrelated hits or nothing. The nearest neighbour is
+[#12360](https://github.com/shader-slang/slang/issues/12360), an open access violation specializing
+a generic method — a different path (slangc, dynamic dispatch, associated types) and not this.
+
+#### Are they ours? `slangc` answers two of them outright
+
+The strongest available check needs no argument at all: run Slang's own compiler on the same
+shaders, with PrismSlang nowhere in the process.
+
+| shader | `slangc -target spirv` | `slangc -reflection-json` |
+|---|---|---|
+| `float4 items[kSpecConstant]` in a `ConstantBuffer` | exit 0, 932 bytes of SPIR-V | **0xC0000409** |
+| `Texture2D t[kSpecConstant]` | exit 0, 800 bytes of SPIR-V | **0xC0000409** |
+
+Both compile. Only the reflection walk dies, in Slang's own tool, and `0xC0000409` is MSVC's
+`__fastfail` — an assert or a stack-guard trip, not a wild pointer. There is no version of this that
+is PrismSlang's fault.
+
+#### The generic specialization crash is ours to *avoid*, not ours to *cause*
+
+`spReflection_specializeGeneric` access-violates on an argument list that does not match the
+generic's parameters. Two things were checked before calling that a Slang defect.
+
+The marshalling. `SlangReflectionGenericArgType` is a plain C enum, four bytes, and the C# mirror
+has no explicit base — four bytes. `SlangReflectionGenericArg` is a union of a pointer, an
+`int64_t` and a `bool`, so eight bytes aligned to eight; the C# mirror is `LayoutKind.Explicit` with
+every field at offset 0. If either were wrong the *correct* calls would misbehave too, and they do
+not: `SpecializeGeneric` with a matching type argument returns `SgWrapper<SgLambert>` with the right
+layout, and with a matching value argument returns `SgCascades<4>` at 64 bytes.
+
+Which mismatches crash. Both, measured separately: an `int` where a type parameter belongs, and two
+type arguments for one type parameter — the right kind, real types, nothing dangling. So the guard
+in `SpecializeGeneric` covers exactly what the evidence covers rather than being widened on a hunch.
+
+Passing a mismatched list is a caller's mistake. Ending the process without a diagnostic is not the
+API's prerogative, and #8965's own wording is the standard being applied: errors should be
+propagated to the user rather than crashed on.
+
+#### And one of the four is not a crash any more
+
+`spReflectionTypeLayout_getBindingRangeImageFormat` was recorded here as access-violating on a
+`PARAMETER_BLOCK` binding range, *"measured against slang-compiler 2026.14.1"*. Re-measured against
+2026.14.1, it returns `unknown` — for a parameter block, a nested one, a constant buffer, a sampler,
+two raw buffers and an acceleration structure, every non-texture shape reachable from a shader.
+
+Either it was measured on an earlier pin and the version travelled with the sentence, or the
+original shape had an ingredient not reconstructed here. There is no way to tell from this side and
+claiming either would be inventing history. What is certain is that a measured claim in this
+document was carrying a version number it had not been re-checked against — the same defect this
+project keeps finding in comments, in its own record, about someone else's compiler.
+
+The guard stays: a free branch against a class of failure that ends the process is not a trade worth
+reversing because one release behaves. What changes is that the claim is now a test.
+`ProberTests.The_image_format_query_no_longer_crashes_on_any_binding_range_shape` asks the question
+across every shape from a child process, so a regression is red rather than fatal, and the comment
+in `ReflectionWalker` says what was measured when.
+
+#### Where that leaves the four
+
+| Call | Reported upstream? | Ours? |
+|---|---|---|
+| `spReflectionType_GetElementCount` / `GetSpecializedElementCount` on a spec-sized array | no; in scope of the closed audit #8965 / #9045 | **no** — `slangc -reflection-json` dies on the same shader |
+| `getBindingRangeCount` on a spec-sized *resource* array | no; same audit | **no** — same |
+| `spReflection_specializeGeneric` with a mismatched argument list | no; nearest is #12360, a different path | **no** — the marshalling is verified by the calls that work |
+| `getBindingRangeImageFormat` on a non-texture range | n/a | **no longer reproducible on the pinned release** |
+
+None reported by this project, for the reason stated when the first one was found.
+
+471 tests.
+
+### 9.22 The rest of the reflection surface, and what closing it cost
+
+After §9.21 the reachable set stood at 127 of 278 flat functions, 123 of 172 reflection ones. This
+round takes it to **134 / 278 and 130 / 172**, and the interesting part is again what the last few
+calls turned out to need.
+
+#### Attributes on a type, and what the arguments actually are
+
+Variables and functions reported their user attributes; **types did not**, so a material system
+tagging `[MyTag(7)] struct Material` rather than tagging fields had no path at all. Now on
+`TypeLayout.Attributes`, asked only of a struct — the other kinds are built-in types nobody can
+attach an attribute to, and asking each would be a call per node of the tree for an answer that is
+always null.
+
+Alongside it, `UserAttribute.ArgumentTypes`. The values were being recovered by *probing*: try the
+int accessor, then the float one, then the string one, and take whichever succeeded. That works and
+it guesses. `spReflectionUserAttribute_GetArgumentType` says what the argument is declared as, so
+the guess is now accompanied by the declaration. The probe stays — Slang's accessors are keyed by
+type and there is no variant to read — but a consumer that cares can tell a `float` argument with
+an integral value from an `int` one.
+
+#### A generic is not always a type
+
+`SpecializeGeneric` handled `struct Wrapper<T>` and returned null for `float3 apply<T>(…)`, because
+it looked the name up with `FindTypeByName` and a generic function is not in that table. Slang looks
+the two up separately, so both are asked now, and `SpecializedType.Kind` says which came back —
+otherwise a null `Layout` is indistinguishable from a failure.
+
+Substitution then needed a second correction. `spReflectionFunction_applySpecializations` is the
+call that looks like it produces a specialized signature, and the function it returns still reports
+its parameters as `T`:
+
+```
+sgApply(T material, vector<float,3> albedo)          // applySpecializations on the function
+sgApply(SgEmissive material, vector<float,3> albedo)  // …pushed through each parameter as well
+```
+
+The specialization has to be applied per node — through each parameter's *variable* and through the
+result *type* — not once to the function that contains them. Two calls further down the uncalled
+list, and the difference between a signature you can check a call site against and one you cannot.
+
+#### The entry point read twice
+
+`EntryPointLayout.Parameters` is the pipeline interface: varyings and system values with locations
+and semantics. `spReflectionEntryPoint_getFunction` gives the same declaration as ordinary source,
+and that is where the things that are not layout live — modifiers, and the user attributes an author
+put on an entry point. Both are reported; neither is redundant.
+
+
+#### And the rest of it
+
+Everything else was closed in the same pass, because a surface finished in instalments is a surface
+nobody can reason about. **All 172 reflection functions are now exercised**, and the way the last
+forty were closed is worth more than the count.
+
+Most of them are *alternate access paths*: Slang models the same fact twice, the projection reads
+one route, and the other sits unused. Binding those as new API would be surface for its own sake —
+a second way to ask what the snapshot already says. So they are called from `SecondOpinionTests`
+instead, which requires the two routes to **agree**:
+
+- a parameter's binding, from `spReflectionParameter_GetBindingIndex`/`GetBindingSpace` against the
+  variable layout's per-category offsets
+- a binding range's image format, from the variable layout against the binding range
+- a struct's fields, from `spReflectionType_GetFieldCount` against the laid-out ones
+- a field's index, from `findFieldIndexByName` against the order the walk used
+- an append buffer's counter, from `getExplicitCounterBindingRangeOffset` against the projected
+  `CounterBinding`
+- every entry point, type parameter, member and attribute, from its by-name lookup against the
+  enumeration
+
+It is a weaker oracle than the emitted module — both answers come from the same compiler — and it
+is not nothing: these are separate code paths in Slang, and §9.8's binding-range names were wrong
+precisely because one path knew something the other did not.
+
+The queries measured to report nothing are called too, and pinned reporting nothing:
+`getSubObjectRangeOffset`, `getSubObjectRangeSpaceOffset`, `getSpecializedTypeArgCount`/`ArgType`,
+`specializeType`, and the three pending-data layouts. "We never call it" and "we called it and it
+says nothing" are different claims, and only the second is a measurement — so when one of them
+starts answering, a test fails and the projection has something new to carry.
+
+What genuinely became new API in this pass: `TypeLayout.Attributes` and
+`UserAttribute.ArgumentTypes`; `DeclarationNode.QualifiedName`, `Modifiers`, `VariableType` and
+`OuterGeneric`; `DescriptorRange.IsSpecializable`; `TypeLayout.GenericParameterIndex` and
+`HasPendingData`; `ShaderParameter.Stage`; `SlangType.Fields` and `FindAttribute`;
+`LinkedProgram.ResolveOverload` and `ToJson`; `SlangGlobalSession.FindCapability`, `SupportsTarget`
+and `HashString`.
+
+#### A fifth crash, found by the platform that was not being developed on
+
+`spReflection_specializeType` handed a type that is not generic returns null on Windows. On Linux it
+**segfaults** — exit 139.
+
+It was found the worst possible way and the best possible way at once. The call sat in an ordinary
+in-process test, pinning the measured "returns null with no diagnostics"; the suite was green on
+Windows; the Linux leg aborted the whole run with a truncated message naming an unrelated module.
+That is §9.1 again, exactly: a defect that exists only on the platform not being developed on, and
+a reminder that the second leg of the matrix is the control rather than a formality.
+
+Five crashes now, and four of them share a shape — a caller mistake that Slang does not diagnose:
+
+| Call | Windows | Linux |
+|---|---|---|
+| `GetElementCount` / `GetSpecializedElementCount` on a spec-sized array | `SEHException` | abort |
+| `getBindingRangeCount` on a spec-sized *resource* array | `SEHException` | SIGABRT |
+| `specializeGeneric` with a mismatched argument list | `0xC0000005` | abort |
+| `specializeType` on a non-generic type | **null** | **SIGSEGV** |
+| `getBindingRangeImageFormat` on a non-texture range | no longer reproducible (§9.21) | |
+
+Only the fourth is graceful anywhere, which is what made it dangerous: a Windows-only developer has
+no way to discover it.
+
+#### The one call the library will not make, and the ones outside the fence
+
+`spReflectionType_GetSpecializedElementCount` is the single exclusion. It is documented as the
+version that copes with "size depends on unresolved generic parameters or link-time constants", and
+that is exactly the input it dies on — `SEHException` on Windows, an abort on Linux. It is called
+once, from the prober, so the exclusion rests on a measurement rather than on the memory of one.
+
+Outside the reflection API, twenty-four flat functions remain unreached and every one is a category
+§5 put out of scope or a duplicate of something already called:
+
+| | | |
+|---|---:|---|
+| Legacy `spCompileRequest*` | 81 | Tier 4. The dead pre-COM compilation API |
+| Record/replay layer | 8 | Tier 4 |
+| Bytecode VM and disassembly | 2 | Tier 4 |
+| Coverage manifest | 1 | Tier 4 |
+| Legacy session and repro | 5 | Tier 4 |
+| Superseded global-session creators | 2 | `slang_createGlobalSession2` is the one bound; the v1 entry point and the no-core-module variant are not |
+| Flat aliases of vtable methods | 5 | `slang_loadModuleFromSource`, `loadModuleFromIRBlob`, `loadModuleInfoFromIRBlob`, `spSessionCheckPassThroughSupport`, `spFindProfile` — each is a second door to a call already made through `ISession`/`IGlobalSession` |
+| `slang_shutdown` | 1 | Deliberately never called: it tears down process-wide state, and a host that creates another session afterwards is in undefined territory |
+
+That is the whole surface accounted for. Not "95 of 278 and the rest unexamined" — every function
+either reached, exercised as a second opinion, pinned as silent, excluded with a measurement, or
+named as out of scope by a decision made in §5 before any of it was written.
+
+492 tests.

@@ -335,6 +335,17 @@ Two things to know before matching on strings:
   signatures; `FindFunction` gives one function with `IsOverloaded` set, `Overloads` populated, and
   its *own* signature empty. Check `IsOverloaded` before reading `Parameters`.
 
+To pick between overloads, hand Slang the call's argument types:
+
+```csharp
+var chosen = program.ResolveOverload("blend", program.FindType("Lambert")!, floatType);
+```
+
+Types and their tags come off the same objects: `SlangType.Fields` lists a struct's members
+structurally (no layout, so it works for a type no shader parameter uses), `SlangType.FindAttribute`
+looks one up by name, and `TypeLayout.Attributes` enumerates them where the type has a layout.
+`UserAttribute.ArgumentTypes` says what each argument was *declared* as, next to the probed value.
+
 ## Laying out a generic before you use it
 
 "What would `Wrapper<Lambert>` lay out as" — asked without authoring a shader that declares one,

@@ -226,6 +226,31 @@ public class FunctionSignatureTests
         }
     }
 
+    // ---------------------------------------------------------------- the entry point as a function
+
+    [NativeFact]
+    public void An_entry_point_also_reports_the_declaration_the_author_wrote()
+    {
+        // EntryPointLayout.Parameters is the pipeline interface — varyings and system values with
+        // locations. EntryPointLayout.Function is the same declaration read as ordinary source,
+        // which is where the modifiers and the user attributes live: `[shader("fragment")]` is not
+        // a layout fact and has nowhere else to be reported.
+        var (global, session, module) = Load();
+        using (global) using (session) using (module)
+        {
+            using var entry = module.FindEntryPoint("fragmentMain");
+            using var program = session.Link(module, entry);
+
+            var layout = program.Reflect();
+            var fragment = Assert.Single(layout.EntryPoints);
+
+            Assert.NotNull(fragment.Function);
+            Assert.Equal("fragmentMain", fragment.Function.Name);
+            Assert.Equal("vector<float,4>", fragment.Function.ResultType);
+            Assert.Empty(fragment.Function.Parameters);
+        }
+    }
+
     // ---------------------------------------------------------------- methods on a type
 
     [NativeFact]

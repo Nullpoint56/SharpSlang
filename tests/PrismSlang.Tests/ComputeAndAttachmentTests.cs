@@ -386,8 +386,11 @@ public class ComputeAndAttachmentTests
             }
             """;
 
-        // The parameter block is here on purpose: getBindingRangeImageFormat access-violates on a
-        // PARAMETER_BLOCK binding range, so this shader is what exercises the guard around it.
+        // The parameter block is here on purpose: getBindingRangeImageFormat was recorded as
+        // access-violating on a PARAMETER_BLOCK binding range, so this shader is what exercises
+        // the guard around it. On 2026.14.1 that call no longer crashes on any shape — see §9.21
+        // and ProberTests — but the guard and this shader both stay, because the cost of keeping
+        // them is a branch and the cost of being wrong is a dead process.
         var (code, layout) = Compile(Source, "computeMain");
         var bindings = layout.ToVulkan().Set(0)!.Bindings.ToDictionary(b => b.Name!);
 

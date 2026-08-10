@@ -81,10 +81,189 @@ internal static class Cases
         // §9.20. An integer argument where a type parameter belongs. LinkedProgram.SpecializeGeneric
         // refuses this before Slang sees it, because Slang does not refuse it — it access-violates.
         // Reaching past the guard is the point, so this calls the flat API directly.
-        ["generic-argument-kind-mismatch"] = MismatchedGenericArgument,
+        ["generic-argument-kind-mismatch"] = () => MismatchedGenericArgument(wrongKind: true),
+
+        // The other half of the same guard: right kind, wrong count. Separated because the two
+        // are one refusal in the managed API and may be two different behaviours underneath, and
+        // guarding both on the strength of measuring one is how a guard ends up wider than its
+        // evidence.
+        ["generic-argument-count-mismatch"] = () => MismatchedGenericArgument(wrongKind: false),
+
+        // §9.22. spReflection_specializeType handed a type that is not generic. Returns null on
+        // Windows, aborts the process on Linux — the same platform split as §9.12, and found the
+        // same way: by a test that passed on one platform and killed the runner on the other.
+        ["specialize-a-non-generic-type"] = SpecializeNonGenericType,
+
+        // §9.12 / §9.21. GetSpecializedElementCount is the documented resolving counterpart of
+        // GetElementCount — "returns SLANG_UNKNOWN_SIZE when size depends on unresolved generic
+        // parameters or link-time constants" — and it access-violates on exactly that case. The
+        // walk reads the size marker first and never asks; this is the only place it is called,
+        // because calling it anywhere else would end the caller.
+        ["specialized-element-count"] = SpecializedElementCount,
+
+        // §9.21. getBindingRangeImageFormat on a ParameterBlock's binding range. The receiver and
+        // the index are the ones every other binding-range query in the same loop is answered for,
+        // which is the whole point: this prints the range's type — proving the pair is valid — and
+        // then dies asking the next question about it.
+        ["image-format-on-parameter-block"] = ImageFormatOnParameterBlock,
     };
 
-    private static unsafe void MismatchedGenericArgument()
+    private static unsafe void SpecializeNonGenericType()
+    {
+        const string Source = """
+            struct SnBlock { float4 snTint; };
+            ConstantBuffer<SnBlock> snBuffer;
+
+            [shader("fragment")]
+            float4 snFragment() : SV_Target { return snBuffer.snTint; }
+            """;
+
+        using var global = SlangGlobalSession.Create();
+        using var session = global.CreateSession(
+            new SessionOptions { Targets = [new TargetOptions()] });
+        using var module = session.LoadModuleFromSource("sn", "sn.slang", Source);
+        using var entry = module.FindEntryPoint("snFragment");
+        using var program = session.Link(module, entry);
+
+        var shader = (SlangProgramLayout*)program.GetLayout(0);
+
+        SlangReflectionType* block;
+        using (Utf8.Scoped n = new("SnBlock"))
+        {
+            block = SlangApi.spReflection_FindTypeByName(shader, n);
+        }
+
+        if (block is null) throw new InvalidOperationException("SnBlock not found");
+
+        Console.Out.WriteLine($"SnBlock kind={SlangApi.spReflectionType_GetKind(block)}");
+        Console.Out.Flush();
+
+        var args = stackalloc SlangReflectionType*[1];
+        args[0] = block;
+        ISlangBlob* diagnostics = null;
+
+        var specialized = SlangApi.spReflection_specializeType(shader, block, 1, args, &diagnostics);
+        Console.Out.WriteLine(specialized is null ? "refused" : "specialized");
+    }
+
+    private static unsafe void SpecializedElementCount()
+    {
+        const string Source = """
+            [vk::constant_id(0)] const int kSeCount = 3;
+            struct SeBlock { float4 seItems[kSeCount]; float seTail; };
+            ConstantBuffer<SeBlock> seBuffer;
+
+            [shader("fragment")]
+            float4 seFragment() : SV_Target { return seBuffer.seItems[0] + seBuffer.seTail; }
+            """;
+
+        using var global = SlangGlobalSession.Create();
+        using var session = global.CreateSession(
+            new SessionOptions { Targets = [new TargetOptions()] });
+        using var module = session.LoadModuleFromSource("se", "se.slang", Source);
+        using var entry = module.FindEntryPoint("seFragment");
+        using var program = session.Link(module, entry);
+
+        var shader = (SlangProgramLayout*)program.GetLayout(0);
+
+        // Reached structurally rather than through a layout: §9.12 measured that a ConstantBuffer
+        // of a block containing such an array reports no bindings at all, so there is no layout to
+        // walk down. The type is still findable by name.
+        SlangReflectionType* block;
+        using (Utf8.Scoped n = new("SeBlock"))
+        {
+            block = SlangApi.spReflection_FindTypeByName(shader, n);
+        }
+
+        if (block is null) throw new InvalidOperationException("SeBlock not found");
+
+        var arrayField = SlangApi.spReflectionType_GetFieldByIndex(block, 0);
+        var arrayType = arrayField is null
+            ? null
+            : SlangApi.spReflectionVariable_GetType(arrayField);
+
+        if (arrayType is null) throw new InvalidOperationException("no array type");
+
+        Console.Out.WriteLine($"array kind={SlangApi.spReflectionType_GetKind(arrayType)}");
+        Console.Out.Flush();
+
+        Console.Out.WriteLine("GetSpecializedElementCount -> "
+            + SlangApi.spReflectionType_GetSpecializedElementCount(arrayType, shader));
+    }
+
+    private static unsafe void ImageFormatOnParameterBlock()
+    {
+        // Every binding-range shape that could plausibly be the one: a parameter block holding
+        // resources, a nested one, a constant buffer, a sampler, a structured buffer, an
+        // acceleration structure, and both formatted and unformatted storage images.
+        const string Source = """
+            struct PbInner { Texture2D innerTex; SamplerState innerSampler; float4 innerTint; };
+            struct PbBlock
+            {
+                ParameterBlock<PbInner> nested;
+                Texture2D               blockTex;
+                float4                  tint;
+            };
+            struct PbValues { float4 a; float4 b; };
+
+            ParameterBlock<PbBlock>            pbBlock;
+            ConstantBuffer<PbValues>           pbCbuffer;
+            SamplerState                       pbSampler;
+            StructuredBuffer<float4>           pbStructured;
+            ByteAddressBuffer                  pbRaw;
+            RaytracingAccelerationStructure    pbTlas;
+            [format("rgba8")] RWTexture2D<float4> pbFormatted;
+            RWTexture2D<float4>                pbPlain;
+
+            [shader("compute")]
+            [numthreads(1, 1, 1)]
+            void pbMain()
+            {
+                RayDesc r; r.Origin = 0; r.Direction = float3(0, 0, 1); r.TMin = 0; r.TMax = 1;
+                RayQuery<RAY_FLAG_NONE> q; q.TraceRayInline(pbTlas, RAY_FLAG_NONE, 0xff, r);
+
+                pbFormatted[uint2(0, 0)] = pbBlock.tint + pbCbuffer.a + pbStructured[0]
+                    + asfloat(pbRaw.Load(0)) + pbBlock.blockTex.Sample(pbSampler, 0)
+                    + pbBlock.nested.innerTex.Sample(pbBlock.nested.innerSampler, 0)
+                    + pbBlock.nested.innerTint;
+                pbPlain[uint2(0, 0)] = 1;
+            }
+            """;
+
+        using var global = SlangGlobalSession.Create();
+        using var session = global.CreateSession(
+            new SessionOptions { Targets = [new TargetOptions()] });
+        using var module = session.LoadModuleFromSource("pb", "pb.slang", Source);
+        using var entry = module.FindEntryPoint("pbMain");
+        using var program = session.Link(module, entry);
+
+        var shader = (SlangProgramLayout*)program.GetLayout(0);
+        var scope = SlangApi.spReflection_getGlobalParamsTypeLayout(shader);
+        if (scope is null) throw new InvalidOperationException("no global scope layout");
+
+        var count = SlangApi.spReflectionTypeLayout_getBindingRangeCount(scope);
+        Console.Out.WriteLine($"{count} binding range(s)");
+
+        for (long b = 0; b < count; b++)
+        {
+            // Every one of these is answered, for every range, including the one below.
+            var type = SlangApi.spReflectionTypeLayout_getBindingRangeType(scope, b);
+            var set = SlangApi.spReflectionTypeLayout_getBindingRangeDescriptorSetIndex(scope, b);
+            Console.Out.WriteLine($"  [{b}] type={type} set={set}");
+        }
+
+        for (long b = 0; b < count; b++)
+        {
+            var type = SlangApi.spReflectionTypeLayout_getBindingRangeType(scope, b);
+            Console.Out.WriteLine($"  asking image format of range {b} ({type})");
+            Console.Out.Flush();
+
+            var format = SlangApi.spReflectionTypeLayout_getBindingRangeImageFormat(scope, b);
+            Console.Out.WriteLine($"    -> {format}");
+        }
+    }
+
+    private static unsafe void MismatchedGenericArgument(bool wrongKind)
     {
         const string Source = """
             interface IMgMaterial { float3 shade(float3 albedo); }
@@ -115,14 +294,47 @@ internal static class Cases
         var generic = SlangApi.spReflectionType_GetGenericContainer(declared);
         if (generic is null) throw new InvalidOperationException("MgWrapper is not generic");
 
-        var kind = SlangReflectionGenericArgType.SLANG_GENERIC_ARG_INT;
-        var arg = new SlangReflectionGenericArg { intVal = 3 };
         ISlangBlob* diagnostics = null;
+        SlangReflectionGeneric* specialized;
 
-        var specialized = SlangApi.spReflection_specializeGeneric(
-            shader, generic, 1, &kind, &arg, &diagnostics);
+        if (wrongKind)
+        {
+            // An integer where the single type parameter belongs.
+            var kind = SlangReflectionGenericArgType.SLANG_GENERIC_ARG_INT;
+            var arg = new SlangReflectionGenericArg { intVal = 3 };
+            specialized = SlangApi.spReflection_specializeGeneric(
+                shader, generic, 1, &kind, &arg, &diagnostics);
+        }
+        else
+        {
+            // Two type arguments for one type parameter. The right kind, the wrong number — and
+            // the second is a real type, so nothing here is a dangling or mistyped pointer.
+            SlangReflectionType* lambert;
+            using (Utf8.Scoped n = new("MgLambert"))
+            {
+                lambert = SlangApi.spReflection_FindTypeByName(shader, n);
+            }
+
+            if (lambert is null) throw new InvalidOperationException("MgLambert not found");
+
+            var kinds = stackalloc SlangReflectionGenericArgType[2];
+            kinds[0] = SlangReflectionGenericArgType.SLANG_GENERIC_ARG_TYPE;
+            kinds[1] = SlangReflectionGenericArgType.SLANG_GENERIC_ARG_TYPE;
+
+            var args = stackalloc SlangReflectionGenericArg[2];
+            args[0] = new SlangReflectionGenericArg { typeVal = lambert };
+            args[1] = new SlangReflectionGenericArg { typeVal = lambert };
+
+            specialized = SlangApi.spReflection_specializeGeneric(
+                shader, generic, 2, kinds, args, &diagnostics);
+        }
 
         Console.Out.WriteLine(specialized is null ? "refused" : "specialized");
+        if (diagnostics is not null)
+        {
+            using var blob = new SlangBlob(diagnostics);
+            Console.Out.WriteLine($"diagnostics: {blob.AsText()}");
+        }
     }
 
     /// <summary>Compiles a shader and walks its layout, which is where the process is lost.</summary>

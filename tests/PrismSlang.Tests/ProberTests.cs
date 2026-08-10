@@ -131,6 +131,88 @@ public class ProberTests
     }
 
     [NativeFact]
+    public void The_argument_count_has_to_match_too_not_only_the_kinds()
+    {
+        // The other half of SpecializeGeneric's guard. Two type arguments for one type parameter —
+        // the right kind, real types, nothing dangling — access-violates exactly as the wrong kind
+        // does. Measured separately because guarding both on the strength of measuring one is how
+        // a guard ends up wider than its evidence, and here the evidence turned out to cover it.
+        var outcome = Run("generic-argument-count-mismatch");
+
+        Assert.True(outcome.ExitCode is not (0 or 1 or 2),
+            $"a mismatched argument count is now handled rather than fatal.\n{outcome}");
+    }
+
+    [NativeFact]
+    public void Specializing_a_non_generic_type_is_graceful_on_Windows_and_a_segfault_on_Linux()
+    {
+        // The fifth measured crash, and it cost a green run to find: the call sat in an ordinary
+        // in-process test, passed on Windows, and killed the runner on Linux. Same shape as §9.1 —
+        // a defect that only exists on the platform not being developed on — and the same lesson,
+        // which is that the second platform is the control and not a formality.
+        //
+        //   win-x64     returns null. The caller learns nothing and keeps running.
+        //   linux-x64   SIGSEGV, exit 139.
+        var outcome = Run("specialize-a-non-generic-type");
+
+        Assert.Contains("SLANG_TYPE_KIND_STRUCT", outcome.Stdout, StringComparison.Ordinal);
+
+        if (OperatingSystem.IsWindows())
+        {
+            Assert.Equal(0, outcome.ExitCode);
+            Assert.Contains("refused", outcome.Stdout, StringComparison.Ordinal);
+        }
+        else
+        {
+            Assert.True(outcome.ExitCode is not (0 or 1 or 2),
+                "specializeType on a non-generic type no longer ends the process here. If it now "
+                + $"returns null on both platforms the split in §9.22 is closed.\n{outcome}");
+        }
+    }
+
+    [NativeFact]
+    public void The_resolving_element_count_is_the_one_call_the_library_will_not_make()
+    {
+        // Every other function in Slang's reflection API is now reached from somewhere — the
+        // library, or a test using it as a second opinion. This one is not, and the exclusion is
+        // deliberate: spReflectionType_GetSpecializedElementCount is documented as the version
+        // that copes with "size depends on unresolved generic parameters or link-time constants",
+        // and that is exactly the input it dies on. The walk reads the size marker first and never
+        // asks.
+        //
+        // Called here so the exclusion rests on a measurement rather than on the memory of one.
+        var outcome = Run("specialized-element-count");
+
+        Assert.True(outcome.ExitCode != 0,
+            "GetSpecializedElementCount now survives a specialization-sized array. That is the "
+            + "upstream fix §9.12 has been waiting for: the size marker guard in ReflectionWalker "
+            + $"could be relaxed, and ArrayLayout.IsSpecializationSized reconsidered.\n{outcome}");
+
+        Assert.Contains("SLANG_TYPE_KIND_ARRAY", outcome.Stdout, StringComparison.Ordinal);
+    }
+
+    [NativeFact]
+    public void The_image_format_query_no_longer_crashes_on_any_binding_range_shape()
+    {
+        // The opposite direction, and the reason this test exists at all: ReflectionWalker carried
+        // a comment saying getBindingRangeImageFormat access-violates on a PARAMETER_BLOCK binding
+        // range, "measured against slang-compiler 2026.14.1". Re-measured against 2026.14.1 it
+        // returns unknown — for a parameter block, a nested one, a constant buffer, a sampler, two
+        // raw buffers and an acceleration structure.
+        //
+        // The guard stays; the claim is now checked. If a future Slang brings the crash back this
+        // fails, which is the whole point of pinning a claim that used to be true.
+        var outcome = Run("image-format-on-parameter-block");
+
+        Assert.True(outcome.ExitCode == 0,
+            "asking for the image format of a non-texture binding range ended the prober. The "
+            + "guard in ReflectionWalker is load-bearing again and its remarks need the old "
+            + $"wording back.\n{outcome}");
+
+        Assert.Contains("SLANG_BINDING_TYPE_PARAMETER_BLOCK", outcome.Stdout, StringComparison.Ordinal);
+    }
+
+    [NativeFact]
     public void How_it_fails_depends_on_the_platform()
     {
         // Measured, and not what §9.12 said. Slang throws a C++ `Slang::InternalError` out through

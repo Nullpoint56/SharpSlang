@@ -44,6 +44,63 @@ public sealed unsafe class SlangType
 
     internal SlangObject Owner => _owner;
 
+    /// <summary>
+    /// The type's fields, by declared name and type, without a layout.
+    /// </summary>
+    /// <remarks>
+    /// The structural view: what a type <em>has</em>, answerable for any named type, including one
+    /// that no shader parameter uses and that therefore has no layout anywhere in a
+    /// <see cref="Reflection.ProgramLayout"/>. For byte offsets and sizes, lay the type out —
+    /// <c>LinkedProgram.SpecializeGeneric</c> returns a layout, and a type used by a parameter has
+    /// one in the snapshot already. Empty for anything that is not a struct.
+    /// </remarks>
+    public IReadOnlyList<(string Name, string Type)> Fields
+    {
+        get
+        {
+            var type = (SlangReflectionType*)Handle;
+            var count = SlangApi.spReflectionType_GetFieldCount(type);
+            var fields = new List<(string, string)>((int)count);
+
+            for (uint i = 0; i < count; i++)
+            {
+                // Not named `field`: inside a property accessor that is a contextual keyword in
+                // C# 14 and binds to a synthesized backing field.
+                var member = SlangApi.spReflectionType_GetFieldByIndex(type, i);
+                if (member is null) continue;
+
+                fields.Add((
+                    Utf8.Read(SlangApi.spReflectionVariable_GetName(member)) ?? "",
+                    Reflection.ReflectionWalker.TypeName(SlangApi.spReflectionVariable_GetType(member))));
+            }
+
+            return fields;
+        }
+    }
+
+    /// <summary>
+    /// A user attribute on this type's declaration, looked up by name, or null.
+    /// </summary>
+    /// <remarks>
+    /// <c>TypeLayout.Attributes</c> enumerates the same set and is the one to reach for when the
+    /// type has a layout. This exists for a type that does not, and because Slang's own by-name
+    /// lookup is the second opinion the enumeration is checked against.
+    ///
+    /// Note the asymmetry in Slang's own API, which is why this takes no session: the type
+    /// overload finds an attribute by name alone, while the variable and function overloads
+    /// require an <c>IGlobalSession</c>.
+    /// </remarks>
+    public Reflection.UserAttribute? FindAttribute(string name)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(name);
+
+        using Utf8.Scoped n = new(name);
+        var attribute = SlangApi.spReflectionType_FindUserAttributeByName(
+            (SlangReflectionType*)Handle, n);
+
+        return attribute is null ? null : Reflection.ReflectionWalker.Attribute(attribute);
+    }
+
     public override string ToString() => $"SlangType({Name})";
 }
 

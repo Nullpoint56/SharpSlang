@@ -20,9 +20,15 @@ public class SpecializeGenericTests(Xunit.Abstractions.ITestOutputHelper output)
         struct SgLambert  : ISgMaterial { float  scale;              float3 shade(float3 a) { return a * scale; } }
         struct SgEmissive : ISgMaterial { float4 glow; float2 uv;    float3 shade(float3 a) { return a + glow.rgb; } }
 
+        [__AttributeUsage(_AttributeTargets.Struct)]
+        struct SgTagAttribute { int order; };
+
+        [SgTag(7)]
         struct SgWrapper<T : ISgMaterial> { T inner; float4 tint; };
         struct SgCascades<let N : int>    { float4 splits[N]; };
         struct SgPlain                    { float4 value; };
+
+        float3 sgApply<T : ISgMaterial>(T material, float3 albedo) { return material.shade(albedo); }
 
         [shader("fragment")]
         float4 fragmentMain() : SV_Target { return 1; }
@@ -127,6 +133,92 @@ public class SpecializeGenericTests(Xunit.Abstractions.ITestOutputHelper output)
             // float4 splits[N] — four of them is 64 bytes, and eight is twice that.
             Assert.Equal(64ul, Assert.IsType<StructLayout>(four.Layout).UniformSize);
             Assert.Equal(128ul, Assert.IsType<StructLayout>(eight.Layout).UniformSize);
+        }
+    }
+
+    // ---------------------------------------------------------------- generics that are functions
+
+    [NativeFact]
+    public void A_generic_function_specializes_to_a_signature_with_the_type_substituted()
+    {
+        // `struct Wrapper<T>` and `float3 apply<T>(...)` are both generics, and a caller
+        // specializing one by name has to be told which it got — otherwise a null Layout is
+        // indistinguishable from a failure. Kind says which; Function carries the answer.
+        //
+        // The substitution is the point: the parameter comes back as the concrete type rather than
+        // as `T`, which is what makes the signature checkable against a call site.
+        var (global, session, module, program) = Load();
+        using (global) using (session) using (module) using (program)
+        {
+            var specialized = program.SpecializeGeneric(
+                "sgApply", GenericArgument.OfType(program.FindType("SgEmissive")!));
+
+            Assert.NotNull(specialized);
+            output.WriteLine($"{specialized.Kind}: {specialized.Function}");
+
+            Assert.Equal(DeclarationKind.Func, specialized.Kind);
+            Assert.Null(specialized.Layout);
+
+            var signature = specialized.Function;
+            Assert.NotNull(signature);
+            Assert.Equal("sgApply", signature.Name);
+            Assert.Equal("SgEmissive", signature.Parameters[0].Type);
+            Assert.Equal("vector<float,3>", signature.ResultType);
+
+            // And the binding is reported the same way it is for a type generic.
+            Assert.Equal("SgEmissive", Assert.Single(specialized.Arguments).Type);
+        }
+    }
+
+    [NativeFact]
+    public void A_type_generic_says_it_is_a_type()
+    {
+        var (global, session, module, program) = Load();
+        using (global) using (session) using (module) using (program)
+        {
+            var specialized = program.SpecializeGeneric(
+                "SgWrapper", GenericArgument.OfType(program.FindType("SgLambert")!));
+
+            Assert.Equal(DeclarationKind.Struct, specialized!.Kind);
+            Assert.Null(specialized.Function);
+            Assert.NotNull(specialized.Layout);
+        }
+    }
+
+    // ---------------------------------------------------------------- attributes on the type
+
+    [NativeFact]
+    public void A_user_attribute_on_a_struct_reaches_the_layout()
+    {
+        // Variables and functions reported their attributes; types did not, so a material system
+        // tagging its types rather than its fields had no path at all. The argument's declared
+        // type comes with it now, because the value is still recovered by probing accessors and a
+        // probe and a declaration can disagree.
+        var (global, session, module, program) = Load();
+        using (global) using (session) using (module) using (program)
+        {
+            var specialized = program.SpecializeGeneric(
+                "SgWrapper", GenericArgument.OfType(program.FindType("SgLambert")!));
+
+            var layout = Assert.IsType<StructLayout>(specialized!.Layout);
+            Assert.NotNull(layout.Attributes);
+
+            var tag = Assert.Single(layout.Attributes, a => a.Name == "SgTag");
+            output.WriteLine($"{tag.Name}({string.Join(", ", tag.Arguments)}) types=[{string.Join(", ", tag.ArgumentTypes ?? [])}]");
+
+            Assert.Equal(7, Assert.Single(tag.Arguments));
+            Assert.Equal("int", Assert.Single(tag.ArgumentTypes!));
+        }
+    }
+
+    [NativeFact]
+    public void An_untagged_struct_reports_no_attributes_rather_than_an_empty_list()
+    {
+        var (global, session, module, program) = Load();
+        using (global) using (session) using (module) using (program)
+        {
+            var specialized = program.SpecializeGeneric("SgCascades", GenericArgument.OfInt(2));
+            Assert.Null(Assert.IsType<StructLayout>(specialized!.Layout).Attributes);
         }
     }
 

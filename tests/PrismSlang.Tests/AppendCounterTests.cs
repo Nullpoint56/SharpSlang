@@ -137,6 +137,43 @@ public class AppendCounterTests(Xunit.Abstractions.ITestOutputHelper output)
     }
 
     [NativeFact]
+    public unsafe void Slangs_own_counter_offset_agrees_with_the_projected_binding()
+    {
+        // getExplicitCounterBindingRangeOffset is the binding-range route to the same fact the
+        // projection reaches through the counter's variable layout. Two answers, one counter.
+        var shaderCase = ShaderCorpus.Case("append-buffers");
+
+        using var global = SlangGlobalSession.Create();
+        using var session = global.CreateSession(new SessionOptions { Targets = [new TargetOptions()] });
+        using var module = session.LoadModuleFromSource("ab", "ab.slang", shaderCase.Source);
+        using var entry = module.FindEntryPoint("abCompute");
+        using var program = session.Link(module, entry);
+
+        var shader = (Native.SlangProgramLayout*)program.GetLayout(0);
+        var scope = Native.SlangApi.spReflection_getGlobalParamsTypeLayout(shader);
+
+        var count = Native.SlangApi.spReflectionTypeLayout_getBindingRangeCount(scope);
+        var projected = program.Reflect().DescriptorSets.SelectMany(s => s.Ranges).ToList();
+
+        for (long b = 0; b < count; b++)
+        {
+            var leaf = Native.SlangApi.spReflectionTypeLayout_getBindingRangeLeafTypeLayout(scope, b);
+            if (leaf is null) continue;
+
+            var offset = Native.SlangApi.spReflectionTypeLayout_getExplicitCounterBindingRangeOffset(leaf);
+            var range = projected.SingleOrDefault(r => r.IndexOffset == (uint)b);
+            if (range is null) continue;
+
+            output.WriteLine($"range {b} ({range.Name}): counter range offset {offset}, "
+                + $"projected counter binding {range.CounterBinding}");
+
+            // Slang's offset is relative to the buffer's own range; the projection's is absolute.
+            // Where there is a counter the two must describe the same neighbour.
+            if (range.CounterBinding is { } absolute) Assert.Equal(absolute - (uint)b, (uint)offset);
+        }
+    }
+
+    [NativeFact]
     public void The_counter_survives_a_round_trip()
     {
         var layout = Reflect();

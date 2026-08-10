@@ -32,7 +32,8 @@ public sealed record ShaderParameter(
     IReadOnlyList<ParameterBinding> Bindings,
     string? Semantic = null,
     uint SemanticIndex = 0,
-    IReadOnlyList<UserAttribute>? Attributes = null)
+    IReadOnlyList<UserAttribute>? Attributes = null,
+    SlangStage Stage = SlangStage.SLANG_STAGE_NONE)
 {
     /// <summary>
     /// Whether this is a specialization constant rather than something bound at draw time.
@@ -162,6 +163,12 @@ public sealed record ShaderParameter(
 /// For an <c>AppendStructuredBuffer</c> or <c>ConsumeStructuredBuffer</c>, the binding index within
 /// this same set of the separate buffer holding its count. Null for everything else.
 /// </param>
+/// <param name="IsSpecializable">
+/// Whether the binding's type is still generic — a range whose descriptor type is only decided by
+/// specialization. False for every range in a linked program, which is what linking is for; the
+/// flag exists because Slang exposes the question and a host reading a layout from an unlinked
+/// component would need the answer.
+/// </param>
 public sealed record DescriptorRange(
     SlangBindingType BindingType,
     uint IndexOffset,
@@ -171,7 +178,8 @@ public sealed record DescriptorRange(
     bool IsUnbounded = false,
     uint? InputAttachmentIndex = null,
     SlangImageFormat ImageFormat = SlangImageFormat.SLANG_IMAGE_FORMAT_unknown,
-    uint? CounterBinding = null)
+    uint? CounterBinding = null,
+    bool IsSpecializable = false)
 {
     /// <summary>
     /// Whether this range is a counter belonging to an append/consume buffer rather than something
@@ -254,6 +262,17 @@ public sealed record SubObjectRange(uint BindingRangeIndex, string? Name = null)
 /// buffer. When false, <paramref name="UniformSize"/> being non-zero means those bytes are laid out
 /// somewhere other than a buffer of their own — on Vulkan, in the push-constant range.
 /// </param>
+/// <param name="Function">
+/// The entry point read as an ordinary function declaration: its source-level signature, its
+/// modifiers and its user attributes.
+/// </param>
+/// <remarks>
+/// <paramref name="Parameters"/> and <paramref name="Function"/> describe the same declaration and
+/// are not redundant. The first is the <em>pipeline interface</em> — varyings and system values
+/// with their locations and semantics, which is what a renderer binds against. The second is what
+/// the author wrote, including the attributes that are not layout at all: an entry point's
+/// <c>[shader(…)]</c> and any user attribute a material system tagged it with.
+/// </remarks>
 public sealed record EntryPointLayout(
     string Name,
     SlangStage Stage,
@@ -265,7 +284,8 @@ public sealed record EntryPointLayout(
     ulong UniformSize = 0,
     string? NameOverride = null,
     ulong? WaveSize = null,
-    bool HasDefaultConstantBuffer = false)
+    bool HasDefaultConstantBuffer = false,
+    FunctionSignature? Function = null)
 {
     /// <summary>The entry point's base offset in one category, or 0 if it occupies none.</summary>
     public uint BaseOffset(SlangParameterCategory category) =>
@@ -498,13 +518,25 @@ public readonly record struct GenericArgumentBinding(
 /// <param name="Name">The specialized type's full name, e.g. <c>Wrapper&lt;Lambert&gt;</c>.</param>
 /// <param name="Arguments">Each generic parameter and what it was bound to.</param>
 /// <param name="Layout">
-/// The specialized type's layout — field offsets, sizes, strides. Null if Slang produced the type
-/// but could not lay it out, which is not expected and is reported rather than hidden.
+/// The specialized type's layout — field offsets, sizes, strides. Null when the generic wraps
+/// something that is not a type; see <paramref name="Kind"/>.
+/// </param>
+/// <param name="Kind">
+/// What the generic wraps. A generic in Slang is a declaration of some kind with parameters bolted
+/// on, and <c>struct Wrapper&lt;T&gt;</c> and <c>float3 shade&lt;T&gt;(…)</c> are both generics —
+/// so a caller specializing one by name has to be told which it got.
+/// </param>
+/// <param name="Function">
+/// The specialized signature, when <paramref name="Kind"/> is <see cref="DeclarationKind.Func"/>.
+/// Null otherwise. This is where a generic function's parameter types come back <em>substituted</em>
+/// rather than symbolic.
 /// </param>
 public sealed record SpecializedType(
     string Name,
     IReadOnlyList<GenericArgumentBinding> Arguments,
-    TypeLayout? Layout)
+    TypeLayout? Layout,
+    DeclarationKind Kind = DeclarationKind.Struct,
+    FunctionSignature? Function = null)
 {
     public override string ToString() => Name;
 }
@@ -531,6 +563,10 @@ public enum ParameterDirection
 /// </param>
 /// <param name="Direction">Whether the function reads it, writes it, or both.</param>
 /// <param name="Attributes">User attributes on the parameter, if any.</param>
+/// <param name="Stage">
+/// Which stage the parameter belongs to, where Slang attributes it to one — an entry point's
+/// varyings do, a global does not.
+/// </param>
 /// <remarks>
 /// Deliberately carries no semantic. <c>GetSemanticName</c> exists only on a <em>variable
 /// layout</em>, and an ordinary function parameter has no layout — a semantic is a property of a
@@ -613,12 +649,33 @@ public sealed record FunctionSignature(
 /// <param name="Function">
 /// For a <see cref="DeclarationKind.Func"/> node, its signature. Null otherwise.
 /// </param>
+/// <param name="QualifiedName">
+/// The name with its enclosing declarations, dotted — <c>Materials.Lambert.shade</c>. Built by
+/// walking <c>getParent</c> from the declaration itself rather than by joining the tree on the way
+/// down, so it is the compiler's own nesting and not this walk's.
+/// </param>
+/// <param name="Modifiers">
+/// Slang's declaration modifiers present on this declaration, lowercased — <c>static</c>,
+/// <c>extern</c>, <c>differentiable</c>. Null when it carries none.
+/// </param>
+/// <param name="VariableType">
+/// For a <see cref="DeclarationKind.Variable"/> node, the declared type's full name. Null
+/// otherwise.
+/// </param>
+/// <param name="OuterGeneric">
+/// For a <see cref="DeclarationKind.Generic"/> node nested inside another generic, the outer one's
+/// name. Null at the top level, which is the usual case.
+/// </param>
 public sealed record DeclarationNode(
     string Name,
     DeclarationKind Kind,
     IReadOnlyList<DeclarationNode> Children,
     IReadOnlyList<GenericParameter>? GenericParameters = null,
-    FunctionSignature? Function = null)
+    FunctionSignature? Function = null,
+    string? QualifiedName = null,
+    IReadOnlyList<string>? Modifiers = null,
+    string? VariableType = null,
+    string? OuterGeneric = null)
 {
     /// <summary>
     /// Whether this is a compiler-synthesised declaration rather than something the author wrote.

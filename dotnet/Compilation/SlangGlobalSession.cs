@@ -140,6 +140,50 @@ public sealed unsafe class SlangGlobalSession : SlangObject<IGlobalSession>
             """);
     }
 
+    /// <summary>
+    /// Resolves a capability name such as <c>spvRayQueryKHR</c> or <c>SPIRV_1_5</c>.
+    /// </summary>
+    /// <remarks>
+    /// The companion to <see cref="FindProfile"/>: a profile is a bundle of capabilities, and a
+    /// target's diagnostics name the individual ones. Returns
+    /// <c>SLANG_CAPABILITY_UNKNOWN</c> for a name Slang does not know, which is how to tell a typo
+    /// from a capability this build does not have.
+    /// </remarks>
+    public SlangCapabilityID FindCapability(string name)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(name);
+        using Utf8.Scoped n = new(name);
+        return SlangApi.spFindCapability(Ptr, n);
+    }
+
+    /// <summary>Whether this build can generate code for a target at all.</summary>
+    /// <remarks>
+    /// About the <em>compiler</em>, not the device: a payload built without a backend answers no
+    /// here, which is a different failure from a device lacking a feature and worth separating
+    /// before a cook blames the wrong thing.
+    /// </remarks>
+    public bool SupportsTarget(SlangCompileTarget target) =>
+        SlangResult.Succeeded(SlangApi.spSessionCheckCompileTargetSupport(Ptr, target));
+
+    /// <summary>
+    /// Slang's own hash of a string, as <c>getStringHash</c> computes it in a shader.
+    /// </summary>
+    /// <remarks>
+    /// The other end of <c>ProgramLayout.HashedStrings</c>. A shader calling
+    /// <c>getStringHash("albedo")</c> compiles to a constant, and the host holding a name has no
+    /// way to match it against that constant without computing the same hash — which is this.
+    /// </remarks>
+    public static uint HashString(string value)
+    {
+        ArgumentNullException.ThrowIfNull(value);
+
+        var bytes = System.Text.Encoding.UTF8.GetBytes(value);
+        fixed (byte* p = bytes)
+        {
+            return SlangApi.spComputeStringHash((sbyte*)p, (nuint)bytes.Length);
+        }
+    }
+
     /// <summary>The Slang build this binding is talking to, e.g. <c>2026.14.1</c>.</summary>
     public static string BuildTag => Utf8.Read(SlangApi.spGetBuildTagString()) ?? "unknown";
 
