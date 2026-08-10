@@ -154,16 +154,24 @@ jobs:
       # configures.
       #
       # macOS has its own pair — MallocScribble fills freed memory with 0x55, MallocPreScribble
-      # fills fresh allocations with 0xAA — and they were set here for the first two osx-arm64 runs.
-      # Both crashed the test host. They are off again, deliberately: the macOS leg and aggressive
-      # allocator poisoning arrived in the same commit, so a crash cannot be attributed to either.
-      # Poisoning is *designed* to turn a latent read of uninitialized or freed memory into a fault,
-      # and Slang is a large C++ codebase running under an allocator it has not been poisoned on
-      # before — so "the platform is broken" and "the poisoning found something" look identical from
-      # here.
+      # fills fresh allocations with 0xAA — and they are back on, which they were not for three
+      # runs. The history is the point.
       #
-      # One variable at a time, which is what the rest of this repository insists on. Get osx-arm64
-      # green without them, then put them back as a deliberate experiment with somewhere to look.
+      # They were set for the first two osx-arm64 runs and both crashed the test host. That proved
+      # nothing: the macOS leg and aggressive allocator poisoning arrived in the same commit, so a
+      # crash could not be attributed to either. Poisoning is *designed* to turn a latent read of
+      # freed or uninitialized memory into a fault, and Slang is a large C++ codebase running under
+      # an allocator that had never poisoned it — "the platform is broken" and "the poisoning found
+      # something real" look identical from here. So they came off, one variable at a time.
+      #
+      # The baseline they were waiting for now exists. osx-arm64 is green without them (a0eb587,
+      # 470 passed), after the two ownership bugs the leg found — §9.25 and §9.26 — were fixed. Any
+      # crash from here is attributable to the poisoning, and unlike last time there is somewhere
+      # to look: tools/ci/macos-backtrace.sh runs on failure and produces a stack.
+      #
+      # Set unconditionally alongside MALLOC_PERTURB_. glibc and Windows ignore these two exactly as
+      # macOS ignores that one, and a conditional would be more machinery than the thing it
+      # configures.
       #
       # MALLOC_CHECK_=3 is the usual companion and is deliberately absent. Measured on glibc 2.39,
       # which is what ubuntu-latest ships: it is ignored unless libc_malloc_debug.so.0 is
@@ -175,6 +183,8 @@ jobs:
       - name: Test
         env:
           MALLOC_PERTURB_: 165
+          MallocScribble: 1
+          MallocPreScribble: 1
         # --blame writes a Sequence.xml naming the test that was executing when the host died, and
         # deletes it again if the run completes — so it costs nothing on a green run and is the
         # difference between knowing the crasher and inferring it from test ordering on a different
@@ -186,15 +196,17 @@ jobs:
       # leave the whole validation harness silently switched off. Two of the three run on any
       # device; the third needs 64-bit vertex formats, which lavapipe does not offer, and skips
       # with that reason.
-      # Both linux legs, but only one of them fails on a short count. linux-x64 is proven; arm64 is
-      # new, and a build that goes red because lavapipe is unavailable on a runner would be red for
-      # a reason unrelated to the port. So arm64 runs the same check and reports through
-      # `::notice::` instead — which makes "did lavapipe load on ARM?" a line in the summary rather
-      # than something someone has to go and read the log for.
+      # Both linux legs, and both fatal. arm64 reported through `::notice::` instead for its first
+      # runs, because a build going red over lavapipe being unavailable on a new runner would have
+      # been red for a reason unrelated to the port.
       #
-      # Flip $fatal to true for arm64 once a run has answered yes. A gate turned on before anyone
-      # has watched it work is the failure mode §9.17 is about, and a gate that can never fail is
-      # the one §9.18's driver was.
+      # It has now answered: `##[notice]2 validation-layer test(s) ran against lavapipe on
+      # linux-arm64` (a0eb587), with the same `lvp_icd.json` and the same 2-of-3 as linux-x64 — the
+      # third needs 64-bit vertex formats lavapipe does not offer and skips with that reason. So the
+      # gate is armed on both.
+      #
+      # That order was the point. A gate turned on before anyone has watched it work is the failure
+      # mode §9.17 is about, and a gate that can never fail is the one §9.18's driver was.
       - name: The validation-layer tests actually ran
         if: startsWith(matrix.rid, 'linux')
         env:
@@ -218,16 +230,9 @@ jobs:
           echo "$counters"
           passed=$(echo "$counters" | sed -n 's/.*[^a-z]passed="\([0-9]*\)".*/\1/p')
 
-          fatal=$([ "${{ matrix.rid }}" = "linux-x64" ] && echo true || echo false)
-
           if [ "${passed:-0}" -lt 2 ]; then
-            message="only ${passed:-0} validation-layer test(s) ran on ${{ matrix.rid }}. lavapipe or the layers did not load; the skip reason is in the output above."
-            if [ "$fatal" = "true" ]; then
-              echo "::error::$message"
-              exit 1
-            fi
-            echo "::notice::$message This is not fatal on ${{ matrix.rid }} yet — see the comment on this step."
-            exit 0
+            echo "::error::only ${passed:-0} validation-layer test(s) ran on ${{ matrix.rid }}. lavapipe or the layers did not load, so the only oracle in the suite that is not Slang judging itself is switched off; the skip reason is in the output above."
+            exit 1
           fi
 
           echo "::notice::$passed validation-layer test(s) ran against lavapipe on ${{ matrix.rid }}"
@@ -240,6 +245,8 @@ jobs:
       - name: Tier 0 spike
         env:
           MALLOC_PERTURB_: 165
+          MallocScribble: 1
+          MallocPreScribble: 1
         run: dotnet run --project samples/PrismSlang.Smoke -c Release --no-build
 
       # A test-host crash reports whatever was on stderr as its "reason", which is never the cause:

@@ -48,6 +48,7 @@ so a bare `§4.4` or `§9.8` in a code comment is unambiguous.
 | [9.24](#924-three-of-the-v10-gaps-and-the-one-the-layers-had-to-judge) | Three v1.0 gaps | stage flags narrowed, the API written down, a third architecture |
 | [9.25](#925-the-macos-leg-found-an-ownership-bug-in-this-binding) | The macOS leg earned itself | a module does not retain its session, and three platforms shrugged |
 | [9.26](#926-the-same-test-died-again-and-the-instrument-was-missing) | The same test died again | the global session destroyed from inside `~Linkage`, found by the first backtrace anyone read |
+| [9.27](#927-two-switches-flipped-each-on-the-evidence-it-was-waiting-for) | Two switches flipped | macOS green, the arm64 gate armed, the poisoning back on |
 
 ### The four oracles
 
@@ -2179,5 +2180,46 @@ The order was backwards, and the tell was there: three runs in, the reasoning ha
 *measure refcounts → build a model → predict → still wrong*, twice. That is the signature of a
 missing instrument rather than a missing insight, and the next move after the second failed
 prediction should have been to go and get the stack.
+
+501 tests.
+
+### 9.27 Two switches flipped, each on the evidence it was waiting for
+
+Both were deferred deliberately, and both had a named condition. The conditions are met.
+
+**osx-arm64 is green.** 470 passed, 4 skipped, 0 failed on `a0eb587` — the first complete macOS run,
+after §9.25 and §9.26. The total is 474 against 501 on a development machine, and that gap was
+checked rather than shrugged at: `VulkanCorpusValidationTests` expands to one case per corpus shader
+only when a Vulkan device exists and collapses to a single skipped case without one. 33 locally, 6
+on the runner, 27 apart, which is exactly the difference. No test went missing.
+
+**The arm64 validation-layer gate is armed.** §9.24 left it reporting through `::notice::` with one
+line to flip, on the grounds that a build going red over lavapipe being unavailable on a brand-new
+runner would be red for a reason unrelated to the port. The run answered:
+
+```
+##[notice]2 validation-layer test(s) ran against lavapipe on linux-arm64
+```
+
+Same `lvp_icd.json` as linux-x64, same 2 of 3 — the third wants 64-bit vertex formats lavapipe does
+not offer and skips saying so. A short count on either leg is now an error, because the only oracle
+in the suite that is not Slang judging itself is the one thing whose silent absence would be
+invisible.
+
+**The allocator poisoning is back on.** `MallocScribble` and `MallocPreScribble` came off because
+they arrived in the same commit as the macOS leg itself, and two variables at once meant "the
+platform is broken" and "the poisoning found something real" could not be told apart. That is no
+longer true of either half: there is a green baseline without them, and if they now fire,
+`tools/ci/macos-backtrace.sh` runs on failure and produces a stack instead of a test name.
+
+Both flips are the same discipline in opposite directions — a gate is armed only after someone has
+watched it work, and a tripwire is set only once a crash from it would mean something. §9.17 is the
+gate that was trusted before anyone watched it, and §9.18's driver is the one that could never fail.
+
+Still open, and none of it is a platform: the two `ProberTests` macOS branches that still report
+instead of asserting (the crash reports settle `specialized-element-count`, not the probe those two
+use, so they still want a measurement), the unnamed implicit global constant buffer and the
+deliberately unbound `getEntryPointHash` (§9.7), and a tag — the publish path has been rehearsed
+green but never run for real.
 
 501 tests.
