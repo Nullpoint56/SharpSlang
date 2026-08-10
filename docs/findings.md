@@ -1861,17 +1861,50 @@ vertex stage"* for most of the corpus, reporting the same green as a driver that
 Reporting without asserting is only defensible while it is visibly temporary, which is what the
 comment on the step is for.
 
+#### The fourth leg
+
+`osx-arm64` on `macos-14`, which closes the last unrun platform. Until it existed, `publish.yml`
+staged a macOS payload into every package and nothing had ever loaded it — a library shipped on the
+strength of the RID being spelled correctly.
+
+The ARM64 half was already answered by the linux-arm64 leg, so what this adds is the OS: a third
+allocator, a third dynamic loader, and the Itanium C++ ABI on a runtime that is not glibc's. Both
+§9.1 and §9.22 were found by an OS the code had not run on.
+
+Three things had to be right before the leg could mean anything.
+
+**The allocator control has a different name.** `MALLOC_PERTURB_` is glibc's. macOS has
+`MallocScribble` (freed memory filled with 0x55) and `MallocPreScribble` (fresh allocations with
+0xAA) — the same idea, read by libmalloc at process start. Both are now set alongside, so the macOS
+leg is an ownership control and not merely a does-it-load check.
+
+**A green run had to be capable of being red.** Almost every test is a `[NativeFact]`, which
+*skips* when `slang-compiler` cannot be loaded — so a payload that stages correctly and then refuses
+to load would produce a green run with four hundred silent skips, which is §9.18's excluded corpus
+wearing a different hat. The Tier 0 spike is the guard: it has no skip logic, calls
+`SlangGlobalSession.Create` directly, and a `DllNotFoundException` there fails the step. The comment
+on that step now says so, because it was load-bearing by accident.
+
+**Two assertions had to stop pretending macOS is Linux.** `ProberTests` encodes the platform splits
+in §9.12 and §9.22, and both were written as Windows-versus-everything-else. On a macOS runner they
+would have asserted Linux's measured answer about a platform nobody had measured — a green that
+means nothing, which is the exact claim this document keeps catching in other people's comments.
+Both are now three-way, and the macOS branch reports what happened and asserts only that the
+operation did not succeed. The first run turns each into a real assertion.
+
 #### What is left for v1.0
 
-- **osx-arm64, never executed.** The one hard blocker. `publish.yml` already stages a macOS payload
-  into the package, so a release today would ship a library nobody has loaded.
-- **Never released, but no longer unrehearsed.** `workflow_dispatch` takes a `dry_run` input,
-  default true, running the whole path except the push: three-RID staging from a Windows runner,
-  build, test, pack all three projects, and the check that every RID in the core package carries
-  both the compiler and the SPIR-V optimiser. It has run, green. That proves more than it sounds
-  like — **the osx-arm64 payload stages and packs correctly**, so what macOS is missing is a runner
-  that loads the library, not plumbing. A tag still publishes for real, and a tag is a bad place to
+Every supported RID is now in CI, so the list is short and none of it is a platform.
+
+- **Never released.** `workflow_dispatch` takes a `dry_run` input, default true, running the whole
+  path except the push: three-RID staging from a Windows runner, build, test, pack all three
+  projects, and the check that every RID in the core package carries both the compiler and the
+  SPIR-V optimiser. It has run, green — which is how the osx-arm64 payload was known to stage and
+  pack before there was a runner to load it. Rehearsed is not released, but a tag is a bad place to
   discover that staging is wrong, because the failure arrives attached to a version number.
+- **Two assertions and one gate are waiting on their first macOS run** — the `ProberTests` platform
+  branches above, and the arm64 validation-layer count, which reports through `::notice::` until a
+  run shows lavapipe loading.
 - The implicit global constant buffer is still unnamed, and `getEntryPointHash` is still
   deliberately unbound (§9.7).
 

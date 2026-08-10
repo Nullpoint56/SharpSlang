@@ -19,7 +19,7 @@ using System.Reflection;
 
 namespace PrismSlang.Tests;
 
-public class ProberTests
+public class ProberTests(Xunit.Abstractions.ITestOutputHelper output)
 {
     private sealed record Outcome(int ExitCode, string Stdout, string Stderr)
     {
@@ -162,11 +162,20 @@ public class ProberTests
             Assert.Equal(0, outcome.ExitCode);
             Assert.Contains("refused", outcome.Stdout, StringComparison.Ordinal);
         }
-        else
+        else if (OperatingSystem.IsLinux())
         {
             Assert.True(outcome.ExitCode is not (0 or 1 or 2),
-                "specializeType on a non-generic type no longer ends the process here. If it now "
-                + $"returns null on both platforms the split in §9.22 is closed.\n{outcome}");
+                "specializeType on a non-generic type no longer ends the process on Linux. If it "
+                + $"now returns null there too, the split in §9.22 is closed.\n{outcome}");
+        }
+        else
+        {
+            // macOS is a third thing and nobody has measured it. Asserting Linux's answer here
+            // would be a green that means nothing — the shape of claim this document keeps
+            // catching. The first run records what actually happens; then this branch becomes an
+            // assertion like the other two.
+            output.WriteLine($"UNMEASURED PLATFORM — {Environment.OSVersion.Platform}:\n{outcome}");
+            Assert.NotEqual("specialized", outcome.Stdout.Trim());
         }
     }
 
@@ -234,11 +243,20 @@ public class ProberTests
             Assert.Equal(1, outcome.ExitCode);
             Assert.Contains("SEHException", outcome.Stderr, StringComparison.Ordinal);
         }
-        else
+        else if (OperatingSystem.IsLinux())
         {
             Assert.True(outcome.ExitCode is not (1 or 2),
-                "on this platform the C++ exception was caught rather than ending the process, "
-                + $"which is the Windows behaviour arriving somewhere new:\n{outcome}");
+                "on Linux the C++ exception was caught rather than ending the process, which is "
+                + $"the Windows behaviour arriving somewhere new:\n{outcome}");
+        }
+        else
+        {
+            // Unmeasured, for the reason given in the test above. Slang throws a C++ exception
+            // through an extern "C" boundary; whether Apple's runtime turns that into a managed
+            // exception the way SEH does, or terminates the way the Itanium ABI does, is a
+            // question and not a guess to encode.
+            output.WriteLine($"UNMEASURED PLATFORM — {Environment.OSVersion.Platform}:\n{outcome}");
+            Assert.NotEqual(0, outcome.ExitCode);
         }
     }
 }

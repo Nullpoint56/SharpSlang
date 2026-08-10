@@ -9,14 +9,15 @@ name: CI
 # entire class of bug — and it has paid twice: §9.22's fifth Slang crash returns null on Windows
 # and segfaults on Linux, and was found by this leg aborting a run that was green here.
 #
-# linux-arm64 is the third leg, added for the axis neither of the other two covers. See the matrix.
+# linux-arm64 and osx-arm64 are the third and fourth legs, each added for an axis the others do
+# not cover. See the matrix.
 #
 # The native payload is NOT committed — runtimes/ is gitignored. Each job fetches it from the
 # release pinned in Directory.Build.props, which also proves the fetch script still works against
 # the current upstream layout.
 
-# Markdown-only changes skip all of this and run docs.yml instead. A full run is two runners each
-# downloading a 36 MB payload, building, and executing 384 tests, plus a job that installs ClangSharp
+# Markdown-only changes skip all of this and run docs.yml instead. A full run is four runners each
+# downloading a 36 MB payload, building, and executing 497 tests, plus a job that installs ClangSharp
 # and regenerates the bindings — none of which a paragraph can affect.
 #
 # paths-ignore only skips when *every* changed file matches, so a commit touching a document and a
@@ -61,6 +62,19 @@ jobs:
           # so the payload side needed nothing.
           - os: ubuntu-24.04-arm
             rid: linux-arm64
+          # The last unrun platform. Until this leg existed, publish.yml staged an osx-arm64 payload
+          # into every package and nothing had ever loaded it — a library shipped to a platform on
+          # the strength of the RID being spelled correctly.
+          #
+          # macos-14 is Apple Silicon, so the ARM64 half of this was already answered by the
+          # linux-arm64 leg. What is new is the OS: a third allocator, a third dynamic loader, and
+          # the Itanium C++ ABI on a runtime that is not glibc's. §9.1 and §9.22 were both found by
+          # an OS the code had not run on.
+          #
+          # No Vulkan here. VulkanTestDevice finds no loader and the validation tests skip with
+          # their reason; the lavapipe and validation-count steps are gated on linux.
+          - os: macos-14
+            rid: osx-arm64
 
     steps:
       - uses: actions/checkout@v4
@@ -135,10 +149,13 @@ jobs:
       # instead of the stale-but-intact data that makes these bugs pass. Both bugs in §9.1 lived on
       # paths LifetimeTests had no reason to walk; this covers all 393.
       #
-      # Set on both legs rather than gated on the RID: it is a glibc variable, so the Windows job
-      # ignores it, and a conditional here would be more machinery than the thing it configures.
-      # Windows has no equivalent knob and does not need one — the reason Linux is in this matrix
-      # at all is that its allocator is the strict one (see the header of this file).
+      # Set unconditionally rather than gated on the RID: MALLOC_PERTURB_ is a glibc variable, so
+      # Windows ignores it, and a conditional would be more machinery than the thing it configures.
+      #
+      # macOS ignores it too, and has its own: MallocScribble fills freed memory with 0x55 and
+      # MallocPreScribble fills fresh allocations with 0xAA — the same idea by a different name, so
+      # the macOS leg is an ownership control and not merely a does-it-load check. Both are read by
+      # libmalloc at process start and cost nothing where they are not understood.
       #
       # MALLOC_CHECK_=3 is the usual companion and is deliberately absent. Measured on glibc 2.39,
       # which is what ubuntu-latest ships: it is ignored unless libc_malloc_debug.so.0 is
@@ -150,6 +167,8 @@ jobs:
       - name: Test
         env:
           MALLOC_PERTURB_: 165
+          MallocScribble: 1
+          MallocPreScribble: 1
         run: dotnet test PrismSlang.slnx -c Release --no-build --nologo --logger "trx;LogFileName=results.trx"
 
       # A skipped test is green, so installing lavapipe and never noticing it failed to load would
@@ -169,6 +188,8 @@ jobs:
         if: startsWith(matrix.rid, 'linux')
         env:
           MALLOC_PERTURB_: 165
+          MallocScribble: 1
+          MallocPreScribble: 1
         run: |
           # The count comes from the TRX, not from the console. The first version of this step
           # scraped the one-line "Passed!  - Failed: 0, Passed: 2, ..." summary, which is what the
@@ -202,9 +223,16 @@ jobs:
 
           echo "::notice::$passed validation-layer test(s) ran against lavapipe on ${{ matrix.rid }}"
 
+      # Also the loadability gate, and on a new platform that is the job that matters most. Almost
+      # every test is a [NativeFact], which *skips* when slang-compiler cannot be loaded — so a
+      # payload that stages correctly and then refuses to load produces a green run with four
+      # hundred silent skips. The spike has no skip logic: it calls SlangGlobalSession.Create
+      # directly, and a DllNotFoundException there fails the step.
       - name: Tier 0 spike
         env:
           MALLOC_PERTURB_: 165
+          MallocScribble: 1
+          MallocPreScribble: 1
         run: dotnet run --project samples/PrismSlang.Smoke -c Release --no-build
 
       - uses: actions/upload-artifact@v4
