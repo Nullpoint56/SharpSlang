@@ -96,6 +96,14 @@ internal static class Cases
         // followed by release reports the count without changing it.
         ["refcount-ownership"] = RefcountOwnership,
 
+        // §9.26. The same teardown LifetimeTests does, outermost first, one release at a time with
+        // the name of each printed before it happens. Taking a native reference on the owner made
+        // the refcounts balance and did not stop the macOS host dying here, so the remaining
+        // suspect is not *whether* the objects survive but the order Slang destroys them in when
+        // the last release collapses the whole hierarchy at once. The last line of output is the
+        // release that did it.
+        ["dispose-outermost-first"] = DisposeOutermostFirst,
+
         // §9.24. Two reflection questions that were being asked in-process on the strength of
         // Windows and Linux tolerating them, and that the first macOS run turned into a dead test
         // host. Both are caller mistakes rather than obvious Slang defects, which is exactly why
@@ -150,11 +158,19 @@ internal static class Cases
 
         using var entry = module.FindEntryPoint("fragmentMain");
         Report("module, after FindEntryPoint", module);
+        Report("entry, alone", entry);
 
         using var program = session.Link(module, entry);
         Report("global, after Link", global);
         Report("session, after Link", session);
         Report("module, after Link", module);
+
+        // The one that was never asked. A composite that does not retain its components is safe
+        // in the innermost-first order every other test uses and a use-after-free in the one
+        // LifetimeTests deliberately inverts: disposing the entry point would destroy it, and the
+        // program's own release would then walk a dangling component pointer.
+        Report("entry, after Link", entry);
+        Report("program, alone", program);
 
         // addRef then release leaves the count where it started and reports it on the way back
         // down, so this observes without disturbing.
@@ -163,6 +179,47 @@ internal static class Cases
             var p = (ISlangUnknown*)o.RawForTests;
             p->addRef();
             Console.Out.WriteLine($"    {what,-32} refcount={p->release()}");
+        }
+    }
+
+    /// <summary>
+    /// LifetimeTests's out-of-order teardown, narrated so a fault names the release that caused it.
+    /// </summary>
+    /// <remarks>
+    /// Deliberately not a test. The thing being measured is whether a release ends the process, and
+    /// an in-process assertion cannot survive to report it — the whole macOS investigation has cost
+    /// three CI runs whose only output was the name of a test. Here the last line on stdout is the
+    /// answer, and it arrives whether the process exits or dies.
+    /// </remarks>
+    private static void DisposeOutermostFirst()
+    {
+        const string Source = """
+            struct Uniforms { float4 tint; };
+            ConstantBuffer<Uniforms> uniforms;
+
+            [shader("fragment")]
+            float4 fragmentMain() : SV_Target { return uniforms.tint; }
+            """;
+
+        var global = SlangGlobalSession.Create();
+        var session = global.CreateSession(new SessionOptions { Targets = [new TargetOptions()] });
+        var module = session.LoadModuleFromSource("m", "m.slang", Source);
+        var entry = module.FindEntryPoint("fragmentMain");
+        var program = session.Link(module, entry);
+
+        Release("global", global);
+        Release("session", session);
+        Release("module", module);
+        Release("entry", entry);
+        Release("program", program);
+
+        static void Release(string what, SlangObject o)
+        {
+            Console.Out.WriteLine($"    releasing {what} ...");
+            Console.Out.Flush();
+            o.Dispose();
+            Console.Out.WriteLine($"    releasing {what} ok");
+            Console.Out.Flush();
         }
     }
 

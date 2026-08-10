@@ -278,6 +278,36 @@ public class ProberTests(Xunit.Abstractions.ITestOutputHelper output)
     }
 
     [NativeFact]
+    public void Releasing_the_hierarchy_outermost_first_survives()
+    {
+        // §9.26, and the reason it is here rather than only in LifetimeTests: the in-process
+        // version of this teardown has now killed the macOS test host three times, and each run
+        // cost fifty-odd tests that never got to report. A dead host names one test and destroys
+        // every other signal in the run.
+        //
+        // Out here the crash is the result. The prober prints the name of each release before it
+        // performs it and flushes, so the tail of stdout is the release that faulted — which is
+        // the thing three CI runs failed to establish.
+        //
+        // The control first, for the same reason `healthy` exists: the identical hierarchy torn
+        // down innermost-first, which is what every other test in the suite does. If both fail,
+        // the finding is not about ordering.
+        var control = Run("refcount-ownership");
+        Assert.True(control.ExitCode == 0,
+            "the ordinary innermost-first teardown ended the prober, so nothing the out-of-order "
+            + $"case does is evidence about ordering:\n{control}");
+
+        var outcome = Run("dispose-outermost-first");
+        output.WriteLine($"refcount-ownership:\n{control}");
+        output.WriteLine($"dispose-outermost-first:\n{outcome}");
+
+        Assert.True(outcome.ExitCode == 0,
+            "releasing the hierarchy outermost-first ended the prober. The last 'releasing X ...' "
+            + "line with no matching 'ok' is the release that did it, and SlangObject's owner "
+            + $"reference is what is supposed to make that release safe.\n{outcome}");
+    }
+
+    [NativeFact]
     public void How_it_fails_depends_on_the_platform()
     {
         // Measured, and not what §9.12 said. Slang throws a C++ `Slang::InternalError` out through

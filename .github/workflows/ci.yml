@@ -17,7 +17,7 @@ name: CI
 # the current upstream layout.
 
 # Markdown-only changes skip all of this and run docs.yml instead. A full run is four runners each
-# downloading a 36 MB payload, building, and executing 499 tests, plus a job that installs ClangSharp
+# downloading a 36 MB payload, building, and executing 500 tests, plus a job that installs ClangSharp
 # and regenerates the bindings — none of which a paragraph can affect.
 #
 # paths-ignore only skips when *every* changed file matches, so a commit touching a document and a
@@ -295,6 +295,20 @@ jobs:
             } |
             Sort-Object Name |
             ForEach-Object { Write-Host ("    {0,4}  {1}" -f $_.Count, $_.Name) }
+
+      # Three macOS runs have now ended with a dead host, and the only thing any of them produced
+      # was the name of a test. That is an instrumentation gap, not a hard problem: macOS writes a
+      # full symbolicated backtrace for every crash and nothing here has ever read one.
+      #
+      # Two sources, because neither is guaranteed. ReportCrash may be disabled on a hosted runner,
+      # and lldb needs to be able to attach — but they fail independently, so asking both is much
+      # more likely to produce a stack than picking one. lldb is the better of the two when it
+      # works: it re-runs the crash under a debugger rather than reading what was left behind.
+      #
+      # Never fatal. This step exists to explain a failure that has already happened.
+      - name: If macOS crashed, get a backtrace
+        if: failure() && matrix.rid == 'osx-arm64'
+        run: bash tools/ci/macos-backtrace.sh
 
       - uses: actions/upload-artifact@v4
         if: always()

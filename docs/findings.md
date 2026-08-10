@@ -47,6 +47,7 @@ so a bare `§4.4` or `§9.8` in a code comment is unambiguous.
 | [9.23](#923-the-two-spec-conformance-bugs-rechecked--and-one-of-them-was-already-filed) | The two spec bugs, rechecked | one is #12441, filed a day before we found it |
 | [9.24](#924-three-of-the-v10-gaps-and-the-one-the-layers-had-to-judge) | Three v1.0 gaps | stage flags narrowed, the API written down, a third architecture |
 | [9.25](#925-the-macos-leg-found-an-ownership-bug-in-this-binding) | The macOS leg earned itself | a module does not retain its session, and three platforms shrugged |
+| [9.26](#926-the-same-test-died-again-and-the-instrument-was-missing) | The same test died again | the fix was real and was not the crash; three runs, one test name, no stack |
 
 ### The four oracles
 
@@ -2047,3 +2048,61 @@ claim is a measurement, and `addRef`/`release` will answer it in four lines.
 Slang's internal counts are not ours to pin, but "loading a module increases the session's count" is.
 
 499 tests.
+
+### 9.26 The same test died again, and the instrument was missing
+
+§9.25's fix was real and it was not the crash. `Every_child_holds_a_native_reference_to_its_owner`
+now **passes on macOS** — the children do retain their owners, measured on the platform in
+question — and `An_owner_may_be_disposed_before_the_things_it_owns` still takes the host down.
+
+Three osx-arm64 runs have now ended this way. Between them they produced the name of one test.
+
+#### What the third run did establish
+
+The runs died 88, 145 and 446 tests deep, and `--blame` named the same test every time. Different
+predecessors, same victim: the crash is intrinsic to that test rather than delayed contamination
+from something earlier poisoning the heap. That is worth more than it looks — it rules out the
+whole "some other test corrupted memory and this one tripped over it" family, which is otherwise
+the hardest thing to exclude.
+
+Every refcount was then re-measured, and they balance:
+
+| | count |
+|---|---:|
+| `global`, alone | 1 |
+| `global`, after `CreateSession` | 3 |
+| `session`, after `LoadModule` | 2 |
+| `module`, alone | 4 |
+| `module`, after `FindEntryPoint` | 5 |
+| `entry`, alone | 2 |
+| `module`, after `Link` | 6 |
+| `entry`, after `Link` | 3 |
+
+The composite retains both its components, so disposing the entry point before the program does not
+leave the program holding a dangling one — the most promising hypothesis, and the measurement
+killed it. Walking the release order by hand on those numbers, every object is alive at every point
+something reaches it. The teardown runs clean on win-x64 and linux-x64.
+
+#### The actual finding is about instrumentation
+
+Three runs, one test name, no stack. macOS writes a symbolicated backtrace for every crash into
+`~/Library/Logs/DiagnosticReports`, and CI had never read one. That is the defect worth fixing
+first, because it is the reason the other one is still open:
+
+- `tools/ci/macos-backtrace.sh` runs on failure and asks two independent sources — `lldb`, which
+  reproduces the crash under a debugger, and the `.ips` crash report, which is what was left
+  behind. Either can be unavailable on a hosted runner; they fail for unrelated reasons.
+- The teardown moved out of the shared process. `dispose-outermost-first` performs exactly the
+  test's sequence, printing the name of each release before it happens and flushing, so the last
+  line of stdout is the release that faulted. `ProberTests` asserts it exits 0 on every platform
+  and prints the transcript when it does not.
+
+The second is the pattern from §9.24 applied to a question that is ours rather than Slang's: a
+question whose answer might end the process does not belong in a process four hundred other tests
+are sharing. It costs one subprocess, it cannot abort a run, and — the part that matters here — it
+reports rather than merely dying.
+
+An in-process test can assert that something does not crash. It cannot tell you anything about the
+crash when it does.
+
+500 tests.
