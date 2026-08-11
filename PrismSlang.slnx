@@ -17,6 +17,7 @@
   <Folder Name="/tools/ci/">
     <File Path="tools/ci/check-docs.sh" />
     <File Path="tools/ci/compare-digests.sh" />
+    <File Path="tools/ci/cross-arch-differences.txt" />
     <File Path="tools/ci/macos-backtrace.sh" />
     <File Path="tools/ci/verify-linux.sh" />
   </Folder>

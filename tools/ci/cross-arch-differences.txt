@@ -1,0 +1,22 @@
+# Corpus shaders whose emitted SPIR-V differs between x86-64 and aarch64.
+#
+# Not expected values — expected *disagreements*. A golden file of digests would go stale on every
+# Slang bump and get regenerated whenever it was inconvenient; this list is checked in both
+# directions, so a new disagreement fails and so does an old one that has gone away. Upstream fixing
+# one of these is a failing test rather than silence.
+#
+# Found by the digests job on its first real run. The layout half agrees on all four legs, and the
+# module half agrees between operating systems — win-x64 and linux-x64 are byte-identical — so this
+# is an architecture split in Slang's own code generation, not an OS one and not ours. §9.33.
+#
+# The correlation is exact: SV_VertexID appears in exactly these three corpus shaders, and exactly
+# these three disagree. Nothing uses it without disagreeing and nothing disagrees without using it.
+#
+# What it means for a cook farm: assets are reproducible on a fleet of one architecture, and are not
+# byte-comparable across a mixed one. Cook on one architecture, or content-address per architecture.
+#
+#   <shader name>    <reason>
+
+stage-narrowing     SV_VertexID on the vertex entry point
+system-values       SV_VertexID and SV_InstanceID in the vertex input struct
+vertex-interface    SV_VertexID in the vertex input struct

@@ -54,6 +54,7 @@ so a bare `§4.4` or `§9.8` in a code comment is unambiguous.
 | [9.30](#930-four-green-runners-that-disagreed-about-what-they-produced) | Runners that disagreed | 28 of 28 modules identical, 28 of 28 layouts different, and the cause was a newline |
 | [9.31](#931-the-tripwires-were-half-armed-on-both-allocators) | The tripwires were half-armed | poisoning skipped every allocation small enough to matter, on both allocators |
 | [9.32](#932-four-paths-the-corpus-had-never-reached) | Four paths never reached | stage narrowing, existentials, wave ops, atomics — all green first time |
+| [9.33](#933-the-runners-disagree-and-it-is-architecture-rather-than-operating-system) | The runners disagree | x64 and arm64 emit different SPIR-V for `SV_VertexID`; Windows and Linux agree |
 
 ### The four oracles
 
@@ -2538,5 +2539,81 @@ texture only by the fragment stage, and the layers judge the result.
 All four passed both oracles first time, with no declared gaps and nothing put out of reach. That is
 a duller outcome than the rest of today and it is the correct one: the paths were unexercised rather
 than broken, which is what "we have not looked there" should usually turn out to mean.
+
+516 tests.
+
+### 9.33 The runners disagree, and it is architecture rather than operating system
+
+§9.30's job found something on its first real run, and it was not what the check had been built
+expecting.
+
+```
+=== 4 legs reported
+    net10.0  32 shaders
+    net10.0  32 shaders
+    net10.0  32 shaders
+    net10.0  32 shaders
+
+Error: net10.0 disagrees with net10.0
+    stage-narrowing    spirv=6572669c9de3025e   vs   spirv=924da90fda6faa84
+    system-values      spirv=000035ce98d3a39a   vs   spirv=36bc87fdb7b595bf
+    vertex-interface   spirv=76e1d7291a35f0d4   vs   spirv=ad48113f71541f77
+```
+
+Two things wrong with that output and one thing right. Wrong: every leg is labelled `net10.0`,
+because `upload-artifact` preserves the path a file was found at, so the digests sit in
+`.../bin/Release/net10.0/` on every leg and taking the parent directory names them all the same.
+Right: it caught a real disagreement, and enough survives the bad labelling to identify it without
+another run.
+
+#### Reading it without re-running it
+
+- **3 of 32 shaders differ. All 32 layouts agree.** So the half PrismSlang produces is identical on
+  every runner; the difference is entirely in Slang's emitted module.
+- **It is not an OS split.** Two comparisons failed with identical diffs, so the legs divide 2 and
+  2. The values on the right are exactly what the same corpus produces locally on *both* win-x64 and
+  linux-x64, and `find | sort` makes `linux-arm64` the reference — so the division is
+  `{linux-arm64, osx-arm64}` against `{linux-x64, win-x64}`. **Architecture, not operating system.**
+  Which is the reverse of the worry the check was written for: Windows and Linux agree byte for
+  byte.
+- **The three shaders have one thing in common.** `SV_VertexID` appears in exactly three corpus
+  shaders — `vertex-interface`, `system-values`, `stage-narrowing` — and exactly those three
+  disagree. Nothing uses it without disagreeing; nothing disagrees without using it.
+
+Three for three is not proof, but it is a named, falsifiable hypothesis rather than a shrug, and it
+came out of a log that first appeared to say nothing useful.
+
+#### What the check should have been
+
+One flat "every leg must match" is the wrong shape once the answer is "mostly". It would be
+permanently red, and a permanently red check reports nothing. Three rules, all fatal:
+
+1. `layout-digests.txt` identical on every leg — the half this repository controls.
+2. `spirv-digests.txt` identical *within* an architecture — which is what actually disproves an
+   OS-dependent code generator, and is a stronger statement than the original check made.
+3. Across architectures, the differing set must be **exactly** the list in
+   `tools/ci/cross-arch-differences.txt`.
+
+Rule 3 is an exception list, not a golden file, and the distinction is the whole point. A golden
+records expected *values*, goes stale on every Slang bump, and gets regenerated whenever it is
+inconvenient. This records expected *disagreements* and is checked in both directions: a new one
+fails, and so does one that has gone away — so upstream fixing `SV_VertexID` is a failing test
+rather than silence.
+
+The digest line now also carries `words=` and `ops=`, the module's length and a digest of its sorted
+opcode histogram. If two legs differ on `spirv` while agreeing on those, the modules hold the same
+instructions renumbered or reordered; if they differ too, the code genuinely is not the same. That
+turns the next disagreement into a diagnosis instead of a request for a machine of each
+architecture.
+
+#### What it means for a cook farm
+
+Assets are reproducible across operating systems and are **not** byte-comparable across
+architectures. Cook on one architecture, or content-address per architecture. That is a real
+constraint on a build fleet and it was entirely invisible before this run — every leg was green, and
+had been for months.
+
+It is also Slang's, not ours, and not something this repository can fix. Recorded and pinned; not
+reported upstream.
 
 516 tests.

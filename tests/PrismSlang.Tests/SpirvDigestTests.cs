@@ -21,6 +21,7 @@
 // reflection JSON is what the descriptor layout is built from, and a platform that agreed on the
 // module while disagreeing on the layout would be worse, not better.
 
+using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
 using PrismSlang.Reflection;
@@ -29,13 +30,18 @@ namespace PrismSlang.Tests;
 
 public class SpirvDigestTests(Xunit.Abstractions.ITestOutputHelper output)
 {
-    /// <summary>Where the CI job collects it from. One file, so the artifact is just this file.</summary>
-    private const string DigestFile = "spirv-digests.txt";
+    // Two files, because the two halves of a cooked artifact turned out to obey different rules.
+    // Every leg agrees on the layout; the module is identical between operating systems and differs
+    // between *architectures*, for the three shaders that use SV_VertexID (§9.33). One file could
+    // only ever be compared one way.
+    private const string SpirvFile = "spirv-digests.txt";
+    private const string LayoutFile = "layout-digests.txt";
 
     [NativeFact]
     public void The_corpus_compiles_deterministically_and_records_a_digest_for_every_shader()
     {
-        var lines = new List<string>();
+        var spirv = new List<string>();
+        var layouts = new List<string>();
 
         foreach (var shaderCase in ShaderCorpus.All.OrderBy(c => c.Name, StringComparer.Ordinal))
         {
@@ -56,10 +62,18 @@ public class SpirvDigestTests(Xunit.Abstractions.ITestOutputHelper output)
                 + "that varies run to run cannot be cached, and ProgramLayout.ToJson is what the "
                 + "bake format is built on.");
 
-            lines.Add($"{shaderCase.Name,-32} spirv={first.Spirv} layout={first.Layout}");
+            // words and ops are the discriminator, and they are the reason a disagreement is
+            // diagnosable from the CI log instead of needing a machine of each architecture. `ops`
+            // digests the sorted opcode histogram, so if two legs differ on `spirv` while agreeing
+            // on `words` and `ops`, the modules hold the same instructions in a different order or
+            // with different result IDs — a renumbering. If those differ too, the code is genuinely
+            // not the same.
+            spirv.Add(
+                $"{shaderCase.Name,-32} spirv={first.Spirv} words={first.Words,-5} ops={first.Ops}");
+            layouts.Add($"{shaderCase.Name,-32} layout={first.Layout}");
         }
 
-        Assert.Equal(ShaderCorpus.All.Count, lines.Count);
+        Assert.Equal(ShaderCorpus.All.Count, spirv.Count);
 
         // Written next to the test assembly, which is what the CI upload glob finds. Printed too,
         // so a disagreement can be read straight out of the run that found it rather than by
@@ -69,14 +83,22 @@ public class SpirvDigestTests(Xunit.Abstractions.ITestOutputHelper output)
         // very defect it was built to find, and would have failed the comparison on line endings
         // while every digest in it matched. Caught by running it on two platforms before wiring up
         // the CI job rather than after.
-        var path = Path.Combine(AppContext.BaseDirectory, DigestFile);
-        File.WriteAllText(path, string.Concat(lines.Select(l => l + "\n")));
+        Write(SpirvFile, spirv);
+        Write(LayoutFile, layouts);
 
-        output.WriteLine($"{lines.Count} shaders -> {path}");
-        foreach (var line in lines) output.WriteLine("    " + line);
+        output.WriteLine($"{spirv.Count} shaders");
+        foreach (var line in spirv) output.WriteLine("    " + line);
+        foreach (var line in layouts) output.WriteLine("    " + line);
+
+        void Write(string name, List<string> lines)
+        {
+            var path = Path.Combine(AppContext.BaseDirectory, name);
+            File.WriteAllText(path, string.Concat(lines.Select(l => l + "\n")));
+            output.WriteLine($"-> {path}");
+        }
     }
 
-    private static (string Spirv, string Layout) Compile(ShaderCase shaderCase)
+    private static (string Spirv, int Words, string Ops, string Layout) Compile(ShaderCase shaderCase)
     {
         // The same settings ModuleAgreementTests uses, so the digest covers the module that test
         // already checks rather than a differently-configured one.
@@ -95,12 +117,46 @@ public class SpirvDigestTests(Xunit.Abstractions.ITestOutputHelper output)
             using var program = session.Link(module, [.. entryPoints]);
             using var blob = program.GetTargetCode();
 
-            return (Digest(blob.ToArray()), Digest(Encoding.UTF8.GetBytes(program.Reflect().ToJson())));
+            var code = blob.ToArray();
+            var (words, ops) = Structure(code);
+
+            return (
+                Digest(code),
+                words,
+                ops,
+                Digest(Encoding.UTF8.GetBytes(program.Reflect().ToJson())));
         }
         finally
         {
             foreach (var e in entryPoints) e.Dispose();
         }
+    }
+
+    /// <summary>Word count and a digest of the sorted opcode histogram.</summary>
+    /// <remarks>
+    /// Order-independent on purpose. Two modules with the same histogram and the same length hold
+    /// the same instructions, so a `spirv=` difference between them is a renumbering or a
+    /// reordering rather than different code — which is the distinction that decides whether a
+    /// cross-platform disagreement is cosmetic or serious, and it is otherwise only answerable by
+    /// having one machine of each architecture to disassemble on.
+    /// </remarks>
+    private static (int Words, string Ops) Structure(byte[] code)
+    {
+        var words = MemoryMarshal.Cast<byte, uint>(code);
+        Assert.Equal(0x07230203u, words[0]);          // little-endian SPIR-V, or the walk is nonsense
+
+        var histogram = new SortedDictionary<uint, int>();
+        for (var i = 5; i < words.Length;)            // 5-word header
+        {
+            var length = (int)(words[i] >> 16);
+            if (length <= 0) break;                   // malformed; the digest of what was read still differs
+            var opcode = words[i] & 0xFFFF;
+            histogram[opcode] = histogram.GetValueOrDefault(opcode) + 1;
+            i += length;
+        }
+
+        var flattened = string.Join(",", histogram.Select(e => $"{e.Key}:{e.Value}"));
+        return (words.Length, Digest(Encoding.UTF8.GetBytes(flattened)));
     }
 
     private static string Digest(byte[] bytes) => Convert.ToHexStringLower(SHA256.HashData(bytes))[..16];

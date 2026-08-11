@@ -338,13 +338,13 @@ jobs:
           if-no-files-found: ignore
 
       # What this machine cooked, for the digests job below to compare against the other three.
-      # A single file, so the artifact is exactly that file and the comparison can find it by the
-      # directory download-artifact names after the RID.
+      # Two files: the module and the layout obey different rules, and one file could only ever be
+      # compared one way (§9.33).
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: spirv-digests-${{ matrix.rid }}
-          path: '**/spirv-digests.txt'
+          path: '**/*-digests.txt'
           if-no-files-found: ignore
 
       - name: Package contains the host RID's payload
@@ -385,9 +385,15 @@ jobs:
   # `needs: test` means this only runs when all four legs passed, so a missing digest here is a
   # genuine anomaly rather than a knock-on from a failure that already reported.
   #
-  # It earned its place before it ever ran: pointed at win-x64 and linux-x64 locally it found all 28
-  # modules identical and all 28 layouts different, because the layout JSON that goes into a shader
-  # package was serialized with Environment.NewLine (§9.30).
+  # It earned its place twice. Pointed at win-x64 and linux-x64 locally it found all 28 modules
+  # identical and all 28 layouts different, because the layout JSON that goes into a shader package
+  # was serialized with Environment.NewLine (§9.30). Then on its first real run it found the thing
+  # no local pair could: the module is identical between operating *systems* and differs between
+  # *architectures*, on exactly the three corpus shaders that use SV_VertexID (§9.33).
+  #
+  # So it checks three rules rather than one — the layout everywhere, the module within an
+  # architecture, and an exception list across architectures that may neither grow nor silently
+  # shrink. A flat "everything matches" would now be permanently red and would report nothing.
   digests:
     name: every platform cooks the same asset
     needs: test
