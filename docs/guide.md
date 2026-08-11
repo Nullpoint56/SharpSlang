@@ -25,6 +25,7 @@ recalled — and the traps flagged along the way are the ones that actually bit 
 - [Caching parsed modules](#caching-parsed-modules)
 - [The payload has to be the pinned one](#the-payload-has-to-be-the-pinned-one)
 - [Lifetime](#lifetime)
+- [Threads](#threads)
 - [Traps worth knowing](#traps-worth-knowing)
 
 ---
@@ -442,6 +443,86 @@ using var module  = session.LoadModule("surface");
   knows nothing about, so a finalizer could release a module into a session whose allocator has gone
   ([§9.1](findings.md#91-two-bugs-the-cross-platform-run-found)).
 - A `ProgramLayout` outlives all of it. That is the point of a snapshot.
+
+## Threads
+
+**A `SlangGlobalSession` and everything made from it belong to one thread at a time.** This is
+Slang's rule, not a limitation of the binding — `slang.h` says a global session "is currently *not*
+thread-safe" and that it "and the objects created from it should be externally synchronized when
+shared across threads".
+
+Sharing one across threads without a lock is an access violation inside `loadModuleFromSource`, on
+every run measured. That is the good failure mode: a cooker that gets this wrong stops rather than
+shipping. It is pinned by
+`Sharing_one_global_session_across_threads_is_never_silently_wrong`, which asserts the thing that
+would actually hurt — it may die, but it must never return success with bytes that differ from a
+serial compile.
+
+### Cooking on all your cores
+
+**One global session per worker thread.** `slang.h`: "Distinct global sessions may be used from
+different threads in parallel." No locks anywhere, and each thread's output is byte-identical to a
+serial compile.
+
+```csharp
+var shaders = new ConcurrentQueue<string>(work);
+
+Parallel.For(0, Environment.ProcessorCount, _ =>
+{
+    // One per worker, created once and reused for every shader that worker takes.
+    using var global = SlangGlobalSession.Create();
+    using var session = global.CreateSession(options);
+
+    while (shaders.TryDequeue(out var name))
+    {
+        using var module = session.LoadModule(name);
+        // ... link, GetTargetCode, write the cooked asset
+    }
+});
+```
+
+The cost is that a global session amortizes Slang's standard-library load and this pays for it once
+per worker — **about 80 ms each**, measured on a developer machine. Sixteen workers is a little over
+a second, once, which is nothing against a cook of any size. Create it *outside* the work loop and
+this is the pattern to use.
+
+### If you cannot afford a global session per thread
+
+Serialize the front end and parallelize the back end. `slang.h` marks this **experimental**: once a
+component type "has been fully specialized and linked", `getTargetCode`, `getEntryPointCode`,
+`getTargetMetadata`, `getEntryPointMetadata` and `getResultAsFileSystem` support "concurrent backend
+code generation, including from multiple threads compiling different linked `IComponentType`
+instances", while "front end operations such as loading modules, specialization, and linking still
+require external synchronization".
+
+```csharp
+var programs = new List<LinkedProgram>();
+lock (gate)                                     // front end: one at a time
+{
+    foreach (var name in work)
+        programs.Add(Link(session, session.LoadModule(name)));
+}
+
+Parallel.ForEach(programs, p =>                 // back end: parallel
+{
+    using var code = p.GetTargetCode();
+    Write(code.ToArray());
+});
+```
+
+Both patterns are measured on every platform in CI, byte-compared against a serial baseline, by
+`Threads_with_their_own_global_session_agree_with_a_serial_compile` and
+`The_back_end_may_be_parallelised_once_the_front_end_has_finished`
+([§9.28](findings.md#928-the-primary-use-case-had-no-coverage-at-all)).
+
+### Two things that are process-global
+
+- **`SlangDiagnostics.Policy` and `SlangDiagnostics.Handler` are static.** Slang's diagnostics are
+  per-call with no session to hang a policy off, so redirecting them is necessarily process-wide.
+  Set them once at startup. Changing either while other threads are compiling changes it for them
+  too.
+- **A `ProgramLayout` is immutable managed data** and is safe to read from any number of threads,
+  with no lock and no relationship to the objects it came from. That is what the snapshot is for.
 
 ## Traps worth knowing
 

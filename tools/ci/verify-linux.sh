@@ -53,6 +53,15 @@ export MALLOC_PERTURB_=165
 # the runner can report "Passed!" for the tests that completed before the process died.
 out="$("$DOTNET" test PrismSlang.slnx --no-build --nologo -v q 2>&1)"
 printf '%s\n' "$out" | grep -E 'Passed!|Failed!|crashed|Aborted'
+
+# The names too, when there are any. Filtering to the summary meant a failure here reported
+# "linux-x64: FAILED" and nothing else, and finding out which test it was took four more runs —
+# the same instrumentation gap as §9.26, in the script written to catch that class of problem.
+if printf '%s\n' "$out" | grep -qE '\[FAIL\]|^  Failed '; then
+    echo "--- failing tests:"
+    printf '%s\n' "$out" | grep -E '^  Failed |^  Error Message|^  Assert' | head -40
+fi
+
 if printf '%s\n' "$out" | grep -qE 'crashed|Aborted|Failed!'; then status=1; fi
 
 echo "===== SPIKE ====="

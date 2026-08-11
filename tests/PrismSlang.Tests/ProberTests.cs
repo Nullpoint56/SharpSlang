@@ -27,7 +27,21 @@ public class ProberTests(Xunit.Abstractions.ITestOutputHelper output)
             $"exit {ExitCode}\nstdout: {Stdout.Trim()}\nstderr: {Stderr.Trim()}";
     }
 
-    private static Outcome Run(string probe)
+    private static Outcome Run(string probe) => Run(probe, null);
+
+    /// <param name="environment">
+    /// Variables for the child; a null value <em>removes</em> the variable rather than setting it.
+    /// Used by the allocator probe, which has to control the poisoning itself rather than read
+    /// whatever CI happened to configure — a test that only passes when a workflow sets a variable
+    /// is testing the workflow.
+    /// </param>
+    /// <remarks>
+    /// Removal is the half that is easy to miss and this test got wrong first: a child inherits the
+    /// parent's environment, so under CI — or under tools/ci/verify-linux.sh, which exports
+    /// MALLOC_PERTURB_ — the "unpoisoned" control run was poisoned too, and the control assertion
+    /// failed on every poisoned run while passing on a bare developer shell.
+    /// </remarks>
+    private static Outcome Run(string probe, IReadOnlyDictionary<string, string?>? environment)
     {
         // The apphost, not `dotnet exec`. The obvious spelling was
         // `Environment.ProcessPath exec PrismSlang.Prober.dll`, on the reasoning that the child
@@ -51,6 +65,15 @@ public class ProberTests(Xunit.Abstractions.ITestOutputHelper output)
         };
 
         info.ArgumentList.Add(probe);
+
+        if (environment is not null)
+        {
+            foreach (var (key, value) in environment)
+            {
+                if (value is null) info.Environment.Remove(key);
+                else info.Environment[key] = value;
+            }
+        }
 
         using var process = Process.Start(info)
             ?? throw new InvalidOperationException("could not start the prober");
@@ -305,6 +328,139 @@ public class ProberTests(Xunit.Abstractions.ITestOutputHelper output)
             "releasing the hierarchy outermost-first ended the prober. The last 'releasing X ...' "
             + "line with no matching 'ok' is the release that did it, and SlangObject's owner "
             + $"reference is what is supposed to make that release safe.\n{outcome}");
+    }
+
+    [NativeFact]
+    public void The_allocator_poisoning_is_armed_and_reaches_small_allocations()
+    {
+        // §9.31. The control for the tripwires the whole cross-platform strategy rests on. Both are
+        // environment variables, and a runner can set one, print it in the log, and have it do
+        // nothing — which is precisely what MALLOC_CHECK_=3 turned out to be. An unarmed tripwire
+        // and one that found nothing are the same green.
+        //
+        // The probe allocates, writes a 0xC3 sentinel, frees, and reads the same byte back. The
+        // sentinel surviving means nothing poisoned anything.
+        //
+        // Two sizes, because both allocators have a fast path that skips poisoning: glibc's tcache
+        // returns from _int_free before free_perturb, and Apple's nano zone does not implement the
+        // scribble options at all. Measured on linux-x64, MALLOC_PERTURB_ alone poisons a 4 KB
+        // block and leaves a 64 B one untouched — and 64 bytes is where an AST node lives.
+        var poisoned = new Dictionary<string, string?>(StringComparer.Ordinal)
+        {
+            ["MALLOC_PERTURB_"] = "165",
+            ["GLIBC_TUNABLES"] = "glibc.malloc.tcache_count=0",
+            ["MallocScribble"] = "1",
+            ["MallocPreScribble"] = "1",
+            ["MallocNanoZone"] = "0",
+        };
+
+        // Both runs set every variable explicitly, the control by removing them. Inheriting the
+        // ambient environment is what made the first version of this test fail under CI and pass on
+        // a developer shell — the control run was poisoned because the parent was.
+        var unpoisoned = poisoned.ToDictionary(e => e.Key, _ => (string?)null, StringComparer.Ordinal);
+
+        var clean = Run("allocator-poisoning", unpoisoned);
+        var armed = Run("allocator-poisoning", poisoned);
+
+        output.WriteLine($"no poisoning:\n{clean}");
+        output.WriteLine($"poisoned:\n{armed}");
+
+        Assert.Equal(0, clean.ExitCode);
+        Assert.Equal(0, armed.ExitCode);
+
+        // The control. Without the variables nothing may claim to be live, or the probe is reading
+        // something other than what it thinks.
+        Assert.DoesNotContain("is live", clean.Stdout, StringComparison.Ordinal);
+
+        if (OperatingSystem.IsLinux())
+        {
+            // Both sizes, which is the whole point of the tunable. One "is live" would be the
+            // half-armed state this test exists to reject.
+            Assert.Equal(2, armed.Stdout.Split("MALLOC_PERTURB_ is live").Length - 1);
+        }
+        else if (OperatingSystem.IsWindows())
+        {
+            // No poisoning allocator here. Windows is covered by the other three legs, and saying
+            // so is better than a branch that quietly asserts nothing.
+            Assert.DoesNotContain("is live", armed.Stdout, StringComparison.Ordinal);
+        }
+        else
+        {
+            // macOS, unmeasured. MallocScribble is documented for the scalable zone and documented
+            // *not* to apply to nano, and MallocNanoZone=0 is the reason it might now. Recorded
+            // rather than asserted until a run says which — §9.24's rule, and the run that answers
+            // it turns this branch into the two assertions above.
+            output.WriteLine($"UNMEASURED PLATFORM — {Environment.OSVersion.Platform}");
+        }
+    }
+
+    [NativeFact]
+    public void Threads_with_their_own_global_session_agree_with_a_serial_compile()
+    {
+        // §9.28. slang.h: "Distinct global sessions may be used from different threads in
+        // parallel." Eight threads, eight global sessions, one barrier so they are all inside the
+        // compiler at once, and every result compared byte-for-byte against a serial baseline.
+        //
+        // Agreement matters more than survival here. A race that produces *different SPIR-V* is
+        // worse than one that crashes, because the crash stops the cook and the difference ships.
+        var outcome = Run("threads-own-global-session");
+        output.WriteLine(outcome.ToString());
+
+        AssertThreadsAgreed(outcome,
+            "compiling on distinct global sessions in parallel is what slang.h documents as "
+            + "allowed, and it is the pattern docs/guide.md recommends for a cooker");
+    }
+
+    [NativeFact]
+    public void The_back_end_may_be_parallelised_once_the_front_end_has_finished()
+    {
+        // slang.h, on getTargetCode and friends: "after a component type has been fully specialized
+        // and linked, this method is supported for concurrent backend code generation, including
+        // from multiple threads compiling different linked IComponentType instances", while "front
+        // end operations such as loading modules, specialization, and linking still require
+        // external synchronization".
+        //
+        // Marked experimental upstream, which is the reason to measure it rather than repeat it.
+        var outcome = Run("threads-parallel-backend");
+        output.WriteLine(outcome.ToString());
+
+        AssertThreadsAgreed(outcome,
+            "linking serially and then generating code in parallel is the pattern that lets a "
+            + "cooker use its cores without paying for a global session per thread. slang.h calls "
+            + "it supported but experimental, so if it has stopped holding, guide.md's threading "
+            + "section is what needs changing");
+    }
+
+    [NativeFact]
+    public void Sharing_one_global_session_across_threads_is_never_silently_wrong()
+    {
+        // The case slang.h says requires external synchronization: "A single global session object
+        // is currently *not* thread-safe."
+        //
+        // Measured on win-x64 it is an access violation inside loadModuleFromSourceString, every
+        // run — which is the *good* failure mode, because a cooker that gets this wrong stops
+        // instead of shipping. What is asserted here is only that: it may die and it may succeed,
+        // but it must never come back claiming success with bytes that disagree with a serial
+        // compile. That is the outcome nobody would catch.
+        var outcome = Run("threads-shared-global-session");
+        output.WriteLine(outcome.ToString());
+
+        if (outcome.ExitCode != 0)
+        {
+            Assert.DoesNotContain("disagreed", outcome.Stdout, StringComparison.Ordinal);
+            return;
+        }
+
+        Assert.Contains("0 threw, 0 disagreed", outcome.Stdout, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// A threading probe that slang.h documents as safe must survive and produce identical bytes.
+    /// </summary>
+    private static void AssertThreadsAgreed(Outcome outcome, string why)
+    {
+        Assert.True(outcome.ExitCode == 0, $"the prober did not survive. {why}.\n{outcome}");
+        Assert.Contains("0 threw, 0 disagreed", outcome.Stdout, StringComparison.Ordinal);
     }
 
     [NativeFact]

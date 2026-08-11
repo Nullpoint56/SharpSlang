@@ -805,6 +805,18 @@ public sealed record ProgramLayout
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         WriteIndented = true,
+
+        // Pinned, because this string is written into the shader package and a package is a build
+        // artifact. WriteIndented newlines default to Environment.NewLine, so the same shader baked
+        // on Windows and on Linux produced packages differing by one byte per line — 214 of them on
+        // an ordinary layout. Nothing was wrong with either package and both loaded fine; what
+        // broke was equality. A content-addressed asset cache misses across build machines, an
+        // incremental cook redoes everything when the runner changes, and a reproducible-build
+        // check fails for a reason nobody would look for.
+        //
+        // Found by digesting the corpus on two platforms and diffing: all 28 SPIR-V modules were
+        // byte-identical and all 28 layouts differed (§9.30).
+        NewLine = "\n",
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
         Converters = { new JsonStringEnumConverter() },
     };

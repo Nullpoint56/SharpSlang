@@ -633,6 +633,112 @@ public static class ShaderCorpus
                               swBuffer.swU32, swBuffer.swBool ? 1 : 0);
             }
             """, ["swFragment"]),
+
+        // ------------------------------------------------------------ round five
+        //
+        // Four paths nothing in the corpus reached. Checked before adding rather than assumed:
+        // unbounded descriptor arrays and storage-image formats were already covered by
+        // `descriptor-arrays` and `descriptor-kinds`, so they are not repeated here.
+
+        // The stage-narrowing path, which is the one place the Vulkan projection has had a real
+        // defect (§9.24 — InputAttachment was reported visible to every stage). Every other
+        // multi-entry-point case in the corpus shares its resources between the stages, so the
+        // narrowing has never been exercised: here the texture is read only by the fragment stage
+        // and the structured buffer only by the vertex stage, so a projection that widens either
+        // back to both is wrong in a way the validation layers will judge.
+        new("stage-narrowing", """
+            struct SnRow { float4 snOffset; };
+
+            StructuredBuffer<SnRow> snVertexOnly;
+            Texture2D               snFragmentOnly;
+            SamplerState            snSampler;
+            ConstantBuffer<SnRow>   snBoth;
+
+            struct SnVertexOut { float4 pos : SV_Position; float2 uv : TEXCOORD0; };
+
+            [shader("vertex")]
+            SnVertexOut snVertex(uint id : SV_VertexID)
+            {
+                SnVertexOut o;
+                o.pos = snVertexOnly[id].snOffset + snBoth.snOffset;
+                o.uv = 0;
+                return o;
+            }
+
+            [shader("fragment")]
+            float4 snFragment(SnVertexOut i) : SV_Target
+            {
+                return snFragmentOnly.Sample(snSampler, i.uv) + snBoth.snOffset;
+            }
+            """, ["snVertex", "snFragment"]),
+
+        // Existential types: a value whose concrete type is not known until it is bound. This is
+        // what sub-object ranges exist for, and the corpus has never contained an `interface` at
+        // all — SubObjectRangeTests reaches them through hand-written sources, so neither the
+        // agreement test nor the validation layers have ever seen one.
+        new("existential-types", """
+            interface IEtShade
+            {
+                float4 etEvaluate(float2 uv);
+            }
+
+            struct EtFlat : IEtShade
+            {
+                float4 etColour;
+                float4 etEvaluate(float2 uv) { return etColour; }
+            }
+
+            ConstantBuffer<EtFlat> etConcrete;
+
+            [shader("fragment")]
+            float4 etFragment(float2 uv : TEXCOORD0) : SV_Target
+            {
+                EtFlat f = etConcrete;
+                return f.etEvaluate(uv);
+            }
+            """, ["etFragment"], ValidationVertex: """
+            struct EtVertexOut { float4 pos : SV_Position; float2 uv : TEXCOORD0; };
+            [shader("vertex")]
+            EtVertexOut etValidationVertex()
+            { EtVertexOut o; o.pos = float4(0, 0, 0, 1); o.uv = 0; return o; }
+            """),
+
+        // Subgroup operations. Nothing in the corpus contains a wave intrinsic, and they carry
+        // SPIR-V capabilities of their own — the profile-upgrade warning `descriptor-kinds`
+        // produces for ray query is the same mechanism, so this is the second instance of a shader
+        // whose declared profile is not the one it ends up needing.
+        new("wave-ops", """
+            RWStructuredBuffer<float> woOut;
+
+            [shader("compute")]
+            [numthreads(64, 1, 1)]
+            void woCompute(uint id : SV_DispatchThreadID)
+            {
+                float v = (float)id;
+                woOut[id] = WaveActiveSum(v)
+                          + WaveActiveMax(v)
+                          + (WaveIsFirstLane() ? 1.0 : 0.0)
+                          + (float)WaveGetLaneIndex();
+            }
+            """, ["woCompute"]),
+
+        // Atomics on both buffer shapes. Not a new descriptor kind, which is the point: it is the
+        // access pattern a compute cooker actually emits, and the module decorates the buffer
+        // differently for it (Coherent/NonWritable and friends) — so this is a check that the
+        // layout still agrees when the module says more about a binding than usual.
+        new("atomics", """
+            RWStructuredBuffer<uint> atCounters;
+            RWByteAddressBuffer      atRaw;
+
+            [shader("compute")]
+            [numthreads(64, 1, 1)]
+            void atCompute(uint id : SV_DispatchThreadID)
+            {
+                uint previous;
+                InterlockedAdd(atCounters[0], 1, previous);
+                atRaw.InterlockedAdd(0, previous);
+            }
+            """, ["atCompute"]),
     ];
 
     /// <summary>The corpus flattened to one case per entry point, for a per-module test.</summary>

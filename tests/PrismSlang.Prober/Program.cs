@@ -14,6 +14,7 @@
 // reason — a missing payload, a typo in the shader — would look exactly like the finding it is
 // meant to demonstrate, which is why `healthy` exists and why the test runs it first.
 
+using System.Runtime.InteropServices;
 using PrismSlang;
 using PrismSlang.Interop;
 using PrismSlang.Native;
@@ -128,7 +129,276 @@ internal static class Cases
         // which is the whole point: this prints the range's type — proving the pair is valid — and
         // then dies asking the next question about it.
         ["image-format-on-parameter-block"] = ImageFormatOnParameterBlock,
+
+        // §9.28. The three threading patterns slang.h documents, measured instead of trusted.
+        // Nothing in the suite has ever used this library from two threads — AssemblyInfo disables
+        // test parallelism for unrelated reasons — so the primary use case of a shader cooker is
+        // the one thing with no coverage at all. Out of process because the middle case is the one
+        // the header says needs external synchronization, and asking it in the runner would be
+        // §9.24 all over again.
+        // §9.31. Whether the allocator poisoning CI leans on is actually doing anything. Both
+        // tripwires are environment variables the runner sets and nobody has ever confirmed took
+        // effect — and macOS's pair is documented not to apply to its nano allocator, which is
+        // where small objects live. A tripwire that is off looks exactly like one that found
+        // nothing.
+        ["allocator-poisoning"] = AllocatorPoisoning,
+
+        ["threads-own-global-session"] = ThreadsOwnGlobalSession,
+        ["threads-shared-global-session"] = ThreadsSharedGlobalSession,
+        ["threads-parallel-backend"] = ThreadsParallelBackend,
     };
+
+    /// <summary>Whether the allocator is really poisoning freed memory, and at which sizes.</summary>
+    /// <remarks>
+    /// The control for two CI tripwires that nobody had confirmed. `MALLOC_PERTURB_` and macOS's
+    /// `MallocScribble`/`MallocPreScribble` are environment variables — a runner can set them, print
+    /// them in the log, and have them do nothing, which is exactly what `MALLOC_CHECK_=3` turned out
+    /// to be (§9.19). An unarmed tripwire is indistinguishable from one that found nothing.
+    ///
+    /// Two sizes on purpose. Apple's libmalloc routes allocations up to 256 bytes through the
+    /// *nano* zone, and the scribble options apply to the scalable zone — so poisoning can be live
+    /// for a 4 KB block and inert for a 64 B one, which is where most AST nodes live. If that is
+    /// what this reports, `MallocNanoZone=0` is the missing half.
+    ///
+    /// The read after free is a deliberate use-after-free. That is the measurement, and this is a
+    /// process built to be lost.
+    /// </remarks>
+    private static unsafe void AllocatorPoisoning()
+    {
+        foreach (var (what, size) in (( string, nuint)[])[("nano  (64 B)", 64), ("scalable (4 KB)", 4096)])
+        {
+            var block = (byte*)NativeMemory.Alloc(size);
+            var offset = size - 16;                       // clear of any free-list header
+
+            var fresh = Volatile.Read(ref block[offset]);
+
+            // Our own sentinel, so "nothing scrubbed it" is distinguishable from "scrubbed with a
+            // byte that happens to be zero".
+            new Span<byte>(block, (int)size).Fill(0xC3);
+            NativeMemory.Free(block);
+            var freed = Volatile.Read(ref block[offset]);
+
+            Console.Out.WriteLine(
+                $"    {what,-16} fresh=0x{fresh:X2}  after free=0x{freed:X2}"
+                + $"  {Verdict(freed)}");
+        }
+
+        foreach (var name in (string[])
+                 ["MALLOC_PERTURB_", "MallocScribble", "MallocPreScribble", "MallocNanoZone"])
+        {
+            Console.Out.WriteLine(
+                $"    env {name,-18} = {Environment.GetEnvironmentVariable(name) ?? "<unset>"}");
+        }
+
+        // 0xA5 is MALLOC_PERTURB_=165 writing the byte itself into freed memory (it writes the
+        // complement into fresh allocations, so 0x5A above says the same thing). 0x55 is
+        // MallocScribble. 0xC3 is our sentinel surviving, which means nothing poisoned anything.
+        static string Verdict(byte freed) => freed switch
+        {
+            0xA5 => "<- MALLOC_PERTURB_ is live",
+            0x55 => "<- MallocScribble is live",
+            0xC3 => "<- NOT POISONED: the sentinel survived the free",
+            _ => "<- overwritten by something else (allocator metadata, or reuse)",
+        };
+    }
+
+    // A shader with enough in it that codegen is not instant: two stages, a constant buffer, a
+    // matrix and a texture fetch.
+    private const string ThreadSource = """
+        struct TUniforms { float4x4 mvp; float4 tint; };
+        ConstantBuffer<TUniforms> tUniforms;
+        Texture2D    tTexture;
+        SamplerState tSampler;
+
+        [shader("vertex")]
+        float4 tVertex(float3 p : POSITION) : SV_Position
+        {
+            return mul(tUniforms.mvp, float4(p, 1));
+        }
+
+        [shader("fragment")]
+        float4 tFragment(float2 uv : TEXCOORD0) : SV_Target
+        {
+            return tTexture.Sample(tSampler, uv) * tUniforms.tint;
+        }
+        """;
+
+    private static SlangSession NewThreadSession(SlangGlobalSession global) =>
+        global.CreateSession(new SessionOptions { Targets = [new TargetOptions()] });
+
+    /// <summary>Front end plus back end, the whole way through, on one session.</summary>
+    private static byte[] CompileOnce(SlangGlobalSession global, string name)
+    {
+        using var session = NewThreadSession(global);
+        using var module = session.LoadModuleFromSource(name, $"{name}.slang", ThreadSource);
+        using var vertex = module.FindEntryPoint("tVertex");
+        using var fragment = module.FindEntryPoint("tFragment");
+        using var program = session.Link(module, vertex, fragment);
+        using var code = program.GetTargetCode();
+        return code.ToArray();
+    }
+
+    /// <summary>
+    /// Distinct global sessions in parallel — the pattern slang.h says is allowed.
+    /// </summary>
+    /// <remarks>
+    /// "Distinct global sessions may be used from different threads in parallel." Every thread pays
+    /// for its own standard-library load, which is the cost this buys safety with, so the elapsed
+    /// time is printed next to the serial one rather than left to be guessed at.
+    /// </remarks>
+    private static void ThreadsOwnGlobalSession()
+    {
+        using var baselineGlobal = SlangGlobalSession.Create();
+        var baseline = CompileOnce(baselineGlobal, "t");
+
+        Console.Out.WriteLine($"    baseline {baseline.Length} bytes");
+
+        // What this pattern costs, which is the whole reason the other one exists: a global session
+        // amortizes the standard-library load, and one per thread pays for it again per thread.
+        // Printed rather than asserted — it is a property of the machine, not of the binding.
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        SlangGlobalSession.Create().Dispose();
+        Console.Out.WriteLine($"    one global session costs {clock.ElapsedMilliseconds} ms");
+        Console.Out.Flush();
+
+        var results = RunOnThreads(Threads, index =>
+        {
+            using var global = SlangGlobalSession.Create();
+            return CompileOnce(global, $"t{index}");
+        });
+
+        ReportAgreement("own global session", baseline, results);
+    }
+
+    /// <summary>
+    /// One global session shared across threads with no synchronization — what the header says
+    /// requires external synchronization.
+    /// </summary>
+    /// <remarks>
+    /// Not an accusation. The header is explicit that this needs a lock, so a failure here is the
+    /// documented behaviour and the point is to record *how* it fails: silently wrong bytes, an
+    /// exception, or the process. A cooker that gets this wrong should find out from this line
+    /// rather than from a corrupted shader six months later.
+    /// </remarks>
+    private static void ThreadsSharedGlobalSession()
+    {
+        using var global = SlangGlobalSession.Create();
+        var baseline = CompileOnce(global, "t");
+
+        Console.Out.WriteLine($"    baseline {baseline.Length} bytes");
+        Console.Out.Flush();
+
+        var results = RunOnThreads(Threads, index => CompileOnce(global, $"t{index}"));
+        ReportAgreement("shared global session, no lock", baseline, results);
+    }
+
+    /// <summary>
+    /// Serialized front end, parallel back end — the pattern the header calls supported.
+    /// </summary>
+    /// <remarks>
+    /// "After a component type has been fully specialized and linked, this method is supported for
+    /// concurrent backend code generation, including from multiple threads compiling different
+    /// linked IComponentType instances." That is the one a cooker wants, because the back end is
+    /// where the time goes; so it is worth knowing whether it holds rather than assuming it does.
+    /// </remarks>
+    private static void ThreadsParallelBackend()
+    {
+        using var global = SlangGlobalSession.Create();
+        var baseline = CompileOnce(global, "t");
+
+        Console.Out.WriteLine($"    baseline {baseline.Length} bytes");
+        Console.Out.Flush();
+
+        // Front end, one at a time and on one thread, exactly as the header requires. Each program
+        // is a *distinct* linked IComponentType, which is the case the note covers.
+        var sessions = new SlangSession[Threads];
+        var modules = new SlangModule[Threads];
+        var programs = new LinkedProgram[Threads];
+        try
+        {
+            for (var i = 0; i < Threads; i++)
+            {
+                sessions[i] = NewThreadSession(global);
+                modules[i] = sessions[i].LoadModuleFromSource($"t{i}", $"t{i}.slang", ThreadSource);
+                using var vertex = modules[i].FindEntryPoint("tVertex");
+                using var fragment = modules[i].FindEntryPoint("tFragment");
+                programs[i] = sessions[i].Link(modules[i], vertex, fragment);
+            }
+
+            var results = RunOnThreads(Threads, index =>
+            {
+                using var code = programs[index].GetTargetCode();
+                return code.ToArray();
+            });
+
+            ReportAgreement("parallel back end", baseline, results);
+        }
+        finally
+        {
+            foreach (var p in programs) p?.Dispose();
+            foreach (var m in modules) m?.Dispose();
+            foreach (var s in sessions) s?.Dispose();
+        }
+    }
+
+    private const int Threads = 8;
+
+    /// <summary>
+    /// Runs <paramref name="body"/> once per thread, capturing whatever each one produced.
+    /// </summary>
+    /// <remarks>
+    /// A barrier so every thread is inside the work at the same time. Without it a fast machine can
+    /// finish thread 0 before thread 7 starts, and a race that never overlaps is a test that never
+    /// looked.
+    /// </remarks>
+    private static (byte[]? Bytes, string? Error)[] RunOnThreads(int count, Func<int, byte[]> body)
+    {
+        var results = new (byte[]?, string?)[count];
+        using var ready = new Barrier(count);
+        var threads = new Thread[count];
+
+        for (var i = 0; i < count; i++)
+        {
+            var index = i;
+            threads[i] = new Thread(() =>
+            {
+                ready.SignalAndWait();
+                try
+                {
+                    results[index] = (body(index), null);
+                }
+                catch (Exception e)
+                {
+                    results[index] = (null, $"{e.GetType().Name}: {e.Message}");
+                }
+            });
+            threads[i].Start();
+        }
+
+        foreach (var thread in threads) thread.Join();
+        return results;
+    }
+
+    /// <summary>Whether every thread produced the same bytes the serial run did.</summary>
+    private static void ReportAgreement(
+        string what,
+        byte[] baseline,
+        (byte[]? Bytes, string? Error)[] results)
+    {
+        var failed = 0;
+        var differed = 0;
+
+        foreach (var (bytes, error) in results)
+        {
+            if (error is not null) { failed++; Console.Out.WriteLine($"    threw: {error}"); }
+            else if (!bytes!.AsSpan().SequenceEqual(baseline)) differed++;
+        }
+
+        Console.Out.WriteLine(
+            $"    {what}: {results.Length} threads, {failed} threw, {differed} disagreed with the "
+            + "serial baseline");
+        Console.Out.Flush();
+    }
 
     /// <summary>
     /// Whether each Slang object retains the one above it, measured rather than assumed.

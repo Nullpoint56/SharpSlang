@@ -49,6 +49,11 @@ so a bare `§4.4` or `§9.8` in a code comment is unambiguous.
 | [9.25](#925-the-macos-leg-found-an-ownership-bug-in-this-binding) | The macOS leg earned itself | a module does not retain its session, and three platforms shrugged |
 | [9.26](#926-the-same-test-died-again-and-the-instrument-was-missing) | The same test died again | the global session destroyed from inside `~Linkage`, found by the first backtrace anyone read |
 | [9.27](#927-two-switches-flipped-each-on-the-evidence-it-was-waiting-for) | Two switches flipped | macOS green, the arm64 gate armed, the poisoning back on |
+| [9.28](#928-the-primary-use-case-had-no-coverage-at-all) | The primary use case had no coverage | 501 tests, none of them on two threads; slang.h had the contract all along |
+| [9.29](#929-the-same-method-again-a-leak-has-no-oracle-either) | A leak has no oracle either | one refcount is a sentinel for the whole tree, and it reports the slope |
+| [9.30](#930-four-green-runners-that-disagreed-about-what-they-produced) | Runners that disagreed | 28 of 28 modules identical, 28 of 28 layouts different, and the cause was a newline |
+| [9.31](#931-the-tripwires-were-half-armed-on-both-allocators) | The tripwires were half-armed | poisoning skipped every allocation small enough to matter, on both allocators |
+| [9.32](#932-four-paths-the-corpus-had-never-reached) | Four paths never reached | stage narrowing, existentials, wave ops, atomics — all green first time |
 
 ### The four oracles
 
@@ -91,7 +96,7 @@ a full reflection walk on both.
 | `fetch-native.ps1` | win-x64 + linux-x64 verified; osx-arm64 mapped, unrun |
 | `tools/ci/verify-linux.sh` | build + tests + spike under WSL |
 | `.github/workflows` | CI matrix, regeneration check, package-contents check, publish, lavapipe + validation layers on linux-x64 |
-| Tests | `ModuleAgreementTests` diffs a 28-shader corpus against the emitted module as sets, both directions; `SurfaceCoverageTests` fails on any Slang enum value the corpus neither exercises nor declares untried. See §9.11 and §9.13 |
+| Tests | `ModuleAgreementTests` diffs a 32-shader corpus against the emitted module as sets, both directions; `SurfaceCoverageTests` fails on any Slang enum value the corpus neither exercises nor declares untried. See §9.11 and §9.13 |
 
 Package sizes tell the story of the split: `PrismSlang` is 34 MB (it carries the compiler for every
 RID), `PrismSlang.Vulkan` is **10 KB**. A D3D12 consumer pays nothing for Vulkan.
@@ -2223,3 +2228,315 @@ deliberately unbound `getEntryPointHash` (§9.7), and a tag — the publish path
 green but never run for real.
 
 501 tests.
+
+### 9.28 The primary use case had no coverage at all
+
+Not a wrong answer. An unasked question, and the biggest one available: **nothing in 501 tests had
+ever used this library from two threads.**
+
+`AssemblyInfo.cs` disables test parallelism, for reasons that are good and unrelated —
+`SlangDiagnostics.Policy` is necessarily a static, and Slang caches downstream-compiler state per
+process. The side effect is that the suite's execution model is single-threaded end to end, and the
+consumer of this binding is a shader cooker that will want every core it has. `docs/guide.md` said
+nothing about threading either, so the honest state was not "unsupported" but "nobody has asked".
+
+That is the worst state for a library that will be used that way, and it is invisible to every
+oracle already in the suite: agreement, the validation layers, the allocators and the API approval
+all run inside one thread.
+
+#### There was a specification the whole time
+
+`slang.h` documents a contract, and it is more interesting than a flat no:
+
+> A single global session object is currently *not* thread-safe. Unless documented otherwise, a
+> global session and the objects created from it should be externally synchronized when shared
+> across threads. **Distinct global sessions may be used from different threads in parallel.**
+
+and, on `getEntryPointCode` and its four siblings:
+
+> **Experimental threading note:** after a component type has been fully specialized and linked,
+> this method is supported for concurrent backend code generation, including from multiple threads
+> compiling different linked `IComponentType` instances. […] Front-end operations such as loading
+> modules, specialization, and linking still require external synchronization.
+
+So there were three patterns to measure rather than one, and the third is the one a cooker actually
+wants — the back end is where the time goes.
+
+#### Measured, eight threads on a barrier, byte-compared against a serial baseline
+
+| pattern | `slang.h` | measured |
+|---|---|---|
+| distinct global sessions in parallel | allowed | 8 threads, 0 threw, 0 disagreed |
+| serial front end, parallel back end | supported, experimental | 8 threads, 0 threw, 0 disagreed |
+| one global session shared, no lock | needs external synchronization | `0xC0000005` in `loadModuleFromSourceString`, every run |
+
+The barrier matters. Without one, a fast machine finishes thread 0 before thread 7 starts, and a
+race that never overlaps is a test that never looked.
+
+Byte-comparison matters more than survival. A race that produces *different SPIR-V* is worse than
+one that crashes, because the crash stops the cook and the difference ships — so the assertion on
+the unsafe pattern is not "it dies" but "it is never silently wrong": it may die, it may succeed,
+it must never return success with bytes that disagree with a serial compile. That is also why it is
+not asserted as a crash on platforms where it has not been measured (§9.24's lesson).
+
+Dying is the good outcome here, and worth saying plainly: a cooker that wraps `Parallel.ForEach`
+around one global session stops immediately instead of writing corrupt assets for six months.
+
+#### What it cost, and the recommendation
+
+A global session amortizes the standard-library load, so one per thread pays for it per thread —
+**80 ms**, measured. Sixteen workers is a little over a second, once. Against a cook of any size
+that is nothing, so `guide.md` recommends the simple pattern with no locks anywhere, and documents
+the experimental one for anyone who cannot afford it.
+
+Two process-global surfaces are now written down as well: `SlangDiagnostics.Policy`/`.Handler`,
+which are static because Slang's diagnostics are per-call with nowhere to hang a policy, and
+`ProgramLayout`, which is immutable managed data and therefore free to read from anywhere — the
+payoff of the snapshot in §4.4 finally stated as a threading guarantee.
+
+#### The shape of it
+
+Every finding before this one was a wrong answer caught by an oracle. This one is a question with
+no oracle at all, found by asking what the suite's *shape* excludes rather than what its assertions
+miss. Serialized tests cannot observe concurrency, and 501 of them agreeing says nothing about it.
+
+Worth repeating as a method: after the assertions are strong, the next move is not more assertions.
+It is to list the properties the consumer depends on and check which of them the test suite is
+structurally incapable of observing.
+
+504 tests.
+
+### 9.29 The same method again: a leak has no oracle either
+
+§9.28's closing move, applied a second time. Which properties does a shader cooker depend on that
+this suite is structurally unable to observe?
+
+**Whether a compile cycle gives back every reference it took.** A refcount imbalance does not crash,
+does not corrupt, and does not produce a wrong answer, so not one of the 504 tests could see it. It
+eats memory until a batch cook dies. The ownership rules changed twice in a single day — §9.25 and
+§9.26 — and nothing was watching this at all.
+
+#### The fix from §9.26 turned the check into one number
+
+Because every wrapper now holds a native reference on its *whole* ancestor chain, anything left
+unreleased anywhere in the hierarchy — a session, a module, an entry point, a blob — is still
+holding a reference to the global session. Its refcount is a sentinel for the entire tree.
+
+So `Nothing_leaks_across_repeated_compile_cycles` runs one cycle to let Slang's caches settle, reads
+the count, runs 24 more, and asserts the count is identical. Injecting a single missed release makes
+it read **51 where it expected 3** — 24 cycles times two leaked references, exactly linear. A drift
+test that reports the slope of the leak is a better failure message than a threshold that reports
+crossing one.
+
+That is the second time today the ancestor-chain fix paid for something other than the crash it was
+written for; the first was making the §9.26 invariant checkable as an integer on Windows.
+
+#### Still unchecked, and the reason it is not in this commit
+
+**Cross-platform determinism of the emitted SPIR-V.** Nothing compares output between the four legs.
+If a developer's Windows machine and a Linux CI runner emit byte-different modules for the same
+source, cooked assets depend on which machine cooked them. Normally the prior would be strong; this
+project has already found three-way *platform splits* in Slang's reflection behaviour, so it is not.
+
+The shape it should take is a job with `needs: test` that downloads a digest file from each leg and
+diffs them — not a golden file committed to the tree. A golden answers "did output change", which
+is the wrong question and goes stale on every version bump; comparing the legs to each other answers
+"do build machines agree", which is the one that matters, and needs no maintenance. Left for its own
+commit rather than bolted onto this one.
+
+505 tests.
+
+### 9.30 Four green runners that disagreed about what they produced
+
+The third property with no oracle, and the one that found something.
+
+Every check in this suite runs inside one process on one machine — agreement, the validation layers,
+the allocators, the API approval, the digests of §9.28's threading probes. All of them can be green
+on four runners that emit different bytes for the same source, because not one of them compares a
+runner to another runner.
+
+For a cook farm that is the failure that matters. If a developer's Windows box and a Linux runner
+cook different assets, content hashes stop matching, an incremental cook redoes everything when the
+machine changes, and the artifact that ships is not the artifact that was tested.
+
+#### It found one before it ever reached CI
+
+`SpirvDigestTests` compiles every corpus shader twice and records a digest of both halves of the
+cooked artifact: the SPIR-V the driver consumes, and the reflection JSON the descriptor layout is
+built from. Run on win-x64 and linux-x64 — WSL is a real linux-x64, so two of the four legs are
+answerable on a desk:
+
+```
+28 of 28  spirv=   identical
+28 of 28  layout=  different
+```
+
+Codegen is perfectly deterministic across platforms. The layout was not, on every single shader,
+which is the signature of something systematic rather than a per-shader reflection difference. The
+cause took one diff: `WriteIndented` newlines default to `Environment.NewLine`, and
+
+```
+runtime/ShaderPackage.cs:200:  w.Write(Layout.ToJson());
+```
+
+writes that string straight into the shader package. So the same shader baked on two operating
+systems produced packages differing by one byte per line — 214 of them on an ordinary layout.
+Nothing was wrong with either package and both loaded fine. What broke was *equality*, which is the
+only thing a content-addressed cache has.
+
+`diff --strip-trailing-cr` reported the two layouts identical, which is the whole diagnosis.
+
+#### The instrument had the same defect
+
+The digest file was written with `File.WriteAllLines`, which also uses `Environment.NewLine`. So
+after the fix every digest in the file matched value-for-value and `diff` still failed — the
+comparison would have gone red in CI, on line endings, while reporting agreement on all 28 shaders.
+
+Caught by running the check on two platforms before wiring up the job rather than after, which is
+the only reason this cost zero CI runs instead of two.
+
+#### What is pinned, and where
+
+Two checks, deliberately at different levels:
+
+- `A_baked_package_does_not_depend_on_which_platform_baked_it` asserts the layout JSON contains no
+  carriage return and that writing the same package twice gives the same bytes. **Single machine.**
+  A property only a four-runner comparison can catch is a property nobody checks before pushing,
+  and this one is visible from a desk.
+- `tools/ci/compare-digests.sh`, run by the `digests` job with `needs: test`, compares all four legs
+  to each other. That is the general net for whatever the specific assertion above does not
+  anticipate.
+
+Not a golden file in the tree, and the distinction is the point. A golden answers "did the output
+change" — the wrong question, one that goes stale on every Slang bump and gets regenerated whenever
+it is inconvenient. Comparing the legs to each other answers "do the build machines agree", which
+needs no maintenance and cannot rot.
+
+The job takes the expected leg count as an argument and fails if it finds fewer, because "all legs
+agreed" and "no leg reported" are otherwise the same green, and the second is what a renamed
+artifact actually produces. That is §9.18's driver, guarded against by construction this time
+rather than after someone noticed.
+
+#### Still open
+
+- **linux-arm64 and osx-arm64 are unmeasured.** Two legs agree; the CI job answers the other two.
+- **Dependency paths go into the package unexamined.** `WriteTo` writes each `Dependency.Path` as
+  given, so a cooker that records absolute paths bakes its build directory into the asset. That is
+  caller-supplied rather than a defect here, but it is the same class as this finding and nothing
+  checks it.
+
+507 tests.
+
+### 9.31 The tripwires were half-armed, on both allocators
+
+The loose end from §9.27, and the answer was worse than the question.
+
+`MALLOC_PERTURB_` and macOS's `MallocScribble`/`MallocPreScribble` are the tripwires this project's
+whole cross-platform strategy leans on. They are environment variables. A runner can set one, print
+it in the log, and have it do nothing — which is exactly what `MALLOC_CHECK_=3` turned out to be
+(§9.19). An unarmed tripwire and one that found nothing are the same green, and nobody had ever
+checked which this was.
+
+#### The control
+
+`allocator-poisoning` allocates, writes a `0xC3` sentinel, frees, and reads the same byte back. The
+sentinel surviving means nothing poisoned anything. Two sizes, because both allocators have a fast
+path: glibc's `_int_free` returns via the **tcache** before it reaches `free_perturb`, and Apple's
+**nano** zone does not implement the scribble options at all.
+
+Measured on linux-x64, with the exact variable CI sets:
+
+```
+MALLOC_PERTURB_=165
+    nano  (64 B)     fresh=0x33  after free=0xC3  <- NOT POISONED: the sentinel survived
+    scalable (4 KB)  fresh=0x5A  after free=0xA5  <- MALLOC_PERTURB_ is live
+```
+
+So it was live for a 4 KB block and inert for a 64 B one — and 64 bytes is the size an AST node is.
+The tripwire relied on since §9.1 covered the allocations least likely to be the ones in question.
+
+Worth being precise about what this does and does not revise: §9.1 was found by glibc's own
+free-list consistency checking aborting on a double free, not by perturbation. That checking is
+unaffected and remains the main Linux net. What was half-armed is the *additional* layer that turns
+a stale read into a fault.
+
+#### Both allocators have the same knob
+
+```
+MALLOC_PERTURB_=165 GLIBC_TUNABLES=glibc.malloc.tcache_count=0
+    nano  (64 B)     fresh=0x5A  after free=0xA5  <- MALLOC_PERTURB_ is live
+    scalable (4 KB)  fresh=0x5A  after free=0xA5  <- MALLOC_PERTURB_ is live
+```
+
+Cost, measured over nine full compiles across eight threads: **1.83 s to 1.95 s, about 6%**. For
+turning the poisoning on for every allocation the compiler actually makes, that is not a trade worth
+thinking about. `MallocNanoZone=0` is the same move on macOS and is now set for the same reason —
+though unlike the Linux half it is **not yet confirmed**, and the probe reports what it measured on
+every run either way.
+
+#### Why the test sets the variables itself
+
+`The_allocator_poisoning_is_armed_and_reaches_small_allocations` runs the probe twice, once clean and
+once with the variables it sets on the child itself. A test that only passes when a workflow happens
+to export something is testing the workflow, and would go quietly green on a developer machine while
+proving nothing.
+
+The clean run is the control, and it is the half that makes the other half mean anything: without
+the variables, nothing may report as live. Otherwise a probe that always printed "is live" would
+pass this test forever.
+
+The control also has to *remove* the variables rather than merely not set them, and the first
+version did not — a child process inherits its parent's environment, so under CI, or under
+`tools/ci/verify-linux.sh` which exports `MALLOC_PERTURB_` itself, the unpoisoned run was poisoned
+too. It passed on a bare developer shell and failed on every run that had the thing it was built to
+check. A test about ambient configuration, defeated by ambient configuration.
+
+Finding *that* took four Linux runs, because `verify-linux.sh` filtered its output down to the
+summary line and reported `linux-x64: FAILED` with no name attached — §9.26's instrumentation gap,
+in the script written to catch that class of problem. It prints the failing tests now.
+
+#### The pattern, for the third time today
+
+§9.28 was a property no test could observe. §9.29 was another. This one is different and worse: a
+check that *was* running, on every leg, for months, doing a fraction of what it was believed to do.
+
+The three share a cause. Each was a claim about the *test apparatus* rather than about the code, and
+the apparatus is the one thing the apparatus does not check. `healthy` exists for exactly this
+reason at the prober level and has since the beginning; it took until now to apply the same idea to
+the allocator, the threads and the runners.
+
+508 tests.
+
+### 9.32 Four paths the corpus had never reached
+
+Corpus expansion, done last on purpose. A new shader is only worth what the oracles pointed at it
+are worth, so it belongs behind them — and by now every shader added is judged four ways: reflection
+against the emitted module, a real `VkPipeline` in front of the Khronos layers, enum coverage, and a
+cross-platform digest.
+
+Two of the six candidates turned out to be covered already. `descriptor-arrays` has an unbounded
+`Texture2D daUnbounded[]` and `descriptor-kinds` has `[format("rgba8")]` storage images, so the list
+shortened by a third before a line was written. Checking first is not free but it is cheaper than
+the alternative.
+
+The four that were genuinely absent:
+
+| shader | why it was worth adding |
+|---|---|
+| `stage-narrowing` | a descriptor read by exactly one of two stages |
+| `existential-types` | the corpus contained no `interface` at all |
+| `wave-ops` | no subgroup intrinsic anywhere in it |
+| `atomics` | the access pattern a compute cooker actually emits |
+
+`stage-narrowing` is the one that was really missing. `VulkanProjection.StagesFor` narrows a
+descriptor's stage flags to the stages that use it, and it has had a real defect — §9.24, where
+`InputAttachment` was reported visible to every stage. Every other multi-entry-point case in the
+corpus shares its resources between the stages, so the narrowing had never once been exercised on a
+resource that was not shared. Here the structured buffer is read only by the vertex stage and the
+texture only by the fragment stage, and the layers judge the result.
+
+All four passed both oracles first time, with no declared gaps and nothing put out of reach. That is
+a duller outcome than the rest of today and it is the correct one: the paths were unexercised rather
+than broken, which is what "we have not looked there" should usually turn out to mean.
+
+516 tests.

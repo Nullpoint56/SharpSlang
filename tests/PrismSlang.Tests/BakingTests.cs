@@ -164,4 +164,33 @@ public class BakingTests
         Assert.NotEqual(ShaderPackage.HashSource("abc"), ShaderPackage.HashSource("abd"));
         Assert.Equal(32, ShaderPackage.HashSource("abc").Length);
     }
+
+    [NativeFact]
+    public void A_baked_package_does_not_depend_on_which_platform_baked_it()
+    {
+        // A package is a build artifact, so its bytes are part of its contract. `WriteIndented`
+        // newlines default to Environment.NewLine, and the layout JSON goes straight into the
+        // package — so the same shader baked on Windows and on Linux produced packages differing by
+        // one byte per line, 214 of them on an ordinary layout. Both were valid and both loaded;
+        // what broke was equality, which is what a content-addressed asset cache runs on (§9.30).
+        //
+        // Found by digesting the corpus on two platforms and diffing. Asserted here instead of
+        // there, because a property that only a four-runner comparison can catch is a property
+        // nobody checks before pushing — and this one is visible from a single machine.
+        var package = BakeShader();
+        var json = package.Layout.ToJson();
+
+        Assert.DoesNotContain('\r', json);
+
+        // The whole container, not just the JSON: the same package written twice must be the same
+        // bytes, which is the property the cache actually depends on.
+        Assert.Equal(Written(package), Written(package));
+
+        static byte[] Written(ShaderPackage package)
+        {
+            using var buffer = new MemoryStream();
+            package.WriteTo(buffer);
+            return buffer.ToArray();
+        }
+    }
 }

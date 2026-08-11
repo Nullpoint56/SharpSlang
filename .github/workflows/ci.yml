@@ -17,7 +17,7 @@ name: CI
 # the current upstream layout.
 
 # Markdown-only changes skip all of this and run docs.yml instead. A full run is four runners each
-# downloading a 36 MB payload, building, and executing 501 tests, plus a job that installs ClangSharp
+# downloading a 36 MB payload, building, and executing 516 tests, plus a job that installs ClangSharp
 # and regenerates the bindings — none of which a paragraph can affect.
 #
 # paths-ignore only skips when *every* changed file matches, so a commit touching a document and a
@@ -173,6 +173,15 @@ jobs:
       # macOS ignores that one, and a conditional would be more machinery than the thing it
       # configures.
       #
+      # GLIBC_TUNABLES and MallocNanoZone are here because the poisoning was half-armed and nobody
+      # had checked. Both allocators have a fast path that skips it: glibc's `_int_free` returns via
+      # the tcache before it reaches `free_perturb`, and Apple's nano zone does not implement the
+      # scribble options at all. Measured on linux-x64, MALLOC_PERTURB_ alone poisons a 4 KB block
+      # and leaves a 64 B one untouched — and 64 bytes is the size an AST node is. Disabling the
+      # tcache arms it for both and costs about 6% on a compile-heavy workload, which is nothing for
+      # the coverage. MallocNanoZone=0 is the same move on macOS and is *not* yet confirmed; the
+      # prober reports what it measured either way (§9.31).
+      #
       # MALLOC_CHECK_=3 is the usual companion and is deliberately absent. Measured on glibc 2.39,
       # which is what ubuntu-latest ships: it is ignored unless libc_malloc_debug.so.0 is
       # LD_PRELOADed, because glibc 2.34 moved that checking out of libc — so the obvious spelling
@@ -183,8 +192,10 @@ jobs:
       - name: Test
         env:
           MALLOC_PERTURB_: 165
+          GLIBC_TUNABLES: glibc.malloc.tcache_count=0
           MallocScribble: 1
           MallocPreScribble: 1
+          MallocNanoZone: 0
         # --blame writes a Sequence.xml naming the test that was executing when the host died, and
         # deletes it again if the run completes — so it costs nothing on a green run and is the
         # difference between knowing the crasher and inferring it from test ordering on a different
@@ -245,8 +256,10 @@ jobs:
       - name: Tier 0 spike
         env:
           MALLOC_PERTURB_: 165
+          GLIBC_TUNABLES: glibc.malloc.tcache_count=0
           MallocScribble: 1
           MallocPreScribble: 1
+          MallocNanoZone: 0
         run: dotnet run --project samples/PrismSlang.Smoke -c Release --no-build
 
       # A test-host crash reports whatever was on stderr as its "reason", which is never the cause:
@@ -324,6 +337,16 @@ jobs:
           path: '**/results.trx'
           if-no-files-found: ignore
 
+      # What this machine cooked, for the digests job below to compare against the other three.
+      # A single file, so the artifact is exactly that file and the comparison can find it by the
+      # directory download-artifact names after the RID.
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: spirv-digests-${{ matrix.rid }}
+          path: '**/spirv-digests.txt'
+          if-no-files-found: ignore
+
       - name: Package contains the host RID's payload
         shell: pwsh
         run: |
@@ -350,6 +373,37 @@ jobs:
               throw "package has no slang-glslang under $prefix - shaders would compile unoptimised"
             }
           } finally { $zip.Dispose() }
+
+  # The only check here that compares the runners against each other rather than against a claim.
+  #
+  # Every other oracle in the suite lives inside one process on one machine, so all four legs can be
+  # green while disagreeing about what they produced — and for a cook farm that is the failure that
+  # matters. A shader cooked on a developer's Windows box and the same shader cooked on a Linux
+  # runner have to be the same bytes, or content hashes stop matching, incremental cooks redo
+  # everything, and the asset that ships is not the asset that was tested.
+  #
+  # `needs: test` means this only runs when all four legs passed, so a missing digest here is a
+  # genuine anomaly rather than a knock-on from a failure that already reported.
+  #
+  # It earned its place before it ever ran: pointed at win-x64 and linux-x64 locally it found all 28
+  # modules identical and all 28 layouts different, because the layout JSON that goes into a shader
+  # package was serialized with Environment.NewLine (§9.30).
+  digests:
+    name: every platform cooks the same asset
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: spirv-digests-*
+          path: digests
+
+      # The count is the argument, and it is the safeguard: a comparison that finds nothing to
+      # compare has to fail, because "all legs agreed" and "no leg reported" are otherwise the same
+      # green — and the second is what a renamed artifact actually produces.
+      - run: bash tools/ci/compare-digests.sh digests 4
 
   regen:
     name: generated bindings are current

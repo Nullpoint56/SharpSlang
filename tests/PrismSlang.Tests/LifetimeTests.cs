@@ -251,6 +251,50 @@ public class LifetimeTests
     }
 
     [NativeFact]
+    public unsafe void Nothing_leaks_across_repeated_compile_cycles()
+    {
+        // The canary §9.26 made possible, and the reason it is a single number.
+        //
+        // Every wrapper now holds a native reference on its *whole* ancestor chain, so anything
+        // left unreleased anywhere in the hierarchy — a session, a module, an entry point, a blob —
+        // is still holding a reference to the global session. Its refcount is therefore a sentinel
+        // for the entire tree: a cycle that gives back everything it took returns the count to
+        // where it started, and one that does not has something below it still alive.
+        //
+        // Worth having because a refcount imbalance is invisible to every other test here. It does
+        // not crash, it does not corrupt, and it does not produce a wrong answer — it just eats
+        // memory until a batch cook dies, which is the failure mode a cooker actually meets. The
+        // ownership rules changed twice in one day (§9.25, §9.26); nothing was watching this.
+        using var global = SlangGlobalSession.Create();
+        var globalPtr = (PrismSlang.Native.ISlangUnknown*)global.RawForTests;
+
+        // One first, because the opening compile legitimately populates caches later ones reuse.
+        // The count after it is the level a balanced cycle has to return to, not the count before.
+        Cycle();
+        var settled = Count(globalPtr);
+
+        for (var i = 0; i < 24; i++) Cycle();
+
+        Assert.Equal(settled, Count(globalPtr));
+
+        void Cycle()
+        {
+            using var session = NewSession(global);
+            using var module = session.LoadModuleFromSource("m", "m.slang", Source);
+            using var ep = module.FindEntryPoint("fragmentMain");
+            using var program = session.Link(module, ep);
+            using var code = program.GetTargetCode();
+            Assert.NotEmpty(code.ToArray());
+        }
+
+        static uint Count(PrismSlang.Native.ISlangUnknown* p)
+        {
+            p->addRef();
+            return p->release();
+        }
+    }
+
+    [NativeFact]
     public void A_program_outlives_the_module_it_was_linked_from()
     {
         // The realistic version of the same thing: a cooker links, drops the module, and only then

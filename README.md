@@ -117,15 +117,15 @@ caught.
 
 ## Testing
 
-501 tests. The interesting ones do not assert against numbers someone typed:
+516 tests. The interesting ones do not assert against numbers someone typed:
 
-- **`ModuleAgreementTests`** compiles a 28-shader corpus and requires the reflection snapshot and
+- **`ModuleAgreementTests`** compiles a 32-shader corpus and requires the reflection snapshot and
   the emitted SPIR-V to state *the same set of facts, in both directions* — so a fact one side
   simply lacks is a difference rather than a silence. This is what found most of the defects in
   `findings.md`.
 - **`SurfaceCoverageTests`** fails on any value of Slang's enums the corpus neither exercises nor
   explicitly declares untried, because "nobody compiled that" is where every defect had been hiding.
-- **`VulkanCorpusValidationTests`** puts the same 28-shader corpus in front of the Khronos
+- **`VulkanCorpusValidationTests`** puts the same 32-shader corpus in front of the Khronos
   validation layers — descriptor set layouts, push constant ranges, vertex attributes and colour
   attachments, built into real `VkPipeline`s on a headless device and judged by an implementation
   of the specification rather than by Slang. The only oracle here that is not ultimately Slang
