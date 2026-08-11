@@ -55,6 +55,7 @@ so a bare `§4.4` or `§9.8` in a code comment is unambiguous.
 | [9.31](#931-the-tripwires-were-half-armed-on-both-allocators) | The tripwires were half-armed | poisoning skipped every allocation small enough to matter, on both allocators |
 | [9.32](#932-four-paths-the-corpus-had-never-reached) | Four paths never reached | stage narrowing, existentials, wave ops, atomics — all green first time |
 | [9.33](#933-the-runners-disagree-and-it-is-architecture-rather-than-operating-system) | The runners disagree | x64 and arm64 emit different SPIR-V for `SV_VertexID`; Windows and Linux agree |
+| [9.34](#934-what-the-green-run-said-which-the-green-run-did-not-print) | What the green run said | the split is a renumbering, macOS is armed, and the probe was reading metadata |
 
 ### The four oracles
 
@@ -2615,5 +2616,70 @@ had been for months.
 
 It is also Slang's, not ours, and not something this repository can fix. Recorded and pinned; not
 reported upstream.
+
+516 tests.
+
+### 9.34 What the green run said, which the green run did not print
+
+CI passed, and two questions it had been carrying were answered by reading the artifacts rather than
+by running it again. Both answers were in the run that reported nothing but success.
+
+#### The architecture split is measured now, not inferred
+
+§9.33 identified the split by reasoning about an unlabelled diff. With the labelling fixed:
+
+```
+=== layout: 4 legs
+    all agree
+=== module: 4 legs
+    linux-arm64 [arm64]   linux-x64 [x64]   osx-arm64 [arm64]   win-x64 [x64]
+    x64 legs agree with each other
+    arm64 legs agree with each other
+    x64 and arm64 differ on exactly the 3 expected shader(s)
+```
+
+Both architectures are internally OS-independent, which is a stronger and more useful statement than
+the original flat check could make.
+
+**And the difference is a renumbering.** The `words` and `ops` columns added for exactly this
+question say so, from the artifacts of the passing run:
+
+| shader | words | ops | spirv |
+|---|---|---|---|
+| `stage-narrowing` | 496 both | identical | differs |
+| `system-values` | 437 both | identical | differs |
+| `vertex-interface` | 397 both | identical | differs |
+
+Same length, same opcode histogram, same instruction counts — different bytes. A behavioural
+difference would almost certainly move the instruction mix. What remains possible is different
+result IDs, a different order among same-opcode instructions, or a differing literal; the first is
+much the most likely, since Slang's IR is full of pointer-keyed maps whose iteration order is not
+the same on two architectures. Uploading the three modules themselves would settle it outright and
+is the obvious next step if it ever matters.
+
+#### macOS: the poisoning is armed, and the probe was reading metadata
+
+```
+control        small (64 B)  fresh=0x00  free=0xC3   <- sentinel survived, control works
+               large (4 KB)  fresh=0x70  free=0xC3
+poisoned       small (64 B)  fresh=0xAA  free=0x00
+               large (4 KB)  fresh=0xAA  free=0x55   <- MallocScribble is live
+```
+
+`fresh=0xAA` on a **64 byte** block is the answer to the question §9.31 left open. That is
+`MallocPreScribble`, and Apple's nano zone does not implement it — so `MallocNanoZone=0` worked and
+small allocations are going through the scalable zone.
+
+The `free=0x00` is the probe's fault, not the allocator's. It read a single byte at `size - 16`,
+chosen to clear glibc's free-list pointers, which sit at the head of a freed chunk. Apple's tiny
+allocator also writes metadata at the **tail**, so offset 48 of a 64 byte block is metadata. It now
+takes the modal byte across the interior of the block instead, which is allocator-agnostic: whatever
+either end is used for, the middle is what the poisoning wrote.
+
+Three tripwires, three rounds, and each time the tripwire was fine and the instrument reading it was
+not — §9.31 was `MALLOC_PERTURB_` skipping the tcache, this is a read offset, and §9.30's digest
+file had the very defect it was built to find. That is not bad luck. An instrument gets written once
+and then trusted forever, and nothing in a green run distinguishes "measured and fine" from
+"measured the wrong byte".
 
 516 tests.

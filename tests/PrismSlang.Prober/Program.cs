@@ -165,18 +165,17 @@ internal static class Cases
     /// </remarks>
     private static unsafe void AllocatorPoisoning()
     {
-        foreach (var (what, size) in (( string, nuint)[])[("nano  (64 B)", 64), ("scalable (4 KB)", 4096)])
+        foreach (var (what, size) in ((string, nuint)[])[("small (64 B)", 64), ("large (4 KB)", 4096)])
         {
             var block = (byte*)NativeMemory.Alloc(size);
-            var offset = size - 16;                       // clear of any free-list header
 
-            var fresh = Volatile.Read(ref block[offset]);
+            var fresh = Modal(block, size);
 
             // Our own sentinel, so "nothing scrubbed it" is distinguishable from "scrubbed with a
             // byte that happens to be zero".
             new Span<byte>(block, (int)size).Fill(0xC3);
             NativeMemory.Free(block);
-            var freed = Volatile.Read(ref block[offset]);
+            var freed = Modal(block, size);
 
             Console.Out.WriteLine(
                 $"    {what,-16} fresh=0x{fresh:X2}  after free=0x{freed:X2}"
@@ -188,6 +187,27 @@ internal static class Cases
         {
             Console.Out.WriteLine(
                 $"    env {name,-18} = {Environment.GetEnvironmentVariable(name) ?? "<unset>"}");
+        }
+
+        // The most common byte in the *interior* of the block, skipping 16 at each end.
+        //
+        // Reading one byte at size-16 was the first version and it read the wrong thing on macOS: a
+        // 64 B block came back 0x00 after free while a 4 KB one came back 0x55, which looked like
+        // the small allocator not scribbling. It is not — Apple's tiny allocator writes free-list
+        // metadata at the *tail* of a freed block as well as the head, so offset 48 of a 64 B block
+        // is metadata. glibc keeps its free-list pointers at the head only, which is why the
+        // original offset worked there and hid the problem.
+        //
+        // A modal byte over the interior is allocator-agnostic: whatever either end is used for,
+        // the middle is what the poisoning wrote.
+        static byte Modal(byte* block, nuint size)
+        {
+            var counts = new int[256];
+            for (var i = (nuint)16; i < size - 16; i++) counts[Volatile.Read(ref block[i])]++;
+
+            var best = 0;
+            for (var b = 1; b < 256; b++) if (counts[b] > counts[best]) best = b;
+            return (byte)best;
         }
 
         // 0xA5 is MALLOC_PERTURB_=165 writing the byte itself into freed memory (it writes the

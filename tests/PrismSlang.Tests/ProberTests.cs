@@ -386,11 +386,22 @@ public class ProberTests(Xunit.Abstractions.ITestOutputHelper output)
         }
         else
         {
-            // macOS, unmeasured. MallocScribble is documented for the scalable zone and documented
-            // *not* to apply to nano, and MallocNanoZone=0 is the reason it might now. Recorded
-            // rather than asserted until a run says which — §9.24's rule, and the run that answers
-            // it turns this branch into the two assertions above.
-            output.WriteLine($"UNMEASURED PLATFORM — {Environment.OSVersion.Platform}");
+            // macOS, and no longer unmeasured. The first osx-arm64 run reported:
+            //
+            //     small (64 B)   fresh=0xAA  after free=0x00
+            //     large (4 KB)   fresh=0xAA  after free=0x55   <- MallocScribble is live
+            //
+            // fresh=0xAA on a 64 B block is MallocPreScribble, which Apple's nano zone does not
+            // implement — so MallocNanoZone=0 did its job and that allocation is going through the
+            // scalable zone. The 0x00 was the probe reading a byte of the tiny allocator's *tail*
+            // free-list metadata, which is fixed now (§9.34).
+            //
+            // Asserted: the free poisoning is live. Not yet asserted for both sizes, because the
+            // reading that would show it came from a probe that has since changed and this branch
+            // is not going to claim a measurement it has not seen. The next macOS run turns this
+            // into the Linux assertion above.
+            Assert.Contains("MallocScribble is live", armed.Stdout, StringComparison.Ordinal);
+            output.WriteLine("macOS: both sizes are expected to scribble now — see §9.34.");
         }
     }
 
