@@ -190,7 +190,7 @@ public class ProberTests(Xunit.Abstractions.ITestOutputHelper output)
     }
 
     [NativeFact]
-    public void Specializing_a_non_generic_type_is_graceful_on_Windows_and_a_segfault_on_Linux()
+    public void Specializing_a_non_generic_type_segfaults_only_on_Linux()
     {
         // The fifth measured crash, and it cost a green run to find: the call sat in an ordinary
         // in-process test, passed on Windows, and killed the runner on Linux. Same shape as §9.1 —
@@ -199,6 +199,10 @@ public class ProberTests(Xunit.Abstractions.ITestOutputHelper output)
         //
         //   win-x64     returns null. The caller learns nothing and keeps running.
         //   linux-x64   SIGSEGV, exit 139.
+        //   osx-arm64   returns null, like Windows.
+        //
+        // Renamed once macOS was measured: it was ..._is_graceful_on_Windows_and_a_segfault_on_Linux,
+        // which stopped being the whole truth the moment a third platform answered.
         var outcome = Run("specialize-a-non-generic-type");
 
         Assert.Contains("SLANG_TYPE_KIND_STRUCT", outcome.Stdout, StringComparison.Ordinal);
@@ -216,12 +220,17 @@ public class ProberTests(Xunit.Abstractions.ITestOutputHelper output)
         }
         else
         {
-            // macOS is a third thing and nobody has measured it. Asserting Linux's answer here
-            // would be a green that means nothing — the shape of claim this document keeps
-            // catching. The first run records what actually happens; then this branch becomes an
-            // assertion like the other two.
-            output.WriteLine($"UNMEASURED PLATFORM — {Environment.OSVersion.Platform}:\n{outcome}");
-            Assert.NotEqual("specialized", outcome.Stdout.Trim());
+            // osx-arm64, measured from the run that reported it rather than guessed:
+            //
+            //     exit 0
+            //     SnBlock kind=SLANG_TYPE_KIND_STRUCT
+            //     refused
+            //
+            // Windows's answer, not Linux's — which is worth noticing, because the sibling test
+            // below measured the opposite grouping on the same platform. "macOS behaves like Linux"
+            // would have been the natural guess for both and would have been wrong for one (§9.36).
+            Assert.Equal(0, outcome.ExitCode);
+            Assert.Contains("refused", outcome.Stdout, StringComparison.Ordinal);
         }
     }
 
@@ -504,12 +513,23 @@ public class ProberTests(Xunit.Abstractions.ITestOutputHelper output)
         }
         else
         {
-            // Unmeasured, for the reason given in the test above. Slang throws a C++ exception
-            // through an extern "C" boundary; whether Apple's runtime turns that into a managed
-            // exception the way SEH does, or terminates the way the Itanium ABI does, is a
-            // question and not a guess to encode.
-            output.WriteLine($"UNMEASURED PLATFORM — {Environment.OSVersion.Platform}:\n{outcome}");
-            Assert.NotEqual(0, outcome.ExitCode);
+            // osx-arm64, measured:
+            //
+            //     exit 134
+            //     stderr: libc++abi: terminating due to uncaught exception of type
+            //             Slang::InternalError
+            //
+            // The Itanium ABI answer, and Linux's — the opposite grouping to the sibling test
+            // above, which measured macOS siding with Windows on the same runner. So there is no
+            // "macOS is like Linux" rule to lean on; each call has to be asked (§9.36).
+            //
+            // stderr is asserted as well as the exit code, because "the process died" and "the
+            // process died of this" are different facts and only the second one dates.
+            Assert.True(outcome.ExitCode is not (0 or 1 or 2),
+                "on macOS the C++ exception was caught rather than ending the process, which is "
+                + $"the Windows behaviour arriving somewhere new:\n{outcome}");
+            Assert.Contains("Slang::InternalError", outcome.Stderr, StringComparison.Ordinal);
         }
     }
+
 }

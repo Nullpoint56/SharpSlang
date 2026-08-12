@@ -57,6 +57,7 @@ so a bare `§4.4` or `§9.8` in a code comment is unambiguous.
 | [9.33](#933-the-runners-disagree-and-it-is-architecture-rather-than-operating-system) | The runners disagree | x64 and arm64 emit different SPIR-V for `SV_VertexID`; Windows and Linux agree |
 | [9.34](#934-what-the-green-run-said-which-the-green-run-did-not-print) | What the green run said | the split is a renumbering, macOS is armed, and the probe was reading metadata |
 | [9.35](#935-the-last-three-gaps-and-a-tool-that-proves-rather-than-infers) | The last three gaps | the buffer labelled not named, the hash bound with its trap pinned, the renumbering provable |
+| [9.36](#936-the-last-two-unmeasured-branches-and-there-is-no-macos-rule) | No macOS rule | it sides with Linux on one call and with Windows on the other |
 
 ### The four oracles
 
@@ -2747,5 +2748,36 @@ way round and only visible because the tool was pointed at a case whose answer w
 It also states its own limit: IDs identical in both modules never enter the mapping, so a remapped
 ID colliding with an unchanged one would not be caught. Contrived rather than plausible — but the
 justification should not read stronger than the evidence.
+
+520 tests.
+
+### 9.36 The last two unmeasured branches, and there is no macOS rule
+
+Two `ProberTests` branches had been reporting instead of asserting since the macOS leg was added,
+waiting on a measurement. The measurement had already happened — several times — and was sitting in
+the TRX of a run that reported nothing but success, exactly as in §9.34. Reading it closed both
+without a new run.
+
+| probe | win-x64 | linux-x64 | osx-arm64 |
+|---|---|---|---|
+| `specialization-sized-resource-array` | catchable `SEHException`, exit 1 | SIGABRT | **SIGABRT 134, `libc++abi: … Slang::InternalError`** |
+| `specialize-a-non-generic-type` | returns null, "refused", exit 0 | SIGSEGV 139 | **returns null, "refused", exit 0** |
+
+**macOS sides with Linux on the first and with Windows on the second.** That is the part worth
+keeping. The natural shortcut — "macOS is Unix, so it behaves like Linux" — would have been right
+once and wrong once, and asserting it on both would have produced a green that meant nothing on the
+one that disagreed. This is the fourth time in this document that a plausible platform rule has
+turned out not to be a rule; there is no substitute for asking each call.
+
+Both branches now assert. The second test was renamed —
+`Specializing_a_non_generic_type_is_graceful_on_Windows_and_a_segfault_on_Linux` stopped being the
+whole truth the moment a third platform answered, and a test whose name describes fewer platforms
+than its body is the §9.15 shape.
+
+The abort case asserts the stderr as well as the exit code, because "the process died" and "the
+process died of `Slang::InternalError`" are different facts and only the second one can go stale
+usefully.
+
+No branch in the suite now reports a platform without asserting something about it.
 
 520 tests.
