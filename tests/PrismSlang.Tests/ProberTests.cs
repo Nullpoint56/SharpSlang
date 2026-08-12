@@ -81,7 +81,15 @@ public class ProberTests(Xunit.Abstractions.ITestOutputHelper output)
         var stdout = process.StandardOutput.ReadToEnd();
         var stderr = process.StandardError.ReadToEnd();
 
-        Assert.True(process.WaitForExit(60_000), "the prober did not exit within a minute");
+        if (!process.WaitForExit(60_000))
+        {
+            // Killed rather than left. Disposing the handle does not end the child, and a prober
+            // that outlives its test holds a lock on its own executable — which resurfaces as an
+            // MSB3027 on somebody's next build, pointing at nothing that is wrong.
+            process.Kill(entireProcessTree: true);
+            Assert.Fail($"the prober did not exit within a minute running '{probe}'");
+        }
+
         return new Outcome(process.ExitCode, stdout, stderr);
     }
 
@@ -457,26 +465,67 @@ public class ProberTests(Xunit.Abstractions.ITestOutputHelper output)
         // The case slang.h says requires external synchronization: "A single global session object
         // is currently *not* thread-safe."
         //
-        // Measured on win-x64 it is an access violation inside loadModuleFromSourceString, every
-        // run — which is the *good* failure mode, because a cooker that gets this wrong stops
-        // instead of shipping. What is asserted here is only that: it may die and it may succeed,
-        // but it must never come back claiming success with bytes that disagree with a serial
-        // compile. That is the outcome nobody would catch.
+        // Three outcomes have now been measured on win-x64 alone: an access violation inside
+        // loadModuleFromSourceString, a clean SlangException out of one thread while the other
+        // seven agreed, and once all eight getting away with it. Every one of those is either loud
+        // or harmless, and which one a run draws is the machine's business.
+        //
+        // So neither the exit code nor the throw count is asserted. The property is the one in the
+        // name and nothing else: no thread may return *success* with bytes that disagree with a
+        // serial compile. That is the outcome nobody would catch.
+        //
+        // This test used to require "0 threw" on the surviving path, and failed the first time
+        // win-x64 threw instead of crashing — the same measurement, differently shaped. Both of its
+        // branches matched strings transcribed from an observed run rather than the invariant, and
+        // the crash branch had the mirror defect: a probe that printed "0 disagreed" and then died
+        // in teardown would have failed a test whose property held (§9.37).
         var outcome = Run("threads-shared-global-session");
         output.WriteLine(outcome.ToString());
 
-        if (outcome.ExitCode != 0)
-        {
-            Assert.DoesNotContain("disagreed", outcome.Stdout, StringComparison.Ordinal);
-            return;
-        }
+        // The baseline is printed before any thread starts, so requiring it stops a probe that died
+        // on startup — a missing native library, a bad argument — from passing this test by never
+        // having measured anything. Without it the assertion below is satisfied by empty output.
+        Assert.Contains("baseline ", outcome.Stdout, StringComparison.Ordinal);
+        Assert.DoesNotContain("SILENTLY WRONG", outcome.Stdout, StringComparison.Ordinal);
+    }
 
-        Assert.Contains("0 threw, 0 disagreed", outcome.Stdout, StringComparison.Ordinal);
+    [Fact]
+    public void The_disagreement_report_has_been_seen_to_fire()
+    {
+        // Three threading probes are read through one token, and the unsafe one asserts only that
+        // the token is absent. That assertion has never failed and — if everything keeps working —
+        // never will, which makes it indistinguishable from an assertion that *cannot* fail. §9.31
+        // is a whole finding about the difference, so this fires it deliberately: fabricated
+        // results, the real reporting path, and the exact text the other tests match on.
+        //
+        // No [NativeFact]. Nothing here touches the compiler, and a self-test of the instrument
+        // should not be skipped on a machine that has no native payload — that is precisely the
+        // machine where the instrument is all there is.
+        var outcome = Run("report-a-disagreement");
+        output.WriteLine(outcome.ToString());
+
+        Assert.Equal(0, outcome.ExitCode);
+        Assert.Contains("2 disagreed with the serial baseline  <- SILENTLY WRONG",
+            outcome.Stdout, StringComparison.Ordinal);
+
+        // And that the detail is usable, because a report that only says "they differ" sends
+        // whoever reads it back to a diff they cannot run: the process that produced the bytes is
+        // gone by then.
+        Assert.Contains("thread 2 disagreed: 8 bytes against the baseline's 8, first difference at "
+            + "byte 4", outcome.Stdout, StringComparison.Ordinal);
+        Assert.Contains("thread 3 disagreed: 3 bytes against the baseline's 8, identical for the "
+            + "first 3 bytes", outcome.Stdout, StringComparison.Ordinal);
     }
 
     /// <summary>
     /// A threading probe that slang.h documents as safe must survive and produce identical bytes.
     /// </summary>
+    /// <remarks>
+    /// The literal match is right here and wrong one test up. These two patterns are documented as
+    /// allowed, so all three of surviving, not throwing and not disagreeing are required and a
+    /// weaker assertion would be throwing away the finding. The unsafe pattern is documented as
+    /// undefined, where only the last of the three is a property of anything (§9.37).
+    /// </remarks>
     private static void AssertThreadsAgreed(Outcome outcome, string why)
     {
         Assert.True(outcome.ExitCode == 0, $"the prober did not survive. {why}.\n{outcome}");

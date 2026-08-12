@@ -146,6 +146,7 @@ internal static class Cases
         ["threads-own-global-session"] = ThreadsOwnGlobalSession,
         ["threads-shared-global-session"] = ThreadsSharedGlobalSession,
         ["threads-parallel-backend"] = ThreadsParallelBackend,
+        ["report-a-disagreement"] = ReportADisagreement,
     };
 
     /// <summary>Whether the allocator is really poisoning freed memory, and at which sizes.</summary>
@@ -399,7 +400,39 @@ internal static class Cases
         return results;
     }
 
+    /// <summary>Fires the disagreement report on purpose, on results that never saw a thread.</summary>
+    /// <remarks>
+    /// The self-test for the tripwire the three threading probes are read through. `SILENTLY WRONG`
+    /// is the single token the unsafe pattern's test asserts the *absence* of, and a token never
+    /// observed to appear is indistinguishable from one that cannot — which is §9.31's finding, and
+    /// §9.37's own argument pointed back at the fix it proposes.
+    ///
+    /// Nothing here is a measurement, and the label says so in the output. It is fabricated data
+    /// pushed through the real reporting path, so that the assertion guarding every threading probe
+    /// is known to be falsifiable. Four results, covering all three shapes a thread can come back
+    /// in, plus the length-mismatch branch that a same-length comparison would never reach.
+    /// </remarks>
+    private static void ReportADisagreement()
+    {
+        byte[] baseline = [1, 2, 3, 4, 5, 6, 7, 8];
+
+        ReportAgreement("fabricated results, not a measurement", baseline, [
+            (baseline.ToArray(), null),                 // agrees
+            (null, "SlangException: fabricated"),       // threw
+            ([1, 2, 3, 4, 9, 6, 7, 8], null),           // disagrees at byte 4
+            ([1, 2, 3], null),                          // agrees as far as it goes, then stops
+        ]);
+    }
+
     /// <summary>Whether every thread produced the same bytes the serial run did.</summary>
+    /// <remarks>
+    /// A disagreement gets its own token rather than being read out of the summary line. A test
+    /// matching on `"0 threw, 0 disagreed"` asserts three things at once — nothing threw, nothing
+    /// disagreed, and the process survived to print the line — and cannot say which of them failed;
+    /// `SILENTLY WRONG` is the single outcome that must never appear, and its absence means the
+    /// same thing whether the report was printed or the process died before reaching it. §9.37 is
+    /// what that distinction cost when it was missing.
+    /// </remarks>
     private static void ReportAgreement(
         string what,
         byte[] baseline,
@@ -408,16 +441,40 @@ internal static class Cases
         var failed = 0;
         var differed = 0;
 
-        foreach (var (bytes, error) in results)
+        for (var index = 0; index < results.Length; index++)
         {
-            if (error is not null) { failed++; Console.Out.WriteLine($"    threw: {error}"); }
-            else if (!bytes!.AsSpan().SequenceEqual(baseline)) differed++;
+            var (bytes, error) = results[index];
+            if (error is not null) { failed++; Console.Out.WriteLine($"    threw: {error}"); continue; }
+
+            // RunOnThreads writes exactly one of the two, so this is the success case.
+            var produced = bytes!;
+            if (produced.AsSpan().SequenceEqual(baseline)) continue;
+
+            differed++;
+            Console.Out.WriteLine(
+                $"    thread {index} disagreed: {produced.Length} bytes against the baseline's "
+                + $"{baseline.Length}, {FirstDifference(produced, baseline)}");
         }
 
         Console.Out.WriteLine(
             $"    {what}: {results.Length} threads, {failed} threw, {differed} disagreed with the "
-            + "serial baseline");
+            + "serial baseline" + (differed > 0 ? "  <- SILENTLY WRONG" : string.Empty));
         Console.Out.Flush();
+
+        // Printed because a disagreement is the finding this whole probe exists for, and "they
+        // differ" is not enough to act on. Where they first differ says which half of the pipeline
+        // to look at: a difference in the header is a target mismatch, one deep in the body is a
+        // race in codegen.
+        static string FirstDifference(byte[] left, byte[] right)
+        {
+            var shared = Math.Min(left.Length, right.Length);
+            for (var i = 0; i < shared; i++)
+            {
+                if (left[i] != right[i]) return $"first difference at byte {i}";
+            }
+
+            return $"identical for the first {shared} bytes - one is a prefix of the other";
+        }
     }
 
     /// <summary>

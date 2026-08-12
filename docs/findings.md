@@ -58,6 +58,7 @@ so a bare `§4.4` or `§9.8` in a code comment is unambiguous.
 | [9.34](#934-what-the-green-run-said-which-the-green-run-did-not-print) | What the green run said | the split is a renumbering, macOS is armed, and the probe was reading metadata |
 | [9.35](#935-the-last-three-gaps-and-a-tool-that-proves-rather-than-infers) | The last three gaps | the buffer labelled not named, the hash bound with its trap pinned, the renumbering provable |
 | [9.36](#936-the-last-two-unmeasured-branches-and-there-is-no-macos-rule) | No macOS rule | it sides with Linux on one call and with Windows on the other |
+| [9.37](#937-the-unsafe-pattern-found-a-third-failure-mode-and-it-looks-like-a-broken-shader) | A third failure mode | it looks like a broken shader, and the test had transcribed a sample instead of the property |
 
 ### The four oracles
 
@@ -2272,7 +2273,7 @@ wants — the back end is where the time goes.
 |---|---|---|
 | distinct global sessions in parallel | allowed | 8 threads, 0 threw, 0 disagreed |
 | serial front end, parallel back end | supported, experimental | 8 threads, 0 threw, 0 disagreed |
-| one global session shared, no lock | needs external synchronization | `0xC0000005` in `loadModuleFromSourceString`, every run |
+| one global session shared, no lock | needs external synchronization | `0xC0000005` in `loadModuleFromSourceString`, every run *(and then it wasn't — §9.37)* |
 
 The barrier matters. Without one, a fast machine finishes thread 0 before thread 7 starts, and a
 race that never overlaps is a test that never looked.
@@ -2781,3 +2782,146 @@ usefully.
 No branch in the suite now reports a platform without asserting something about it.
 
 520 tests.
+
+### 9.37 The unsafe pattern found a third failure mode, and it looks like a broken shader
+
+A win-x64 CI leg failed one test. Not a regression in the binding — the probe that deliberately does
+what `slang.h` forbids drew an outcome it had never drawn before, and the assertion had been written
+from the outcomes it had.
+
+Eight threads sharing one global session with no lock, and this run:
+
+```
+baseline 1436 bytes
+    threw: SlangException: load module 't0' failed: SLANG_FAIL
+An unknown exception occurred
+    shared global session, no lock: 8 threads, 1 threw, 0 disagreed with the serial baseline
+completed
+```
+
+Exit 0. No `--blame` sequence file, so the test host never crashed either: the entire event happened
+inside the probe and the probe walked out of it.
+
+#### Three outcomes, one platform
+
+| what win-x64 did | how often | how loud |
+|---|---|---|
+| `0xC0000005` inside `loadModuleFromSourceString` | every run until this one | the process is gone |
+| one thread throws `SLANG_FAIL`, seven agree | this run | one shader "failed to compile" |
+| all eight succeed and agree | seen once | nothing at all |
+
+Only the first was in §9.28's table, described as "every run", because at the time it was. The
+second is the same race landing a few instructions to the other side of a boundary: the first line
+of that message is this binding's (`Diagnostics.ThrowIfNull`), the second is the diagnostics blob
+Slang wrote, and this binding has no such wording anywhere in it. Slang caught something at its own
+API boundary, could not say what, and returned `SLANG_FAIL` like any other compile failure.
+
+**The invariant held in all three.** Zero disagreements, every time. Seven threads returned bytes
+identical to the serial baseline while their neighbour was failing.
+
+#### The dangerous one is the polite one
+
+§9.28 said dying is the good outcome, and it was right, but it drew too much comfort from it:
+"a cooker that gets this wrong stops immediately instead of writing corrupt assets for six months."
+
+That is true of the access violation. It is not true of `SLANG_FAIL`. A cook farm that catches a
+per-shader compile failure, logs it, and moves on — which is the *correct* way to handle a shader
+that genuinely does not compile — will report one broken shader out of eight, ship the other seven,
+and never look at the thread pool. The shader was fine. The next run blames a different one.
+
+So the guidance changes from "you will find out immediately" to "you may find out as a plausible
+compile error against a file that is not the problem", which is the version worth putting in front
+of someone about to wrap `Parallel.ForEach` around a global session.
+
+#### The test had transcribed the sample
+
+`Sharing_one_global_session_across_threads_is_never_silently_wrong` said what it wanted three times:
+
+- **the name** — never *silently* wrong;
+- **the comment** — "it may die and it may succeed, but it must never come back claiming success
+  with bytes that disagree with a serial compile";
+- **the code** — `Assert.Contains("0 threw, 0 disagreed", outcome.Stdout)`.
+
+Two out of three, and the one that runs was the one that was wrong. `0 threw` is not a property of
+undefined behaviour, it is a transcript of a Tuesday.
+
+The other branch had the mirror defect, which nobody would have found by reading it:
+
+```csharp
+if (outcome.ExitCode != 0)
+{
+    Assert.DoesNotContain("disagreed", outcome.Stdout, StringComparison.Ordinal);
+    return;
+}
+```
+
+The report line always contains the word `disagreed` — in `0 disagreed` as much as in `3 disagreed`.
+So that branch does not assert "nothing disagreed"; it asserts "the process died before it finished
+reporting". A probe that printed a clean result and then fell over in teardown would have failed a
+test whose property held perfectly.
+
+Both branches matched strings that happened to appear in a run. Neither matched the invariant.
+
+#### The fix is to make the forbidden outcome say so itself
+
+`ReportAgreement` now appends `<- SILENTLY WRONG` when, and only when, a thread returned success
+with different bytes, and prints which thread and where the first differing byte is. The test drops
+the exit code and the throw count entirely and asserts the absence of that token — which means the
+same thing whether the report was printed or the process died before reaching it.
+
+One guard against the obvious way that goes vacuous: a probe that dies at startup prints nothing and
+contains no forbidden token either. The baseline line is printed before any thread starts, so
+requiring it is the difference between "the measurement found nothing" and "there was no
+measurement". `Assert.DoesNotContain` against empty output passes for the same reason §9.31's
+tripwires did: nothing was watching, and nothing is what a clean run looks like.
+
+#### What "every run" is worth
+
+Both the document and the assertion said "every run". The document can say it, with the number of
+runs attached and a link to what it would take to falsify it. The assertion cannot say it at all —
+an assertion is a claim about every future run, and the number of runs behind this one was
+somewhere around thirty.
+
+The distinction is not pedantry about sample sizes. It is that a *test* asserting an incidental
+observation converts new information into a red build, and the reflex when a build goes red is to
+make it green again. This one nearly bought a lock, or a retry, or a `[Trait("Flaky")]` — three ways
+to spend the finding rather than read it.
+
+The probe was right, the invariant was right, the instrument was wrong. §9.34 counted three of those
+and said it was a pattern rather than bad luck. This is the fourth, and not a species the first
+three cover: they read the wrong byte, this one read the right byte and then hard-coded the answer.
+
+#### The tripwire fires on demand
+
+One test was added, and it is the one this finding argues for. `SILENTLY WRONG` is now the only
+thing three threading probes are read through, and it has never appeared — which is the position
+§9.31's tripwires were in when they were doing nothing at all.
+
+`The_disagreement_report_has_been_seen_to_fire` runs a fourth probe case that pushes fabricated
+results through the real reporting path: one agreeing, one throwing, one differing at byte 4, one
+that is a prefix of the baseline. It asserts the exact strings the other tests match on, so the
+guard around every threading probe is known to be falsifiable rather than assumed to be.
+
+It carries `[Fact]`, not `[NativeFact]`. Nothing in it touches the compiler, and a machine with no
+native payload is precisely the one where the instrument is all there is to check.
+
+#### One red round nobody can account for
+
+Recorded because leaving it out would be the tidier lie. Verifying this change, a
+`tools/ci/verify-linux.sh` round printed `linux-x64: FAILED` into a terminal that had been clipped
+to its last few lines — the spike's output and the verdict, with the build and test sections
+scrolled off. Four full rounds since, plus eight rounds of the probe and lifetime tests on their
+own, are green.
+
+The likeliest reading is the build step, because the test section prints a summary unconditionally
+and no summary was visible. "Likeliest" is the word this document keeps having to take back, so it
+stays open rather than being explained away.
+
+What is fixed is the reason it has to stay open. That script's own comment already records that
+filtering its output to the summary once cost four re-runs to identify a failing test — and it was
+still writing its diagnosis nowhere but a terminal. It now tees the build, the tests and the spike
+into `obj/` and names the files when it fails. The third instance of one gap in one sitting: an
+instrument that hard-coded its sample, a tripwire never seen to fire, and a diagnosis printed to
+somewhere that does not keep it.
+
+521 tests.

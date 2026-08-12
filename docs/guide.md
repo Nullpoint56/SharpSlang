@@ -451,12 +451,21 @@ Slang's rule, not a limitation of the binding — `slang.h` says a global sessio
 thread-safe" and that it "and the objects created from it should be externally synchronized when
 shared across threads".
 
-Sharing one across threads without a lock is an access violation inside `loadModuleFromSource`, on
-every run measured. That is the good failure mode: a cooker that gets this wrong stops rather than
-shipping. It is pinned by
-`Sharing_one_global_session_across_threads_is_never_silently_wrong`, which asserts the thing that
-would actually hurt — it may die, but it must never return success with bytes that differ from a
-serial compile.
+Sharing one across threads without a lock has been measured doing three different things on the
+same machine: an access violation inside `loadModuleFromSource`, a clean `SlangException` out of one
+thread while the others carried on, and — once — nothing at all.
+
+**Do not count on the crash to tell you.** The access violation stops the cook, which is the outcome
+you want. The `SlangException` says `load module 'x' failed: SLANG_FAIL`, and that is
+indistinguishable from a shader that genuinely does not compile: a cooker that logs a per-shader
+failure and keeps going will blame the file, ship the rest of the batch, and blame a different file
+next time. Getting this wrong does not reliably announce itself.
+
+What has held across every run is the part that would be unrecoverable — no thread has ever returned
+*success* with bytes that differ from a serial compile. That is what
+`Sharing_one_global_session_across_threads_is_never_silently_wrong` pins, and it is deliberately the
+only thing it pins: the rest is undefined behaviour, and an assertion about how undefined behaviour
+usually goes is a transcript, not a test (§9.37).
 
 ### Cooking on all your cores
 
@@ -545,6 +554,7 @@ recognise the shape if you meet a cousin of one.
 | An unbounded array that is not the last binding | `VK_DESCRIPTOR_BINDING_VARIABLE_DESCRIPTOR_COUNT_BIT` is legal only on a set's highest-numbered binding, and Slang does not arrange for that. Check `VulkanBinding.Binding` against the set before reaching for it; `PARTIALLY_BOUND` with a fixed cap is legal anywhere ([§9.18](findings.md#918-what-the-layers-said-about-the-whole-corpus)). |
 | The `sample` interpolation modifier | Slang emits `OpDecorate … Sample` without declaring `OpCapability SampleRateShading`, which spirv-val rejects as malformed. No device feature changes it. |
 | `ParameterBlocksUseRegisterSpaces` | Byte-for-byte inert on SPIR-V. A `ParameterBlock` takes a space of its own either way. |
+| A threading bug that looks like a bad shader | Sharing a global session across threads sometimes fails as `SLANG_FAIL` on one module instead of crashing. A cooker that logs per-shader failures and continues will blame the file. If a batch reports a failure that passes on its own, suspect the thread pool before the shader ([§9.37](findings.md#937-the-unsafe-pattern-found-a-third-failure-mode-and-it-looks-like-a-broken-shader)). |
 
 Reflection reports what Slang says. Where the two disagreed, the emitted module won — that is what
 [findings.md](findings.md) is a record of.

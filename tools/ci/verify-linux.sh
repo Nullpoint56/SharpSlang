@@ -40,8 +40,17 @@ fi
 
 status=0
 
+# Kept on disk, not only printed. A round of this script reported FAILED, the terminal it ran in
+# was clipped to the last few lines, and the evidence was gone before anyone read it — four green
+# rounds later there is still no answer as to what it was. Printing a diagnosis only helps if it
+# survives the scrollback of whoever was watching, which is the same instrumentation gap as §9.26
+# and §9.37 wearing a third hat. obj/ is ignored, so these cost nothing but the bytes.
+logs="$root/obj"
+mkdir -p "$logs"
+
 echo "===== BUILD ====="
-if ! "$DOTNET" build PrismSlang.slnx -v q --nologo; then status=1; fi
+"$DOTNET" build PrismSlang.slnx -v q --nologo 2>&1 | tee "$logs/verify-build.log"
+if [[ ${PIPESTATUS[0]} -ne 0 ]]; then status=1; fi
 
 echo "===== TESTS ====="
 # Same allocator settings as the linux CI job, so a local run and CI find the same class of bug —
@@ -52,6 +61,7 @@ export MALLOC_PERTURB_=165
 # A test-host crash is the signal this script exists to catch, so grep for it explicitly:
 # the runner can report "Passed!" for the tests that completed before the process died.
 out="$("$DOTNET" test PrismSlang.slnx --no-build --nologo -v q 2>&1)"
+printf '%s\n' "$out" > "$logs/verify-tests.log"
 printf '%s\n' "$out" | grep -E 'Passed!|Failed!|crashed|Aborted'
 
 # The names too, when there are any. Filtering to the summary meant a failure here reported
@@ -65,8 +75,14 @@ fi
 if printf '%s\n' "$out" | grep -qE 'crashed|Aborted|Failed!'; then status=1; fi
 
 echo "===== SPIKE ====="
-if ! "$DOTNET" run --project samples/PrismSlang.Smoke --no-build; then status=1; fi
+"$DOTNET" run --project samples/PrismSlang.Smoke --no-build 2>&1 | tee "$logs/verify-spike.log"
+if [[ ${PIPESTATUS[0]} -ne 0 ]]; then status=1; fi
 
 echo
-if [[ $status -eq 0 ]]; then echo "linux-x64: OK"; else echo "linux-x64: FAILED"; fi
+if [[ $status -eq 0 ]]; then
+    echo "linux-x64: OK"
+else
+    echo "linux-x64: FAILED"
+    echo "  full output: obj/verify-build.log, obj/verify-tests.log, obj/verify-spike.log"
+fi
 exit $status
