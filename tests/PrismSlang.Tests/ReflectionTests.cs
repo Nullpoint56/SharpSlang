@@ -412,6 +412,66 @@ public class ReflectionTests
         Assert.Equal(before.Fields.Select(f => (f.Name, f.UniformOffset)),
                      after.Fields.Select(f => (f.Name, f.UniformOffset)));
     }
+
+    [NativeFact]
+    public void The_buffer_nobody_declared_says_that_it_is_the_buffer_nobody_declared()
+    {
+        // Loose global uniforms become a constant buffer with no declaration behind it, so its
+        // descriptor range has a null name (§9.7). The name stays absent — `globalParams` is one
+        // backend's invention and does not belong in the API-neutral layer — but a host iterating
+        // ranges to build a descriptor set layout now meets a labelled thing rather than a null.
+        using var global = SlangGlobalSession.Create();
+        using var session = global.CreateSession(new SessionOptions { Targets = [new TargetOptions()] });
+        using var module = session.LoadModuleFromSource("gu", "gu.slang", """
+            uniform float4 guTint;
+            Texture2D guTexture;
+
+            [shader("fragment")]
+            float4 guFragment() : SV_Target { return guTint + guTexture.Load(0); }
+            """);
+        using var ep = module.FindEntryPoint("guFragment");
+        using var program = session.Link(module, ep);
+
+        var layout = program.Reflect();
+        var ranges = layout.DescriptorSets.SelectMany(s => s.Ranges).ToList();
+        var implicitBuffer = Assert.Single(ranges, r => r.IsImplicitGlobalBuffer);
+
+        Assert.Null(implicitBuffer.Name);
+        Assert.Equal(layout.GlobalConstantBufferBinding, implicitBuffer.IndexOffset);
+        Assert.Equal(SlangBindingType.SLANG_BINDING_TYPE_CONSTANT_BUFFER, implicitBuffer.BindingType);
+        Assert.True(layout.GlobalConstantBufferSize > 0);
+
+        // Exactly one, and it is not the texture. Assert.Single carries most of that; naming the
+        // texture explicitly is what makes a future label that over-matches fail here rather than
+        // somewhere a caller finds it.
+        Assert.DoesNotContain(
+            ranges,
+            r => r.BindingType is SlangBindingType.SLANG_BINDING_TYPE_TEXTURE && r.IsImplicitGlobalBuffer);
+    }
+
+    [NativeFact]
+    public void A_shader_without_loose_globals_labels_nothing()
+    {
+        // The half that stops the label being free. Slang reports a global-constant-buffer binding
+        // of 0 whether or not there is one, so a marker keyed on the binding alone would label
+        // whatever real descriptor sits at binding 0 — which is most shaders. The size is the gate.
+        using var global = SlangGlobalSession.Create();
+        using var session = global.CreateSession(new SessionOptions { Targets = [new TargetOptions()] });
+        using var module = session.LoadModuleFromSource("ng", "ng.slang", """
+            struct NgBlock { float4 ngTint; };
+            ConstantBuffer<NgBlock> ngBuffer;
+
+            [shader("fragment")]
+            float4 ngFragment() : SV_Target { return ngBuffer.ngTint; }
+            """);
+        using var ep = module.FindEntryPoint("ngFragment");
+        using var program = session.Link(module, ep);
+
+        var layout = program.Reflect();
+        Assert.Equal(0ul, layout.GlobalConstantBufferSize);
+        Assert.DoesNotContain(
+            layout.DescriptorSets.SelectMany(s => s.Ranges), r => r.IsImplicitGlobalBuffer);
+    }
 }
 
 internal static class ArrayLayoutExtensions

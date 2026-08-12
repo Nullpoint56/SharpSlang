@@ -32,17 +32,65 @@ public class LinkOptionsTests
         }
         """;
 
-    private static byte[] Compile(LinkTimeOptions? options)
+    private static byte[] Compile(LinkTimeOptions? options) => With(options, p => p.GetEntryPointCodeBytes(0));
+
+    private static byte[] Hash(LinkTimeOptions? options, string source = Shader) =>
+        With(options, p => p.GetEntryPointIdentityHash(0), source);
+
+    private static byte[] With(
+        LinkTimeOptions? options,
+        Func<LinkedProgram, byte[]> read,
+        string source = Shader)
     {
         using var global = SlangGlobalSession.Create();
         using var session = global.CreateSession(new SessionOptions
         {
             Targets = [new TargetOptions { Profile = "spirv_1_5" }],
         });
-        using var module = session.LoadModuleFromSource("t", "t.slang", Shader);
+        using var module = session.LoadModuleFromSource("t", "t.slang", source);
         using var ep = module.FindEntryPoint("fragmentMain");
         using var program = session.Link(module, [ep], new LinkOptions { CompilerOptions = options });
-        return program.GetEntryPointCodeBytes(0);
+        return read(program);
+    }
+
+    [NativeFact]
+    public void The_identity_hash_is_deaf_to_the_optimisation_level()
+    {
+        // The reason getEntryPointHash went unbound for so long, now bound and pinned instead.
+        //
+        // The obvious use for a per-entry-point hash is a pipeline cache key, and for that it is
+        // wrong: None and Maximal produce *different code* — the test below asserts exactly that —
+        // and the *same hash*. A cooker keying a cache on it serves optimised code for an
+        // unoptimised request, or the reverse, with nothing to notice.
+        //
+        // Pinned rather than documented, so upstream changing it is a failing test rather than a
+        // sentence in a document quietly becoming false. If this ever fails, the remarks on
+        // LinkedProgram.GetEntryPointIdentityHash are what need rewriting — and the news is good.
+        var none = Hash(new LinkTimeOptions
+        {
+            Optimization = SlangOptimizationLevel.SLANG_OPTIMIZATION_LEVEL_NONE,
+        });
+        var maximal = Hash(new LinkTimeOptions
+        {
+            Optimization = SlangOptimizationLevel.SLANG_OPTIMIZATION_LEVEL_MAXIMAL,
+        });
+
+        Assert.NotEmpty(none);
+        Assert.Equal(none, maximal);
+    }
+
+    [NativeFact]
+    public void The_identity_hash_is_stable_and_follows_the_source()
+    {
+        // The other half: an identity key that never changes identifies nothing, and one that
+        // changes run to run cannot be stored. Both directions, because either alone passes for a
+        // constant.
+        var first = Hash(null);
+        var again = Hash(null);
+        Assert.Equal(first, again);
+
+        var edited = Hash(null, Shader.Replace("float4(heavy(c), 1.0)", "float4(heavy(c), 0.5)", StringComparison.Ordinal));
+        Assert.NotEqual(first, edited);
     }
 
     [NativeFact]

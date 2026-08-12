@@ -46,6 +46,7 @@ namespace PrismSlang
         public PrismSlang.Interop.SlangBlob GetEntryPointCode(int entryPointIndex, int targetIndex = 0) { }
         public byte[] GetEntryPointCodeBytes(int entryPointIndex, int targetIndex = 0) { }
         public byte[] GetEntryPointCodeBytes(string entryPointName, int targetIndex = 0) { }
+        public byte[] GetEntryPointIdentityHash(int entryPointIndex, int targetIndex = 0) { }
         public PrismSlang.Reflection.SlangMetadata GetEntryPointMetadata(int entryPointIndex, int targetIndex = 0) { }
         public PrismSlang.Spirv.SpirvEntryPoint GetSpirvEntryPoint(int entryPointIndex, int targetIndex = 0) { }
         public PrismSlang.Interop.SlangBlob GetTargetCode(int targetIndex = 0) { }

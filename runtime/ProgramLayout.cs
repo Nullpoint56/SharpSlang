@@ -195,7 +195,8 @@ public sealed record DescriptorRange(
     SlangImageFormat ImageFormat = SlangImageFormat.SLANG_IMAGE_FORMAT_unknown,
     uint? CounterBinding = null,
     bool IsSpecializable = false,
-    IReadOnlyList<SlangStage>? Stages = null)
+    IReadOnlyList<SlangStage>? Stages = null,
+    bool IsImplicitGlobalBuffer = false)
 {
     /// <summary>
     /// Whether this range is a counter belonging to an append/consume buffer rather than something
@@ -213,6 +214,22 @@ public sealed record DescriptorRange(
     [JsonIgnore]
     public bool IsCounter => string.Equals(Name, "counter", StringComparison.Ordinal);
 }
+
+// IsImplicitGlobalBuffer, and why it is a label rather than a name.
+//
+// Loose global uniforms — `uniform float4 gTint;` at file scope — become a constant buffer nobody
+// declared. Slang's SPIR-V emitter calls it `globalParams`; reflection attributes it to no
+// variable, so its range arrives with a null Name. A host that builds descriptors by iterating the
+// ranges therefore meets one it cannot identify, and has to correlate it against
+// ProgramLayout.GlobalConstantBufferBinding by index to find out what it is.
+//
+// Naming it was rejected and stays rejected: `globalParams` is a name chosen by one backend's
+// emitter, and putting it in the API-neutral layer is wrong the moment a caller declares a
+// parameter that collides with it. Docs §9.7.
+//
+// Labelling it is not the same decision. The range still has no name — the agreement gap on the
+// `global-uniforms` corpus case is unchanged and still declared — but the null is now explained
+// where it is encountered rather than three types away.
 
 /// <summary>A descriptor set (register space) and the ranges within it.</summary>
 public sealed record DescriptorSet(uint SpaceOffset, IReadOnlyList<DescriptorRange> Ranges);

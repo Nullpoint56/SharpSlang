@@ -62,7 +62,10 @@ public static unsafe class ReflectionWalker
         {
             Parameters = parameters,
             EntryPoints = entryPoints,
-            DescriptorSets = WithStageUsage(ReadDescriptorSets(shader), program, targetIndex, entryPoints),
+            DescriptorSets = MarkImplicitGlobalBuffer(
+                WithStageUsage(ReadDescriptorSets(shader), program, targetIndex, entryPoints),
+                SlangApi.spReflection_getGlobalConstantBufferSize(shader),
+                (uint)SlangApi.spReflection_getGlobalConstantBufferBinding(shader)),
             GlobalConstantBufferSize = SlangApi.spReflection_getGlobalConstantBufferSize(shader),
             GlobalConstantBufferBinding = (uint)SlangApi.spReflection_getGlobalConstantBufferBinding(shader),
             HashedStrings = hashed,
@@ -97,6 +100,52 @@ public static unsafe class ReflectionWalker
     /// omitting a stage that really reads the binding is a driver rejection.
     /// </para>
     /// </remarks>
+    /// <summary>
+    /// Labels the range that is the implicit buffer for loose global uniforms, when there is one.
+    /// </summary>
+    /// <remarks>
+    /// It arrives with a null name, because reflection attributes it to no declaration — so a host
+    /// iterating ranges to build descriptors meets one it cannot identify and has to correlate it
+    /// against <see cref="ProgramLayout.GlobalConstantBufferBinding"/> by index. This does that
+    /// correlation once, here.
+    /// <para>
+    /// Deliberately narrow. The gate is the *size*: with no loose globals Slang reports a binding
+    /// of 0 as well as a size of 0, and matching on the binding alone would label whatever real
+    /// descriptor happens to sit at binding 0 on nearly every shader in the corpus. The name and
+    /// binding type are checked too, so a shader that does have loose globals cannot have some
+    /// other range at the same index mislabelled.
+    /// </para>
+    /// </remarks>
+    private static List<DescriptorSet> MarkImplicitGlobalBuffer(
+        List<DescriptorSet> sets,
+        nuint size,
+        uint binding)
+    {
+        if (size == 0) return sets;
+
+        for (var s = 0; s < sets.Count; s++)
+        {
+            var ranges = sets[s].Ranges;
+            for (var r = 0; r < ranges.Count; r++)
+            {
+                var range = ranges[r];
+                if (range.Name is not null
+                    || range.IndexOffset != binding
+                    || range.BindingType is not SlangBindingType.SLANG_BINDING_TYPE_CONSTANT_BUFFER)
+                {
+                    continue;
+                }
+
+                var updated = new List<DescriptorRange>(ranges);
+                updated[r] = range with { IsImplicitGlobalBuffer = true };
+                sets[s] = sets[s] with { Ranges = updated };
+                return sets;
+            }
+        }
+
+        return sets;
+    }
+
     private static List<DescriptorSet> WithStageUsage(
         List<DescriptorSet> sets,
         LinkedProgram program,

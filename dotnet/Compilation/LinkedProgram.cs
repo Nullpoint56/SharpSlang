@@ -467,6 +467,62 @@ public sealed unsafe class LinkedProgram : SlangObject<IComponentType>
         }
     }
 
+    /// <summary>
+    /// Slang's identity hash for one entry point — a key for "is this the same shader", and
+    /// <b>not</b> a key for "is this the same compiled code".
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// This is <c>getEntryPointHash</c>, and it was left unbound until now because the obvious use
+    /// for it is the wrong one. Measured on 2026.14.1: the hash is stable across runs and does
+    /// change when the source changes, but it is <b>identical across optimization levels</b> while
+    /// the emitted SPIR-V is not — <c>None</c> and <c>Maximal</c> produce different code and the
+    /// same hash. So it is sound as a shader-identity key and unsound as a pipeline-cache key, and
+    /// a caller who reaches for it expecting the latter gets stale code with no error.
+    /// </para>
+    /// <para>
+    /// Bound rather than withheld, because withholding it did not stop anyone reaching for
+    /// <c>getEntryPointHash</c> — it only stopped them finding the sentence above. The measurement
+    /// is pinned by <c>The_identity_hash_is_deaf_to_the_optimisation_level</c>, so the day upstream changes it is a
+    /// failing test rather than a silent change of meaning.
+    /// </para>
+    /// <para>To key a pipeline cache, hash the bytes from <see cref="GetEntryPointCodeBytes"/>.</para>
+    /// </remarks>
+    /// <param name="entryPointIndex">Index into <see cref="EntryPointNames"/>.</param>
+    /// <param name="targetIndex">Index into the session's target list.</param>
+    public byte[] GetEntryPointIdentityHash(int entryPointIndex, int targetIndex = 0)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(entryPointIndex);
+        ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(entryPointIndex, _entryPointNames.Length);
+
+        ISlangBlob* hash = null;
+        Ptr->getEntryPointHash(entryPointIndex, targetIndex, &hash);
+
+        // Returns void, so there is no result to check and null is the only failure signal there
+        // is. Slang produces a hash for every entry point measured; an empty one would mean the
+        // identity key silently degrades to "all shaders are the same shader".
+        if (hash is null)
+        {
+            throw new SlangException(
+                SlangResult.Fail,
+                $"getEntryPointHash('{_entryPointNames[entryPointIndex]}') produced no hash",
+                null);
+        }
+
+        using var blob = new SlangBlob(hash, this);
+        var bytes = blob.ToArray();
+
+        if (bytes.Length == 0)
+        {
+            throw new SlangException(
+                SlangResult.Fail,
+                $"getEntryPointHash('{_entryPointNames[entryPointIndex]}') produced an empty hash",
+                null);
+        }
+
+        return bytes;
+    }
+
     /// <summary>Generated code for one entry point, copied into a managed array.</summary>
     public byte[] GetEntryPointCodeBytes(int entryPointIndex, int targetIndex = 0)
     {

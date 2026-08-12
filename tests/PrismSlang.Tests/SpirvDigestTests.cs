@@ -85,6 +85,7 @@ public class SpirvDigestTests(Xunit.Abstractions.ITestOutputHelper output)
         // the CI job rather than after.
         Write(SpirvFile, spirv);
         Write(LayoutFile, layouts);
+        WriteModules();
 
         output.WriteLine($"{spirv.Count} shaders");
         foreach (var line in spirv) output.WriteLine("    " + line);
@@ -96,9 +97,33 @@ public class SpirvDigestTests(Xunit.Abstractions.ITestOutputHelper output)
             File.WriteAllText(path, string.Concat(lines.Select(l => l + "\n")));
             output.WriteLine($"-> {path}");
         }
+
+        // The modules themselves, so a cross-platform disagreement can be taken apart rather than
+        // only detected. §9.34 established that x64 and arm64 produce the same word count and the
+        // same opcode histogram for the three SV_VertexID shaders — strong evidence of a
+        // renumbering, but evidence, not proof. Proof needs the words, and the words only exist on
+        // a machine of each architecture.
+        //
+        // All of them, not just the three known to differ: about 2 KB each, 64 KB for the corpus,
+        // and picking a subset would mean keeping that subset in step with
+        // tools/ci/cross-arch-differences.txt forever. tools/ci/spirv-worddiff.py is what reads
+        // them.
+        void WriteModules()
+        {
+            var directory = Path.Combine(AppContext.BaseDirectory, "spirv-modules");
+            Directory.CreateDirectory(directory);
+
+            foreach (var shaderCase in ShaderCorpus.All)
+            {
+                File.WriteAllBytes(
+                    Path.Combine(directory, $"{shaderCase.Name}.spv"), Compile(shaderCase).Code);
+            }
+
+            output.WriteLine($"-> {directory}");
+        }
     }
 
-    private static (string Spirv, int Words, string Ops, string Layout) Compile(ShaderCase shaderCase)
+    private static (string Spirv, int Words, string Ops, string Layout, byte[] Code) Compile(ShaderCase shaderCase)
     {
         // The same settings ModuleAgreementTests uses, so the digest covers the module that test
         // already checks rather than a differently-configured one.
@@ -124,7 +149,8 @@ public class SpirvDigestTests(Xunit.Abstractions.ITestOutputHelper output)
                 Digest(code),
                 words,
                 ops,
-                Digest(Encoding.UTF8.GetBytes(program.Reflect().ToJson())));
+                Digest(Encoding.UTF8.GetBytes(program.Reflect().ToJson())),
+                code);
         }
         finally
         {

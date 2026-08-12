@@ -354,7 +354,7 @@ namespace PrismSlang.Reflection
     }
     public sealed class DescriptorRange : System.IEquatable<PrismSlang.Reflection.DescriptorRange>
     {
-        public DescriptorRange(PrismSlang.Native.SlangBindingType BindingType, uint IndexOffset, uint DescriptorCount, PrismSlang.Native.SlangParameterCategory Category, string? Name = null, bool IsUnbounded = false, uint? InputAttachmentIndex = default, PrismSlang.Native.SlangImageFormat ImageFormat = 0, uint? CounterBinding = default, bool IsSpecializable = false, System.Collections.Generic.IReadOnlyList<PrismSlang.Native.SlangStage>? Stages = null) { }
+        public DescriptorRange(PrismSlang.Native.SlangBindingType BindingType, uint IndexOffset, uint DescriptorCount, PrismSlang.Native.SlangParameterCategory Category, string? Name = null, bool IsUnbounded = false, uint? InputAttachmentIndex = default, PrismSlang.Native.SlangImageFormat ImageFormat = 0, uint? CounterBinding = default, bool IsSpecializable = false, System.Collections.Generic.IReadOnlyList<PrismSlang.Native.SlangStage>? Stages = null, bool IsImplicitGlobalBuffer = false) { }
         public PrismSlang.Native.SlangBindingType BindingType { get; init; }
         public PrismSlang.Native.SlangParameterCategory Category { get; init; }
         public uint? CounterBinding { get; init; }
@@ -364,6 +364,7 @@ namespace PrismSlang.Reflection
         public uint? InputAttachmentIndex { get; init; }
         [System.Text.Json.Serialization.JsonIgnore]
         public bool IsCounter { get; }
+        public bool IsImplicitGlobalBuffer { get; init; }
         public bool IsSpecializable { get; init; }
         public bool IsUnbounded { get; init; }
         public string? Name { get; init; }

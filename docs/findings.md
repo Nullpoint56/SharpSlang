@@ -56,6 +56,7 @@ so a bare `§4.4` or `§9.8` in a code comment is unambiguous.
 | [9.32](#932-four-paths-the-corpus-had-never-reached) | Four paths never reached | stage narrowing, existentials, wave ops, atomics — all green first time |
 | [9.33](#933-the-runners-disagree-and-it-is-architecture-rather-than-operating-system) | The runners disagree | x64 and arm64 emit different SPIR-V for `SV_VertexID`; Windows and Linux agree |
 | [9.34](#934-what-the-green-run-said-which-the-green-run-did-not-print) | What the green run said | the split is a renumbering, macOS is armed, and the probe was reading metadata |
+| [9.35](#935-the-last-three-gaps-and-a-tool-that-proves-rather-than-infers) | The last three gaps | the buffer labelled not named, the hash bound with its trap pinned, the renumbering provable |
 
 ### The four oracles
 
@@ -2683,3 +2684,68 @@ and then trusted forever, and nothing in a green run distinguishes "measured and
 "measured the wrong byte".
 
 516 tests.
+
+### 9.35 The last three gaps, and a tool that proves rather than infers
+
+Three things had been on the v1.0 list untouched, two of them recorded as deliberate decisions
+rather than oversights. Re-reading the reasoning is what closed them: both decisions were right, and
+both were answering a narrower question than the one that mattered.
+
+#### The implicit global constant buffer: labelled, not named
+
+Loose global uniforms become a constant buffer nobody declared, so its descriptor range has a null
+name. §9.7 rejected naming it, and that rejection stands — `globalParams` is one backend emitter's
+invention, and putting it in the API-neutral layer breaks the day a caller declares a parameter that
+collides with it.
+
+But "do not name it" and "leave it unexplained" are different decisions, and only the first was
+argued. A host iterating ranges to build a descriptor set layout meets a null and has to correlate
+it against `ProgramLayout.GlobalConstantBufferBinding` by index to learn what it is.
+`DescriptorRange.IsImplicitGlobalBuffer` does that correlation once, in the walk. The name is still
+absent and the agreement gap on the `global-uniforms` corpus case is unchanged.
+
+The label is gated on the buffer's *size*, not its binding, and the second test is the reason:
+Slang reports a global-constant-buffer binding of 0 whether or not there is one, so a marker keyed
+on the binding alone would label whatever real descriptor happens to sit at binding 0 — which is
+most of the corpus.
+
+#### `getEntryPointHash`: bound, with the trap pinned
+
+Measured stable and content-sensitive, and **identical across `None` and `Maximal`** while the
+emitted SPIR-V differs. Sound as a shader-identity key, unsound as a pipeline-cache key. It was
+withheld on those grounds.
+
+Withholding it did not stop anyone reaching for `getEntryPointHash` — it only stopped them finding
+that sentence. It is now `LinkedProgram.GetEntryPointIdentityHash`, named for the use that is
+correct, with the trap in the remarks and the surprising half asserted by
+`The_identity_hash_is_deaf_to_the_optimisation_level`. The measurement still holds on 2026.14.1, and
+the day it stops holding is a failing test rather than a document quietly going out of date.
+
+#### Proving the renumbering instead of inferring it
+
+§9.34 got to "same word count, same opcode histogram, different bytes" and called a renumbering the
+most likely explanation. That is evidence, not proof, and the difference is worth having: a
+renumbering is cosmetic, a differing literal is a behaviour change wearing the same shape.
+
+The corpus modules are now uploaded with the digests — 127 KB — and `tools/ci/spirv-worddiff.py`
+tests the hypothesis directly. Two modules that are a pure renumbering are related by a bijection on
+IDs: every differing word is an ID, each source ID maps to one target, and no two collide. No
+operand tables are needed for the general case; the small table it does carry marks where each
+opcode's *literal* operands begin, so a changed constant is reported as a constant rather than
+folded into the mapping.
+
+An opcode missing from that table is treated as all-IDs, which fails in the safe direction — a
+literal it carried would be reported as an inconsistent ID, never as a clean renumbering. For a tool
+whose whole job is to justify calling a difference cosmetic, the failure direction is the design.
+
+Validated against four hand-built modules before being trusted: identical, a pure renumbering, a
+changed literal, and an inconsistent mapping. The first attempt got the renumbering verdict wrong
+because the fixture was not valid SPIR-V — `OpTypeInt` is `%result Width Signedness` and the fixture
+had put an ID where the width goes. The tool was right and the test was wrong, which is the better
+way round and only visible because the tool was pointed at a case whose answer was known.
+
+It also states its own limit: IDs identical in both modules never enter the mapping, so a remapped
+ID colliding with an unchanged one would not be caught. Contrived rather than plausible — but the
+justification should not read stronger than the evidence.
+
+520 tests.
