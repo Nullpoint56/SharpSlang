@@ -34,6 +34,26 @@ expected_list="$(dirname "$0")/cross-arch-differences.txt"
 
 status=0
 
+# The instrument before the measurement. spirv-worddiff.py is what anyone reaching for an
+# explanation of a disagreement below will run, and it has been wrong twice: once reporting only
+# half of a difference, once calling a swap of two operands a renumbering — the one direction a tool
+# built to justify "cosmetic" must never fail in (§9.38). Five hand-built modules, five verdicts,
+# two seconds. A tool nobody checks is a tool nobody should quote.
+worddiff="$(dirname "$0")/spirv-worddiff.py"
+if command -v python3 >/dev/null 2>&1 && [ -f "$worddiff" ]; then
+    echo "=== spirv-worddiff self-test"
+    # Captured rather than piped. `python3 … | sed …` under `set -u` with no pipefail reports sed's
+    # exit code, so a failing self-test would print BAD lines and pass — the exact shape of defect
+    # the rest of this file exists to catch.
+    if ! selftest_out="$(python3 "$worddiff" --selftest 2>&1)"; then
+        status=1
+        echo "::error::spirv-worddiff.py failed its own self-test; do not trust its verdicts."
+    fi
+    printf '%s\n' "$selftest_out" | sed 's/^/    /'
+else
+    echo "=== spirv-worddiff self-test: skipped, no python3"
+fi
+
 # The leg is the artifact directory, which is the first path component under $dir. Not the parent of
 # the file: upload-artifact preserves the path the file was found at, so every leg's digests sit in
 # .../bin/Release/net10.0/ and using `dirname` labelled all four of them "net10.0" — which is how

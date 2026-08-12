@@ -12,6 +12,16 @@
 # The correlation is exact: SV_VertexID appears in exactly these three corpus shaders, and exactly
 # these three disagree. Nothing uses it without disagreeing and nothing disagrees without using it.
 #
+# The mechanism, from disassembling both sides (§9.38): nothing is renumbered, which is what §9.34
+# guessed. The IDs are the same. Slang creates the two builtin inputs that SV_VertexID lowers to —
+# VertexIndex and BaseVertex — in the opposite order on the two architectures, so which ID carries
+# which BuiltIn swaps, the pair swaps places in the OpEntryPoint interface list, and the operands of
+# the OpISub computing `VertexIndex - BaseVertex` swap with them. Every difference is one of those
+# three, in matched pairs. Both modules compute the same thing.
+#
+# Equivalent, then, but not identical, and not identical in a way any canonicalizer would fix — the
+# emission order is upstream's and there is nothing here to change.
+#
 # What it means for a cook farm: assets are reproducible on a fleet of one architecture, and are not
 # byte-comparable across a mixed one. Cook on one architecture, or content-address per architecture.
 #

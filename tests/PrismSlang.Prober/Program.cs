@@ -214,10 +214,17 @@ internal static class Cases
         // 0xA5 is MALLOC_PERTURB_=165 writing the byte itself into freed memory (it writes the
         // complement into fresh allocations, so 0x5A above says the same thing). 0x55 is
         // MallocScribble. 0xC3 is our sentinel surviving, which means nothing poisoned anything.
+        //
+        // 0x00 earns its own line because it turned out to be a finding rather than noise. The
+        // block was filled with 0xC3 before the free, so zeros are something writing zeros — on
+        // osx-arm64 that is the platform clearing freed tiny blocks whether or not MallocScribble
+        // is set, which the control run proves by producing the same 0x00 with every variable
+        // removed. Reported as "not us" rather than folded into the shrug below (§9.38).
         static string Verdict(byte freed) => freed switch
         {
             0xA5 => "<- MALLOC_PERTURB_ is live",
             0x55 => "<- MallocScribble is live",
+            0x00 => "<- zeroed on free, by something other than these variables",
             0xC3 => "<- NOT POISONED: the sentinel survived the free",
             _ => "<- overwritten by something else (allocator metadata, or reuse)",
         };

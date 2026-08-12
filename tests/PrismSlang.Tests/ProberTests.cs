@@ -16,6 +16,7 @@
 
 using System.Diagnostics;
 using System.Reflection;
+using System.Text.RegularExpressions;
 
 namespace PrismSlang.Tests;
 
@@ -386,40 +387,84 @@ public class ProberTests(Xunit.Abstractions.ITestOutputHelper output)
         Assert.Equal(0, armed.ExitCode);
 
         // The control. Without the variables nothing may claim to be live, or the probe is reading
-        // something other than what it thinks.
+        // something other than what it thinks. Note the phrasing: "nothing is live" is not the same
+        // as "nothing happened", and on macOS those come apart — see below.
         Assert.DoesNotContain("is live", clean.Stdout, StringComparison.Ordinal);
+
+        // Both bytes, both sizes, both runs. Matching the sentence the probe printed was enough
+        // while every leg's answer was one of two, and stopped being enough the moment a leg
+        // answered with a third thing (§9.38).
+        var (armedSmall, armedLarge) = (Poisoning(armed, Small), Poisoning(armed, Large));
+        var (cleanSmall, cleanLarge) = (Poisoning(clean, Small), Poisoning(clean, Large));
 
         if (OperatingSystem.IsLinux())
         {
-            // Both sizes, which is the whole point of the tunable. One "is live" would be the
-            // half-armed state this test exists to reject.
-            Assert.Equal(2, armed.Stdout.Split("MALLOC_PERTURB_ is live").Length - 1);
+            // Both sizes, which is the whole point of the tunable: glibc's tcache returns from
+            // _int_free before free_perturb, so without it the 64 B block keeps its contents. One
+            // size poisoned would be the half-armed state this test exists to reject. Measured
+            // identically on linux-x64 and linux-arm64.
+            Assert.Equal(Perturb, armedSmall.Freed);
+            Assert.Equal(Perturb, armedLarge.Freed);
+            Assert.Equal(Sentinel, cleanSmall.Freed);
+            Assert.Equal(Sentinel, cleanLarge.Freed);
         }
         else if (OperatingSystem.IsWindows())
         {
-            // No poisoning allocator here. Windows is covered by the other three legs, and saying
-            // so is better than a branch that quietly asserts nothing.
-            Assert.DoesNotContain("is live", armed.Stdout, StringComparison.Ordinal);
+            // No poisoning allocator here, at either size, armed or not. Windows is covered by the
+            // other three legs, and saying that is better than a branch that asserts nothing.
+            Assert.Equal(Sentinel, armedSmall.Freed);
+            Assert.Equal(Sentinel, armedLarge.Freed);
+            Assert.Equal(Sentinel, cleanSmall.Freed);
+            Assert.Equal(Sentinel, cleanLarge.Freed);
         }
         else
         {
-            // macOS, and no longer unmeasured. The first osx-arm64 run reported:
+            // macOS, measured on osx-arm64, and not what §9.34 predicted. It predicted 0x55 at both
+            // sizes once the probe stopped reading the tiny allocator's tail metadata. What the
+            // fixed probe reported:
             //
-            //     small (64 B)   fresh=0xAA  after free=0x00
-            //     large (4 KB)   fresh=0xAA  after free=0x55   <- MallocScribble is live
+            //                    control                armed
+            //     small (64 B)   fresh 0x00 free 0x00    fresh 0xAA free 0x00
+            //     large (4 KB)   fresh 0x00 free 0xC3    fresh 0xAA free 0x55
             //
-            // fresh=0xAA on a 64 B block is MallocPreScribble, which Apple's nano zone does not
-            // implement — so MallocNanoZone=0 did its job and that allocation is going through the
-            // scalable zone. The 0x00 was the probe reading a byte of the tiny allocator's *tail*
-            // free-list metadata, which is fixed now (§9.34).
+            // fresh=0xAA at both sizes is MallocPreScribble, which the nano zone does not implement
+            // — so MallocNanoZone=0 worked and both allocations are in the scalable zone. The nano
+            // zone was never the reason.
+            Assert.Equal(PreScribble, armedSmall.Fresh);
+            Assert.Equal(PreScribble, armedLarge.Fresh);
+            Assert.Equal(Scribble, armedLarge.Freed);
+            Assert.Equal(0x00, armedSmall.Freed);
+
+            // Which leaves the question the control answers: who zeroed the small block. The 4 KB
+            // block keeps the sentinel with the variables removed, so the 0x55 above is
+            // MallocScribble doing its job. The 64 B block comes back zeroed *either way*, so that
+            // one is the platform, and it would happen on a runner that set nothing at all.
             //
-            // Asserted: the free poisoning is live. Not yet asserted for both sizes, because the
-            // reading that would show it came from a probe that has since changed and this branch
-            // is not going to claim a measurement it has not seen. The next macOS run turns this
-            // into the Linux assertion above.
-            Assert.Contains("MallocScribble is live", armed.Stdout, StringComparison.Ordinal);
-            output.WriteLine("macOS: both sizes are expected to scribble now — see §9.34.");
+            // Both are poisoning, so freed memory does not survive at either size — but only one of
+            // them is ours, and a tripwire nobody armed is one nobody can disarm by mistake either.
+            Assert.Equal(Sentinel, cleanLarge.Freed);
+            Assert.Equal(0x00, cleanSmall.Freed);
         }
+    }
+
+    private const string Small = "small (64 B)";
+    private const string Large = "large (4 KB)";
+    private const byte Sentinel = 0xC3;      // what the probe writes before freeing
+    private const byte Perturb = 0xA5;       // MALLOC_PERTURB_=165
+    private const byte Scribble = 0x55;      // MallocScribble
+    private const byte PreScribble = 0xAA;   // MallocPreScribble
+
+    /// <summary>The fresh and post-free bytes the poisoning probe reported for one size.</summary>
+    private static (byte Fresh, byte Freed) Poisoning(Outcome outcome, string size)
+    {
+        var reading = Regex.Match(
+            outcome.Stdout,
+            Regex.Escape(size) + @"\s+fresh=0x(?<fresh>[0-9A-F]{2})\s+after free=0x(?<freed>[0-9A-F]{2})");
+
+        Assert.True(reading.Success, $"the probe printed no reading for {size}:\n{outcome}");
+
+        return (Convert.ToByte(reading.Groups["fresh"].Value, 16),
+                Convert.ToByte(reading.Groups["freed"].Value, 16));
     }
 
     [NativeFact]

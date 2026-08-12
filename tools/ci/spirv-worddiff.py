@@ -16,7 +16,20 @@ tests the hypothesis: assume each differing word is an ID, and see whether the r
 consistent and injective. A literal that happened to differ would almost certainly break consistency
 (the same value appearing elsewhere unchanged) or injectivity.
 
+The answer, the first time it was pointed at the real thing: **not a renumbering**, and not different
+code either. Nothing is renumbered — x64 and aarch64 use the same IDs. Slang creates the two builtin
+inputs behind `SV_VertexID` in the opposite order, so which variable is `VertexIndex` and which is
+`BaseVertex` swaps, the two entries swap places in the OpEntryPoint interface list, and the operands
+of the compensating OpISub swap with them. Both modules compute `VertexIndex - BaseVertex`. §9.38.
+
+That is why the report below lists *every* differing word once the verdict is negative, not only the
+words that failed the bijection. The OpISub swap fit the mapping perfectly — a transposition is a
+bijection — and so went unmentioned by the first version of this tool, which made the difference look
+like two stray decorations rather than a consistent reordering. A verdict of "not cosmetic" is only
+useful next to the evidence for what it *is*.
+
     usage: spirv-worddiff.py <a.spv> <b.spv>
+           spirv-worddiff.py --selftest
 """
 
 import struct
@@ -63,11 +76,78 @@ def instructions(words):
         i += length
 
 
+def assemble(instructions):
+    """A module of hand-written instructions. Enough SPIR-V to be read, not to be run."""
+    words = [MAGIC, 0x00010500, 0, 99, 0]
+    for opcode, operands in instructions:
+        words.append(((len(operands) + 1) << 16) | opcode)
+        words.extend(operands)
+    return words
+
+
+# OpTypeInt(21) is %result Width Signedness. OpVariable(59) is %type %result StorageClass.
+# OpLoad(61) is %type %result %pointer. OpIAdd(128) is %type %result %a %b, all IDs.
+#
+# The definitions are the point. A renumbering moves an ID everywhere, its definition included, so a
+# fixture whose IDs are never defined cannot tell a renumbering from a swap of two uses. The first
+# set of fixtures written for this tool was exactly that, and passed a version of the tool that got
+# the distinction wrong — the §9.35 mistake, made twice in the same file. §9.38.
+_BASE = [
+    (21, [1, 32, 1]),        # %1 = OpTypeInt 32 1
+    (59, [1, 4, 1]),         # %4 = OpVariable %1 Input
+    (59, [1, 5, 1]),         # %5 = OpVariable %1 Input
+    (61, [1, 6, 4]),         # %6 = OpLoad %1 %4
+    (61, [1, 7, 5]),         # %7 = OpLoad %1 %5
+    (128, [1, 8, 6, 7]),     # %8 = OpIAdd %1 %6 %7
+]
+
+SELFTEST = [
+    ("identical", _BASE, _BASE, "IDENTICAL"),
+    # %6 and %7 traded everywhere, definitions included.
+    ("renumbering", _BASE, [(21, [1, 32, 1]), (59, [1, 4, 1]), (59, [1, 5, 1]),
+                            (61, [1, 7, 4]), (61, [1, 6, 5]), (128, [1, 8, 7, 6])],
+     "RENUMBERING"),
+    # The definitions stay put and only the two uses swap: %7 + %6 against %6 + %7.
+    ("uses swapped, definitions unmoved", _BASE, _BASE[:5] + [(128, [1, 8, 7, 6])],
+     "NOT A PURE RENUMBERING"),
+    ("changed literal", _BASE, [(21, [1, 16, 1])] + _BASE[1:], "NOT A PURE RENUMBERING"),
+    ("different code", _BASE, _BASE[:5] + [(132, [1, 8, 6, 7])], "DIFFERENT CODE"),
+]
+
+
+def selftest():
+    """Every verdict this tool can reach, against modules whose answer is known."""
+    import io
+    import contextlib
+
+    bad = 0
+    for name, left, right, expected in SELFTEST:
+        captured = io.StringIO()
+        with contextlib.redirect_stdout(captured):
+            compare(assemble(left), assemble(right))
+        verdict = captured.getvalue().splitlines()
+        headline = next((line for line in verdict if line[:1].isupper()), "<nothing printed>")
+        ok = headline.startswith(expected)
+        bad += 0 if ok else 1
+        print(f"[{'ok ' if ok else 'BAD'}] {name}: {headline}")
+        if not ok:
+            print(f"       expected {expected}")
+
+    print(f"{len(SELFTEST) - bad}/{len(SELFTEST)} verdicts as expected")
+    return 1 if bad else 0
+
+
 def main():
+    if len(sys.argv) == 2 and sys.argv[1] == "--selftest":
+        return selftest()
+
     if len(sys.argv) != 3:
         sys.exit(__doc__)
 
-    a, b = read(sys.argv[1]), read(sys.argv[2])
+    return compare(read(sys.argv[1]), read(sys.argv[2]))
+
+
+def compare(a, b):
 
     if len(a) != len(b):
         print(f"DIFFERENT CODE: {len(a)} words vs {len(b)} — lengths do not match")
@@ -78,7 +158,7 @@ def main():
         return 0
 
     forward, backward = {}, {}
-    literal_diffs, opcode_diffs = [], []
+    differences, opcode_diffs = [], []
 
     for (ia, opa, la), (ib, opb, lb) in zip(instructions(a), instructions(b)):
         if ia != ib or opa != opb or la != lb:
@@ -91,11 +171,11 @@ def main():
                 continue
             first_literal, name = LITERAL_FROM.get(opa, (1 << 30, None))
             if k >= first_literal:
-                literal_diffs.append((name, ia, k, wa, wb))
+                differences.append((name or f"op{opa}", ia, k, wa, wb, False))
                 continue
             # The hypothesis: this word is a result ID or an ID operand.
-            if forward.setdefault(wa, wb) != wb or backward.setdefault(wb, wa) != wa:
-                literal_diffs.append(("inconsistent", ia, k, wa, wb))
+            fits = (forward.setdefault(wa, wb) == wb and backward.setdefault(wb, wa) == wa)
+            differences.append(("inconsistent" if not fits else f"op{opa}", ia, k, wa, wb, fits))
 
     print(f"{len(a)} words, {sum(1 for _ in instructions(a))} instructions")
 
@@ -105,10 +185,54 @@ def main():
             print(f"    word {offset}: opcode {opa} vs {opb}")
         return 1
 
-    if literal_diffs:
-        print(f"NOT A PURE RENUMBERING: {len(literal_diffs)} word(s) do not fit an ID bijection")
-        for what, offset, k, wa, wb in literal_diffs[:20]:
-            print(f"    {what} at word {offset}, operand {k}: {wa} vs {wb}")
+    # A renumbering moves *every* occurrence of an ID. So if an ID the mapping moves also sits
+    # somewhere the two modules already agree, the mapping is not describing a renumbering — it is
+    # describing operands that traded places while their definitions stayed where they were. That is
+    # §9.38's case: `%22 = OpLoad …` at the same word in both, and an OpISub below it using %22
+    # where the other module uses %25.
+    #
+    # Without this the tool answers RENUMBERING to a bare operand swap, which is the one direction
+    # it is not allowed to be wrong in — the whole point of it is to justify calling a difference
+    # cosmetic. The cost is false negatives: a literal in an opcode missing from LITERAL_FROM whose
+    # value happens to equal a moved ID reads as an anchor. That direction is the safe one and it
+    # names the word it tripped on, so it can be judged rather than trusted.
+    moved = set(forward) | set(backward)
+    anchored = []
+    if moved:
+        for (ia, opa, la), (ib, _, _) in zip(instructions(a), instructions(b)):
+            first_literal, _ = LITERAL_FROM.get(opa, (1 << 30, None))
+            for k in range(1, min(la, first_literal)):
+                if a[ia + k] == b[ib + k] and a[ia + k] in moved:
+                    anchored.append((ia, k, a[ia + k]))
+
+    failures = [d for d in differences if not d[5]]
+
+    if failures or anchored:
+        reasons = []
+        if failures:
+            reasons.append(f"{len(failures)} word(s) do not fit an ID bijection")
+        if anchored:
+            reasons.append(f"{len(anchored)} occurrence(s) of a remapped ID are unchanged")
+        print("NOT A PURE RENUMBERING: " + "; ".join(reasons))
+
+        if anchored:
+            print("    the IDs did not move, their uses did:")
+            for offset, k, value in anchored[:12]:
+                print(f"        %{value} is itself at word {offset}, operand {k}, in both")
+            print("        while the mapping moves it: "
+                  + ", ".join(f"%{x}->%{y}" for x, y in sorted(forward.items())[:8]))
+
+        # Every differing word, not only the failures. The words that *fit* the mapping are the
+        # ones that made this difference look smaller than it is the first time: a two-ID swap is a
+        # perfectly good bijection, so an OpISub whose operands had traded places passed without
+        # comment while the decorations above it were reported. Whoever reads this verdict is
+        # deciding whether the difference is safe, and half the difference is no basis for that.
+        print(f"    {len(differences)} differing word(s) in total, marked * where they do not fit:")
+        for what, offset, k, wa, wb, fits in differences[:40]:
+            mark = " " if fits else "*"
+            print(f"   {mark}{what} at word {offset}, operand {k}: {wa} vs {wb}")
+        if len(differences) > 40:
+            print(f"    ... and {len(differences) - 40} more")
         return 1
 
     print(f"RENUMBERING: {len(forward)} ID(s) remapped, consistently and one-to-one")
@@ -116,12 +240,16 @@ def main():
     print("    " + ", ".join(f"%{x}->%{y}" for x, y in sample)
           + (" ..." if len(forward) > len(sample) else ""))
     print("    same length, same opcodes in the same order, no literal differs,")
-    print("    and every differing word fits a single consistent ID mapping.")
-    # Said precisely, because the mapping only covers words that actually differ. An ID identical in
-    # both modules never enters it, so a remapped ID colliding with an unchanged one would not be
-    # caught here. Contrived rather than plausible — but this tool exists to justify calling a
-    # difference cosmetic, and that justification should not be stronger than the evidence.
-    print("    (IDs identical in both modules are not in the mapping and are not checked.)")
+    print("    every differing word fits a single consistent ID mapping, and every")
+    print("    remapped ID moved everywhere it appears.")
+    # The remaining hole, stated because this tool exists to justify calling a difference cosmetic
+    # and that justification must not read stronger than the evidence. An opcode missing from
+    # LITERAL_FROM has all of its operands treated as IDs, so a literal of its that differed would
+    # be absorbed into the mapping as though it were a renumbered ID. The check above catches that
+    # whenever the same value also appears unchanged somewhere; a value appearing exactly once does
+    # not get caught. Add the opcode to LITERAL_FROM if that ever matters.
+    print("    (a literal in an opcode absent from LITERAL_FROM, differing and appearing")
+    print("     nowhere else, would still be read as a renumbered ID.)")
     return 0
 
 

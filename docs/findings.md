@@ -59,6 +59,7 @@ so a bare `§4.4` or `§9.8` in a code comment is unambiguous.
 | [9.35](#935-the-last-three-gaps-and-a-tool-that-proves-rather-than-infers) | The last three gaps | the buffer labelled not named, the hash bound with its trap pinned, the renumbering provable |
 | [9.36](#936-the-last-two-unmeasured-branches-and-there-is-no-macos-rule) | No macOS rule | it sides with Linux on one call and with Windows on the other |
 | [9.37](#937-the-unsafe-pattern-found-a-third-failure-mode-and-it-looks-like-a-broken-shader) | A third failure mode | it looks like a broken shader, and the test had transcribed a sample instead of the property |
+| [9.38](#938-both-predictions-were-wrong-and-the-artifacts-had-said-so-all-along) | Both predictions wrong | not a renumbering but a reordering, and macOS zeroes small frees on its own |
 
 ### The four oracles
 
@@ -2644,8 +2645,10 @@ by running it again. Both answers were in the run that reported nothing but succ
 Both architectures are internally OS-independent, which is a stronger and more useful statement than
 the original flat check could make.
 
-**And the difference is a renumbering.** The `words` and `ops` columns added for exactly this
-question say so, from the artifacts of the passing run:
+**And the difference is a renumbering.** *(It is not. §9.38 read the modules and it is the second
+possibility listed below, not the first — the paragraph is left standing because the way it was
+wrong is the point.)* The `words` and `ops` columns added for exactly this question say so, from the
+artifacts of the passing run:
 
 | shader | words | ops | spirv |
 |---|---|---|---|
@@ -2749,6 +2752,11 @@ way round and only visible because the tool was pointed at a case whose answer w
 It also states its own limit: IDs identical in both modules never enter the mapping, so a remapped
 ID colliding with an unchanged one would not be caught. Contrived rather than plausible — but the
 justification should not read stronger than the evidence.
+
+*Not contrived. §9.38 hit it on the tool's first real use, on the first module it was pointed at, and
+the failure was in the unsafe direction: it called a swap of two operands a renumbering. The
+sentence above is exactly right about the hole and exactly wrong about the odds, which is the more
+useful of the two halves to get wrong.*
 
 520 tests.
 
@@ -2923,5 +2931,125 @@ still writing its diagnosis nowhere but a terminal. It now tees the build, the t
 into `obj/` and names the files when it fails. The third instance of one gap in one sitting: an
 instrument that hard-coded its sample, a tripwire never seen to fire, and a diagnosis printed to
 somewhere that does not keep it.
+
+521 tests.
+
+### 9.38 Both predictions were wrong, and the artifacts had said so all along
+
+Two things were left riding on the next green run rather than given one of their own, and each had a
+prediction attached. The run went green. Both predictions were wrong, and both answers had been
+sitting in the artifacts — the third time this document closes something by reading a run that
+reported nothing but success (§9.34, §9.36).
+
+#### It is not a renumbering. It is a reordering
+
+§9.34 called the x64/arm64 split a renumbering on the strength of same word count, same opcode
+histogram, different bytes. §9.35 built `tools/ci/spirv-worddiff.py` to prove it. Pointed at the
+three modules, the tool said **NOT A PURE RENUMBERING**, all three.
+
+It is right, and what is actually there is better than either answer. Disassembled:
+
+| | x64 | aarch64 |
+|---|---|---|
+| `%24` | `BuiltIn BaseVertex` | `BuiltIn VertexIndex` |
+| `%26` | `BuiltIn VertexIndex` | `BuiltIn BaseVertex` |
+| the subtraction | `%27 = OpISub %25 %22` | `%27 = OpISub %22 %25` |
+| what it computes | `VertexIndex - BaseVertex` | `VertexIndex - BaseVertex` |
+
+**Nothing is renumbered — the ID sets are identical.** Slang creates the two builtin inputs that
+`SV_VertexID` lowers to in the opposite order on the two architectures. Everything downstream
+follows in matched pairs: which ID carries which `BuiltIn`, where the two sit in the `OpEntryPoint`
+interface list, and the operand order of the `OpISub` that compensates. Every differing word in all
+three modules is one of those three, and the modules are semantically identical.
+
+The control is worth as much as the finding: `linux-arm64` against `osx-arm64` is **IDENTICAL**, byte
+for byte. Two operating systems, one architecture, the same module. §9.33 said the split was
+architectural from a table of digests; this says it from the words.
+
+#### The tool got the right verdict for the wrong reason
+
+The `OpISub` swap never appeared in the verdict. A two-ID transposition *is* a bijection, so those
+four words fit the mapping and were absorbed in silence while the decorations that did not fit were
+printed. Read the tool and the difference looks like two stray decorations; read the module and it
+is one consistent reordering with a compensating instruction.
+
+Incomplete is the smaller half. Reduced to a fixture — two variables, two loads, one `OpIAdd`, and
+nothing swapped but the two operands of the add — the tool answered **RENUMBERING**. That is the one
+direction it is not allowed to be wrong in. Its entire purpose is to justify calling a difference
+cosmetic, and its own docstring claimed it could only ever fail the safe way. The three real modules
+were saved by an accident: their decorations differed too, so the verdict came out negative for a
+reason unconnected to the instruction that mattered.
+
+The distinction the model was missing is one line long. **A renumbering moves an ID everywhere,
+including where it is defined.** Here `%22 = OpLoad …` sits at the same word in both modules and an
+`OpISub` below it uses `%22` where the other uses `%25` — an ID anchored at its definition and moved
+at its use has not been renumbered, its uses have been swapped. The tool now requires every remapped
+ID to have moved everywhere it appears, and says so when one has not:
+
+```
+NOT A PURE RENUMBERING: 8 word(s) do not fit an ID bijection; 4 occurrence(s) of a remapped ID are unchanged
+    the IDs did not move, their uses did:
+        %22 is itself at word 286, operand 2, in both
+        %25 is itself at word 290, operand 2, in both
+```
+
+and the negative verdict now lists **every** differing word rather than only the failures — twelve
+in `system-values`, where it printed eight.
+
+§9.35 wrote this limitation down and called it contrived. It was hit on the tool's first real use, by
+the first module it was pointed at, and that write-up's estimate of how likely it was to matter was
+worth nothing. Five fixtures now pin the five verdicts, and they live in the tool as `--selftest`
+rather than in a scratch directory, because `tools/ci/compare-digests.sh` runs them before it
+compares anything: the job that produces the evidence checks the instrument that reads it.
+
+The first draft of those fixtures passed the broken tool. They had no definitions, and a module
+whose IDs are never defined cannot tell a renumbering from a swap of two uses — the §9.35 mistake
+of validating a tool against a fixture that cannot fail, made a second time in the same file that
+recorded it.
+
+For the engine nothing changes and one thing is settled: no canonicalizer will make these match,
+because the emission order is upstream's. Cook on one architecture, or content-address per
+architecture, exactly as `cross-arch-differences.txt` already said.
+
+#### macOS poisons small allocations, and it is not us doing it
+
+§9.34 predicted that with the read offset fixed, macOS would scribble `0x55` at both sizes. The four
+legs of the green run, control and armed:
+
+| leg | control 64 B | control 4 KB | armed 64 B | armed 4 KB |
+|---|---|---|---|---|
+| win-x64 | `0xC3` survives | `0xC3` survives | `0xC3` survives | `0xC3` survives |
+| linux-x64 | `0xC3` survives | `0xC3` survives | `0xA5` | `0xA5` |
+| linux-arm64 | `0xC3` survives | `0xC3` survives | `0xA5` | `0xA5` |
+| osx-arm64 | **`0x00`** | `0xC3` survives | **`0x00`** | `0x55` |
+
+`fresh=0xAA` on the 64 byte block, armed, says `MallocPreScribble` reaches it — so `MallocNanoZone=0`
+worked and both allocations are in the scalable zone. The nano zone was never the reason, which was
+§9.31's standing suspicion.
+
+The control is what makes the rest readable. The 4 KB block keeps the sentinel with the variables
+removed, so the `0x55` is `MallocScribble` earning its place. The 64 byte block comes back zeroed
+**with every variable removed**, so that one is the platform: a runner that sets nothing at all still
+gets freed small blocks cleared on macOS. The mechanism is not established here and this section is
+not going to guess at one twice in the same page.
+
+So freed memory does not survive at either size on macOS, and the tripwire is armed at both — but
+only half of it is ours, and `MallocScribble` cannot be credited for the half that is not.
+
+The byte had been in the log since the first macOS run. What hid it was the sentence beside it: the
+probe classified `0x00` as "overwritten by something else (allocator metadata, or reuse)", a shrug
+that reads like noise. It now says `zeroed on free, by something other than these variables`, and
+`The_allocator_poisoning_is_armed_and_reaches_small_allocations` asserts all four bytes at both sizes
+in both runs instead of matching the sentence.
+
+#### The shape
+
+Both predictions failed the same way: a mechanism inferred from a summary statistic. Equal word
+counts and identical opcode histograms are consistent with a renumbering *and* with a reordering.
+"`MallocScribble` is live at 4 KB" is consistent with it reaching 64 bytes *and* with something else
+doing that job. In both cases the summary was true and the inference drawn from it was not, and in
+both cases the raw material that settles it was already in an artifact of a run that had gone green.
+
+The suite is not what caught either one. Reading was.
 
 521 tests.
