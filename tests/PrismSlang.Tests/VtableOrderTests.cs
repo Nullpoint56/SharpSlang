@@ -92,6 +92,9 @@ public partial class VtableOrderTests(Xunit.Abstractions.ITestOutputHelper outpu
         var slots = Emitted.Sum(i => i.Slots.Count);
         output.WriteLine($"{Emitted.Count} interfaces, {slots} vtable slots");
         Assert.InRange(slots, 300, 500);
+
+        DocumentedFactsTests.Documents("docs/design.md", $"all {slots} slot indices",
+            $"the generated layer has {slots} vtable slots");
     }
 
     [Fact]

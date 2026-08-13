@@ -34,7 +34,13 @@ public class DocumentedFactsTests
     }
 
     /// <summary>Asserts a document contains a phrase, saying what the right phrase would be.</summary>
-    private static void Documents(string file, string phrase, string what)
+    /// <remarks>
+    /// Internal because three of the numbers this guards are computed by tests that own the
+    /// measurement — the ABI probe's counts, the vtable slot total, the size of the dispatched
+    /// corpus — and pinning them from here would mean measuring them twice, in a class that cannot
+    /// skip when the compiler or the device is missing.
+    /// </remarks>
+    internal static void Documents(string file, string phrase, string what)
     {
         var text = Read(file);
         Assert.True(text.Contains(phrase, StringComparison.Ordinal),

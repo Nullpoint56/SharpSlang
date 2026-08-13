@@ -175,10 +175,10 @@ compiler is found; CI has one on every runner.
 by hand: the emitted SPIR-V, Slang's own alternate route to each fact, a vk.xml-generated enum
 mirror, the Khronos validation layers building real pipelines on a headless device from a
 **32-shader corpus**, and Slang's own test suite — 31 shaders whose expected reflection the Slang
-team wrote, compared against both `spReflection_ToJson` and this package's projection, plus **55
-compute shaders that are actually dispatched**: buffers, storage images, sampled textures and
-samplers bound at the set and binding index reflection reports, and the readback compared with the
-words Slang's own tests record. `NativeExportTests` resolves all 278 `DllImport` entry points against the
+team wrote, compared against both `spReflection_ToJson` and this package's projection. It also
+**dispatches 56 shaders** from Slang's `tests/compute` on a real device: buffers, storage images,
+sampled textures and samplers bound at the set and binding index reflection reports, and the
+readback compared with the words Slang's own tests record. `NativeExportTests` resolves all 278 `DllImport` entry points against the
 loaded library.
 
 ## Documentation
@@ -215,10 +215,12 @@ Test-only, none of it shipped in a package:
 |---|---|
 | [xUnit](https://github.com/xunit/xunit) | the test framework |
 | [PublicApiGenerator](https://github.com/PublicApiGenerator/PublicApiGenerator) | renders each package's public surface for approval testing |
-| [Vortice.Vulkan](https://github.com/amerkoleci/Vortice.Vulkan) | `vk.xml`-generated Vulkan bindings, used as the oracle for the mirrored enum values and to build real pipelines in the validation tests |
-| [Mesa lavapipe](https://gitlab.freedesktop.org/mesa/mesa) | a software Vulkan device, so the validation tests run on a CI runner with no GPU |
+| [Vortice.Vulkan](https://github.com/amerkoleci/Vortice.Vulkan) | `vk.xml`-generated Vulkan bindings, used as the oracle for the mirrored enum values and to build real pipelines and dispatch real compute work in the device tests |
+| [Mesa lavapipe](https://gitlab.freedesktop.org/mesa/mesa) | a software Vulkan device, so those tests run on a CI runner with no GPU |
 | [Vulkan-ValidationLayers](https://github.com/KhronosGroup/Vulkan-ValidationLayers) | judges the projected pipeline state against the specification |
 | [SPIRV-Tools](https://github.com/KhronosGroup/SPIRV-Tools) | `spirv-dis` and `spirv-val`, for reading emitted modules by hand |
+| [LLVM/clang](https://github.com/llvm/llvm-project) | compiles a generated probe against the pinned `slang.h`, so struct layouts and function signatures are checked against a C++ compiler rather than against the generator that produced them |
+| Slang's own [`tests/reflection` and `tests/compute`](https://github.com/shader-slang/slang/tree/master/tests) | fetched at the pinned tag. The only expected values in this repository that the Slang team wrote rather than this repository deriving |
 
 `spirv-opt` and `glslang` are used too, but through Slang: they are inside the `slang-glslang`
 library its release ships, not separate dependencies of this repository.

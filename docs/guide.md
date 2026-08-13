@@ -79,6 +79,20 @@ byte[] pixelSpirv  = program.GetEntryPointCodeBytes(1);
 
 `LoadModuleFromSource(name, path, source)` compiles a string instead, for generated shaders.
 
+**A function with no `[shader]` attribute needs its stage.** `FindEntryPoint(name)` only sees
+functions Slang already knows the stage of, which means ones carrying `[shader("vertex")]` and
+friends. A plain `float4 main() : SV_Target` is invisible to it, and to `Module.EntryPointCount`,
+because nothing in the declaration says which stage it is for — the semantic does not, and neither
+does the name. Supply it:
+
+```csharp
+using var pixel = module.FindEntryPoint("main", SlangStage.SLANG_STAGE_FRAGMENT);
+```
+
+This is what `slangc -stage fragment -entry main` does. Slang type-checks the function against the
+stage at that point rather than at link time, so a mismatch is reported with diagnostics naming the
+shader. Most HLSL written before the attribute existed is in this shape.
+
 **Pin the SPIR-V version.** `SpirvVersion` defaults to unset, which means Slang picks — measured as
 1.5. A device running Vulkan 1.1 accepts at most SPIR-V 1.3, and above that `vkCreateShaderModule`
 fails with nothing useful to say. `VulkanEnvironment.MaxSpirvVersion(VulkanApiVersion.V1_2)` maps
@@ -618,6 +632,8 @@ recognise the shape if you meet a cousin of one.
 | The `sample` interpolation modifier | Slang emits `OpDecorate … Sample` without declaring `OpCapability SampleRateShading`, which spirv-val rejects as malformed. No device feature changes it. |
 | `ParameterBlocksUseRegisterSpaces` | Byte-for-byte inert on SPIR-V. A `ParameterBlock` takes a space of its own either way. |
 | A threading bug that looks like a bad shader | Sharing a global session across threads sometimes fails as `SLANG_FAIL` on one module instead of crashing. A cooker that logs per-shader failures and continues will blame the file. If a batch reports a failure that passes on its own, suspect the thread pool before the shader. |
+| Uniform offsets are per target, not per shader | The same `ConstantBuffer<T>` lays out differently on SPIR-V and on D3D — std140 over-aligns a `struct` member and rounds its size up where D3D does neither, so a member can sit at byte 32 on Vulkan and byte 24 on D3D from identical source. Reflect against the target you will run on, and treat a baked layout as belonging to that target. Slang's own `buffer-layout` test compares one expected result across five targets by forcing D3D packing on all of them; nothing here does that, and the numbers differ accordingly. |
+| An entry point Slang cannot find | `FindEntryPoint(name)` returns nothing for a function without a `[shader]` attribute, and `EntryPointCount` counts zero, which reads as "this module has no entry points" rather than "you have not said which stage". Use the overload taking a `SlangStage`. |
 
 Reflection reports what Slang says. Where reflection and the emitted module disagreed, the module
 won, and the row above is what came of it.

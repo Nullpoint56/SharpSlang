@@ -264,6 +264,40 @@ public int queryInterface(SlangUUID* uuid, void** outObject)
 This supersedes an earlier guess in this document that the 26 vtable structs would need hand-writing.
 They do not. `IGlobalSession` generated all 33 entries (30 + `ISlangUnknown`'s 3) correctly.
 
+**And it gets it right, which is a separate claim from getting it to compile.** Everything above says
+the generator produces code that builds and dispatches. Nothing in it says the code is *correct* —
+a field at the wrong offset, a struct sized wrongly, a bitfield packed the other way round or a
+parameter dropped from a signature all compile, resolve and run, and are read as the wrong bytes at
+the wrong address. The `regen` job cannot see any of it: it compares the committed output against
+what the generator produces, which is the generator agreeing with itself.
+
+The only party that can contradict it is a C++ compiler reading the same header, and
+`NativeAbiTests` asks one. It generates a probe from the C# metadata, compiles it against the
+pinned `slang.h` and compares:
+
+| | |
+|---|---:|
+| Structs measured — `sizeof` and `alignof` | 51 |
+| Field offsets — `offsetof`, every named field | 115 |
+| Bitfield accessors — the exact bytes each property writes | 2 |
+| Free-function signatures — `static_assert` per `DllImport` | 278 |
+| Vtable method signatures — one per method an interface declares | 231 |
+
+All of them agree, on all four platforms. Two of those numbers are the ones this section's argument
+rested on and could not previously support: the bitfields are the only hand-rolled arithmetic in the
+generated layer, and the signatures are what a wrong parameter list would corrupt a stack through.
+
+Slot *order* is not in the probe. clang lays out a vtable only for a class it is going to emit one
+for, and Slang's interfaces are pure-abstract with no key function, so nothing in a probe
+translation unit causes one to exist — `-fforce-emit-vtables` included. `VtableOrderTests` derives
+all 374 slots from the header's declaration order instead, which is the same ground by a different
+route. Signatures are reachable regardless, because a pointer-to-member type needs no vtable.
+
+Both read `dotnet/Native/*.cs` as text rather than reflecting over the assembly, and that is not a
+stylistic choice: `VtblIndexAttribute` and `NativeTypeNameAttribute` are `[Conditional("DEBUG")]`,
+so in the Release configuration CI builds neither attribute reaches the metadata. A reflection-based
+version of either check would have found nothing to check and passed.
+
 **It cannot translate the C++ reflection veneer — which is fine, because §4.4 discards it anyway.**
 ClangSharp does attempt the `inline` forwarders in `TypeLayoutReflection` et al., and the attempt
 fails structurally: in C++ `this` is a pointer, in a C# struct it is a value, so it emits
@@ -518,10 +552,12 @@ exist.
 | Reflection C API relocated or renamed out of `slang-deprecated.h` (§3.3) | Medium | `NativeExportTests` resolves all 278 bound exports against the shipped binary, so a rename fails CI rather than surfacing as a `DllNotFoundException` in a consumer's build |
 | Unstable ABI across Slang versions (§3.5) | Medium | `SlangGlobalSession.Create` refuses a payload whose build tag is not the pinned one; `Build_tag_matches_the_pinned_version` ties the pin itself to `Directory.Build.props` |
 | `slang.dll` alias removal, end of 2026 (§3.4) | **Already handled** | `slang-compiler` bound from the first commit; the export test above would catch a regression |
-| Vtable layout drift on version bump | Medium | **Generated** from the pinned header (§4.3). The `regen` CI job regenerates and fails on any diff against the committed `dotnet/Native/`, so a reordering — which compiles fine and calls the wrong function — cannot land without a human reading it |
+| Vtable layout drift on version bump | Medium | `VtableOrderTests` derives all 374 slot indices from the declaration order in the pinned header and compares them against the `lpVtbl[n]` each generated method actually calls, so a reordering fails a test rather than depending on a human reading the `regen` diff. The `regen` job still runs and still fails on any diff |
+| The generated layer mistranslating a layout or a signature | Medium | `NativeAbiTests` compiles a generated probe against the pinned `slang.h` with a real C++ compiler and checks 51 struct sizes, 115 field offsets, 2 bitfield accessors and 509 signatures — 278 free functions and 231 vtable methods (§4.3). Nothing else in the suite can see an offset error; the calls all still compile and dispatch |
+| The projection reporting a layout that is self-consistently wrong | Medium | Every other reflection oracle is Slang describing itself. `SlangWalkerCorpusTests` compares `ReflectionWalker` against the expected results in Slang's own `tests/reflection`, which the Slang team wrote, and `SlangComputeCorpusTests` dispatches 56 shaders from `tests/compute` with their buffers, storage images and samplers bound where reflection says, and compares the readback with the words upstream recorded. 55 match; the one that does not is declared, with the decoding of why |
 | Reverse-interop lifetime bugs (L4) | Medium | `CallbackBoundaryTests` drives every vtable slot with a null `this`, a null out-parameter and a provider that throws from inside a read; `LifetimeTests` covers ownership; the linux CI job runs the whole suite under `MALLOC_PERTURB_`, so a freed block is no longer quietly readable |
 | `slang-glslang` needed at runtime after all | Low | Shipped. `DownstreamCompilerTests` asserts it from inside the process and a CI step asserts it in the staged payload, because its absence is reported once, on a *successful* result |
-| Monthly upstream cadence outpacing maintenance | Low | L0 is generated, so a bump is a regenerate-and-diff. `DefaultsDriftTests` and `SlangResultDriftTests` re-read the pinned header and fail on a changed constant or struct offset |
+| Monthly upstream cadence outpacing maintenance | Low | L0 is generated, so a bump is a regenerate-and-diff. `DefaultsDriftTests` and `SlangResultDriftTests` re-read the pinned header and fail on a changed constant or default; the probe above fails on a changed layout or signature; `SurfaceCoverageTests` fails on an enum value the corpus has never produced and nobody has declared untried |
 
 Two mitigations proposed here were **not** built as written. Recording that is cheaper than leaving
 the rows to imply otherwise:

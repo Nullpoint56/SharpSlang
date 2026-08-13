@@ -424,6 +424,14 @@ public sealed class SlangComputeCorpusTests(Xunit.Abstractions.ITestOutputHelper
             "no case with a storage image is being run, so image binding indices are back to being "
             + "judged only by the validation layers.");
 
+        // Both documents state it, so both are pinned. A phrase, not a table cell — see the note
+        // on the same pattern in NativeAbiTests.
+        foreach (var file in new[] { "docs/design.md", "README.md" })
+        {
+            DocumentedFactsTests.Documents(file, $"dispatches {cases.Count} shaders",
+                $"{cases.Count} compute cases are runnable");
+        }
+
         Assert.InRange(cases.Count, 20, 200);
     }
 
