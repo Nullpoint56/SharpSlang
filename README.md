@@ -164,10 +164,21 @@ dotnet run --project samples/PrismSlang.Smoke -c Release  # source -> SPIR-V, en
 `slang-compiler` and `slang-glslang`; the latter is where `spirv-opt` lives, and without it every
 shader compiles about 23% larger while Slang mentions it exactly once per session.
 
-**521 tests** run on all four platforms each push, against oracles rather than expected values typed
+A C++ compiler is optional but wanted. Six tests generate a probe, compile it against the pinned
+`slang.h`, and compare struct sizes, field offsets, bitfield packing and every function signature —
+all 278 `DllImport`s and all 231 vtable methods — against what the header actually declares. It is
+the only check in the suite that can see a layout error, and the only one that can see a wrong
+parameter list on a vtable slot nothing has ever called. They skip with instructions where no
+compiler is found; CI has one on every runner.
+
+**542 tests** run on all four platforms each push, against oracles rather than expected values typed
 by hand: the emitted SPIR-V, Slang's own alternate route to each fact, a vk.xml-generated enum
-mirror, and the Khronos validation layers building real pipelines on a headless device from a
-**32-shader corpus**. `NativeExportTests` resolves all 278 `DllImport` entry points against the
+mirror, the Khronos validation layers building real pipelines on a headless device from a
+**32-shader corpus**, and Slang's own test suite — 31 shaders whose expected reflection the Slang
+team wrote, compared against both `spReflection_ToJson` and this package's projection, plus **55
+compute shaders that are actually dispatched**: buffers, storage images, sampled textures and
+samplers bound at the set and binding index reflection reports, and the readback compared with the
+words Slang's own tests record. `NativeExportTests` resolves all 278 `DllImport` entry points against the
 loaded library.
 
 ## Documentation

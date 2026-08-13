@@ -32,6 +32,21 @@ public enum LayoutKind
     ParameterBlock,
     TextureBuffer,
     ShaderStorageBuffer,
+
+    /// <summary>
+    /// An unbound generic parameter — the <c>T</c> of a <c>struct Thing&lt;T&gt;</c> that nothing
+    /// has substituted yet.
+    /// </summary>
+    /// <remarks>
+    /// Rare, because a linked program has its generics resolved and that is what linking is for.
+    /// It is reachable by reflecting a program with global generic type parameters, which is what
+    /// Slang's own <c>tests/reflection/global-type-params.slang</c> does — and until that corpus
+    /// was compared against this projection, such a type was reported as <see cref="Unknown"/>,
+    /// which said "the walker could not identify this" about something Slang names precisely.
+    /// <see cref="TypeLayout.GenericParameterIndex"/> says <em>which</em> parameter it is.
+    /// </remarks>
+    GenericTypeParameter,
+
     Interface,
     Specialized,
     Feedback,

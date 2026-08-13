@@ -127,6 +127,92 @@ public sealed unsafe class VulkanTestDevice : IDisposable
               + "assignment is ever checked.";
     });
 
+    /// <summary>The single queue the device was created with. Family 0, which must do compute.</summary>
+    /// <remarks>
+    /// <c>CreateDevice</c> asks for family 0 and nothing else, so this is that queue.
+    /// Vulkan requires at least one family with graphics and compute, and requires family
+    /// ordering to put the most capable first in practice — but "in practice" is not a
+    /// guarantee, so <see cref="SupportsCompute"/> asks rather than assumes.
+    /// </remarks>
+    public VkQueue Queue
+    {
+        get
+        {
+            Api.vkGetDeviceQueue(0, 0, out var queue);
+            return queue;
+        }
+    }
+
+    /// <summary>Whether queue family 0 can run a compute dispatch.</summary>
+    public bool SupportsCompute
+    {
+        get
+        {
+            uint count = 0;
+            InstanceApi.vkGetPhysicalDeviceQueueFamilyProperties(PhysicalDevice, &count, null);
+            if (count == 0) return false;
+
+            var families = new VkQueueFamilyProperties[count];
+            fixed (VkQueueFamilyProperties* p = families)
+                InstanceApi.vkGetPhysicalDeviceQueueFamilyProperties(PhysicalDevice, &count, p);
+
+            return (families[0].queueFlags & VkQueueFlags.Compute) != 0;
+        }
+    }
+
+    /// <summary>
+    /// A memory type index satisfying <paramref name="requirements"/> and visible to the host.
+    /// </summary>
+    /// <remarks>
+    /// Host-visible and host-coherent for everything, which is the arrangement that needs no
+    /// staging buffer and no explicit flush. It is not how a renderer would upload a vertex buffer,
+    /// and it is exactly right here: what is under test is where the shader reads and writes, not
+    /// how fast the bytes got there.
+    /// </remarks>
+    public uint HostVisibleMemoryType(uint requirements)
+    {
+        VkPhysicalDeviceMemoryProperties properties;
+        InstanceApi.vkGetPhysicalDeviceMemoryProperties(PhysicalDevice, &properties);
+
+        const VkMemoryPropertyFlags Wanted =
+            VkMemoryPropertyFlags.HostVisible | VkMemoryPropertyFlags.HostCoherent;
+
+        for (var i = 0u; i < properties.memoryTypeCount; i++)
+        {
+            if ((requirements & (1u << (int)i)) == 0) continue;
+            if ((properties.memoryTypes[(int)i].propertyFlags & Wanted) == Wanted) return i;
+        }
+
+        throw new InvalidOperationException(
+            "no host-visible, host-coherent memory type accepts this buffer. Every Vulkan "
+            + "implementation is required to expose one, so this is a driver bug or the "
+            + "requirements mask was built wrongly.");
+    }
+
+    /// <summary>Any memory type the allocation accepts, host-visible or not.</summary>
+    /// <remarks>
+    /// For an image, which is never mapped. Asking for host-visible memory here would fail on a
+    /// discrete GPU, where optimal-tiled images live in device-local memory the host cannot see.
+    /// </remarks>
+    public uint AnyMemoryType(uint requirements)
+    {
+        VkPhysicalDeviceMemoryProperties properties;
+        InstanceApi.vkGetPhysicalDeviceMemoryProperties(PhysicalDevice, &properties);
+
+        for (var i = 0u; i < properties.memoryTypeCount; i++)
+            if ((requirements & (1u << (int)i)) != 0) return i;
+
+        throw new InvalidOperationException("no memory type accepts this allocation");
+    }
+
+    /// <summary>Whether the device can read and write a storage image of this format.</summary>
+    public bool SupportsStorageImageFormat(VkFormat format)
+    {
+        var properties = new VkFormatProperties();
+        InstanceApi.vkGetPhysicalDeviceFormatProperties(PhysicalDevice, format, &properties);
+        return (properties.optimalTilingFeatures & VkFormatFeatureFlags.StorageImage) != 0;
+    }
+
     /// <summary>Whether the device accepts this format in a vertex buffer.</summary>
     public bool SupportsVertexFormat(VkFormat format)
     {

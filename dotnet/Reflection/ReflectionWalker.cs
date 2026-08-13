@@ -1561,6 +1561,7 @@ public static unsafe class ReflectionWalker
                     Kind = kind switch
                     {
                         SlangTypeKind.SLANG_TYPE_KIND_INTERFACE => LayoutKind.Interface,
+                        SlangTypeKind.SLANG_TYPE_KIND_GENERIC_TYPE_PARAMETER => LayoutKind.GenericTypeParameter,
                         SlangTypeKind.SLANG_TYPE_KIND_SPECIALIZED => LayoutKind.Specialized,
                         SlangTypeKind.SLANG_TYPE_KIND_FEEDBACK => LayoutKind.Feedback,
                         SlangTypeKind.SLANG_TYPE_KIND_POINTER => LayoutKind.Pointer,
@@ -1758,6 +1759,9 @@ public static unsafe class ReflectionWalker
                 ElementType = ElementScalar(result),
                 ElementCount = (int)SlangApi.spReflectionType_GetElementCount(result),
             },
+            SlangTypeKind.SLANG_TYPE_KIND_GENERIC_TYPE_PARAMETER =>
+                new OpaqueLayout { Kind = LayoutKind.GenericTypeParameter, Name = name },
+
             _ => new OpaqueLayout { Kind = LayoutKind.Unknown, Name = name },
         };
     }

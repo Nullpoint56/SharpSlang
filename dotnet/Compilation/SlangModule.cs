@@ -156,6 +156,43 @@ public sealed unsafe class SlangModule : SlangObject<IModule>
         return new SlangEntryPoint(ep, name, this);
     }
 
+    /// <summary>Resolves an entry point by name and stage, for a function with no attribute.</summary>
+    /// <remarks>
+    /// <para>
+    /// <see cref="FindEntryPoint(string)"/> only sees functions carrying <c>[shader("...")]</c>.
+    /// A plain <c>float4 main() : SV_Target</c> is invisible to it, and to
+    /// <see cref="EntryPointCount"/>, because neither the name nor the semantic says which stage
+    /// the function is for. This overload supplies the stage the attribute would have carried,
+    /// which is what <c>slangc -stage fragment -entry main</c> does.
+    /// </para>
+    /// <para>
+    /// Slang type-checks the function against the stage here rather than at link time, so a
+    /// mismatch is reported with diagnostics naming the shader.
+    /// </para>
+    /// </remarks>
+    /// <exception cref="SlangException">No such function, or it is not valid for that stage.</exception>
+    public SlangEntryPoint FindEntryPoint(string name, SlangStage stage)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(name);
+
+        IEntryPoint* ep = null;
+        ISlangBlob* diagnostics = null;
+        int hr;
+        using (Utf8.Scoped n = new(name))
+        {
+            hr = Ptr->findAndCheckEntryPoint(n, stage, &ep, &diagnostics);
+        }
+
+        // The blob goes to the first call only. ThrowIfFailed consumes it — passing it to both
+        // would release it twice, which is the ownership bug this repository has already paid for
+        // once (docs/guide.md, the borrowed loadModule pointer).
+        var what = $"findAndCheckEntryPoint('{name}', {stage}) in module '{Name}'";
+        Diagnostics.ThrowIfFailed(hr, what, diagnostics);
+        Diagnostics.ThrowIfNull(ep, what, null);
+
+        return new SlangEntryPoint(ep, name, this);
+    }
+
     /// <summary>Every entry point the module declares, in declaration order.</summary>
     public SlangEntryPoint[] EntryPoints()
     {

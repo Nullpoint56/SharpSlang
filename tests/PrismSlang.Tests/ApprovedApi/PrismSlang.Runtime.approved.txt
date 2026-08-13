@@ -465,11 +465,12 @@ namespace PrismSlang.Reflection
         ParameterBlock = 9,
         TextureBuffer = 10,
         ShaderStorageBuffer = 11,
-        Interface = 12,
-        Specialized = 13,
-        Feedback = 14,
-        Pointer = 15,
-        DynamicResource = 16,
+        GenericTypeParameter = 12,
+        Interface = 13,
+        Specialized = 14,
+        Feedback = 15,
+        Pointer = 16,
+        DynamicResource = 17,
     }
     public sealed class MatrixLayout : PrismSlang.Reflection.TypeLayout, System.IEquatable<PrismSlang.Reflection.MatrixLayout>
     {

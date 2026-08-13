@@ -102,6 +102,7 @@ namespace PrismSlang
         public string? UniqueIdentity { get; }
         public PrismSlang.SlangEntryPoint[] EntryPoints() { }
         public PrismSlang.SlangEntryPoint FindEntryPoint(string name) { }
+        public PrismSlang.SlangEntryPoint FindEntryPoint(string name, PrismSlang.Native.SlangStage stage) { }
         public PrismSlang.SlangType? FindType(string name) { }
         public PrismSlang.SlangType RequireType(string name) { }
         public PrismSlang.Interop.SlangBlob Serialize() { }

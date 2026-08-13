@@ -27,6 +27,15 @@ public sealed partial class SlangHeader
     private readonly Dictionary<string, string> _constExprs = new(StringComparer.Ordinal);
     private readonly string _text;
 
+    // slang.h and slang-deprecated.h concatenated, used *only* by the vtable walker.
+    //
+    // Deliberately separate from _text. Macros, enums and constexprs are collected from slang.h
+    // alone, and folding a second header into that collection would quietly change what every
+    // drift test resolves against. Interface declarations are the one thing that genuinely spans
+    // both files: slang.h #includes slang-deprecated.h, and ICompileRequest — 84 of the 374 vtable
+    // slots — is declared there.
+    private readonly string _declarations;
+
     /// <summary>The Slang release tag this header was taken from.</summary>
     public string Version { get; }
 
@@ -39,9 +48,10 @@ public sealed partial class SlangHeader
         ["SlangUInt"] = 64, ["long"] = 64, ["short"] = 16, ["char"] = 8,
     };
 
-    private SlangHeader(string text, string version)
+    private SlangHeader(string text, string declarations, string version)
     {
         _text = text;
+        _declarations = declarations;
         Version = version;
         CollectMacros();
         CollectConstExprVariables();
@@ -63,20 +73,29 @@ public sealed partial class SlangHeader
             ?? throw new InvalidOperationException(
                 "SlangVersion assembly metadata missing - the test csproj must emit it from $(SlangVersion).");
 
+        var slang = Cached(version, "slang.h");
+        var deprecated = Cached(version, "slang-deprecated.h");
+
+        return new SlangHeader(Strip(slang), Strip(slang + "\n" + deprecated), version);
+    }
+
+    /// <summary>The pinned copy of one header, downloaded on first use.</summary>
+    private static string Cached(string version, string name)
+    {
         // Same cache tools/generate-native.ps1 populates, so a normal dev loop needs no download.
-        var cached = Path.Combine(RepoRoot(), "obj", "slang-headers", version, "slang.h");
+        var cached = Path.Combine(RepoRoot(), "obj", "slang-headers", version, name);
         if (!File.Exists(cached))
         {
             Directory.CreateDirectory(Path.GetDirectoryName(cached)!);
-            var url = $"https://raw.githubusercontent.com/shader-slang/slang/{version}/include/slang.h";
+            var url = $"https://raw.githubusercontent.com/shader-slang/slang/{version}/include/{name}";
             using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(60) };
             File.WriteAllText(cached, http.GetStringAsync(url).GetAwaiter().GetResult());
         }
 
-        return new SlangHeader(Strip(File.ReadAllText(cached)), version);
+        return File.ReadAllText(cached);
     }
 
-    private static string RepoRoot()
+    internal static string RepoRoot()
     {
         var dir = AppContext.BaseDirectory;
         while (dir is not null && !File.Exists(Path.Combine(dir, "Directory.Build.props")))
@@ -187,6 +206,159 @@ public sealed partial class SlangHeader
             else if (_text[i] == '}' && --depth == 0) return _text[start..i];
         }
         return null;
+    }
+
+    // ---------------------------------------------------------------- vtable order
+
+    /// <summary>The virtual methods of a C++ interface in vtable slot order, base classes first.</summary>
+    /// <remarks>
+    /// <para>
+    /// Slang's COM interfaces are single-inheritance chains of pure virtual methods, so a class's
+    /// vtable is its base's vtable followed by its own declarations in source order. That makes
+    /// slot N derivable from the header — and this is the only thing in the repository that can
+    /// contradict the slot numbers in <c>dotnet/Native/</c>. Those are ClangSharp's own count of
+    /// the same declarations, the <c>regen</c> CI job proves only that the committed code equals
+    /// what the generator produces, and a generator agreeing with itself is not a check.
+    /// </para>
+    /// <para>
+    /// Multiple inheritance would break the linear model outright, so it throws rather than
+    /// returning an order that is quietly wrong. Every Slang interface is single-inheritance today.
+    /// </para>
+    /// </remarks>
+    public IReadOnlyList<string> VirtualMethods(string interfaceName)
+    {
+        List<string> slots = [];
+        CollectVirtuals(interfaceName, slots, []);
+        return slots;
+    }
+
+    /// <summary>Every COM interface the headers declare, whether or not anything binds it.</summary>
+    /// <remarks>
+    /// A type qualifies by declaring <c>SLANG_COM_INTERFACE</c> or by having virtual methods, and
+    /// both halves are load-bearing. <c>ICompileRequest</c> predates Slang's COM conversion and has
+    /// no IID, so the macro alone would miss it; <c>ITypeConformance</c> is an empty derived
+    /// interface that adds nothing but an IID, so virtual methods alone would miss that.
+    /// </remarks>
+    public IReadOnlyList<string> ComInterfaces()
+    {
+        var found = new List<string>();
+
+        foreach (Match m in ClassDeclaration().Matches(_declarations))
+        {
+            var (_, body) = Declaration(m.Groups["name"].Value);
+            var own = string.Concat(TopLevelSpans(body));
+
+            if (own.Contains("SLANG_COM_INTERFACE", StringComparison.Ordinal)
+                || VirtualMethodDeclaration().IsMatch(own))
+            {
+                found.Add(m.Groups["name"].Value);
+            }
+        }
+
+        return [.. found.Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal)];
+    }
+
+    private void CollectVirtuals(string name, List<string> into, HashSet<string> seen)
+    {
+        if (!seen.Add(name))
+            throw new InvalidOperationException($"cyclic base chain reaching {name} in slang.h {Version}");
+
+        var (baseName, body) = Declaration(name);
+        if (baseName is { Length: > 0 }) CollectVirtuals(baseName, into, seen);
+
+        foreach (var m in OwnVirtuals(body)) into.Add(m.Name);
+    }
+
+    /// <summary>A virtual method as slang.h declares it.</summary>
+    /// <param name="Name">Its name.</param>
+    /// <param name="NoThrow">
+    /// Whether it carries <c>SLANG_NO_THROW</c>. That macro is <c>noexcept</c>, which C++17 makes
+    /// part of the function's <em>type</em> — so a signature check that omits it fails on every
+    /// method, and one that assumes it fails on the seven that do not have it.
+    /// </param>
+    public sealed record VirtualMethod(string Name, bool NoThrow);
+
+    /// <summary>
+    /// The virtual methods an interface declares itself, excluding everything it inherits.
+    /// </summary>
+    /// <remarks>
+    /// Inherited slots are deliberately not here. <c>&amp;ISession::queryInterface</c> in C++ has
+    /// type <c>… (ISlangUnknown::*)(…)</c>, not <c>(ISession::*)</c>, so an inherited method can
+    /// only be named against the class that declares it — where this returns it.
+    /// </remarks>
+    public IReadOnlyList<VirtualMethod> OwnVirtualMethods(string interfaceName) =>
+        [.. OwnVirtuals(Declaration(interfaceName).Body)];
+
+    private static IEnumerable<VirtualMethod> OwnVirtuals(string body)
+    {
+        foreach (var span in TopLevelSpans(body))
+            foreach (Match m in VirtualMethodDeclaration().Matches(span))
+                yield return new VirtualMethod(
+                    m.Groups["name"].Value,
+                    m.Groups["lead"].Success
+                    || m.Groups["pre"].Value.Contains("SLANG_NO_THROW", StringComparison.Ordinal));
+    }
+
+    /// <summary>The single base a C++ class derives from, and its body.</summary>
+    private (string? Base, string Body) Declaration(string name)
+    {
+        // Requiring the brace lands on the definition rather than on a forward declaration
+        // (`struct ISession;`), without needing to know which of the two comes first.
+        var open = Regex.Match(
+            _declarations,
+            $@"\b(?:struct|class)\s+{Regex.Escape(name)}\s*(?::(?<bases>[^{{;]*))?\{{");
+
+        if (!open.Success)
+            throw new InvalidOperationException($"no definition of {name} in slang.h {Version}");
+
+        string? baseName = null;
+        if (open.Groups["bases"].Success)
+        {
+            var bases = open.Groups["bases"].Value;
+            if (bases.Contains(','))
+                throw new InvalidOperationException(
+                    $"{name} derives from more than one base ('{bases.Trim()}'). Vtable slots are no "
+                    + "longer one linear sequence and they cannot be derived this way.");
+
+            baseName = Regex.Replace(bases, @"\b(?:public|protected|private|virtual)\b", " ").Trim();
+        }
+
+        var start = open.Index + open.Length;
+        var depth = 1;
+        for (var i = start; i < _declarations.Length; i++)
+        {
+            if (_declarations[i] == '{') depth++;
+            else if (_declarations[i] == '}' && --depth == 0) return (baseName, _declarations[start..i]);
+        }
+
+        throw new InvalidOperationException($"unterminated body for {name} in slang.h {Version}");
+    }
+
+    /// <summary>The runs of a class body that sit at the class's own brace depth.</summary>
+    /// <remarks>
+    /// Nested braces are skipped rather than flattened. An inline method body and a nested type
+    /// both belong to something other than this vtable, and simply deleting a nested block would
+    /// splice the text either side of it together — which can form a return type followed by the
+    /// next declaration's name and invent a method that does not exist.
+    /// </remarks>
+    private static IEnumerable<string> TopLevelSpans(string body)
+    {
+        var depth = 0;
+        var start = 0;
+
+        for (var i = 0; i < body.Length; i++)
+        {
+            if (body[i] == '{')
+            {
+                if (depth++ == 0) yield return body[start..i];
+            }
+            else if (body[i] == '}' && --depth == 0)
+            {
+                start = i + 1;
+            }
+        }
+
+        if (depth == 0) yield return body[start..];
     }
 
     /// <summary>Evaluate a C integer constant expression against this header's symbols.</summary>
@@ -404,4 +576,20 @@ public sealed partial class SlangHeader
 
     [GeneratedRegex(@"^[A-Za-z_]\w*$")]
     private static partial Regex Identifier();
+
+    // `virtual SLANG_NO_THROW IModule* SLANG_MCALL loadModule(const char*, IBlob** = nullptr) = 0;`
+    //
+    // The name is the last identifier before the parameter list. Excluding '(' from the run in
+    // between is what keeps a match inside one declaration: a return type never contains
+    // parentheses here, so the first '(' after `virtual` is always the parameter list.
+    // The `noexcept` marker is usually between `virtual` and the return type, and on exactly one
+    // declaration — ISlangClonable::clone — it sits in front of `virtual` instead. Both positions
+    // mean the same thing to the compiler, and C++17 makes noexcept part of the function's type,
+    // so reading only one position gets that method's signature wrong.
+    [GeneratedRegex(@"(?<lead>\bSLANG_NO_THROW\s+)?\bvirtual\b(?<pre>[^;{(]*?)(?<name>\w+)\s*\(")]
+    private static partial Regex VirtualMethodDeclaration();
+
+    // A class or struct *definition*. The brace is required, which skips forward declarations.
+    [GeneratedRegex(@"\b(?:struct|class)\s+(?<name>[A-Za-z_]\w*)\s*(?::[^{;]*)?\{")]
+    private static partial Regex ClassDeclaration();
 }

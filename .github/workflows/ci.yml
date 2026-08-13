@@ -90,6 +90,21 @@ jobs:
           path: obj/slang-dist
           key: slang-${{ matrix.rid }}-${{ hashFiles('Directory.Build.props') }}
 
+      # slang.h, and Slang's own tests/reflection corpus. Both are fetched from the pinned tag by
+      # the tests themselves on first use — SlangHeader and SlangTestCorpus — so this only saves
+      # the download. Keyed on the pin like the payload above, so a version bump refetches.
+      #
+      # Worth caching for a second reason: the corpus listing goes through the GitHub API, which
+      # allows 60 unauthenticated requests an hour per IP. Four legs on shared runner IPs is not a
+      # comfortable margin, and SlangTestCorpus fails loudly rather than running a subset.
+      - name: Cache the pinned headers and Slang's test corpus
+        uses: actions/cache@v4
+        with:
+          path: |
+            obj/slang-headers
+            obj/slang-tests
+          key: slang-sources-${{ hashFiles('Directory.Build.props') }}
+
       - name: Fetch native payload
         shell: pwsh
         run: ./tools/fetch-native.ps1 -Rid ${{ matrix.rid }} -Profile Spirv
@@ -231,8 +246,13 @@ jobs:
           # passed. TRX has a <Counters> element and does not change shape to suit a verbosity.
           #
           # The detailed console logger stays, because it is what puts the skip reason in the log.
+          # SlangComputeCorpusTests is here too, and needs the same device. It is the only thing
+          # in the suite that executes a shader — 51 of Slang's own compute tests dispatched with
+          # buffers bound where reflection says, compared against the words upstream recorded — so
+          # if lavapipe is missing, the check that offsets and binding indices actually work goes
+          # quiet along with the layers.
           dotnet test PrismSlang.slnx -c Release --no-build --nologo \
-            --filter "FullyQualifiedName~VulkanValidationTests" \
+            --filter "FullyQualifiedName~VulkanValidationTests|FullyQualifiedName~SlangComputeCorpusTests" \
             --logger "console;verbosity=detailed" \
             --logger "trx;LogFileName=vulkan.trx" \
             --results-directory vulkan-results
@@ -241,12 +261,57 @@ jobs:
           echo "$counters"
           passed=$(echo "$counters" | sed -n 's/.*[^a-z]passed="\([0-9]*\)".*/\1/p')
 
-          if [ "${passed:-0}" -lt 2 ]; then
-            echo "::error::only ${passed:-0} validation-layer test(s) ran on ${{ matrix.rid }}. lavapipe or the layers did not load, so the only oracle in the suite that is not Slang judging itself is switched off; the skip reason is in the output above."
+          if [ "${passed:-0}" -lt 5 ]; then
+            echo "::error::only ${passed:-0} device-backed test(s) ran on ${{ matrix.rid }}. lavapipe or the layers did not load, so the only oracle in the suite that is not Slang judging itself is switched off, and nothing dispatches a shader; the skip reason is in the output above."
             exit 1
           fi
 
-          echo "::notice::$passed validation-layer test(s) ran against lavapipe on ${{ matrix.rid }}"
+          echo "::notice::$passed device-backed test(s) ran against lavapipe on ${{ matrix.rid }}"
+
+      # The same gate as above, for the two oracles added after it, and for the same reason: both
+      # skip rather than fail when what they need is missing, and a skipped test is green.
+      #
+      #   NativeAbiTests needs a C++ compiler. Every runner has one — clang++ on the Linux and
+      #   macOS images, LLVM at its default install path on Windows — so a skip here means the
+      #   image changed, not that the check is unavailable. Without it, nothing compares the
+      #   binding's struct layout, field offsets, bitfield packing or 278 DllImport signatures
+      #   against the header, and none of those failures are visible any other way.
+      #
+      #   SlangReflectionCorpusTests and SlangWalkerCorpusTests need the corpus download. They are
+      #   [NativeFact]s, so they also skip when the payload does not load — which the Tier 0 spike
+      #   below catches, but only after these have quietly reported nothing.
+      #
+      # Counted from the TRX rather than the console summary, for the reason the step above
+      # records: the console logger changes shape with its verbosity and the TRX does not.
+      - name: The header-derived and corpus oracles actually ran
+        # Every leg, unlike the lavapipe gate above, so `shell: bash` is explicit — a Windows
+        # runner defaults to pwsh and would read the script below as PowerShell.
+        shell: bash
+        env:
+          MALLOC_PERTURB_: 165
+        run: |
+          dotnet test PrismSlang.slnx -c Release --no-build --nologo \
+            --filter "FullyQualifiedName~NativeAbiTests|FullyQualifiedName~SlangReflectionCorpusTests|FullyQualifiedName~SlangWalkerCorpusTests|FullyQualifiedName~VtableOrderTests" \
+            --logger "console;verbosity=detailed" \
+            --logger "trx;LogFileName=oracles.trx" \
+            --results-directory oracle-results
+
+          counters=$(grep -o '<Counters [^>]*>' oracle-results/oracles.trx | head -1)
+          echo "$counters"
+          passed=$(echo "$counters"  | sed -n 's/.*[^a-z]passed="\([0-9]*\)".*/\1/p')
+          skipped=$(echo "$counters" | sed -n 's/.*[^a-z]notExecuted="\([0-9]*\)".*/\1/p')
+
+          if [ "${skipped:-0}" -ne 0 ]; then
+            echo "::error::${skipped} of the header and corpus checks skipped on ${{ matrix.rid }}. The reason is printed above; each one is an oracle that is now switched off while reporting green."
+            exit 1
+          fi
+
+          if [ "${passed:-0}" -lt 14 ]; then
+            echo "::error::only ${passed:-0} header/corpus checks ran on ${{ matrix.rid }}; expected at least 14."
+            exit 1
+          fi
+
+          echo "::notice::$passed header and corpus checks ran on ${{ matrix.rid }}, none skipped"
 
       # Also the loadability gate, and on a new platform that is the job that matters most. Almost
       # every test is a [NativeFact], which *skips* when slang-compiler cannot be loaded — so a
