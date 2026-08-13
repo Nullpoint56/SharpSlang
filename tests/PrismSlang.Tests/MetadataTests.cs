@@ -140,7 +140,7 @@ public class MetadataTests(Xunit.Abstractions.ITestOutputHelper output)
     public void Metadata_outlives_nothing_and_disposes_cleanly()
     {
         // It holds a managed reference to the program, so disposal order does not matter — the
-        // rule the whole of SlangObject exists to enforce (§9.1).
+        // rule the whole of SlangObject exists to enforce.
         var (global, session, module) = Load();
         using (global) using (session) using (module)
         {

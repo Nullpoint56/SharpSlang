@@ -28,7 +28,7 @@ jobs:
       - uses: actions/checkout@v4
 
       # Needs the source tree, not just docs/: half the check is that every § a code comment cites
-      # resolves to a real heading. Splitting binding-surface.md into design.md and findings.md was
-      # only safe because the numbering is unique across both, and this is what keeps that true.
+      # resolves to a real heading in design.md. The numbered sections are cited from code by bare
+      # number, so this is what stops a renumbering from silently orphaning them.
       - name: Check documentation
         run: bash tools/ci/check-docs.sh

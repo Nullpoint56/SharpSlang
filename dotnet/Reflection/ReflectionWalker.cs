@@ -439,7 +439,7 @@ public static unsafe class ReflectionWalker
     /// The type comes the long way round: the generic's inner declaration, turned back into a type,
     /// with the specialization applied. <c>getSpecializedTypeArgCount</c> looks like the shortcut
     /// and reports 0 here — as it does everywhere else this project has asked it, including on
-    /// types written as <c>Wrapper&lt;Lambert&gt;</c> in source. See §9.20.
+    /// types written as <c>Wrapper&lt;Lambert&gt;</c> in source.
     /// </remarks>
     internal static SpecializedType ReadSpecialization(
         SlangProgramLayout* shader, SlangReflectionGeneric* specialized)
@@ -1259,7 +1259,7 @@ public static unsafe class ReflectionWalker
     /// process, on the strength of one release behaving. What has changed is that the claim is now
     /// tested rather than remembered — <c>ProberTests</c> runs the call across every binding-range
     /// shape in a child process, so if it ever crashes again that is a red test rather than a dead
-    /// runner. See §9.21.
+    /// runner.
     /// </para>
     /// </remarks>
     private static Dictionary<(long Set, long Range), BindingRangeLeaf>

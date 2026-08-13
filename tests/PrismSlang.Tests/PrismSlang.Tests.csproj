@@ -31,7 +31,7 @@
     <!--
       Where the crash prober builds to. ProberTests launches it as a child process, because the
       reflection call it performs does not throw — it ends the process, and there is no way to
-      assert that from inside the runner it would take down with it. See docs/findings.md §9.12.
+      assert that from inside the runner it would take down with it. See docs/guide.md .
     -->
     <AssemblyMetadata Include="ProberOutput"
                       Value="$(MSBuildThisFileDirectory)..\PrismSlang.Prober\bin\$(Configuration)\$(TargetFramework)" />
@@ -62,7 +62,7 @@
       whatever gives it a real answer.
 
       Vortice.Vulkan is generated from the Khronos vk.xml registry, so agreeing with it is
-      agreeing with the specification. See VulkanEnumTests, and docs §9.14.
+      agreeing with the specification. See VulkanEnumTests, and docs .
     -->
     <PackageReference Include="Vortice.Vulkan" Version="3.2.3" />
   </ItemGroup>

@@ -7,7 +7,7 @@
     needs slang-compiler, which is 36 MB per RID; *reading* a shader that was already compiled needs
     a container reader, a reflection snapshot and a Vulkan projection, all of which are plain
     managed data. A game that cooks its shaders offline should reference this and never see the
-    payload — see docs §9.16.
+    payload — see docs .
 
     What lives here:
       ShaderPackage.cs   the container: ReadFrom/WriteTo, staleness checks. Baking a *new* one needs
@@ -35,7 +35,7 @@
     <PackageId>PrismSlang.Runtime</PackageId>
     <Version>0.1.0-alpha</Version>
     <Authors>szombathy-tamas</Authors>
-    <Description>Reads what PrismSlang baked: shader package container, reflection snapshot, and SPIR-V module header. No native dependency — reference this from a shipped game and leave the 36 MB compiler in the asset pipeline.</Description>
+    <Description>Reads what PrismSlang baked: shader package container, reflection snapshot, and SPIR-V module header. No native dependency — reference this from a shipped game and leave the compiler and its per-platform payload in the asset pipeline. Alpha: built for the PrismEngine renderer and not yet load-tested by a shipping game.</Description>
     <PackageTags>slang;shader;spirv;reflection;shader-package</PackageTags>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <RepositoryType>git</RepositoryType>

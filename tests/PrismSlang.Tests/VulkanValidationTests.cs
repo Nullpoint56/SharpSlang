@@ -158,7 +158,7 @@ public sealed unsafe class VulkanValidationTests : IDisposable
     [Wide64VertexFact]
     public void A_wide_64_bit_vertex_attribute_really_does_consume_two_locations()
     {
-        // §9.14 left this open, and it is the reason for building any of this. Vulkan gives a
+        //  left this open, and it is the reason for building any of this. Vulkan gives a
         // three- or four-component 64-bit vector two consecutive locations; Slang assigns it one and
         // decorates the module to match, so reflection and the module agree with each other and
         // disagree with the specification as read here. RequireDistinctLocations refuses the
@@ -230,7 +230,7 @@ public sealed unsafe class VulkanValidationTests : IDisposable
 
         CreateGraphicsPipeline(built, attributes);
 
-        // The answer, and it settles §9.14: the layers object, spirv-val names the same location
+        // The answer, and it settles : the layers object, spirv-val names the same location
         // RequireDistinctLocations names, and the reading of the specification was right.
         var complaints = capture.Messages
             .Where(m => m.Text.Contains("ocation", StringComparison.Ordinal))
@@ -240,7 +240,7 @@ public sealed unsafe class VulkanValidationTests : IDisposable
             "the validation layers accepted a double4 vertex attribute immediately followed by "
             + "another at the next location. If they are right, the two-location rule does not "
             + "apply to vertex inputs and VulkanProjection.RequireDistinctLocations refuses a legal "
-            + "shader — remove it and update §9.14. Everything the layers did say:\n"
+            + "shader — remove it and update . Everything the layers did say:\n"
             + capture.Report());
 
         // Matched on the VUID and the location, so this cannot pass on some unrelated message that

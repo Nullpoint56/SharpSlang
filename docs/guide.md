@@ -1,6 +1,9 @@
+| The same shader, two architectures, different bytes | x64 and ARM64 emit byte-identical SPIR-V within an architecture and differ on shaders using `SV_VertexID`: Slang creates the two builtins it lowers to in the opposite order, so the modules are equivalent and will never compare equal. Windows and Linux agree exactly. Cook on one architecture, or content-address per architecture. |
+| The baked layout is byte-stable, the module is not | `ProgramLayout.ToJson` writes `
+` on every platform on purpose, so a hash over a baked layout is portable. The SPIR-V beside it carries the caveat above. |
 # PrismSlang — Guide
 
-How to use it. [findings.md](findings.md) is why it is shaped this way; this is what to type.
+How to use it: what to type, and what Slang does that will surprise you.
 
 Every code sample here is the real API — the signatures were checked against the source, not
 recalled — and the traps flagged along the way are the ones that actually bit somebody.
@@ -20,6 +23,7 @@ recalled — and the traps flagged along the way are the ones that actually bit 
 - [Serving shaders from your own filesystem](#serving-shaders-from-your-own-filesystem)
 - [Diagnostics](#diagnostics)
 - [Reading a shader's functions](#reading-a-shaders-functions)
+- [Linking with options](#linking-with-options)
 - [Laying out a generic before you use it](#laying-out-a-generic-before-you-use-it)
 - [Which bindings the code actually reads](#which-bindings-the-code-actually-reads)
 - [Caching parsed modules](#caching-parsed-modules)
@@ -106,6 +110,10 @@ foreach (var c in layout.SpecializationConstants)
     Console.WriteLine($"{c.Name} = constant_id {c.ConstantId}, default {c.DefaultInt}");
 ```
 
+`layout.SubObjectRanges` is the one view connecting a descriptor space back to the parameter that
+owns it — a `ParameterBlock` takes a space of its own and nothing else in the reflection says whose
+it is. Empty for a shader whose parameters are all bound directly.
+
 ## Filling a uniform buffer
 
 The part most likely to go wrong silently. A `ConstantBuffer<T>` reflects as a `ContainerLayout`
@@ -139,8 +147,7 @@ Arrays have `ElementStride` — a `float2[3]` in a constant buffer strides 16, n
 `StructuredBuffer<T>` reports `ResourceLayout.ElementType` and `ElementStride` for T.
 
 **Check `IsUniformOffsetKnown` / `IsUniformSizeKnown`** before doing arithmetic. Slang answers
-"I do not know" with a number near `ulong.MaxValue`, not with a null
-([§9.12](findings.md#912-first-hunt-with-the-harness-when-slang-does-not-know-and-when-it-dies)),
+"I do not know" with a number near `ulong.MaxValue`, not with a null,
 and a field after an array whose length is a specialization constant has no offset until the
 pipeline is created.
 
@@ -254,8 +261,7 @@ foreach (var e in package.EntryPoints)
 **`Name` and `ModuleEntryPointName` are different things.** `Name` is the Slang function, for
 looking a shader up. `ModuleEntryPointName` is what the entry point is called *inside the SPIR-V*,
 which is what `pName` needs — and Slang names every per-entry-point module `main` by default,
-whatever the function was called. It is read from the module, never derived
-([§9.8 A](findings.md#98-four-findings-from-the-first-consumer)).
+whatever the function was called. It is read from the module, never derived.
 
 Staleness, for a build system:
 
@@ -294,6 +300,15 @@ Returning null is a miss, and Slang continues searching. Throwing is safe — th
 catches everything and turns it into a failure code, because an exception unwinding into native
 code is undefined behaviour. Dispose the filesystem *after* the session: Slang holds the pointer for
 the session's lifetime.
+
+For tests and generated shaders there is `InMemoryFileProvider`, which needs no implementation:
+
+```csharp
+using var fs = new SlangFileSystem(new InMemoryFileProvider(new Dictionary<string, string>
+{
+    ["/shaders/lighting.slang"] = generatedSource,
+}));
+```
 
 ## Diagnostics
 
@@ -347,6 +362,57 @@ structurally (no layout, so it works for a type no shader parameter uses), `Slan
 looks one up by name, and `TypeLayout.Attributes` enumerates them where the type has a layout.
 `UserAttribute.ArgumentTypes` says what each argument was *declared* as, next to the probed value.
 
+## Linking with options
+
+`Link` takes an optional `LinkOptions`, carrying the three things that can only be decided at link
+time.
+
+```csharp
+using var program = session.Link(module, [vertex, fragment], new LinkOptions
+{
+    SpecializationArguments = [lambertType],   // concrete types for the program's generics
+    TypeConformances        = [lambert],       // implementations reachable by dynamic dispatch
+    CompilerOptions         = new LinkTimeOptions
+    {
+        Optimization = SlangOptimizationLevel.SLANG_OPTIMIZATION_LEVEL_MAXIMAL,
+    },
+});
+```
+
+**Type conformances** are how a shader dispatching through an interface reaches an implementation
+the module never named:
+
+```csharp
+var material = module.RequireType("IMaterial");           // FindType returns null instead
+using var lambert  = session.CreateTypeConformance(module.RequireType("Lambert"),  material, 0);
+using var emissive = session.CreateTypeConformance(module.RequireType("Emissive"), material, 1);
+```
+
+The trailing id is the value written into the shader's dynamic-dispatch table, so a host selecting
+an implementation by number can pin it; omit it and Slang assigns one. Registering a type that does
+not implement the interface throws rather than linking something that cannot dispatch. Without the
+conformance the implementation is not in the program at all, however visible it looks in the source.
+
+**`CompilerOptions` has exactly two typed properties**, and that is not an oversight. Slang accepts
+the whole `CompilerOptionName` range at `linkWithOptions` and silently ignores most of it, so a
+typed property for an ignored option would read as a feature and do nothing. Measured by diffing
+emitted SPIR-V:
+
+| Option | At link time |
+|---|---|
+| `Optimization` | works — None 2,052 B, default 1,868, Maximal 1,668 |
+| `FloatingPointMode` | works — Precise adds 36 B; Fast *is* the default |
+| `DebugInformation` | no effect; it is a session/target setting |
+| `VulkanUseEntryPointName` | no effect at link time; works on the session or target |
+| `Capability` | no effect — `spirv_1_6` still emits 1.5. The profile is the only version knob |
+
+The three that do nothing are reachable through `RawEntries` if a future release honours them, and a
+test asserts a raw entry and its typed equivalent emit identical bytes, so the escape hatch cannot
+rot.
+
+The main use is one session producing debug and release variants of the same shader, rather than a
+session per configuration.
+
 ## Laying out a generic before you use it
 
 "What would `Wrapper<Lambert>` lay out as" — asked without authoring a shader that declares one,
@@ -369,7 +435,7 @@ where a type parameter belongs, `spReflection_specializeGeneric` access-violates
 process on every platform. `SpecializeGeneric` refuses the combination with a message naming what
 was expected. A generic mixing type *and* value parameters can still be given them in the wrong
 order — the counts match, and Slang reports the two lists separately so the interleaving is not
-recoverable ([§9.20](findings.md#920-the-last-two-gaps-one-of-which-crashes)).
+recoverable.
 
 ## Which bindings the code actually reads
 
@@ -434,14 +500,12 @@ using var module  = session.LoadModule("surface");
 - **Disposal order does not matter.** Each wrapper takes a native reference on the object above it,
   so disposing a session while a module from it is still alive is safe. Slang does not guarantee
   this on its own — `ISession` retains `IGlobalSession`, but `IModule` does *not* retain `ISession`
-  — and the difference was invisible on Windows and Linux until a macOS runner faulted on it
-  ([§9.25](findings.md#925-the-macos-leg-found-an-ownership-bug-in-this-binding)).
+  — and the difference was invisible on Windows and Linux until a macOS runner faulted on it.
 - **Double dispose is a no-op**, including concurrently.
 - **Use after dispose throws** `ObjectDisposedException` rather than dereferencing.
 - **Forgetting to dispose leaks** until process exit — it does not corrupt. There is deliberately no
   finalizer: the GC finalizes in arbitrary order, and Slang's objects form an ownership hierarchy it
-  knows nothing about, so a finalizer could release a module into a session whose allocator has gone
-  ([§9.1](findings.md#91-two-bugs-the-cross-platform-run-found)).
+  knows nothing about, so a finalizer could release a module into a session whose allocator has gone.
 - A `ProgramLayout` outlives all of it. That is the point of a snapshot.
 
 ## Threads
@@ -465,7 +529,7 @@ What has held across every run is the part that would be unrecoverable — no th
 *success* with bytes that differ from a serial compile. That is what
 `Sharing_one_global_session_across_threads_is_never_silently_wrong` pins, and it is deliberately the
 only thing it pins: the rest is undefined behaviour, and an assertion about how undefined behaviour
-usually goes is a transcript, not a test (§9.37).
+usually goes is a transcript, not a test.
 
 ### Cooking on all your cores
 
@@ -521,8 +585,7 @@ Parallel.ForEach(programs, p =>                 // back end: parallel
 
 Both patterns are measured on every platform in CI, byte-compared against a serial baseline, by
 `Threads_with_their_own_global_session_agree_with_a_serial_compile` and
-`The_back_end_may_be_parallelised_once_the_front_end_has_finished`
-([§9.28](findings.md#928-the-primary-use-case-had-no-coverage-at-all)).
+`The_back_end_may_be_parallelised_once_the_front_end_has_finished`.
 
 ### Two things that are process-global
 
@@ -546,15 +609,15 @@ recognise the shape if you meet a cousin of one.
 | `Mode` vs the decoration | Slang says `ROW_MAJOR` where the module says `ColMajor`. Same bytes, opposite vocabulary. |
 | "Unknown" is a big number | `CategorySize.Unknown` is `ulong.MaxValue - 1`. Check `IsKnown` before arithmetic. |
 | A specialized workgroup size is `0` | Check `ThreadGroupSize.IsSpecialized`; do not divide by it. |
-| `double3`/`double4` vertex attributes | Slang assigns one location where Vulkan requires two. The projection refuses it — the module is invalid SPIR-V, confirmed by the validation layers ([§9.17](findings.md#917-the-fourth-oracle-and-the-question-it-settled)). |
+| `double3`/`double4` vertex attributes | Slang assigns one location where Vulkan requires two. The projection refuses it — the module is invalid SPIR-V, confirmed by the validation layers. |
 | A spec-constant-sized resource array | `Texture2D t[kCount]` never reflects: on Linux it **ends the process** inside Slang's reflection, on Windows it surfaces as a catchable `SEHException`. Not detectable in advance; also unusable on Vulkan, where `descriptorCount` is fixed before specialization exists. Do not write one. |
-| An `AppendStructuredBuffer` costs two descriptors | Slang emits a separate storage buffer for the count, reported as a binding named `counter` and absent from `Parameters`. Build the descriptor set layout from `DescriptorSets`, and pair counters with `CounterBinding` — with both an append and a consume buffer, the two counters have identical names ([§9.20](findings.md#920-the-last-two-gaps-one-of-which-crashes)). |
-| A descriptor with no name | Loose global uniforms (`uniform float4 gTint;` at file scope) become a constant buffer nobody declared, so its range has a null `Name`. It is not anonymous, just undeclared — check `DescriptorRange.IsImplicitGlobalBuffer`, and `ProgramLayout.GlobalConstantBufferSize` for its size ([§9.7](findings.md#97-remaining)). |
+| An `AppendStructuredBuffer` costs two descriptors | Slang emits a separate storage buffer for the count, reported as a binding named `counter` and absent from `Parameters`. Build the descriptor set layout from `DescriptorSets`, and pair counters with `CounterBinding` — with both an append and a consume buffer, the two counters have identical names. |
+| A descriptor with no name | Loose global uniforms (`uniform float4 gTint;` at file scope) become a constant buffer nobody declared, so its range has a null `Name`. It is not anonymous, just undeclared — check `DescriptorRange.IsImplicitGlobalBuffer`, and `ProgramLayout.GlobalConstantBufferSize` for its size. |
 | `GetEntryPointIdentityHash` is not a cache key | It is stable and follows the source, but is **identical across optimization levels** while the emitted code is not — so keying a pipeline cache on it serves optimised code for an unoptimised request with nothing to notice. Use it to answer "same shader"; hash `GetEntryPointCodeBytes` to answer "same code". |
-| An unbounded array that is not the last binding | `VK_DESCRIPTOR_BINDING_VARIABLE_DESCRIPTOR_COUNT_BIT` is legal only on a set's highest-numbered binding, and Slang does not arrange for that. Check `VulkanBinding.Binding` against the set before reaching for it; `PARTIALLY_BOUND` with a fixed cap is legal anywhere ([§9.18](findings.md#918-what-the-layers-said-about-the-whole-corpus)). |
+| An unbounded array that is not the last binding | `VK_DESCRIPTOR_BINDING_VARIABLE_DESCRIPTOR_COUNT_BIT` is legal only on a set's highest-numbered binding, and Slang does not arrange for that. Check `VulkanBinding.Binding` against the set before reaching for it; `PARTIALLY_BOUND` with a fixed cap is legal anywhere. |
 | The `sample` interpolation modifier | Slang emits `OpDecorate … Sample` without declaring `OpCapability SampleRateShading`, which spirv-val rejects as malformed. No device feature changes it. |
 | `ParameterBlocksUseRegisterSpaces` | Byte-for-byte inert on SPIR-V. A `ParameterBlock` takes a space of its own either way. |
-| A threading bug that looks like a bad shader | Sharing a global session across threads sometimes fails as `SLANG_FAIL` on one module instead of crashing. A cooker that logs per-shader failures and continues will blame the file. If a batch reports a failure that passes on its own, suspect the thread pool before the shader ([§9.37](findings.md#937-the-unsafe-pattern-found-a-third-failure-mode-and-it-looks-like-a-broken-shader)). |
+| A threading bug that looks like a bad shader | Sharing a global session across threads sometimes fails as `SLANG_FAIL` on one module instead of crashing. A cooker that logs per-shader failures and continues will blame the file. If a batch reports a failure that passes on its own, suspect the thread pool before the shader. |
 
-Reflection reports what Slang says. Where the two disagreed, the emitted module won — that is what
-[findings.md](findings.md) is a record of.
+Reflection reports what Slang says. Where reflection and the emitted module disagreed, the module
+won, and the row above is what came of it.

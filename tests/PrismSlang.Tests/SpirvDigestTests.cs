@@ -9,7 +9,7 @@
 // them — content hashes stop matching, incremental cooks redo everything, and a shipped asset
 // differs from the one that was tested. Normally the prior on "a compiler is deterministic" is
 // strong enough not to bother; this project has already found three-way *platform splits* in
-// Slang's reflection behaviour (§9.20, §9.22, §9.24), so here it is not.
+// Slang's reflection behaviour, so here it is not.
 //
 // This test produces the evidence; tools/ci/compare-digests.sh is what judges it, across the four
 // artifacts the matrix uploads. Deliberately not a golden file committed to the tree: a golden
@@ -32,7 +32,7 @@ public class SpirvDigestTests(Xunit.Abstractions.ITestOutputHelper output)
 {
     // Two files, because the two halves of a cooked artifact turned out to obey different rules.
     // Every leg agrees on the layout; the module is identical between operating systems and differs
-    // between *architectures*, for the three shaders that use SV_VertexID (§9.33). One file could
+    // between *architectures*, for the three shaders that use SV_VertexID. One file could
     // only ever be compared one way.
     private const string SpirvFile = "spirv-digests.txt";
     private const string LayoutFile = "layout-digests.txt";
@@ -99,7 +99,7 @@ public class SpirvDigestTests(Xunit.Abstractions.ITestOutputHelper output)
         }
 
         // The modules themselves, so a cross-platform disagreement can be taken apart rather than
-        // only detected. §9.34 established that x64 and arm64 produce the same word count and the
+        // only detected.  established that x64 and arm64 produce the same word count and the
         // same opcode histogram for the three SV_VertexID shaders — strong evidence of a
         // renumbering, but evidence, not proof. Proof needs the words, and the words only exist on
         // a machine of each architecture.

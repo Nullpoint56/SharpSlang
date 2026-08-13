@@ -63,7 +63,7 @@ public static class SpirvVersions
     /// <remarks>
     /// Measured against slang-compiler 2026.14.1: the profile is the only knob that moves the
     /// emitted header. Passing <c>-capability spirv_1_6</c> at link time is silently ignored and
-    /// still emits 1.5. See docs §9.8.
+    /// still emits 1.5. See docs .
     /// </remarks>
     public static string? ToProfileName(this SpirvVersion v) =>
         v == SpirvVersion.Unspecified ? null : $"spirv_{v.Major()}_{v.Minor()}";

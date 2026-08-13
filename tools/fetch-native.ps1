@@ -130,6 +130,40 @@ if ($stdModules) {
     Write-Host ("    {0,-40} {1,8:N1} MB" -f $stdModules.Name, ((Get-ChildItem $stdModules.FullName -Recurse -File | Measure-Object Length -Sum).Sum / 1MB))
 }
 
+# Slang's licence texts, staged beside the payload rather than inside it.
+#
+# The PrismSlang package redistributes these binaries, so it has to carry the terms they come under
+# - Apache-2.0 WITH LLVM-exception for Slang, plus the LICENSES directory covering what Slang itself
+# vendors. THIRD-PARTY-NOTICES.md describes them and this is what makes the description true.
+#
+# runtimes/<rid>/ and not runtimes/<rid>/native/: NuGet copies everything under native/ into the
+# consumer's output directory, and licence files do not belong next to a shipped game's binaries.
+# One level up they travel with the package and stop there. The csproj packs runtimes/** already,
+# so nothing needs to know these exist.
+#
+# Staged as LICENSE.txt because NuGet treats an extensionless PackagePath as a *directory*: the
+# first attempt packed Slang's LICENSE to runtimes/win-x64/LICENSE/win-x64/LICENSE. The sibling
+# LICENSES/*.txt files were fine, which is what made the one bad path easy to miss.
+$licenceRoot = Join-Path $root "runtimes" $Rid
+
+# Everything beside native/ is cleared first, so staging is idempotent across a change to this
+# script and not only across a change to the payload. Renaming LICENSE to LICENSE.txt left the old
+# name behind on the machine that made the change, and `dotnet pack` shipped both.
+Get-ChildItem $licenceRoot -Force -ErrorAction SilentlyContinue |
+    Where-Object { $_.Name -ne 'native' } |
+    Remove-Item -Recurse -Force -Confirm:$false
+
+foreach ($item in @(@{ From = 'LICENSE'; To = 'LICENSE.txt' }, @{ From = 'LICENSES'; To = 'LICENSES' })) {
+    $source = Join-Path $staged $item.From
+    if (-not (Test-Path $source)) {
+        Write-Warning "no $($item.From) in the $Rid distribution - the release layout changed, and the package would ship the binaries without their terms"
+        continue
+    }
+
+    Copy-Item $source (Join-Path $licenceRoot $item.To) -Recurse
+    Write-Host ("    {0,-40} {1,8}" -f $item.To, "(licence)")
+}
+
 $total = (Get-ChildItem $dest -Recurse -File | Measure-Object Length -Sum).Sum
 Write-Host ""
 Write-Host ("==> done. {0} payload: {1:N1} MB  (archive was {2:N1} MB)" -f $Rid, ($total / 1MB), ((Get-Item $archive).Length / 1MB))

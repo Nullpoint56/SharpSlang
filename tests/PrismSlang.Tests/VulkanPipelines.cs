@@ -77,7 +77,7 @@ public sealed unsafe class VulkanPipelines(VulkanTestDevice device)
             // highest-numbered binding in a set (VUID-…-pBindingFlags-03004). Slang does not
             // arrange for the unbounded array to be last: descriptor-arrays puts `daUnbounded` at
             // binding 1 with a sampler at binding 2, so a host that reads IsUnbounded and reaches
-            // for variable count is refused by vkCreateDescriptorSetLayout. See §9.18 — the
+            // for variable count is refused by vkCreateDescriptorSetLayout. See  — the
             // projection is right about the shader and the host still has to make this choice.
             var lastBinding = set.Bindings.Max(b => b.Binding);
 

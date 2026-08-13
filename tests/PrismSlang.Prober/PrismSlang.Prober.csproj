@@ -3,7 +3,7 @@
   <!--
     A child process for the reflection calls that do not fail — they end.
 
-    §9.12 found that reflecting a resource array sized by a specialization constant terminates the
+     found that reflecting a resource array sized by a specialization constant terminates the
     process inside spReflectionTypeLayout_getBindingRangeCount: no exception, no managed stack, no
     diagnostic. A test cannot assert that in-process, because asserting it is fatal to the runner,
     so the construct sat in the documentation as a sentence nothing checked.

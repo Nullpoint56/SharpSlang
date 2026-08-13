@@ -1,10 +1,10 @@
 // The reflection call that does not fail, asserted from outside the process it ends.
 //
-// §9.12 measured that reflecting a resource array sized by a specialization constant terminates the
+//  measured that reflecting a resource array sized by a specialization constant terminates the
 // process inside spReflectionTypeLayout_getBindingRangeCount — no exception, no managed stack, no
 // diagnostic. A test cannot assert that in-process, so for several rounds it was a sentence in the
 // documentation that nothing checked, which is the same category as a comment asserting something
-// the code does not do (§9.15). It just happened to be true.
+// the code does not do. It just happened to be true.
 //
 // PrismSlang.Prober is a program that performs one such operation and exits. Reading its exit code
 // turns the sentence into a test, and — the part worth having — turns the day Slang fixes this into
@@ -128,7 +128,7 @@ public class ProberTests(Xunit.Abstractions.ITestOutputHelper output)
     [NativeFact]
     public void A_specialization_sized_resource_array_never_reflects_successfully()
     {
-        // §9.12: `Texture2D t[kCascades]` where kCascades is a specialization constant. What is
+        // : `Texture2D t[kCascades]` where kCascades is a specialization constant. What is
         // true on both platforms is that reflection never returns an answer, and that nothing
         // distinguishes the shader beforehand, so a cooker handed one loses either the shader or
         // itself. Which of those it loses is platform-dependent, and the next test measures it.
@@ -136,14 +136,14 @@ public class ProberTests(Xunit.Abstractions.ITestOutputHelper output)
 
         Assert.True(outcome.ExitCode != 0,
             "reflecting a specialization-sized resource array now succeeds. That is an upstream "
-            + "fix and good news: §9.12 says it cannot be guarded because it cannot be detected, "
+            + "fix and good news:  says it cannot be guarded because it cannot be detected, "
             + $"and that paragraph is what needs rewriting, not this assertion.\n{outcome}");
     }
 
     [NativeFact]
     public void A_mismatched_generic_argument_kind_crashes_on_two_platforms_and_diagnoses_on_the_third()
     {
-        // §9.20, corrected by the first macOS run. This was called
+        // , corrected by the first macOS run. This was called
         // ..._ends_the_process_on_every_platform, and it does not.
         //
         //   win-x64      0xC0000005, which the CLR does not convert into anything catchable
@@ -186,7 +186,7 @@ public class ProberTests(Xunit.Abstractions.ITestOutputHelper output)
         {
             Assert.True(outcome.ExitCode is not (0 or 1 or 2),
                 "specializing a generic with a mismatched argument list no longer ends the process "
-                + "here. That is an upstream fix, and §9.20 plus the guard in SpecializeGeneric are "
+                + "here. That is an upstream fix, and  plus the guard in SpecializeGeneric are "
                 + $"what need revisiting — not this assertion.\n{outcome}");
             return;
         }
@@ -202,7 +202,7 @@ public class ProberTests(Xunit.Abstractions.ITestOutputHelper output)
     public void Specializing_a_non_generic_type_segfaults_only_on_Linux()
     {
         // The fifth measured crash, and it cost a green run to find: the call sat in an ordinary
-        // in-process test, passed on Windows, and killed the runner on Linux. Same shape as §9.1 —
+        // in-process test, passed on Windows, and killed the runner on Linux. Same shape as  —
         // a defect that only exists on the platform not being developed on — and the same lesson,
         // which is that the second platform is the control and not a formality.
         //
@@ -225,7 +225,7 @@ public class ProberTests(Xunit.Abstractions.ITestOutputHelper output)
         {
             Assert.True(outcome.ExitCode is not (0 or 1 or 2),
                 "specializeType on a non-generic type no longer ends the process on Linux. If it "
-                + $"now returns null there too, the split in §9.22 is closed.\n{outcome}");
+                + $"now returns null there too, the split in  is closed.\n{outcome}");
         }
         else
         {
@@ -237,7 +237,7 @@ public class ProberTests(Xunit.Abstractions.ITestOutputHelper output)
             //
             // Windows's answer, not Linux's — which is worth noticing, because the sibling test
             // below measured the opposite grouping on the same platform. "macOS behaves like Linux"
-            // would have been the natural guess for both and would have been wrong for one (§9.36).
+            // would have been the natural guess for both and would have been wrong for one.
             Assert.Equal(0, outcome.ExitCode);
             Assert.Contains("refused", outcome.Stdout, StringComparison.Ordinal);
         }
@@ -258,7 +258,7 @@ public class ProberTests(Xunit.Abstractions.ITestOutputHelper output)
 
         Assert.True(outcome.ExitCode != 0,
             "GetSpecializedElementCount now survives a specialization-sized array. That is the "
-            + "upstream fix §9.12 has been waiting for: the size marker guard in ReflectionWalker "
+            + "upstream fix  has been waiting for: the size marker guard in ReflectionWalker "
             + $"could be relaxed, and ArrayLayout.IsSpecializationSized reconsidered.\n{outcome}");
 
         Assert.Contains("SLANG_TYPE_KIND_ARRAY", outcome.Stdout, StringComparison.Ordinal);
@@ -289,10 +289,10 @@ public class ProberTests(Xunit.Abstractions.ITestOutputHelper output)
             else
             {
                 // Unmeasured on macOS, and this is where the answer arrives. If either exits
-                // abnormally, that is the crasher and §9.24 can stop saying "on suspicion".
+                // abnormally, that is the crasher and  can stop saying "on suspicion".
                 Assert.True(outcome.ExitCode is 0 or 1,
                     $"'{probe}' ended the prober on this platform — which makes it the candidate "
-                    + $"§9.24 could not name.\n{outcome}");
+                    + $" could not name.\n{outcome}");
             }
         }
     }
@@ -321,7 +321,7 @@ public class ProberTests(Xunit.Abstractions.ITestOutputHelper output)
     [NativeFact]
     public void Releasing_the_hierarchy_outermost_first_survives()
     {
-        // §9.26, and the reason it is here rather than only in LifetimeTests: the in-process
+        // , and the reason it is here rather than only in LifetimeTests: the in-process
         // version of this teardown has now killed the macOS test host three times, and each run
         // cost fifty-odd tests that never got to report. A dead host names one test and destroys
         // every other signal in the run.
@@ -351,7 +351,7 @@ public class ProberTests(Xunit.Abstractions.ITestOutputHelper output)
     [NativeFact]
     public void The_allocator_poisoning_is_armed_and_reaches_small_allocations()
     {
-        // §9.31. The control for the tripwires the whole cross-platform strategy rests on. Both are
+        // . The control for the tripwires the whole cross-platform strategy rests on. Both are
         // environment variables, and a runner can set one, print it in the log, and have it do
         // nothing — which is precisely what MALLOC_CHECK_=3 turned out to be. An unarmed tripwire
         // and one that found nothing are the same green.
@@ -393,7 +393,7 @@ public class ProberTests(Xunit.Abstractions.ITestOutputHelper output)
 
         // Both bytes, both sizes, both runs. Matching the sentence the probe printed was enough
         // while every leg's answer was one of two, and stopped being enough the moment a leg
-        // answered with a third thing (§9.38).
+        // answered with a third thing.
         var (armedSmall, armedLarge) = (Poisoning(armed, Small), Poisoning(armed, Large));
         var (cleanSmall, cleanLarge) = (Poisoning(clean, Small), Poisoning(clean, Large));
 
@@ -419,7 +419,7 @@ public class ProberTests(Xunit.Abstractions.ITestOutputHelper output)
         }
         else
         {
-            // macOS, measured on osx-arm64, and not what §9.34 predicted. It predicted 0x55 at both
+            // macOS, measured on osx-arm64, and not what  predicted. It predicted 0x55 at both
             // sizes once the probe stopped reading the tiny allocator's tail metadata. What the
             // fixed probe reported:
             //
@@ -470,7 +470,7 @@ public class ProberTests(Xunit.Abstractions.ITestOutputHelper output)
     [NativeFact]
     public void Threads_with_their_own_global_session_agree_with_a_serial_compile()
     {
-        // §9.28. slang.h: "Distinct global sessions may be used from different threads in
+        // . slang.h: "Distinct global sessions may be used from different threads in
         // parallel." Eight threads, eight global sessions, one barrier so they are all inside the
         // compiler at once, and every result compared byte-for-byte against a serial baseline.
         //
@@ -523,7 +523,7 @@ public class ProberTests(Xunit.Abstractions.ITestOutputHelper output)
         // win-x64 threw instead of crashing — the same measurement, differently shaped. Both of its
         // branches matched strings transcribed from an observed run rather than the invariant, and
         // the crash branch had the mirror defect: a probe that printed "0 disagreed" and then died
-        // in teardown would have failed a test whose property held (§9.37).
+        // in teardown would have failed a test whose property held.
         var outcome = Run("threads-shared-global-session");
         output.WriteLine(outcome.ToString());
 
@@ -539,7 +539,7 @@ public class ProberTests(Xunit.Abstractions.ITestOutputHelper output)
     {
         // Three threading probes are read through one token, and the unsafe one asserts only that
         // the token is absent. That assertion has never failed and — if everything keeps working —
-        // never will, which makes it indistinguishable from an assertion that *cannot* fail. §9.31
+        // never will, which makes it indistinguishable from an assertion that *cannot* fail.
         // is a whole finding about the difference, so this fires it deliberately: fabricated
         // results, the real reporting path, and the exact text the other tests match on.
         //
@@ -569,7 +569,7 @@ public class ProberTests(Xunit.Abstractions.ITestOutputHelper output)
     /// The literal match is right here and wrong one test up. These two patterns are documented as
     /// allowed, so all three of surviving, not throwing and not disagreeing are required and a
     /// weaker assertion would be throwing away the finding. The unsafe pattern is documented as
-    /// undefined, where only the last of the three is a property of anything (§9.37).
+    /// undefined, where only the last of the three is a property of anything.
     /// </remarks>
     private static void AssertThreadsAgreed(Outcome outcome, string why)
     {
@@ -580,7 +580,7 @@ public class ProberTests(Xunit.Abstractions.ITestOutputHelper output)
     [NativeFact]
     public void How_it_fails_depends_on_the_platform()
     {
-        // Measured, and not what §9.12 said. Slang throws a C++ `Slang::InternalError` out through
+        // Measured, and not what  said. Slang throws a C++ `Slang::InternalError` out through
         // a `extern "C"` boundary, and the two runtimes disagree about what that is:
         //
         //   linux-x64   no handler, std::terminate, SIGABRT — exit 134, "terminate called after
@@ -590,7 +590,7 @@ public class ProberTests(Xunit.Abstractions.ITestOutputHelper output)
         //
         // So "terminates the process" was true of the platform it was measured on. Recording both
         // matters for the engine: a cook farm on Linux dies mid-batch where a developer's Windows
-        // machine reports one failed shader — which is the same shape as §9.1, and the reason that
+        // machine reports one failed shader — which is the same shape as , and the reason that
         // finding took a second platform to see.
         var outcome = Run("specialization-sized-resource-array");
 
@@ -615,7 +615,7 @@ public class ProberTests(Xunit.Abstractions.ITestOutputHelper output)
             //
             // The Itanium ABI answer, and Linux's — the opposite grouping to the sibling test
             // above, which measured macOS siding with Windows on the same runner. So there is no
-            // "macOS is like Linux" rule to lean on; each call has to be asked (§9.36).
+            // "macOS is like Linux" rule to lean on; each call has to be asked.
             //
             // stderr is asserted as well as the exit code, because "the process died" and "the
             // process died of this" are different facts and only the second one dates.

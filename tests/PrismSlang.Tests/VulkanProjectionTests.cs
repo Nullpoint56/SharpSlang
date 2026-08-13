@@ -94,7 +94,7 @@ public class VulkanProjectionTests
         // every binding reported every stage in the program. Conservative, safe, and it left a
         // renderer wanting tight stageFlags to work them out itself.
         //
-        // IMetadata knows per entry point, and the reflection walk now asks it (§9.24). In this
+        // IMetadata knows per entry point, and the reflection walk now asks it. In this
         // shader `u` is read by both stages — u.mvp in the vertex, u.tint and u.exposure in the
         // fragment — and the other three are fragment-only.
         var set = Assert.Single(Project().DescriptorSets);

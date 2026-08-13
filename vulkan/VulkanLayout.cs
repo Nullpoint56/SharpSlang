@@ -48,7 +48,7 @@ namespace PrismSlang.Vulkan;
 /// that maps <c>IsUnbounded</c> straight onto variable count is refused by
 /// <c>vkCreateDescriptorSetLayout</c> rather than by a driver at draw time. When the binding is not
 /// last, <c>VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT</c> with a fixed cap is legal anywhere and is
-/// what the validation harness does (§9.18).
+/// what the validation harness does.
 /// </para>
 /// <para>
 /// A <see cref="VulkanDescriptorType.StorageImage"/> whose <paramref name="ImageFormat"/> is

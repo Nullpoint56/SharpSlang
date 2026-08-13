@@ -1,7 +1,7 @@
 // A headless Vulkan device with the validation layers talking.
 //
-// The fourth oracle. The first three are the emitted module (§9.11), invariants with no oracle
-// (§9.12), and the specification as read by a person (§9.14) — and that last one is the weak link.
+// The fourth oracle. The first three are the emitted module, invariants with no oracle
+//, and the specification as read by a person — and that last one is the weak link.
 // RequireDistinctLocations refuses a shader because of a rule this repository read out of the spec,
 // in a case where Slang and the emitted module agree with each other and disagree with the reading.
 // Nothing already here could settle it, because both sides of every comparison came from Slang.
@@ -338,7 +338,7 @@ public sealed unsafe class VulkanTestDevice : IDisposable
         void* userData)
     {
         // Called from the loader. An exception escaping here is undefined behaviour, exactly as in
-        // SlangFileSystem's thunks — §9.15.
+        // SlangFileSystem's thunks — .
         try
         {
             var id = data->pMessageIdName is null ? "" : ReadUtf8(data->pMessageIdName);

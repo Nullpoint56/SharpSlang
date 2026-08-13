@@ -41,7 +41,7 @@
 //   1. Every wrapper holds a managed reference to its owner, so the owner cannot be collected
 //      while a child is alive, and a *native* reference on every ancestor above it, so none of
 //      them can be destroyed early or in the wrong order. See _ancestors — the native half took
-//      two more platforms and two more findings to get right (§9.25, §9.26).
+//      two more platforms and two more findings to get right.
 //   2. Failing to Dispose leaks until process exit. That is the correct trade: a leak is a bug you
 //      can find with a memory profiler, whereas corruption is a bug you find in a crash dump from
 //      a player six months later.
@@ -82,7 +82,7 @@ public abstract unsafe class SlangObject : IDisposable
     //     session, after Link            1      <- nor does the linked program
     //
     // So `session.Dispose()` while a module was still alive dropped the last reference and
-    // destroyed it, leaving every module and program pointing into freed memory (§9.25).
+    // destroyed it, leaving every module and program pointing into freed memory.
     //
     // Holding a reference on the *immediate* owner fixed that and did not fix the crash, because
     // the chain it builds is only transitive while the intermediate wrappers are alive. Dispose the
@@ -101,7 +101,7 @@ public abstract unsafe class SlangObject : IDisposable
     // does not enforce that. So each wrapper holds a reference on the whole chain above it, and
     // Dispose releases them nearest-first: whatever is released last, an ancestor is always
     // destroyed *after* its descendants and at the top level, never nested inside one of their
-    // destructors. That is what makes "disposal order does not matter" true (§9.26).
+    // destructors. That is what makes "disposal order does not matter" true.
     //
     // Pointers are captured here rather than read from _owner later, because by then the owner's
     // wrapper may be disposed and Raw would throw. Depth is at most four.
@@ -153,7 +153,7 @@ public abstract unsafe class SlangObject : IDisposable
     /// <remarks>
     /// Internal and named so nobody reaches for it by accident. It exists because the claim that
     /// "each object holds its own reference to what it needs" was read off COM convention and never
-    /// measured, and the only way to measure it is to ask Slang for the count — see §9.25.
+    /// measured, and the only way to measure it is to ask Slang for the count —
     /// </remarks>
     internal void* RawForTests => Raw;
 

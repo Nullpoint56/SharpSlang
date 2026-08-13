@@ -6,7 +6,7 @@
 // reading three hand-written shaders while ModuleAgreementTests read twenty-eight, which made the
 // most valuable oracle the narrowest one in the suite by an order of magnitude.
 //
-// So the same move that turned three rounds of hand-picked comparisons into §9.11: stop choosing
+// So the same move that turned three rounds of hand-picked comparisons into : stop choosing
 // what to look at. Every corpus shader is compiled, projected, and built into a real
 // VkPipeline — descriptor set layouts, push constant ranges, vertex attributes and all — and the
 // layers decide.
@@ -64,7 +64,7 @@ public sealed unsafe class VulkanCorpusValidationTests(Xunit.Abstractions.ITestO
             "the projection refuses this shader on purpose — a three- or four-component 64-bit "
             + "vector consumes two locations and Slang numbers it as one, so ToVulkan throws rather "
             + "than emit an overlap. VulkanValidationTests bypasses the refusal to put the question "
-            + "to the layers directly; see §9.14.",
+            + "to the layers directly;",
         ["tessellation"] =
             "hull and domain with no vertex stage. A graphics pipeline needs one, and a supplied "
             + "vertex stage would have to produce this hull shader's exact input patch — which is "
@@ -77,7 +77,7 @@ public sealed unsafe class VulkanCorpusValidationTests(Xunit.Abstractions.ITestO
             + "which spirv-val rejects as invalid SPIR-V regardless of any device feature. Not a "
             + "projection question, and asserted directly by "
             + "`The_sample_interpolation_modifier_emits_a_module_spirv_val_rejects` below so the "
-            + "day it is fixed upstream is a failing test rather than a silence. See §9.18.",
+            + "day it is fixed upstream is a failing test rather than a silence.",
     };
 
     public static TheoryData<string> Cases()
@@ -195,7 +195,7 @@ public sealed unsafe class VulkanCorpusValidationTests(Xunit.Abstractions.ITestO
         {
             // So each stage's module names its entry point as the shader does, which is what pName
             // has to match. Without it every stage is called `main` and a two-stage pipeline cannot
-            // be told apart from itself — see §9.8.
+            // be told apart from itself —
             Targets = [new TargetOptions { UseEntryPointNameInSpirv = true }],
         });
         using var module = session.LoadModuleFromSource(caseName, $"{caseName}.slang", source);
@@ -437,7 +437,7 @@ public sealed unsafe class VulkanCorpusValidationTests(Xunit.Abstractions.ITestO
     {
         // The descriptor set layouts and the pipeline layout are built for every case without
         // exception — they are the projection's main output, and the bug this driver found on its
-        // first run (§9.18) was rejected here rather than at pipeline creation.
+        // first run was rejected here rather than at pipeline creation.
         using var built = Pipelines.BuildLayout(layout);
 
         // An input attachment cannot be used with plain dynamic rendering; it wants a render pass,

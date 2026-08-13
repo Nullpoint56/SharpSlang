@@ -34,7 +34,7 @@
     <PackageId>PrismSlang.Vulkan</PackageId>
     <Version>0.1.0-alpha</Version>
     <Authors>szombathy-tamas</Authors>
-    <Description>Vulkan projection for PrismSlang reflection: descriptor set layouts, push constant ranges, and vertex input attributes from a Slang shader. No Vulkan binding dependency — enums mirror the spec's values for a direct cast.</Description>
+    <Description>Vulkan projection for PrismSlang reflection: descriptor set layouts, push constant ranges, and vertex input attributes from a Slang shader. No Vulkan binding dependency — enums mirror the spec's values for a direct cast. Alpha: built for the PrismEngine renderer and not yet load-tested by a shipping game.</Description>
     <PackageTags>slang;vulkan;spirv;shader;reflection;descriptor-set</PackageTags>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <RepositoryType>git</RepositoryType>
@@ -44,7 +44,7 @@
     PrismSlang.Runtime, not PrismSlang. Projecting a layout is arithmetic over managed data and
     never touches the compiler, so referencing the compiler dragged a 36 MB per-RID payload behind
     a 10 KB assembly for every consumer — including a game that only reads baked packages. Docs
-    §9.16.
+    .
   -->
   <ItemGroup>
     <ProjectReference Include="..\runtime\PrismSlang.Runtime.csproj" />

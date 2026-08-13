@@ -1,40 +1,21 @@
 #!/usr/bin/env bash
 #
-# Documentation checks. Cheap enough to run on every markdown-only change, which is the point:
-# those changes skip the build matrix, so this is what stands in for it. It also runs in the main
-# job, because two of the three properties below can be broken by a change that touches no markdown
-# at all.
+# Two things a reader would notice and no build would: a link that goes nowhere, and a solution
+# entry pointing at a file that is not there. Both have happened here — renaming a document left
+# thirteen source references updated and the .slnx entry dangling, and deleting one left a link in
+# design.md pointing at nothing.
 #
-# Four properties. Every one of them has already been broken here at least once:
+# It used to check more. A §-reference validator existed because two documents shared one numbering
+# and ~170 code comments cited it; one of those documents is gone and the citations with it. What is
+# left is small enough to read.
 #
 #   1. Every internal link resolves — the file exists and the anchor matches a real heading.
-#      Anchors are generated from heading text, so renaming a heading silently breaks every link
-#      to it and nothing complains until a reader clicks.
+#   2. Every § a code comment cites is a heading in design.md, whose numbers are cited by bare
+#      number and therefore must not move.
+#   3. Every file the solution lists exists, and every document and script is listed.
 #
-#   2. Every § reference resolves to a heading in design.md or findings.md — from the source *and*
-#      from the documents themselves. The two documents share one numbering — §1-§8 in design,
-#      §9.x in findings — and ~48 code comments cite a bare section number relying on that.
-#      The documents were excluded from this check at first, on the theory that a § in prose is
-#      about a neighbour and needs no verifying. Including them found a citation of section 5.4 in
-#      design.md, where section 5 has no numbered subsections at all and never has.
-#      (Written without the sigil on purpose: this file is scanned too, so a comment about a bad
-#      reference, spelled the normal way, is a bad reference.)
-#
-#   3. Every file the solution lists exists. Renaming binding-surface.md to design.md updated
-#      thirteen source references and left the one in PrismSlang.slnx pointing at nothing — a
-#      dangling entry the IDE shows as a missing file and no build ever complains about. The
-#      solution's non-project files are the docs and the scripts, so they belong in this check.
-#
-#   4. Every test class the documents name exists. §7's risk table names the test or CI job that
-#      enforces each mitigation, rather than citing a section of this document — a row that cited
-#      §4.3 in support of a claim §4.3 overturns is what prompted the change. Naming a control
-#      only helps if the control is real, so this checks that it is.
-#
-# What none of this can see: whether a cited section actually *supports* the claim citing it. This
-# validates the citation graph's edges, not its arguments. Four of the defects in findings.md were
-# of exactly that shape — a comment asserting something the code did not do — and the only reason
-# property 4 exists is that naming an artefact instead of a section moves part of that class from
-# unverifiable prose into a grep.
+# What none of this sees is whether a document is *true*. DocumentedFactsTests covers the countable
+# part of that; the rest is reading.
 #
 # Usage:  bash tools/ci/check-docs.sh
 
@@ -42,32 +23,26 @@ set -uo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/../.."
 
 problems=$(mktemp)
-trap 'rm -f "$problems"' EXIT
+sections=$(mktemp)
+trap 'rm -f "$problems" "$sections"' EXIT
 
-DOCS=(README.md docs/design.md docs/findings.md docs/guide.md)
+DOCS=(README.md THIRD-PARTY-NOTICES.md docs/design.md docs/guide.md)
 
 # GitHub's anchor rule, near enough: lowercase, drop anything that is not alphanumeric, space or
 # hyphen, then spaces to hyphens.
-# The trailing newline matters: anchors_of feeds these to `grep -qxF`, and without it every anchor
-# in a document concatenates into one line that matches nothing. That was this script's first bug.
 anchor_of() {
     printf '%s\n' "$1" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9 -]//g; s/ /-/g'
 }
 
-# Every heading in a file, as its anchor, one per line.
 anchors_of() {
     grep -E '^#{1,6} ' "$1" | sed 's/^#\{1,6\} *//' | while IFS= read -r heading; do
         anchor_of "$heading"
     done
 }
 
-# Whether a file has a heading with this anchor.
-#
-# Written with a variable rather than `anchors_of "$1" | grep -qxF "$2"`, which is the obvious form
-# and is wrong under `set -o pipefail`: `grep -q` exits the moment it matches, the producer takes a
-# SIGPIPE, and pipefail reports the pipeline as failed *because* the match succeeded. It only
-# appeared to work for a document's last heading, where the producer had already finished writing.
-# This script's second bug, and a better one than its first.
+# Written with a variable rather than piping into `grep -q`, which is the obvious form and is wrong
+# under `set -o pipefail`: grep exits on the first match, the producer takes a SIGPIPE, and the
+# pipeline reports failure *because* the match succeeded.
 has_anchor() {
     local anchors
     anchors=$(anchors_of "$1")
@@ -90,7 +65,6 @@ for src in "${DOCS[@]}"; do
 
         if [ -n "$file" ]; then
             target="$dir/$file"
-            # Collapse one level of ../ so docs/../README.md resolves.
             target="${target#./}"
             while [[ "$target" == */../* ]]; do
                 target=$(printf '%s' "$target" | sed 's|[^/]*/\.\./||')
@@ -109,35 +83,27 @@ for src in "${DOCS[@]}"; do
     done
 done
 
-# ---------------------------------------------------------------- 2. § references from the source
+# ---------------------------------------------------------------- 2. § references
 
 echo "==> section references"
 
-sections=$(mktemp)
-trap 'rm -f "$problems" "$sections"' EXIT
-{
-    grep -hoE '^#{2,3} [0-9]+(\.[0-9]+)?' docs/design.md docs/findings.md | sed 's/^#* *//'
-} | sort -u > "$sections"
+grep -hoE '^#{2,3} [0-9]+(\.[0-9]+)?' docs/design.md | sed 's/^#* *//' | sort -u > "$sections"
 
 if [ ! -s "$sections" ]; then
-    echo "found no numbered headings in docs/ - the extraction is broken, not the docs" >> "$problems"
+    echo "found no numbered headings in design.md - the extraction is broken, not the doc" >> "$problems"
 fi
 
-# Cited from code, scripts, project files — and from the documents. A § in prose was assumed not to
-# need checking, because it points at a neighbour and a reader would notice. Nobody noticed 5.4.
-#
 # obj/ is excluded and must stay excluded: fetch-native.ps1 stages Slang's own release there,
 # user-guide markdown included, and scanning it would have this script grading upstream's prose.
 cited=$(grep -rhoE '§ ?[0-9]+(\.[0-9]+)?' \
             --include='*.cs' --include='*.csproj' --include='*.props' \
-            --include='*.ps1' --include='*.sh' --include='*.yml' \
-            --include='*.md' \
+            --include='*.ps1' --include='*.sh' --include='*.yml' --include='*.md' \
             --exclude-dir=obj --exclude-dir=bin --exclude-dir=runtimes . 2>/dev/null \
         | sed 's/§ *//' | sort -u)
 
 for section in $cited; do
     grep -qxF "$section" "$sections" \
-        || echo "code cites §$section, which is not a heading in design.md or findings.md" >> "$problems"
+        || echo "code cites §$section, which is not a heading in design.md" >> "$problems"
 done
 
 # ---------------------------------------------------------------- 3. solution file references
@@ -155,34 +121,12 @@ for solution in *.slnx; do
         done
 done
 
-# The reverse, for the two directories the solution is supposed to mirror. A document nobody can
-# find from the IDE is most of the way to a document nobody reads, and adding one is exactly when
-# updating the solution gets forgotten.
-for expected in docs/*.md tools/*.ps1 tools/ci/*.sh README.md; do
+# The reverse, for the directories the solution mirrors. A document nobody can find from the IDE is
+# most of the way to a document nobody reads.
+for expected in docs/*.md tools/*.ps1 tools/ci/*.sh README.md LICENSE THIRD-PARTY-NOTICES.md; do
     [ -f "$expected" ] || continue
     grep -qF "Path=\"$expected\"" ./*.slnx 2>/dev/null \
         || echo "$expected exists but no .slnx lists it" >> "$problems"
-done
-
-# ---------------------------------------------------------------- 4. named controls exist
-
-echo "==> named tests"
-
-# §7 names the test class or CI job that enforces each mitigation instead of citing a section of
-# design.md, after a row spent its life citing the section that refuted it. That only helps if the
-# names are real, so: every `SomethingTests` and every `Method_named_like_this` the documents put in
-# backticks must be declared under tests/.
-#
-# Deliberately narrow. Both patterns match this repo's own conventions and nothing else — a class
-# suffixed Tests, and xunit's sentence-shaped method names. Widening it to "any backticked
-# identifier" would start grading upstream's vocabulary, and a check with false positives gets
-# muted, which is worse than not having it.
-named=$(grep -rhoE '`([A-Za-z0-9]+Tests|[A-Z][a-z0-9]*(_[a-z0-9]+)+)`' "${DOCS[@]}" 2>/dev/null \
-        | tr -d '`' | sort -u)
-
-for name in $named; do
-    grep -rqE "(class|void) +$name\b" tests/ --include='*.cs' \
-        || echo "docs name \`$name\`, which is not declared anywhere under tests/" >> "$problems"
 done
 
 # ---------------------------------------------------------------- verdict
@@ -191,11 +135,10 @@ if [ -s "$problems" ]; then
     echo
     echo "documentation problems:"
     sed 's/^/    /' "$problems"
-    count=$(wc -l < "$problems")
     echo
-    echo "::error::$count documentation problem(s)"
+    echo "::error::$(wc -l < "$problems") documentation problem(s)"
     exit 1
 fi
 
 echo
-echo "OK - $(wc -l < "$sections") numbered sections; links, § references and solution entries all resolve"
+echo "OK - links, § references and solution entries all resolve"

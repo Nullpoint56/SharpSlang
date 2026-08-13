@@ -3,7 +3,7 @@
 // Separated from ShaderPackage itself, which lives in PrismSlang.Runtime. Reading a package needs
 // nothing but managed code; *making* one needs a LinkedProgram, a SlangModule and the 36 MB
 // compiler behind them. Keeping the two in one class meant a game that only ever calls ReadFromFile
-// still had to reference the compiler to name the type — see docs §9.16.
+// still had to reference the compiler to name the type — see docs .
 //
 // So the split runs exactly along that line: the container, its reader, its writer and its
 // staleness checks are on the runtime side; this, the only method that compiles anything, is here.

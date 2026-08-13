@@ -8,7 +8,7 @@
 //
 // Calling the alternate route and requiring it to agree turns that dead surface into an oracle. It
 // is a weaker one than the emitted module — both answers come from the same compiler — but it is
-// not nothing: these are separate code paths in Slang, and §9.8's binding-range names were wrong
+// not nothing: these are separate code paths in Slang, and 's binding-range names were wrong
 // precisely because one path knew something the other did not.
 //
 // Where the two disagree, the disagreement is the finding and it is recorded rather than smoothed.
@@ -273,7 +273,7 @@ public unsafe class SecondOpinionTests(Xunit.Abstractions.ITestOutputHelper outp
         Assert.True(
             SlangApi.spReflectionVariableLayout_getPendingDataLayout(elementVar) is null,
             "an element variable layout reported pending data, which has not been seen before "
-            + "and is worth projecting properly rather than flagging (§9.22)");
+            + "and is worth projecting properly rather than flagging");
 
         // A type parameter by name: none here, and the query has to say so rather than crash.
         using Utf8.Scoped missing = new("NoSuchTypeParameter");
@@ -443,7 +443,7 @@ public unsafe class SecondOpinionTests(Xunit.Abstractions.ITestOutputHelper outp
 
         var scope = SlangApi.spReflection_getGlobalParamsTypeLayout(loaded.Shader);
 
-        // 1-2. The sub-object range's own name and space, §9.19.
+        // 1-2. The sub-object range's own name and space, .
         var subObjects = SlangApi.spReflectionTypeLayout_getSubObjectRangeCount(scope);
         for (long i = 0; i < subObjects; i++)
         {
@@ -454,7 +454,7 @@ public unsafe class SecondOpinionTests(Xunit.Abstractions.ITestOutputHelper outp
 
             Assert.True(variable is null,
                 "getSubObjectRangeOffset now carries a variable; SubObjectRange can take its name "
-                + "from there instead of from the binding range (§9.19)");
+                + "from there instead of from the binding range");
 
             Assert.Equal(0, SlangApi.spReflectionTypeLayout_getSubObjectRangeSpaceOffset(scope, i));
         }
@@ -472,7 +472,7 @@ public unsafe class SecondOpinionTests(Xunit.Abstractions.ITestOutputHelper outp
 
         // 5. specializeType is not here. It is called from the prober instead: given a type that
         //    is not generic it returns null on Windows and *aborts* on Linux, which is the fifth
-        //    measured Slang crash and cost this suite a green run to find. See §9.22.
+        //    measured Slang crash and cost this suite a green run to find.
 
         // 6. Pending data on a specialized type.
         var textureIndex = layout.Parameters.ToList().FindIndex(p => p.Name == "soTexture");

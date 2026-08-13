@@ -425,7 +425,7 @@ public static class VulkanProjection
     /// <c>VUID-StandaloneSpirv-OpEntryPoint-08721</c>, "conflicting input location assignment at
     /// location 2" — the same location named below. The module itself is invalid SPIR-V, before any
     /// pipeline is built around it, so refusing at cook time is the earliest anything could.
-    /// <c>VulkanValidationTests</c> holds that, and docs §9.17.
+    /// <c>VulkanValidationTests</c> holds that, and docs .
     /// </para>
     /// </remarks>
     private static void RequireDistinctLocations(List<VulkanVertexInput> inputs)
@@ -613,7 +613,7 @@ public static class VulkanProjection
     /// renderer wanting tight <c>stageFlags</c> had to narrow them itself.
     ///
     /// <c>DescriptorRange.Stages</c> now carries the attribution, from the per-entry-point metadata
-    /// the reflection walk collects while the program is still alive (§9.24). This remains the
+    /// the reflection walk collects while the program is still alive. This remains the
     /// answer for a range that claims no stage — see <see cref="StagesFor"/>.
     /// </remarks>
     private static Dictionary<uint, VulkanShaderStages> StagesPerSpace(ProgramLayout layout)
@@ -659,7 +659,7 @@ public static class VulkanProjection
     /// layout outright — not the pipeline, the set layout, so a host following the projection
     /// literally cannot create the object at all.
     ///
-    /// Found by putting the corpus in front of the validation layers (§9.18): the subpass-inputs
+    /// Found by putting the corpus in front of the validation layers: the subpass-inputs
     /// shader projected <c>VERTEX | FRAGMENT</c> onto both of its input attachments, and every
     /// other test in this suite was content, because the only authority that knows this rule is
     /// Vulkan and until then nothing here was asking Vulkan.

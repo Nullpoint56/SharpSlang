@@ -96,7 +96,7 @@ public sealed class TargetOptions
     /// An earlier version of this comment said the opposite — that without the flag two blocks are
     /// packed into space 0, and that a Vulkan renderer "almost certainly wants this on" — and cited
     /// a test whose name agreed while its body had already recorded the correction. That is the
-    /// §9.8 failure repeating: a consumer reads the property they are about to set, not the body of
+    ///  failure repeating: a consumer reads the property they are about to set, not the body of
     /// a test somewhere else.
     /// </para>
     /// </remarks>

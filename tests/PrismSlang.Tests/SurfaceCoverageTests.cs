@@ -46,7 +46,7 @@ public class SurfaceCoverageTests
             + "as vertex inputs by the agreement harness rather than as a binding",
         [SlangBindingType.SLANG_BINDING_TYPE_VARYING_OUTPUT] = "as above, covered as fragment outputs",
         [SlangBindingType.SLANG_BINDING_TYPE_EXISTENTIAL_VALUE] = "interface-typed parameters "
-            + "resolved at bind time; PrismEngine specialises at cook time instead. Docs §9.6",
+            + "resolved at bind time; PrismEngine specialises at cook time instead. Docs ",
         [SlangBindingType.SLANG_BINDING_TYPE_PUSH_CONSTANT] = "produced by the push-constants case, "
             + "but filtered out of the descriptor sets before the projection sees it",
         [SlangBindingType.SLANG_BINDING_TYPE_PARAMETER_BLOCK] = "measured never to reach a "
@@ -86,7 +86,7 @@ public class SurfaceCoverageTests
         [SlangTypeKind.SLANG_TYPE_KIND_GENERIC_TYPE_PARAMETER] = "an unspecialised generic; "
             + "GenericsTests covers the specialisation API directly",
         [SlangTypeKind.SLANG_TYPE_KIND_INTERFACE] = "as above — and Slang reports an interface "
-            + "declaration as UNSUPPORTED_FOR_REFLECTION anyway. Docs §9.3",
+            + "declaration as UNSUPPORTED_FOR_REFLECTION anyway. Docs ",
         [SlangTypeKind.SLANG_TYPE_KIND_OUTPUT_STREAM] = "the geometry shader's TriangleStream is a "
             + "parameter Slang does not surface in the layout",
         [SlangTypeKind.SLANG_TYPE_KIND_SPECIALIZED] = "produced by link-time specialisation, "

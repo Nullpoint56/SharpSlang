@@ -124,7 +124,7 @@ public abstract record TypeLayout
     /// Null on every shader tried here, specialized and unspecialized alike, which is why this is
     /// a flag rather than a projected sub-layout: reporting the shape of something never seen
     /// would be inventing it. If this ever comes back true, the layout it refers to is reachable
-    /// through <c>getPendingDataTypeLayout</c> and worth projecting properly (§9.22).
+    /// through <c>getPendingDataTypeLayout</c> and worth projecting properly.
     /// </remarks>
     public bool HasPendingData { get; init; }
 
@@ -332,7 +332,7 @@ public sealed record ArrayLayout : TypeLayout
     /// sized by a specialization constant — <c>Texture2D t[kCount]</c> — is indistinguishable from
     /// a fixed-size one until something asks, and reflecting a shader containing one terminates the
     /// process inside <c>getBindingRangeCount</c>. It is not guarded because it cannot be detected;
-    /// see docs §9.12. It is also not usable on Vulkan, where <c>descriptorCount</c> is fixed when
+    /// see docs . It is also not usable on Vulkan, where <c>descriptorCount</c> is fixed when
     /// the descriptor set layout is created, before any specialization value exists.
     /// </para>
     /// </remarks>

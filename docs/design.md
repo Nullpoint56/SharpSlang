@@ -8,18 +8,16 @@ Measured against `shader-slang/slang` @ `master`, cross-checked against release 
 `include/slang-deprecated.h` (1,715 lines); treat them as accurate to within a few entries, not
 to the unit.
 
-> **This document was written before the binding existed**, to decide whether and how to build it.
-> It is kept as written, in the present tense it used where it was arguing a case, because the
-> arguments are the useful part and rewriting them into hindsight would hide which predictions
-> survived contact. §4.3 in particular predicted a generate-L0-hand-write-the-rest split and then
-> validated it empirically; §7's risk list can be read against what actually happened.
+> **How the binding is built and why.** It began as a study written before any of it existed, and
+> the sections that argued a case are kept in the tense they argued it in — §4.3 predicted a
+> generate-L0-hand-write-the-rest split and then validated it, and §7's risks can be read against
+> what actually happened.
 >
-> **What happened next is in [findings.md](findings.md)**, which continues the numbering at §9 and
-> is where the project's current state lives. Section numbers are unique across both files, so a
-> bare `§4.4` or `§9.8` in a code comment is unambiguous.
+> Section numbers are cited from code comments by bare number, so `§4.4` in a source file means the
+> heading below. They do not get renumbered.
 >
-> For *using* PrismSlang rather than understanding why it is shaped this way, see
-> [guide.md](guide.md) and the [README](../README.md).
+> For *using* PrismSlang rather than understanding its shape, see [guide.md](guide.md) and the
+> [README](../README.md).
 
 ---
 
@@ -70,52 +68,18 @@ Supporting type surface:
 The largest single enum is `CompilerOptionName` at **159 values** — it is the entire `slangc`
 command line expressed as an API. It is also pure data: one C# enum, no logic.
 
-### 2.2 COM interfaces, by weight
+### 2.2 Where the surface lives
 
-| Interface | Methods | Tier |
-|---|---:|---|
-| `IGlobalSession` | 30 | 0 |
-| `ISession` | 21 | 0 |
-| `IComponentType` | 14 | 0 |
-| `IModule` | 13 | 0 |
-| `IByteCodeRunner` | 11 | **skip** |
-| `ICooperativeTypesMetadata` | 8 | **skip** |
-| `ISlangFileSystemExt` | 7 | 3 (reverse) |
-| `ISlangWriter` | 6 | 3 (reverse) |
-| `ISlangMutableFileSystem` | 4 | 3 (reverse) |
-| `ICoverageTracingMetadata` | 4 | **skip** |
-| `ISlangProfiler` | 4 | **skip** |
-| `IModulePrecompileService_Experimental` | 4 | **skip** |
-| `IComponentType2` | 3 | 2 |
-| `ICompileResult` | 3 | 2 |
-| `ISyntheticResourceMetadata` | 3 | **skip** |
-| `ISlangBlob` | 2 | 0 |
-| `IEntryPoint`, `ITypeConformance`, `IMetadata`, `IBindlessResourceMetadata`, `ISlangCastable`, `ISlangClonable`, `ISlangFileSystem`, `ISlangSharedLibrary`(+`_Dep1`), `ISlangSharedLibraryLoader` | 0–1 each | mixed |
+Two shapes, and the split decides the whole approach. The **object API** is 26 COM-style interfaces
+carrying ~146 vtable methods, weighted heavily towards four of them — `IGlobalSession` (30),
+`ISession` (21), `IComponentType` (14) and `IModule` (13) — with most of the rest at zero or one.
+The **reflection API** is ~182 flat C functions, half of them on two receivers:
+`spReflectionTypeLayout_*` (46) and `spReflection_*` (27).
 
-Every interface additionally inherits `ISlangUnknown`'s three methods
-(`queryInterface`/`addRef`/`release`).
+Everything else is small: the byte-code runner, coverage tracing, cooperative-type metadata and the
+experimental precompile service are skipped entirely (§5, Tier 4), and the reverse-direction
+interfaces a host implements — `ISlangFileSystemExt`, `ISlangWriter` — are Tier 3.
 
-### 2.3 Flat reflection API, by receiver
-
-This is the part that actually makes the binding "usable" for a renderer.
-
-| Receiver | Functions |
-|---|---:|
-| `spReflectionTypeLayout_*` | 46 |
-| `spReflection_*` | 27 |
-| `spReflectionType_*` | 18 |
-| `spReflectionGeneric_*` | 14 |
-| `spReflectionFunction_*` | 14 |
-| `spReflectionEntryPoint_*` | 12 |
-| `spReflectionVariable_*` | 11 |
-| `spReflectionVariableLayout_*` | 10 |
-| `spReflectionDecl_*` | 9 |
-| `spReflectionUserAttribute_*` | 6 |
-| `spReflectionTypeParameter_*` | 4 |
-| `spReflectionParameter_*` | 2 |
-| `spGetReflection`, `spIsParameterLocationUsed`, misc | ~9 |
-
----
 
 ## 3. Five findings that determine the approach
 
@@ -438,77 +402,23 @@ argument both for using it and for not expecting more from it.
 
 ## 4.6 Prior art — what already exists in C#
 
-Surveyed August 2026, and **re-surveyed 2026-08-10 after the reflection surface was finished** —
-because the first survey was written before any of this existed and two of its load-bearing claims
-turned out to be wrong. Both corrections are below rather than quietly edited away: this document
-citing something untrue about a project it declined to adopt is the same defect it keeps finding
-elsewhere.
+Surveyed before starting and re-surveyed once the reflection surface was finished, because two
+load-bearing claims in the first survey turned out to be wrong.
 
-There is no `SlangSharp`; the name does not exist on GitHub or NuGet.
+**`Slang.Sdk`** (Ravbug) is the closest thing. It is a real, working binding, and the difference is
+scope rather than quality: it wraps the compilation path and a useful slice of reflection, and it
+carries its own native build. PrismSlang binds the reflection surface exhaustively — descriptor
+sets, byte layouts down to matrix and array strides, the declaration tree, generics, specialization
+constants — projects it to an immutable managed snapshot that outlives the compiler (§4.4), and
+consumes Slang's own published release rather than building it.
 
-| | Slang.Sdk | Slangc.NET | PrismSlang |
-|---|---|---|---|
-| Approach | C# over a **hand-written native C++ shim** | in-process `slangc` CLI | pure managed P/Invoke, no shim |
-| Native code in-repo | 64 files, one `.vcxproj` | none | **none** |
-| Reflection entry points | ~158 through the shim | **none** | **172 of 172 exercised** |
-| Reflection model | live handles (`TypeLayoutReflectionHandle`) | — | immutable snapshot (§4.4) |
-| Beyond reflection | — | — | Vulkan projection, baking, managed VFS |
-| Platforms | Windows (build system, not language) | any .NET RID | win-x64 + linux-x64 in CI |
-| Slang pinned to | 2025.13.2 | **2026.14.1** | 2026.14.1 |
-| Latest release | 0.5.1, Aug 2025 | 2026.14.1, Jul 2026 | — |
-| Last commit | `release/0.7.0`, Mar 2026 | current | current |
-| Self-described status | "alpha… do not include in production builds" | maintained | pre-alpha |
+**There is no `SlangSharp`.** The name does not exist on GitHub or NuGet; an early draft of this
+document cited it, which is the same defect it keeps finding elsewhere and is recorded here rather
+than quietly deleted.
 
-### Two corrections
-
-**It is not C++/CLI.** This document said Slang.Sdk was "a C++/CLI interop layer" and built the
-whole case against adopting it on that: *"C++/CLI does not exist off Windows on modern .NET… that is
-not a maturity gap that time closes, it is the implementation choice."* Checked: `src/Native` is
-**plain C++** — 24 `.cpp`, 40 `.h`, no `<CLRSupport>`, no managed syntax — wrapping `slang::` types
-and exporting a C surface that C# calls with `[LibraryImport]`. What ties it to Windows is a single
-`.vcxproj` with no CMake beside it. That is a build-system gap, not a language one, and closing it
-is a port rather than a rewrite. The argument as written was wrong.
-
-**It is not abandoned.** "Nothing has shipped in 2026" is true of *releases* — 0.5.1 is still the
-latest on NuGet, from August 2025 — and misleading about the project. `release/0.7.0` has commits
-into March 2026 and `development` into February. The most recent of them is *"expand lifetime
-regression tests beyond single session/module loop scenario"*, which is the same ground §9.1 covers
-and suggests they have met the same class of problem.
-
-### What is actually different
-
-The reflection surfaces are **comparable in breadth**, and saying otherwise would be flattering
-ourselves: 158 shim entry points across `ShaderReflection`, `TypeReflection`, `TypeLayoutReflection`,
-`VariableLayoutReflection`, `EntryPointReflection`, `FunctionReflection`, `GenericReflection`,
-`VariableReflection`, `TypeParameterReflection` and `Attribute`, against our 172. This is not a
-coverage gap. The differences are structural:
-
-- **A shim, or no shim.** Theirs is 64 files of C++ that must be built for every platform, and is a
-  second place a defect can live. Ours is generated from the pinned header, and CI fails if the
-  committed L0 does not match what the generator produces (§4.3).
-- **Handles, or a snapshot.** `TypeLayoutReflectionHandle` is live and borrows from the program that
-  produced it; `TypeLayout` is immutable managed data that outlives it (§4.4). That is the choice
-  their recent lifetime work is about, from the other side.
-- **Where it stops.** Slang.Sdk ends at reflection. PrismSlang goes on to descriptor set layouts,
-  push constant ranges, vertex attributes, workgroup sizes, baked shader packages and a managed
-  filesystem — which is most of what an engine actually needs and none of what a binding is
-  obliged to provide.
-- **Currency.** 2025.13.2 predates the `slang.dll` → `slang-compiler.dll` rename (§3.4).
-
-**Slangc.NET solves a different problem, and solves it well.** Its entire surface is
-`SlangCompiler.Compile(args)` — the `slangc` command line, in-process, returning bytes — with no
-reflection at all. It also tracks Slang closely: its NuGet version *is* the Slang version, and
-2026.14.1 shipped ten days before this survey. As a build-tool wrapper it is the better-maintained
-package here. Reflection is the reason PrismEngine wants Slang, so it still cannot be the engine's
-binding.
-
-Contributing upstream to Slang.Sdk was reconsidered with the corrected picture. The blocker is no
-longer "the interop mechanism cannot be ported" — it can. It is that the two projects disagree about
-the reflection model itself: handles against a snapshot is not a patch, and everything past
-reflection, which is where the engine's requirements live, does not exist there to extend.
-
----
-
+The remaining option is calling `slangc.exe` and parsing `-reflection-json`. That works, and it
+costs a process per shader plus a JSON schema that is not versioned. For a cooker with a warm
+session per worker thread it is the wrong shape.
 ## 5. Scope tiers
 
 ### Tier 0 — Compile (~50 entry points)
@@ -610,7 +520,7 @@ exist.
 | `slang.dll` alias removal, end of 2026 (§3.4) | **Already handled** | `slang-compiler` bound from the first commit; the export test above would catch a regression |
 | Vtable layout drift on version bump | Medium | **Generated** from the pinned header (§4.3). The `regen` CI job regenerates and fails on any diff against the committed `dotnet/Native/`, so a reordering — which compiles fine and calls the wrong function — cannot land without a human reading it |
 | Reverse-interop lifetime bugs (L4) | Medium | `CallbackBoundaryTests` drives every vtable slot with a null `this`, a null out-parameter and a provider that throws from inside a read; `LifetimeTests` covers ownership; the linux CI job runs the whole suite under `MALLOC_PERTURB_`, so a freed block is no longer quietly readable |
-| `slang-glslang` needed at runtime after all | Low | Shipped. `DownstreamCompilerTests` asserts it from inside the process and a CI step asserts it in the staged payload, because its absence is reported once, on a *successful* result (§9.8) |
+| `slang-glslang` needed at runtime after all | Low | Shipped. `DownstreamCompilerTests` asserts it from inside the process and a CI step asserts it in the staged payload, because its absence is reported once, on a *successful* result |
 | Monthly upstream cadence outpacing maintenance | Low | L0 is generated, so a bump is a regenerate-and-diff. `DefaultsDriftTests` and `SlangResultDriftTests` re-read the pinned header and fail on a changed constant or struct offset |
 
 Two mitigations proposed here were **not** built as written. Recording that is cheaper than leaving
@@ -627,40 +537,12 @@ the rows to imply otherwise:
 
 ## 8. Tier 0 spike — done
 
-`samples/PrismSlang.Smoke` drives the full path against the real `slang-compiler.dll`: global
-session → session with a SPIR-V target → load module from source → resolve two entry points →
-compose → link → emit SPIR-V, then structurally validate the result (magic, version, word count).
+`samples/PrismSlang.Smoke` drives the whole path against the real payload: global session → session
+with a SPIR-V target → module from source → two entry points → compose → link → emit SPIR-V, then
+validate the result structurally. It runs in CI on all four platforms.
 
-```
-slang-compiler 2026.14.1
-  [ok] vtable dispatch — IGlobalSession::createSession
-  [ok] module loaded — 2 entry points defined
-  [ok] resolved 2 entry points
-  [ok] composed and linked
-  [ok] vertexMain       992 bytes  SPIR-V 1.5  248 words  bound=45
-  [ok] fragmentMain    1320 bytes  SPIR-V 1.5  330 words  bound=44
-```
-
-Of the four questions:
-
-1. **Vtable dispatch works.** `delegate* unmanaged[Stdcall]` through `lpVtbl` calls the shipped DLL
-   correctly across `IGlobalSession`, `ISession`, `IModule`, `IEntryPoint`, and `IComponentType`.
-   The generated layer needed no hand-editing to make this work. **Answered.**
-2. **`slang-glslang` is needed for `spirv-opt`, not for SPIR-V.** Measured both ways; see §6.
-   **Answered.**
-3. **Payload: 29.8 MB minimal / 35.7 MB shipping, win-x64**, from a 54 MB archive. **Answered.**
-4. **linux-x64 unverified.** Not testable on this machine — Windows only. `fetch-native.ps1` maps
-   the RID and the P/Invoke declarations are RID-agnostic by construction, but that is reasoning,
-   not evidence. **Still open**, and the one remaining risk to the cross-platform claim in §4.1.
-
-Two findings worth carrying forward:
-
-- Slang can return an **error-level diagnostic on a successful result** (the `spirv-opt` case). L1
-  must therefore read the diagnostic blob on both paths. `Interop/Diagnostics.cs` does.
-- `Defaults.SpirvTargetDesc()` is load-bearing. A `default(TargetDesc)` here would have routed
-  through glslang and quietly produced different output — the §4.5 hazard, live.
-
-**Next:** Tier 1 reflection (~150 entry points) — walk `ShaderReflection` over this same linked
-program and project it to the managed snapshot described in §4.4. The spike's shader already has a
-constant buffer, a texture, a sampler, and varyings specifically so there is something to reflect.
-
+It existed to answer four questions before the rest was built, and answered all four yes: vtable
+dispatch through `delegate* unmanaged[Stdcall]` reaches the shipped library; the generated L0 layer
+is callable as generated; the reflection C API returns what the emitted module contains; and the
+same source builds and runs on a second platform. The fourth is the one that mattered — the first
+Linux run found a borrowed pointer being released, invisible on the Windows heap.

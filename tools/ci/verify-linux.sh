@@ -5,7 +5,7 @@
 # This is not ceremony. The run that first executed this script found a heap-corrupting ownership
 # bug that had been passing green on Windows for the whole of the project's history:
 # ISession::loadModule* returns a borrowed pointer, and releasing it over-releases. glibc aborts
-# on it; the Windows heap did not. See docs/findings.md §9 and SlangModule's constructor.
+# on it; the Windows heap did not. See SlangModule's constructor.
 #
 # Prerequisites:
 #   pwsh tools/fetch-native.ps1 -Rid linux-x64      # stage the payload (runs fine from Windows)
@@ -43,8 +43,8 @@ status=0
 # Kept on disk, not only printed. A round of this script reported FAILED, the terminal it ran in
 # was clipped to the last few lines, and the evidence was gone before anyone read it — four green
 # rounds later there is still no answer as to what it was. Printing a diagnosis only helps if it
-# survives the scrollback of whoever was watching, which is the same instrumentation gap as §9.26
-# and §9.37 wearing a third hat. obj/ is ignored, so these cost nothing but the bytes.
+# survives the scrollback of whoever was watching, which is the same instrumentation gap as
+# and  wearing a third hat. obj/ is ignored, so these cost nothing but the bytes.
 logs="$root/obj"
 mkdir -p "$logs"
 
@@ -66,7 +66,7 @@ printf '%s\n' "$out" | grep -E 'Passed!|Failed!|crashed|Aborted'
 
 # The names too, when there are any. Filtering to the summary meant a failure here reported
 # "linux-x64: FAILED" and nothing else, and finding out which test it was took four more runs —
-# the same instrumentation gap as §9.26, in the script written to catch that class of problem.
+# the same instrumentation gap as , in the script written to catch that class of problem.
 if printf '%s\n' "$out" | grep -qE '\[FAIL\]|^  Failed '; then
     echo "--- failing tests:"
     printf '%s\n' "$out" | grep -E '^  Failed |^  Error Message|^  Assert' | head -40

@@ -79,7 +79,7 @@ public sealed unsafe class LinkedProgram : SlangObject<IComponentType>
     /// The route is not the obvious one. <c>spReflection_specializeType</c> takes a type and
     /// argument types and looks like exactly this call; against a generic reached by name it
     /// returns null, with no diagnostics. What works is to take the type's <em>generic
-    /// container</em> and specialize that — see §9.20.
+    /// container</em> and specialize that —
     /// </para>
     /// </remarks>
     /// <param name="genericName">The generic's declared name, unqualified — <c>Wrapper</c>.</param>
@@ -183,9 +183,9 @@ public sealed unsafe class LinkedProgram : SlangObject<IComponentType>
     /// </list>
     /// So the guard prevents a dead process on two platforms and a silently bogus result on the
     /// third. Asserted from a child process by <c>ProberTests</c>, because two of the three cannot
-    /// be asserted from inside the runner they would kill. See §9.20 and §9.24.
+    /// be asserted from inside the runner they would kill.
     ///
-    /// Unlike §9.12's specialization-sized resource array, this one <em>is</em> detectable: the
+    /// Unlike 's specialization-sized resource array, this one <em>is</em> detectable: the
     /// generic says how many parameters of each kind it takes, and comparing is cheap.
     ///
     /// The residue, stated because it is not covered: for a generic mixing type and value

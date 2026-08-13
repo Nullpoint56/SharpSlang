@@ -181,7 +181,7 @@ public sealed record ShaderParameter(
 ///
 /// Reflection alone cannot produce this: Slang's global-scope view does not attribute a parameter
 /// to the entry points that use it. It comes from <c>IMetadata</c>, asked once per stage per
-/// binding while the program is still alive (§9.24), which is also why it is on the snapshot rather
+/// binding while the program is still alive, which is also why it is on the snapshot rather
 /// than computed later — the compiler is gone by then.
 /// </remarks>
 public sealed record DescriptorRange(
@@ -225,7 +225,7 @@ public sealed record DescriptorRange(
 //
 // Naming it was rejected and stays rejected: `globalParams` is a name chosen by one backend's
 // emitter, and putting it in the API-neutral layer is wrong the moment a caller declares a
-// parameter that collides with it. Docs §9.7.
+// parameter that collides with it. Docs .
 //
 // Labelling it is not the same decision. The range still has no name — the agreement gap on the
 // `global-uniforms` corpus case is unchanged and still declared — but the null is now explained
@@ -832,7 +832,7 @@ public sealed record ProgramLayout
         // check fails for a reason nobody would look for.
         //
         // Found by digesting the corpus on two platforms and diffing: all 28 SPIR-V modules were
-        // byte-identical and all 28 layouts differed (§9.30).
+        // byte-identical and all 28 layouts differed.
         NewLine = "\n",
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
         Converters = { new JsonStringEnumConverter() },

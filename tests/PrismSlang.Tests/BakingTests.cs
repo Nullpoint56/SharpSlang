@@ -172,7 +172,7 @@ public class BakingTests
         // newlines default to Environment.NewLine, and the layout JSON goes straight into the
         // package — so the same shader baked on Windows and on Linux produced packages differing by
         // one byte per line, 214 of them on an ordinary layout. Both were valid and both loaded;
-        // what broke was equality, which is what a content-addressed asset cache runs on (§9.30).
+        // what broke was equality, which is what a content-addressed asset cache runs on.
         //
         // Found by digesting the corpus on two platforms and diffing. Asserted here instead of
         // there, because a property that only a four-runner comparison can catch is a property

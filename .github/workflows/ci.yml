@@ -4,9 +4,9 @@ name: CI
 #
 # The cross-platform matrix is not box-ticking: the first linux-x64 run of this project found a
 # heap-corrupting ownership bug that had been passing green on Windows since the first commit
-# (ISession::loadModule* returns a borrowed pointer — see docs/findings.md §9.1). glibc
+# (ISession::loadModule* returns a borrowed pointer — see docs/guide.md ). glibc
 # aborts on it; the Windows heap does not. Keeping Linux in the matrix is the control for that
-# entire class of bug — and it has paid twice: §9.22's fifth Slang crash returns null on Windows
+# entire class of bug — and it has paid twice: 's fifth Slang crash returns null on Windows
 # and segfaults on Linux, and was found by this leg aborting a run that was green here.
 #
 # linux-arm64 and osx-arm64 are the third and fourth legs, each added for an axis the others do
@@ -55,7 +55,7 @@ jobs:
           # never been executed on one: every vtable call in the generated layer is
           # `delegate* unmanaged[Stdcall]`, and stdcall has no meaning on ARM64 — the runtime is
           # expected to ignore it and fall back to the platform convention. So are the
-          # [UnmanagedCallersOnly] thunks Slang calls back into (§9.15). "Expected to" is the
+          # [UnmanagedCallersOnly] thunks Slang calls back into. "Expected to" is the
           # phrase this project has learned to measure.
           #
           # Slang publishes slang-<version>-linux-aarch64.zip and fetch-native.ps1 already maps it,
@@ -68,7 +68,7 @@ jobs:
           #
           # macos-14 is Apple Silicon, so the ARM64 half of this was already answered by the
           # linux-arm64 leg. What is new is the OS: a third allocator, a third dynamic loader, and
-          # the Itanium C++ ABI on a runtime that is not glibc's. §9.1 and §9.22 were both found by
+          # the Itanium C++ ABI on a runtime that is not glibc's.  were both found by
           # an OS the code had not run on.
           #
           # No Vulkan here. VulkanTestDevice finds no loader and the validation tests skip with
@@ -111,7 +111,7 @@ jobs:
       # A software Vulkan implementation and the validation layers, so VulkanValidationTests runs
       # rather than skipping. Those tests build real descriptor set layouts, a real pipeline layout
       # and a real VkPipeline out of the projection and let Khronos judge the result — the only
-      # oracle in the suite that is not ultimately Slang telling us about itself (docs §9.17).
+      # oracle in the suite that is not ultimately Slang telling us about itself (docs ).
       #
       # Linux only. A Windows runner has no GPU either, but getting the layers there means the SDK
       # installer, which is a large download for the same three tests these already cover; on
@@ -146,7 +146,7 @@ jobs:
       # were written to look for it. glibc fills freshly malloc'd memory with the complement of the
       # byte and freed memory with the byte itself, so a use-after-free reads 0xa5a5a5a5a5a5a5a5 —
       # non-canonical on x86-64, therefore a segfault the moment it is dereferenced as a pointer —
-      # instead of the stale-but-intact data that makes these bugs pass. Both bugs in §9.1 lived on
+      # instead of the stale-but-intact data that makes these bugs pass. Both bugs in  lived on
       # paths LifetimeTests had no reason to walk; this covers all 393.
       #
       # Set unconditionally rather than gated on the RID: MALLOC_PERTURB_ is a glibc variable, so
@@ -165,7 +165,7 @@ jobs:
       # something real" look identical from here. So they came off, one variable at a time.
       #
       # The baseline they were waiting for now exists. osx-arm64 is green without them (a0eb587,
-      # 470 passed), after the two ownership bugs the leg found — §9.25 and §9.26 — were fixed. Any
+      # 470 passed), after the two ownership bugs the leg found —  — were fixed. Any
       # crash from here is attributable to the poisoning, and unlike last time there is somewhere
       # to look: tools/ci/macos-backtrace.sh runs on failure and produces a stack.
       #
@@ -180,14 +180,14 @@ jobs:
       # and leaves a 64 B one untouched — and 64 bytes is the size an AST node is. Disabling the
       # tcache arms it for both and costs about 6% on a compile-heavy workload, which is nothing for
       # the coverage. MallocNanoZone=0 is the same move on macOS and is *not* yet confirmed; the
-      # prober reports what it measured either way (§9.31).
+      # prober reports what it measured either way.
       #
       # MALLOC_CHECK_=3 is the usual companion and is deliberately absent. Measured on glibc 2.39,
       # which is what ubuntu-latest ships: it is ignored unless libc_malloc_debug.so.0 is
       # LD_PRELOADed, because glibc 2.34 moved that checking out of libc — so the obvious spelling
       # is a no-op that looks like coverage. Preloading it is worse than nothing: with the debug
       # allocator installed, a one-chunk heap overflow that plain glibc 2.39 aborts on ran to
-      # completion and exited 0. The default hardening is what caught the double free in §9.1, and
+      # completion and exited 0. The default hardening is what caught the double free in , and
       # MALLOC_CHECK_ would have replaced it with something weaker.
       - name: Test
         env:
@@ -217,7 +217,7 @@ jobs:
       # gate is armed on both.
       #
       # That order was the point. A gate turned on before anyone has watched it work is the failure
-      # mode §9.17 is about, and a gate that can never fail is the one §9.18's driver was.
+      # mode  is about, and a gate that can never fail is the one 's driver was.
       - name: The validation-layer tests actually ran
         if: startsWith(matrix.rid, 'linux')
         env:
@@ -268,7 +268,7 @@ jobs:
       # the crasher is, and printing them beats downloading an artifact to find out.
       #
       # Runs only on failure, so it costs nothing on a green run, and it is worth having on every
-      # leg: two of the three crashes in docs/findings.md were found by a host dying on one platform
+      # leg: two of the three crashes in docs/guide.md were found by a host dying on one platform
       # and not another.
       - name: If the host crashed, name the last tests that ran
         if: failure()
@@ -339,14 +339,14 @@ jobs:
 
       # What this machine cooked, for the digests job below to compare against the other three.
       # Two files: the module and the layout obey different rules, and one file could only ever be
-      # compared one way (§9.33).
+      # compared one way.
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: spirv-digests-${{ matrix.rid }}
           # The modules too, ~127 KB for the corpus. A digest says two runners disagree; only the
           # words say whether the disagreement is a renumbering, and the words for the other
-          # architecture exist nowhere else. tools/ci/spirv-worddiff.py reads them (§9.35).
+          # architecture exist nowhere else. tools/ci/spirv-worddiff.py reads them.
           path: |
             **/*-digests.txt
             **/spirv-modules/*.spv
@@ -392,9 +392,9 @@ jobs:
   #
   # It earned its place twice. Pointed at win-x64 and linux-x64 locally it found all 28 modules
   # identical and all 28 layouts different, because the layout JSON that goes into a shader package
-  # was serialized with Environment.NewLine (§9.30). Then on its first real run it found the thing
+  # was serialized with Environment.NewLine. Then on its first real run it found the thing
   # no local pair could: the module is identical between operating *systems* and differs between
-  # *architectures*, on exactly the three corpus shaders that use SV_VertexID (§9.33).
+  # *architectures*, on exactly the three corpus shaders that use SV_VertexID.
   #
   # So it checks three rules rather than one — the layout everywhere, the module within an
   # architecture, and an exception list across architectures that may neither grow nor silently

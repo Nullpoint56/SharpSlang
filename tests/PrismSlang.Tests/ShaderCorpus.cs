@@ -426,7 +426,7 @@ public static class ShaderCorpus
                     "globalParams; reflection attributes it to no variable, so its range has a " +
                     "null name. Closing it would mean putting a name chosen by Slang's SPIR-V " +
                     "emitter into the API-neutral layer, which is worse than the gap. " +
-                    "ProgramLayout.GlobalConstantBufferBinding identifies it by index. Docs §9.7."),
+                    "ProgramLayout.GlobalConstantBufferBinding identifies it by index. Docs ."),
                 new ShaderCase.Gap(
                     "descriptor (unnamed)",
                     "the layout half of the same gap: the binding is at the right set and " +
@@ -613,7 +613,7 @@ public static class ShaderCorpus
         // Arrays sized by a specialization constant are not here, and cannot be: a buffer holding
         // one is dropped by Slang from both the layout and the module, so it has no pipeline layout
         // to agree about, and a *resource* array sized that way terminates the process inside
-        // getBindingRangeCount. UnknownSizeTests covers what can be covered. Docs §9.12.
+        // getBindingRangeCount. UnknownSizeTests covers what can be covered. Docs .
 
         new("scalar-widths", """
             struct SwBlock
@@ -641,7 +641,7 @@ public static class ShaderCorpus
         // `descriptor-arrays` and `descriptor-kinds`, so they are not repeated here.
 
         // The stage-narrowing path, which is the one place the Vulkan projection has had a real
-        // defect (§9.24 — InputAttachment was reported visible to every stage). Every other
+        // defect ( — InputAttachment was reported visible to every stage). Every other
         // multi-entry-point case in the corpus shares its resources between the stages, so the
         // narrowing has never been exercised: here the texture is read only by the fragment stage
         // and the structured buffer only by the vertex stage, so a projection that widens either

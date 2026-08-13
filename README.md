@@ -1,10 +1,38 @@
 # PrismSlang
 
-C# bindings over the [Slang](https://github.com/shader-slang/slang) shader compiler — compilation
-and **full reflection** — for [PrismEngine](https://github.com/Nullpoint56)'s renderer.
+**C# bindings over the [Slang](https://github.com/shader-slang/slang) shader compiler — compilation
+and full reflection.**
 
-Pure managed P/Invoke. No C++/CLI, no native code in this repository: the payload is Slang's own
-prebuilt release, pinned to a version and fetched by a script.
+Slang compiles a modern shading language to SPIR-V and can describe exactly what the result needs
+bound to it. PrismSlang exposes both from C#: compile a shader, read back its descriptor sets, push
+constants, vertex inputs and buffer layouts, and hand a renderer the pipeline state that goes with
+it.
+
+Pure managed P/Invoke. No C++/CLI and no native source in this repository — the payload is Slang's
+own prebuilt release, pinned to a version and fetched by a script.
+
+> **This is [PrismEngine](https://github.com/Nullpoint56)'s binding first.** It serves one Vulkan
+> renderer that is itself under development, and Prism's needs decide the calls. It is packaged and
+> documented to be reusable — but nobody else has used it yet.
+
+---
+
+## Status
+
+`0.1.0-alpha`, against Slang `v2026.14.1`, on .NET 10.
+
+Alpha because nothing has exercised it but a test suite — thorough, but not a shipping game hitting
+the reflection surface with shaders nobody anticipated. PrismEngine will do that slowly, and 1.0
+waits on it. Expect breaking changes until then.
+
+## What you get
+
+Three packages. Which one you want depends on where the code runs.
+
+### `PrismSlang` — compile, in your asset pipeline
+
+The compiler and the whole reflection surface. Carries the native Slang payload, so this is the one
+you keep out of a shipped game.
 
 ```csharp
 using var global  = SlangGlobalSession.Create();
@@ -14,76 +42,116 @@ using var vertex  = module.FindEntryPoint("vertexMain");
 using var pixel   = module.FindEntryPoint("fragmentMain");
 using var program = session.Link(module, vertex, pixel);
 
-var layout = program.Reflect().ToVulkan();     // descriptor sets, push constants, vertex inputs
 var spirv  = program.GetEntryPointCodeBytes(0);
+var layout = program.Reflect();     // descriptor sets, push constants, vertex inputs, byte layouts
 ```
 
----
+You also get specialization constants, generics and type conformances, the declaration tree, the
+byte layout of a uniform buffer down to matrix and array strides, `import`/`#include` served from
+your own filesystem (an engine VFS or a pack file), and a bake step that writes the SPIR-V and the
+layout into one file with content hashes over the whole import graph:
 
-## Three packages, and why
+```csharp
+ShaderPackage package = ShaderPackageBaker.Bake(program, module);
+package.WriteToFile("cooked/standard_surface.pslb");
 
-| Package | Assembly | Native payload | For |
-|---|---|---|---|
-| **`PrismSlang.Runtime`** | 93 KB | none | reading baked shaders at run time |
-| **`PrismSlang.Vulkan`** | 49 KB | none | reading a reflection snapshot as Vulkan pipeline state |
-| **`PrismSlang`** | 158 KB | **36 MB per RID** | compiling shaders in an asset pipeline |
+if (!package.IsCurrent(SlangGlobalSession.BuildTag))    // for the build system, next time round
+    Rebuild(package.StaleDependencies());
+```
 
-A shipped game reads shaders that were compiled offline; it must not carry a 36 MB compiler to do
-it. So the reader half — the package container, the reflection snapshot, the SPIR-V header reader —
-lives in `PrismSlang.Runtime` and has **no native dependency at all**. `PrismSlang.Vulkan` depends
-on that half rather than on the compiler, so a renderer pays nothing either.
+### `PrismSlang.Runtime` — read baked shaders, in the shipped game
 
-A test asserts this rather than a comment claiming it: `tests/PrismSlang.Runtime.Consumer` is a
-project referencing only those two, and `AssemblySplitTests` checks its build output contains no
-`slang-compiler`, no `slang-glslang` and no `runtimes/` tree.
+No native dependency at all. A game references this and carries no compiler.
 
-`PrismSlang.Vulkan` is separate for the mirrored reason: everything in `PrismSlang` proper is
-API-neutral, because Slang's own binding vocabulary spans D3D, Vulkan and Metal. A D3D12 consumer
-should never pull Vulkan concepts in.
+```csharp
+var package = ShaderPackage.ReadFromFile("cooked/standard_surface.pslb");
 
-## What it does
+foreach (var entry in package.EntryPoints)
+{
+    var code = entry.Code;                      // SPIR-V, ready for vkCreateShaderModule
+    var name = entry.ModuleEntryPointName;      // what pName needs — Slang calls them all "main"
+}
 
-- **Compile** Slang to SPIR-V, with the target environment pinned and the emitted module verified
-  against it rather than assumed.
-- **Reflect** everything: descriptor sets, push constants, vertex inputs and fragment outputs,
-  specialization constants, generics and the declaration tree — and the byte layout of a uniform
-  buffer, down to matrix and array strides.
-- **Project** that to Vulkan: `VkDescriptorSetLayoutBinding`, `VkPushConstantRange`,
-  `VkVertexInputAttributeDescription`, `VkSpecializationInfo`, workgroup sizes and dispatch counts.
-  No dependency on any Vulkan binding — the enums mirror the spec's values for a direct cast.
-- **Bake** a shader and its layout into one file, so the runtime never touches the compiler, with
-  content hashes over the whole import graph so a stale cook is detectable.
-- **Host** `import` and `#include` on a managed filesystem — an engine VFS or a pack file — instead
-  of loose source on disk.
+ProgramLayout layout = package.Layout;          // the reflection snapshot, as baked
+```
 
-## What it deliberately does not do
+`AssemblySplitTests` builds a consumer referencing only this and `PrismSlang.Vulkan`, and checks the
+output carries no `slang-compiler`, no `slang-glslang` and no `runtimes/` tree.
 
-Decide renderer policy. It reports what the shader requires and stops:
+### `PrismSlang.Vulkan` — turn reflection into Vulkan pipeline state
+
+Also no native dependency. Projects a reflection snapshot onto the structures Vulkan wants. The
+enums mirror the specification's numeric values, so they cast straight across and this needs no
+Vulkan binding of its own.
+
+```csharp
+VulkanPipelineLayout vk = layout.ToVulkan();
+
+foreach (var set in vk.DescriptorSets)
+foreach (var b in set.Bindings)
+{
+    var binding = new VkDescriptorSetLayoutBinding
+    {
+        binding         = b.Binding,
+        descriptorType  = (VkDescriptorType)b.DescriptorType,
+        descriptorCount = b.IsUnbounded ? myBindlessCap : b.DescriptorCount,
+        stageFlags      = (VkShaderStageFlags)b.StageFlags,
+    };
+}
+```
+
+Also on the layout: `PushConstants`, `VertexInputs`, `FragmentOutputs`, `Stages`,
+`SpecializationConstants`, and dispatch geometry for compute.
+
+## Using it
+
+Packages are published to **GitHub Packages** on a `v*` tag. Add the feed, then take what you need:
+
+```bash
+dotnet nuget add source https://nuget.pkg.github.com/Nullpoint56/index.json \
+    --name prismslang --username <you> --password <a PAT with read:packages>
+
+dotnet add package PrismSlang            # asset pipeline
+dotnet add package PrismSlang.Runtime    # shipped game
+dotnet add package PrismSlang.Vulkan     # renderer
+```
+
+The usual shape of an integration is: cook offline with `PrismSlang`, bake a `.pslb` per shader,
+ship those, and at run time read them with `PrismSlang.Runtime` and project with
+`PrismSlang.Vulkan`. **[docs/guide.md](docs/guide.md)** walks through each step, plus lifetime,
+threading, diagnostics, and the traps worth knowing before you meet them.
+
+## What it does not decide for you
+
+It reports what the shader requires and stops there:
 
 - no vertex buffer bindings, strides or input rates — only attribute locations and formats
 - no meaning attached to a set index ("set 1 is per-material")
 - no descriptor pool sizing or update strategy
 - no legacy `spCompileRequest*` API, bytecode VM, coverage tracing, or `slang-rhi`
-  ([findings.md §9.2](docs/findings.md#92-what-is-deliberately-not-bound))
 
-Where a mapping is genuinely ambiguous it refuses rather than guessing quietly. Two push-constant
-buffers, a vertex input with no attribute format, a buffer Slang placed nowhere — each throws with
-a message naming the shader construct that caused it.
+Where a mapping is genuinely ambiguous it throws rather than guessing — two push-constant buffers, a
+vertex input with no attribute format, a buffer Slang placed nowhere — and the message names the
+shader construct that caused it.
 
 ## Platforms
 
-| RID | State |
-|---|---|
-| `win-x64` | verified, in CI |
-| `linux-x64` | verified, in CI — including the Vulkan validation layers via lavapipe |
-| `linux-arm64` | verified, in CI on `ubuntu-24.04-arm` — the only leg exercising ARM64 calling conventions |
-| `osx-arm64` | in CI on `macos-14` — the only leg on a non-glibc allocator and loader |
+| RID | CI | Notes |
+|---|---|---|
+| `win-x64` | `windows-latest` | |
+| `linux-x64` | `ubuntu-latest` | also runs the Vulkan validation layers via lavapipe |
+| `linux-arm64` | `ubuntu-24.04-arm` | the only leg exercising ARM64 calling conventions |
+| `osx-arm64` | `macos-14` | the only leg on a non-glibc allocator and loader |
 
-.NET 10, C# 14. Slang is pinned in `Directory.Build.props`; the pin is the single source of truth
-for both the payload fetch and the binding regeneration, because Slang's ABI is explicitly not
-stable across versions.
+All four run the full suite on every push, and all four ship in the `PrismSlang` package. If you
+content-address cooked assets, note that x64 and ARM64 emit byte-identical SPIR-V within an
+architecture and differ on shaders using `SV_VertexID`; the modules are equivalent but will never
+compare equal. [The traps table](docs/guide.md#traps-worth-knowing) has the detail.
 
-## Getting started
+.NET 10 and C# 14. The Slang version is pinned in `Directory.Build.props`, and that pin drives both
+the payload fetch and the binding regeneration, because Slang's ABI is not stable across versions.
+
+## Building from source
 
 ```bash
 pwsh tools/fetch-native.ps1 -Rid win-x64 -Profile Spirv   # stage the pinned Slang payload
@@ -92,73 +160,63 @@ dotnet test  PrismSlang.slnx -c Release
 dotnet run --project samples/PrismSlang.Smoke -c Release  # source -> SPIR-V, end to end
 ```
 
-The payload is not committed — `runtimes/` is gitignored — so the fetch is the first step on a fresh
-clone. `-Profile Spirv` stages `slang-compiler` and `slang-glslang`; the latter is where `spirv-opt`
-lives, and without it every shader compiles ~23% larger while Slang says so exactly once per
-session ([§9.8 C](docs/findings.md#98-four-findings-from-the-first-consumer)).
+`runtimes/` is gitignored, so the fetch is the first step on a fresh clone. `-Profile Spirv` stages
+`slang-compiler` and `slang-glslang`; the latter is where `spirv-opt` lives, and without it every
+shader compiles about 23% larger while Slang mentions it exactly once per session.
 
-**[docs/guide.md](docs/guide.md)** is the how-to: compiling, reflecting, projecting, baking, and the
-traps worth knowing before you hit them.
+**521 tests** run on all four platforms each push, against oracles rather than expected values typed
+by hand: the emitted SPIR-V, Slang's own alternate route to each fact, a vk.xml-generated enum
+mirror, and the Khronos validation layers building real pipelines on a headless device from a
+**32-shader corpus**. `NativeExportTests` resolves all 278 `DllImport` entry points against the
+loaded library.
 
 ## Documentation
 
 | | |
 |---|---|
-| **[guide.md](docs/guide.md)** | how to use it — the task-shaped documentation |
-| **[findings.md](docs/findings.md)** | what was measured, and what contradicted a reasonable guess |
-| **[design.md](docs/design.md)** | the surface study, written before any of it existed |
+| **[guide.md](docs/guide.md)** | how to use it — compiling, reflecting, projecting, baking, lifetime, threads, and the traps |
+| **[design.md](docs/design.md)** | how it is built and why — the layering, the package split, the scope boundary, the risks |
 
-`findings.md` is the one worth reading even if you never use this library. Binding Slang is mostly
-not a question of signatures — it is that `loadModule` returns a borrowed pointer where every other
-call returns an owned one, that `getEntryPointCode` names every module `main`, that a specialization
-constant used as an array length makes reflection kill the process on Linux and throw on Windows.
-Twenty-five sections of that, each one measured, several of them mistakes this binding made and then
-caught.
+Most of the difficulty in binding Slang is not in the signatures. `loadModule` returns a borrowed
+pointer where every other call returns an owned one; `getEntryPointCode` names every module `main`;
+a specialization constant used as an array length makes reflection end the process on Linux and
+throw on Windows. The guide's [traps table](docs/guide.md#traps-worth-knowing) is the short version
+of what those cost to find out.
 
-## Testing
+## How it was built
 
-521 tests. The interesting ones do not assert against numbers someone typed:
+`dotnet/Native/` is statically generated by ClangSharp from Slang's headers.
 
-- **`ModuleAgreementTests`** compiles a 32-shader corpus and requires the reflection snapshot and
-  the emitted SPIR-V to state *the same set of facts, in both directions* — so a fact one side
-  simply lacks is a difference rather than a silence. This is what found most of the defects in
-  `findings.md`.
-- **`SurfaceCoverageTests`** fails on any value of Slang's enums the corpus neither exercises nor
-  explicitly declares untried, because "nobody compiled that" is where every defect had been hiding.
-- **`VulkanCorpusValidationTests`** puts the same 32-shader corpus in front of the Khronos
-  validation layers — descriptor set layouts, push constant ranges, vertex attributes and colour
-  attachments, built into real `VkPipeline`s on a headless device and judged by an implementation
-  of the specification rather than by Slang. The only oracle here that is not ultimately Slang
-  describing itself, and it found three things on its first complete run
-  ([§9.18](docs/findings.md#918-what-the-layers-said-about-the-whole-corpus)).
-- **`VulkanValidationTests`** is the hand-written half of the same idea: three shaders, each asking
-  one question the corpus driver cannot ask generically.
-- **`MalformedInputTests`** truncates and corrupts both file readers under a fixed seed.
-- **`NativeExportTests`** resolves all 278 `DllImport` entry points against the loaded library.
-- **`SecondOpinionTests`** calls Slang's *alternate* route to every fact the projection already
-  reports — a parameter's binding from the parameter rather than from its layout, a field by name
-  rather than by index — and requires the two to agree. That is how the reflection surface reached
-  **172 of 172 exercised** without growing an API nobody asked for.
-- **`ProberTests`** spawns a child process for the reflection calls that do not fail but end — a
-  resource array sized by a specialization constant, a mismatched generic argument list — because
-  the alternative is a sentence in a document that nothing checks. One of its cases asserts the
-  *absence* of a crash this document used to claim
-  ([§9.21](docs/findings.md#921-the-four-crashes-what-upstream-says-and-whether-they-are-ours)).
-- **`DocumentedFactsTests`** compares the numbers in these documents against the code they describe.
-  Both files said "27-shader corpus" while the corpus had 28.
-- **`PublicApiTests`** renders each package's public surface and diffs it against a checked-in file,
-  so a removed member or a reordered parameter is a review comment rather than a consumer's broken
-  build. Regenerate with `PRISMSLANG_APPROVE_API=1` and *read* the diff.
+Everything else — the rest of `PrismSlang`, `PrismSlang.Runtime`, `PrismSlang.Vulkan`, the tests and
+these documents — was written with AI assistance.
 
-The Linux job runs the whole suite under `MALLOC_PERTURB_`, so freed memory is overwritten rather
-than left intact and every test becomes an ownership test.
+## What it uses
 
-Markdown-only changes skip that matrix and run `tools/ci/check-docs.sh` instead, which verifies that
-every internal link resolves, every `§N` cited from code *or from a document* is a real heading,
-every file the solution lists exists, and every test class the documents name is declared. What it
-cannot check is whether a cited section supports the claim citing it — one risk-table row spent its
-life citing the section that refuted it.
+| | |
+|---|---|
+| [Slang](https://github.com/shader-slang/slang) | the compiler this binds. Its prebuilt release is the native payload |
+| [ClangSharp](https://github.com/dotnet/ClangSharp) | generates `dotnet/Native/` from Slang's headers |
+| [.NET 10](https://github.com/dotnet/runtime) | the runtime, and the P/Invoke and `[UnmanagedCallersOnly]` machinery |
+
+Test-only, none of it shipped in a package:
+
+| | |
+|---|---|
+| [xUnit](https://github.com/xunit/xunit) | the test framework |
+| [PublicApiGenerator](https://github.com/PublicApiGenerator/PublicApiGenerator) | renders each package's public surface for approval testing |
+| [Vortice.Vulkan](https://github.com/amerkoleci/Vortice.Vulkan) | `vk.xml`-generated Vulkan bindings, used as the oracle for the mirrored enum values and to build real pipelines in the validation tests |
+| [Mesa lavapipe](https://gitlab.freedesktop.org/mesa/mesa) | a software Vulkan device, so the validation tests run on a CI runner with no GPU |
+| [Vulkan-ValidationLayers](https://github.com/KhronosGroup/Vulkan-ValidationLayers) | judges the projected pipeline state against the specification |
+| [SPIRV-Tools](https://github.com/KhronosGroup/SPIRV-Tools) | `spirv-dis` and `spirv-val`, for reading emitted modules by hand |
+
+`spirv-opt` and `glslang` are used too, but through Slang: they are inside the `slang-glslang`
+library its release ships, not separate dependencies of this repository.
 
 ## Licence
 
-MIT.
+[MIT](LICENSE) for everything in this repository.
+
+The `PrismSlang` package additionally redistributes Slang's own prebuilt binaries, which are
+`Apache-2.0 WITH LLVM-exception`. Their licence texts ship inside the package under
+`runtimes/<rid>/`, and [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) says what is bundled and
+under what terms. `PrismSlang.Runtime` and `PrismSlang.Vulkan` bundle nothing and are MIT alone.

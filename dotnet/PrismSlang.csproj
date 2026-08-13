@@ -28,12 +28,19 @@
     <PackageId>PrismSlang</PackageId>
     <Version>0.1.0-alpha</Version>
     <Authors>szombathy-tamas</Authors>
-    <Description>C# bindings over the Slang shader compiler: compilation and full reflection. Pure managed P/Invoke, no C++/CLI. Windows x64, Linux x64, macOS arm64.</Description>
+    <Description>C# bindings over the Slang shader compiler: compilation and full reflection. Pure managed P/Invoke, no C++/CLI. Windows x64, Linux x64, Linux arm64, macOS arm64. Alpha: built for the PrismEngine renderer and not yet load-tested by a shipping game.</Description>
     <PackageTags>slang;shader;spirv;vulkan;shader-compiler;reflection</PackageTags>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <RepositoryType>git</RepositoryType>
     <NoWarn>$(NoWarn);NU5128</NoWarn>
   </PropertyGroup>
+
+  <!-- This is the only package that redistributes anything, so it is the only one that has to carry
+       the notice. Slang's own licence texts ride along under runtimes/<rid>/, staged there by
+       tools/fetch-native.ps1; this file is what explains them. -->
+  <ItemGroup>
+    <None Include="$(MSBuildThisFileDirectory)..\THIRD-PARTY-NOTICES.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
 
   <!-- The generated layer is machine-authored; its style is not ours to police. -->
   <PropertyGroup>

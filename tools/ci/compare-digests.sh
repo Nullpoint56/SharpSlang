@@ -9,7 +9,7 @@
 # is identical everywhere. The module is identical between *operating systems* (win-x64 and
 # linux-x64 agree byte for byte) and differs between *architectures*, for exactly the three corpus
 # shaders that use SV_VertexID. That is Slang's codegen, not ours, and it is not something this
-# repository can fix. §9.33.
+# repository can fix. .
 #
 # So one flat "everything must match" is the wrong shape: it would be permanently red and would stop
 # reporting anything. The rules that are actually true:
@@ -37,7 +37,7 @@ status=0
 # The instrument before the measurement. spirv-worddiff.py is what anyone reaching for an
 # explanation of a disagreement below will run, and it has been wrong twice: once reporting only
 # half of a difference, once calling a swap of two operands a renumbering — the one direction a tool
-# built to justify "cosmetic" must never fail in (§9.38). Five hand-built modules, five verdicts,
+# built to justify "cosmetic" must never fail in. Five hand-built modules, five verdicts,
 # two seconds. A tool nobody checks is a tool nobody should quote.
 worddiff="$(dirname "$0")/spirv-worddiff.py"
 if command -v python3 >/dev/null 2>&1 && [ -f "$worddiff" ]; then

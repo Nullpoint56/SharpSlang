@@ -417,7 +417,7 @@ public class ReflectionTests
     public void The_buffer_nobody_declared_says_that_it_is_the_buffer_nobody_declared()
     {
         // Loose global uniforms become a constant buffer with no declaration behind it, so its
-        // descriptor range has a null name (§9.7). The name stays absent — `globalParams` is one
+        // descriptor range has a null name. The name stays absent — `globalParams` is one
         // backend's invention and does not belong in the API-neutral layer — but a host iterating
         // ranges to build a descriptor set layout now meets a labelled thing rather than a null.
         using var global = SlangGlobalSession.Create();

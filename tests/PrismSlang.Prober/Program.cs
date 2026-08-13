@@ -65,7 +65,7 @@ internal static class Cases
             float4 hFragment() : SV_Target { return hFixed[0].Sample(hSampler, 0); }
             """),
 
-        // §9.12. A resource array sized by a specialization constant. Every query that does not
+        // . A resource array sized by a specialization constant. Every query that does not
         // crash gives the same answers as a fixed-size array, so there is nothing to test for and
         // nothing to guard — the only observable difference is that reflecting it ends the process
         // inside spReflectionTypeLayout_getBindingRangeCount.
@@ -79,7 +79,7 @@ internal static class Cases
             float4 scFragment() : SV_Target { return scArray[0].Sample(scSampler, 0); }
             """),
 
-        // §9.20. An integer argument where a type parameter belongs. LinkedProgram.SpecializeGeneric
+        // . An integer argument where a type parameter belongs. LinkedProgram.SpecializeGeneric
         // refuses this before Slang sees it, because Slang does not refuse it — it access-violates.
         // Reaching past the guard is the point, so this calls the flat API directly.
         ["generic-argument-kind-mismatch"] = () => MismatchedGenericArgument(wrongKind: true),
@@ -90,14 +90,14 @@ internal static class Cases
         // evidence.
         ["generic-argument-count-mismatch"] = () => MismatchedGenericArgument(wrongKind: false),
 
-        // §9.25. Does creating a child actually retain its parent? LifetimeTests asserts that
+        // . Does creating a child actually retain its parent? LifetimeTests asserts that
         // disposal order does not matter, on the stated premise that "each object holds its own
         // reference to what it needs". That premise has never been measured — it was read off COM
         // convention — and the macOS leg crashes in exactly the test that depends on it. addRef
         // followed by release reports the count without changing it.
         ["refcount-ownership"] = RefcountOwnership,
 
-        // §9.26. The same teardown LifetimeTests does, outermost first, one release at a time with
+        // . The same teardown LifetimeTests does, outermost first, one release at a time with
         // the name of each printed before it happens. Taking a native reference on the owner made
         // the refcounts balance and did not stop the macOS host dying here, so the remaining
         // suspect is not *whether* the objects survive but the order Slang destroys them in when
@@ -105,38 +105,38 @@ internal static class Cases
         // release that did it.
         ["dispose-outermost-first"] = DisposeOutermostFirst,
 
-        // §9.24. Two reflection questions that were being asked in-process on the strength of
+        // . Two reflection questions that were being asked in-process on the strength of
         // Windows and Linux tolerating them, and that the first macOS run turned into a dead test
         // host. Both are caller mistakes rather than obvious Slang defects, which is exactly why
         // the answer belongs somewhere a crash is the result rather than the end of the run.
         ["specialized-type-arg-out-of-range"] = SpecializedTypeArgOutOfRange,
         ["apply-generic-to-itself"] = ApplyGenericToItself,
 
-        // §9.22. spReflection_specializeType handed a type that is not generic. Returns null on
-        // Windows, aborts the process on Linux — the same platform split as §9.12, and found the
+        // . spReflection_specializeType handed a type that is not generic. Returns null on
+        // Windows, aborts the process on Linux — the same platform split as , and found the
         // same way: by a test that passed on one platform and killed the runner on the other.
         ["specialize-a-non-generic-type"] = SpecializeNonGenericType,
 
-        // §9.12 / §9.21. GetSpecializedElementCount is the documented resolving counterpart of
+        //  / . GetSpecializedElementCount is the documented resolving counterpart of
         // GetElementCount — "returns SLANG_UNKNOWN_SIZE when size depends on unresolved generic
         // parameters or link-time constants" — and it access-violates on exactly that case. The
         // walk reads the size marker first and never asks; this is the only place it is called,
         // because calling it anywhere else would end the caller.
         ["specialized-element-count"] = SpecializedElementCount,
 
-        // §9.21. getBindingRangeImageFormat on a ParameterBlock's binding range. The receiver and
+        // . getBindingRangeImageFormat on a ParameterBlock's binding range. The receiver and
         // the index are the ones every other binding-range query in the same loop is answered for,
         // which is the whole point: this prints the range's type — proving the pair is valid — and
         // then dies asking the next question about it.
         ["image-format-on-parameter-block"] = ImageFormatOnParameterBlock,
 
-        // §9.28. The three threading patterns slang.h documents, measured instead of trusted.
+        // . The three threading patterns slang.h documents, measured instead of trusted.
         // Nothing in the suite has ever used this library from two threads — AssemblyInfo disables
         // test parallelism for unrelated reasons — so the primary use case of a shader cooker is
         // the one thing with no coverage at all. Out of process because the middle case is the one
         // the header says needs external synchronization, and asking it in the runner would be
-        // §9.24 all over again.
-        // §9.31. Whether the allocator poisoning CI leans on is actually doing anything. Both
+        //  all over again.
+        // . Whether the allocator poisoning CI leans on is actually doing anything. Both
         // tripwires are environment variables the runner sets and nobody has ever confirmed took
         // effect — and macOS's pair is documented not to apply to its nano allocator, which is
         // where small objects live. A tripwire that is off looks exactly like one that found
@@ -154,7 +154,7 @@ internal static class Cases
     /// The control for two CI tripwires that nobody had confirmed. `MALLOC_PERTURB_` and macOS's
     /// `MallocScribble`/`MallocPreScribble` are environment variables — a runner can set them, print
     /// them in the log, and have them do nothing, which is exactly what `MALLOC_CHECK_=3` turned out
-    /// to be (§9.19). An unarmed tripwire is indistinguishable from one that found nothing.
+    /// to be. An unarmed tripwire is indistinguishable from one that found nothing.
     ///
     /// Two sizes on purpose. Apple's libmalloc routes allocations up to 256 bytes through the
     /// *nano* zone, and the scribble options apply to the scalable zone — so poisoning can be live
@@ -219,7 +219,7 @@ internal static class Cases
         // block was filled with 0xC3 before the free, so zeros are something writing zeros — on
         // osx-arm64 that is the platform clearing freed tiny blocks whether or not MallocScribble
         // is set, which the control run proves by producing the same 0x00 with every variable
-        // removed. Reported as "not us" rather than folded into the shrug below (§9.38).
+        // removed. Reported as "not us" rather than folded into the shrug below.
         static string Verdict(byte freed) => freed switch
         {
             0xA5 => "<- MALLOC_PERTURB_ is live",
@@ -411,8 +411,8 @@ internal static class Cases
     /// <remarks>
     /// The self-test for the tripwire the three threading probes are read through. `SILENTLY WRONG`
     /// is the single token the unsafe pattern's test asserts the *absence* of, and a token never
-    /// observed to appear is indistinguishable from one that cannot — which is §9.31's finding, and
-    /// §9.37's own argument pointed back at the fix it proposes.
+    /// observed to appear is indistinguishable from one that cannot — which is 's finding, and
+    /// 's own argument pointed back at the fix it proposes.
     ///
     /// Nothing here is a measurement, and the label says so in the output. It is fabricated data
     /// pushed through the real reporting path, so that the assertion guarding every threading probe
@@ -437,7 +437,7 @@ internal static class Cases
     /// matching on `"0 threw, 0 disagreed"` asserts three things at once — nothing threw, nothing
     /// disagreed, and the process survived to print the line — and cannot say which of them failed;
     /// `SILENTLY WRONG` is the single outcome that must never appear, and its absence means the
-    /// same thing whether the report was printed or the process died before reaching it. §9.37 is
+    /// same thing whether the report was printed or the process died before reaching it.  is
     /// what that distinction cost when it was missing.
     /// </remarks>
     private static void ReportAgreement(
@@ -577,7 +577,7 @@ internal static class Cases
             // The invariant, printed on the line before the release that has to preserve it. The
             // last release destroys the Linkage, and if the Linkage is the only thing left holding
             // the global session then Slang destroys it from inside ~Linkage() and double-frees a
-            // witness table between the two AST arenas (§9.26). global >= 2 here is what says
+            // witness table between the two AST arenas. global >= 2 here is what says
             // somebody other than the Linkage is still holding it.
             Console.Out.WriteLine(
                 $"    global={Count(globalPtr)} session={Count(sessionPtr)}  releasing {what} ...");
@@ -697,7 +697,7 @@ internal static class Cases
 
         var shader = (SlangProgramLayout*)program.GetLayout(0);
 
-        // Reached structurally rather than through a layout: §9.12 measured that a ConstantBuffer
+        // Reached structurally rather than through a layout:  measured that a ConstantBuffer
         // of a block containing such an array reports no bindings at all, so there is no layout to
         // walk down. The type is still findable by name.
         SlangReflectionType* block;

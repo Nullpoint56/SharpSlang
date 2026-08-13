@@ -1,6 +1,6 @@
 // The rules SlangObject exists to enforce, asserted rather than assumed.
 //
-// Both ownership bugs in docs §9.1 were found by running the suite on a second platform, not by a
+// Both ownership bugs in docs  were found by running the suite on a second platform, not by a
 // test — glibc aborted on a double release that the Windows heap had tolerated silently since the
 // first commit. The fixes are load-bearing and none of them was pinned:
 //
@@ -144,7 +144,7 @@ public class LifetimeTests
         // ISession retains IGlobalSession, and IModule does *not* retain ISession. So disposing a
         // session while a module was alive dropped the last reference and destroyed it. Windows
         // and both Linux allocators tolerated the use-after-free; macOS did not, and the test
-        // below is where its host died (§9.25).
+        // below is where its host died.
         //
         // SlangObject now takes a native reference on its owner, which is what makes the ordering
         // guarantee true. Asserted as a delta rather than an absolute: the absolute counts include
@@ -160,7 +160,7 @@ public class LifetimeTests
             "loading a module did not retain its session. Disposing the session first is then a "
             + "use-after-free, which is what SlangObject's owner reference exists to prevent.");
 
-        // And its grandparent. The immediate owner is not enough on its own — see §9.26 and the
+        // And its grandparent. The immediate owner is not enough on its own — see  and the
         // test below — so the chain is held whole and this is where that is visible.
         Assert.True(RefCount(global) > globalBefore,
             "loading a module did not retain the global session. A module only protects it while "
@@ -189,7 +189,7 @@ public class LifetimeTests
     {
         // The invariant the test below rests on, checked one release before the one that would
         // break it — deliberately, so a regression fails as an assertion instead of as a dead test
-        // host. Three macOS runs were spent learning that difference (§9.26).
+        // host. Three macOS runs were spent learning that difference.
         //
         // Slang destroys the global session's RootASTBuilder from inside Slang::Linkage::~Linkage()
         // if the Linkage is holding the last reference to it, and the two AST arenas then
@@ -225,7 +225,7 @@ public class LifetimeTests
             $"the global session is down to {remaining} reference(s) with a linked program still "
             + "alive, so the last release will destroy it from inside Slang::Linkage::~Linkage() "
             + "and double-free a witness table. SlangObject must hold a reference on every "
-            + "ancestor, not only the immediate owner — see §9.26.");
+            + "ancestor, not only the immediate owner —");
 
         program.Dispose();
     }
@@ -253,7 +253,7 @@ public class LifetimeTests
     [NativeFact]
     public unsafe void Nothing_leaks_across_repeated_compile_cycles()
     {
-        // The canary §9.26 made possible, and the reason it is a single number.
+        // The canary  made possible, and the reason it is a single number.
         //
         // Every wrapper now holds a native reference on its *whole* ancestor chain, so anything
         // left unreleased anywhere in the hierarchy — a session, a module, an entry point, a blob —
@@ -264,7 +264,7 @@ public class LifetimeTests
         // Worth having because a refcount imbalance is invisible to every other test here. It does
         // not crash, it does not corrupt, and it does not produce a wrong answer — it just eats
         // memory until a batch cook dies, which is the failure mode a cooker actually meets. The
-        // ownership rules changed twice in one day (§9.25, §9.26); nothing was watching this.
+        // ownership rules changed twice in one day; nothing was watching this.
         using var global = SlangGlobalSession.Create();
         var globalPtr = (PrismSlang.Native.ISlangUnknown*)global.RawForTests;
 

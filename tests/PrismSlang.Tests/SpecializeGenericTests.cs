@@ -109,7 +109,7 @@ public class SpecializeGenericTests(Xunit.Abstractions.ITestOutputHelper output)
     public void A_value_generic_reports_its_value_and_sizes_the_array()
     {
         // Value generics are the case Slang's program-level specialization API cannot express at
-        // all — it reports type parameters exclusively (§9.x, GenericParameterKind) — so this is
+        // all — it reports type parameters exclusively (GenericParameterKind) — so this is
         // the only way to ask what `SgCascades<4>` costs.
         var (global, session, module, program) = Load();
         using (global) using (session) using (module) using (program)
@@ -255,7 +255,7 @@ public class SpecializeGenericTests(Xunit.Abstractions.ITestOutputHelper output)
     {
         // A value where a type belongs. The first version of this test expected Slang to complain
         // and pass its diagnostics through; instead spReflection_specializeGeneric access-violates
-        // and takes the process down — the whole test run aborted with 0xC0000005. Unlike §9.12's
+        // and takes the process down — the whole test run aborted with 0xC0000005. Unlike 's
         // spec-sized resource array this is detectable in advance, so it is, and ProberTests
         // asserts the unguarded behaviour from a process nobody minds losing.
         var (global, session, module, program) = Load();

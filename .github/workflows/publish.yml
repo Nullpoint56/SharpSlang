@@ -14,14 +14,14 @@ name: Publish to GitHub Packages
 
 # Rehearsal, and why there is one. Until a tag is pushed, everything below is code that has never
 # executed — the same category CI itself was in until its first run immediately caught two things
-# local runs could not. A tag is a bad place to discover that the three-RID staging is wrong,
+# local runs could not. A tag is a bad place to discover that the four-RID staging is wrong,
 # because the failure arrives attached to a version number.
 #
 # So `workflow_dispatch` accepts `dry_run`, default true: every step runs except the push. It is the
-# whole path — staging win-x64, linux-x64 and osx-arm64 from a Windows runner, building, testing,
-# packing all three projects, and checking that every RID in the core package carries both the
-# compiler and the SPIR-V optimiser — with only the last step skipped. The .nupkg files are uploaded
-# either way, so a dry run leaves something to inspect.
+# whole path — staging all four supported RIDs from a Windows runner, building, testing, packing all
+# three projects, and checking that every RID in the core package carries the compiler, the SPIR-V
+# optimiser and Slang's licence texts — with only the last step skipped. The .nupkg files are
+# uploaded either way, so a dry run leaves something to inspect.
 #
 # A tag still publishes for real. dry_run only applies to a manual run.
 on:
@@ -54,7 +54,10 @@ jobs:
           # Staged from Windows for all RIDs. fetch-native.ps1 copies the real versioned library
           # and synthesises the plain-named alias, because Expand-Archive cannot create the
           # symlinks the Unix archives rely on.
-          foreach ($rid in @('win-x64', 'linux-x64', 'osx-arm64')) {
+          # Every RID a CI leg verifies. linux-arm64 was missing here while ubuntu-24.04-arm ran the
+          # full suite on it every push, so the one architecture with its own calling convention was
+          # tested and then not shipped — a consumer on it would have resolved no payload at all.
+          foreach ($rid in @('win-x64', 'linux-x64', 'linux-arm64', 'osx-arm64')) {
             ./tools/fetch-native.ps1 -Rid $rid -Profile Spirv
           }
 
@@ -109,7 +112,7 @@ jobs:
           Add-Type -AssemblyName System.IO.Compression.FileSystem
           $zip = [System.IO.Compression.ZipFile]::OpenRead($nupkg.FullName)
           try {
-            foreach ($rid in @('win-x64', 'linux-x64', 'osx-arm64')) {
+            foreach ($rid in @('win-x64', 'linux-x64', 'linux-arm64', 'osx-arm64')) {
               $prefix = "runtimes/$rid/native/"
               $files = @($zip.Entries | Where-Object { $_.FullName.StartsWith($prefix) })
               foreach ($needed in @('slang-compiler', 'slang-glslang')) {
@@ -117,7 +120,23 @@ jobs:
                   throw "package is missing $needed under $prefix"
                 }
               }
-              Write-Host ("    {0,-12} {1} files" -f $rid, $files.Count)
+
+              # Redistributing the binaries means carrying their terms. Checked per RID, because the
+              # licences are staged by the same script in the same pass as the payload: a RID whose
+              # staging half-failed would ship the compiler without them. The exact path matters —
+              # NuGet treats an extensionless PackagePath as a directory, which silently packed
+              # Slang's LICENSE to runtimes/<rid>/LICENSE/<rid>/LICENSE once.
+              foreach ($terms in @("runtimes/$rid/LICENSE.txt", "runtimes/$rid/LICENSES/Apache-2.0.txt")) {
+                if (-not ($zip.Entries | Where-Object { $_.FullName -eq $terms })) {
+                  throw "package is missing $terms - see THIRD-PARTY-NOTICES.md"
+                }
+              }
+
+              Write-Host ("    {0,-12} {1} files, licences present" -f $rid, $files.Count)
+            }
+
+            if (-not ($zip.Entries | Where-Object { $_.FullName -eq 'THIRD-PARTY-NOTICES.md' })) {
+              throw "package does not carry THIRD-PARTY-NOTICES.md"
             }
           } finally { $zip.Dispose() }
 
