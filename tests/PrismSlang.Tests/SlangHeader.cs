@@ -73,10 +73,58 @@ public sealed partial class SlangHeader
             ?? throw new InvalidOperationException(
                 "SlangVersion assembly metadata missing - the test csproj must emit it from $(SlangVersion).");
 
-        var slang = Cached(version, "slang.h");
-        var deprecated = Cached(version, "slang-deprecated.h");
+        // The whole include closure, not a list maintained by hand. slang.h includes
+        // slang-deprecated.h and slang-image-format-defs.h, and NativeAbiTests compiles this
+        // directory with a real C++ compiler — so a header missing from the cache is not a
+        // parsing gap, it is a probe that cannot build at all.
+        //
+        // A hardcoded pair passed locally and failed on all four runners, because
+        // tools/generate-native.ps1 fetches all three and had already populated the cache on the
+        // machine the check was written on. Deriving the list from the headers removes the
+        // difference between a warm cache and a cold one.
+        var fetched = Closure(version, "slang.h");
 
-        return new SlangHeader(Strip(slang), Strip(slang + "\n" + deprecated), version);
+        return new SlangHeader(
+            Strip(fetched["slang.h"]),
+            Strip(fetched["slang.h"] + "\n" + fetched["slang-deprecated.h"]),
+            version);
+    }
+
+    /// <summary>Every Slang header reachable from one, fetched and cached.</summary>
+    /// <remarks>
+    /// Only names beginning <c>slang</c>. The other quoted include in the tree is
+    /// <c>TargetConditionals.h</c>, which is Apple's and comes from the SDK behind an
+    /// <c>__APPLE__</c> guard — asking github for it would 404, and tolerating a 404 instead would
+    /// make a genuinely missing Slang header look the same as a system one.
+    /// </remarks>
+    private static Dictionary<string, string> Closure(string version, string root)
+    {
+        var fetched = new Dictionary<string, string>(StringComparer.Ordinal);
+        var pending = new Queue<string>();
+        pending.Enqueue(root);
+
+        while (pending.Count > 0)
+        {
+            var name = pending.Dequeue();
+            if (fetched.ContainsKey(name)) continue;
+
+            var text = Cached(version, name);
+            fetched[name] = text;
+
+            foreach (Match include in QuotedInclude().Matches(text))
+            {
+                var next = include.Groups["file"].Value;
+
+                if (next.StartsWith("slang", StringComparison.OrdinalIgnoreCase)
+                    && !next.Contains('/')
+                    && !fetched.ContainsKey(next))
+                {
+                    pending.Enqueue(next);
+                }
+            }
+        }
+
+        return fetched;
     }
 
     /// <summary>The pinned copy of one header, downloaded on first use.</summary>
@@ -576,6 +624,9 @@ public sealed partial class SlangHeader
 
     [GeneratedRegex(@"^[A-Za-z_]\w*$")]
     private static partial Regex Identifier();
+
+    [GeneratedRegex(@"^[ \t]*#[ \t]*include[ \t]*""(?<file>[^""]+)""", RegexOptions.Multiline)]
+    private static partial Regex QuotedInclude();
 
     // `virtual SLANG_NO_THROW IModule* SLANG_MCALL loadModule(const char*, IBlob** = nullptr) = 0;`
     //
