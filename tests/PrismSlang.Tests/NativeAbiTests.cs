@@ -13,12 +13,14 @@
 //   * offsetof for every named field
 //   * the exact bits a bitfield property writes, byte for byte
 //   * sizeof(interface) == sizeof(void*), which is what `void** lpVtbl` assumes
-//   * every DllImport's signature, as a static_assert that fails to compile if it is wrong
+//   * every signature — 278 DllImports and 231 vtable methods — as a static_assert that fails to
+//     compile if it is wrong, naming the function and printing both types
 //
-// Vtable slot order is deliberately not here. clang only lays out a vtable it is going to emit, and
-// Slang's interfaces are pure-abstract with no key function, so nothing in a probe translation unit
-// causes one to exist. VtableOrderTests derives all 374 slots from the header instead, which covers
-// the same ground without a toolchain.
+// Vtable slot *order* is deliberately not here. clang only lays out a vtable it is going to emit,
+// and Slang's interfaces are pure-abstract with no key function, so nothing in a probe translation
+// unit causes one to exist and -fforce-emit-vtables does not change that. VtableOrderTests derives
+// all 374 slots from the header instead. Their signatures are reachable regardless, because a
+// pointer-to-member type needs no vtable to exist.
 //
 // Skips with a reason where no C++ compiler is installed, in the shape NativeFact and
 // VulkanValidationFact already use — a machine without one still runs everything else.
@@ -98,7 +100,8 @@ public static class NativeAbi
     /// <param name="source">The C++ to build.</param>
     /// <param name="name">Base name for the generated files, inside the test's own directory.</param>
     /// <param name="diagnostics">The compiler's output, whether or not it succeeded.</param>
-    public static string? Build(string source, string name, out string diagnostics)
+    public static string? Build(string source, string name, out string diagnostics,
+        params string[] extraArguments)
     {
         var directory = Path.Combine(Path.GetTempPath(), "prismslang-abi");
         Directory.CreateDirectory(directory);
@@ -111,7 +114,7 @@ public static class NativeAbi
         var include = Path.Combine(
             SlangHeader.RepoRoot(), "obj", "slang-headers", SlangHeader.Pinned.Version);
 
-        var compile = Run(Compiler!, ["-std=c++17", "-I", include, cpp, "-o", exe]);
+        var compile = Run(Compiler!, ["-std=c++17", "-I", include, .. extraArguments, cpp, "-o", exe]);
         diagnostics = compile.Output;
         if (compile.ExitCode != 0 || !File.Exists(exe)) return null;
 
@@ -667,11 +670,10 @@ public sealed partial class NativeAbiTests(Xunit.Abstractions.ITestOutputHelper 
     // ---------------------------------------------------------------- vtable method signatures
 
     /// <summary>One vtable method, as the C++ member-function type the binding claims it has.</summary>
-    private sealed record Method(string Interface, string Name, string Return, IReadOnlyList<string> Parameters, bool NoThrow)
+    private sealed record Method(string Interface, string Name, string Return, IReadOnlyList<string> Parameters)
     {
         public string AsMemberPointer =>
-            $"{Return} ({Interface}::*)({(Parameters.Count == 0 ? "" : string.Join(", ", Parameters))})"
-            + (NoThrow ? " noexcept" : "");
+            $"{Return} ({Interface}::*)({(Parameters.Count == 0 ? "" : string.Join(", ", Parameters))})";
     }
 
     /// <summary>
@@ -711,8 +713,7 @@ public sealed partial class NativeAbiTests(Xunit.Abstractions.ITestOutputHelper 
             var iface = Path.GetFileNameWithoutExtension(file);
             var text = File.ReadAllText(file);
 
-            var own = header.OwnVirtualMethods(iface)
-                .ToDictionary(m => m.Name, m => m.NoThrow, StringComparer.Ordinal);
+            var own = header.OwnVirtualMethods(iface).ToHashSet(StringComparer.Ordinal);
             if (own.Count == 0) continue;
 
             // The denominator is every slot the file declares, counted independently of whether
@@ -723,7 +724,7 @@ public sealed partial class NativeAbiTests(Xunit.Abstractions.ITestOutputHelper 
             foreach (Match declaration in VtableDeclaration().Matches(text))
             {
                 var name = declaration.Groups["name"].Value;
-                if (!own.TryGetValue(name, out var noThrow)) continue;   // inherited; checked elsewhere
+                if (!own.Contains(name)) continue;   // inherited; checked on its declaring class
 
                 var arguments = BalancedArguments(text, declaration.Index + declaration.Length - 1);
                 if (arguments is null) { skipped.Add($"{iface}::{name} (unbalanced parameter list)"); continue; }
@@ -752,7 +753,7 @@ public sealed partial class NativeAbiTests(Xunit.Abstractions.ITestOutputHelper 
 
                 if (!reconstructed) { skipped.Add($"{iface}::{name} (parameter type)"); continue; }
 
-                methods.Add(new Method(iface, name, returnType, parameters, noThrow));
+                methods.Add(new Method(iface, name, returnType, parameters));
             }
         }
 
@@ -760,9 +761,9 @@ public sealed partial class NativeAbiTests(Xunit.Abstractions.ITestOutputHelper 
     }
 
     /// <summary>How many of an interface's own methods its generated file carries slots for.</summary>
-    private static int SlotsDeclaredHere(string text, Dictionary<string, bool> own) =>
+    private static int SlotsDeclaredHere(string text, HashSet<string> own) =>
         AnySlot().Matches(text)
-            .Count(m => own.ContainsKey(AfterSlot().Match(text[m.Index..]).Groups["name"].Value));
+            .Count(m => own.Contains(AfterSlot().Match(text[m.Index..]).Groups["name"].Value));
 
     /// <summary>The text inside a parameter list, given the position of its opening paren.</summary>
     /// <remarks>
@@ -817,22 +818,49 @@ public sealed partial class NativeAbiTests(Xunit.Abstractions.ITestOutputHelper 
         cpp.AppendLine("template<class A, class B> struct same_ { static const bool value = false; };");
         cpp.AppendLine("template<class A> struct same_<A, A> { static const bool value = true; };");
 
+        // Either spelling, and the alternative is the point rather than a weakening.
+        //
+        // SLANG_NO_THROW is __declspec(nothrow) on Windows and *empty* everywhere else, and C++17
+        // makes noexcept part of a function's type — so the same method has two different types
+        // depending on the platform. A first version derived the noexcept from the header text and
+        // passed on Windows while failing 19 assertions on both Linux legs and macOS.
+        //
+        // Asserting it either way would be asserting how a Slang macro expands, which is not what
+        // this is for: C# has no way to say noexcept, so the binding cannot be wrong about it. The
+        // return type and every parameter still have to match exactly, which is what can be wrong.
         foreach (var method in methods)
         {
             cpp.AppendLine($"static_assert(same_<decltype(&{method.Interface}::{method.Name}), "
-                + $"{method.AsMemberPointer}>::value,");
+                + $"{method.AsMemberPointer}>::value");
+            cpp.AppendLine($"           || same_<decltype(&{method.Interface}::{method.Name}), "
+                + $"{method.AsMemberPointer} noexcept>::value,");
             cpp.AppendLine($"    \"{method.Interface}::{method.Name} is declared with a different "
                 + "signature by the binding\");");
         }
 
         cpp.AppendLine("int main() { return 0; }");
 
-        var result = NativeAbi.Build(cpp.ToString(), "vtable-signatures", out var diagnostics);
+        // Twice, and the second run is what stops this being a Windows-only check. Forcing
+        // SLANG_NO_THROW empty is precisely the declaration every non-Windows platform sees, so a
+        // machine with the MSVC ABI verifies the Itanium shape and one with Itanium verifies both
+        // as well. The first version of this probe was green here and red on three runners.
+        foreach (var (label, arguments) in new[]
+                 {
+                     ("as this platform declares them", Array.Empty<string>()),
+                     ("with SLANG_NO_THROW empty, as every non-Windows platform sees them",
+                      new[] { "-DSLANG_NO_THROW=" }),
+                 })
+        {
+            var result = NativeAbi.Build(
+                cpp.ToString(), $"vtable-signatures-{arguments.Length}", out var diagnostics, arguments);
 
-        Assert.True(result is not null,
-            "the vtable signature probe did not build. Each error names the interface and method "
-            + "and shows the two types — the first is what slang.h declares, the second is what the "
-            + "binding calls through:\n" + diagnostics);
+            Assert.True(result is not null,
+                $"the vtable signature probe did not build {label}. Each error names the interface "
+                + "and method and shows the two types — the first is what slang.h declares, the "
+                + "second is what the binding calls through:\n" + diagnostics);
+
+            output.WriteLine($"built {label}");
+        }
     }
 
     private static ulong MaxOf(Type t) =>

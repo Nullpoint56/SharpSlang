@@ -314,17 +314,8 @@ public sealed partial class SlangHeader
         var (baseName, body) = Declaration(name);
         if (baseName is { Length: > 0 }) CollectVirtuals(baseName, into, seen);
 
-        foreach (var m in OwnVirtuals(body)) into.Add(m.Name);
+        into.AddRange(OwnVirtuals(body));
     }
-
-    /// <summary>A virtual method as slang.h declares it.</summary>
-    /// <param name="Name">Its name.</param>
-    /// <param name="NoThrow">
-    /// Whether it carries <c>SLANG_NO_THROW</c>. That macro is <c>noexcept</c>, which C++17 makes
-    /// part of the function's <em>type</em> — so a signature check that omits it fails on every
-    /// method, and one that assumes it fails on the seven that do not have it.
-    /// </param>
-    public sealed record VirtualMethod(string Name, bool NoThrow);
 
     /// <summary>
     /// The virtual methods an interface declares itself, excluding everything it inherits.
@@ -334,17 +325,14 @@ public sealed partial class SlangHeader
     /// type <c>… (ISlangUnknown::*)(…)</c>, not <c>(ISession::*)</c>, so an inherited method can
     /// only be named against the class that declares it — where this returns it.
     /// </remarks>
-    public IReadOnlyList<VirtualMethod> OwnVirtualMethods(string interfaceName) =>
+    public IReadOnlyList<string> OwnVirtualMethods(string interfaceName) =>
         [.. OwnVirtuals(Declaration(interfaceName).Body)];
 
-    private static IEnumerable<VirtualMethod> OwnVirtuals(string body)
+    private static IEnumerable<string> OwnVirtuals(string body)
     {
         foreach (var span in TopLevelSpans(body))
             foreach (Match m in VirtualMethodDeclaration().Matches(span))
-                yield return new VirtualMethod(
-                    m.Groups["name"].Value,
-                    m.Groups["lead"].Success
-                    || m.Groups["pre"].Value.Contains("SLANG_NO_THROW", StringComparison.Ordinal));
+                yield return m.Groups["name"].Value;
     }
 
     /// <summary>The single base a C++ class derives from, and its body.</summary>
@@ -633,11 +621,7 @@ public sealed partial class SlangHeader
     // The name is the last identifier before the parameter list. Excluding '(' from the run in
     // between is what keeps a match inside one declaration: a return type never contains
     // parentheses here, so the first '(' after `virtual` is always the parameter list.
-    // The `noexcept` marker is usually between `virtual` and the return type, and on exactly one
-    // declaration — ISlangClonable::clone — it sits in front of `virtual` instead. Both positions
-    // mean the same thing to the compiler, and C++17 makes noexcept part of the function's type,
-    // so reading only one position gets that method's signature wrong.
-    [GeneratedRegex(@"(?<lead>\bSLANG_NO_THROW\s+)?\bvirtual\b(?<pre>[^;{(]*?)(?<name>\w+)\s*\(")]
+    [GeneratedRegex(@"\bvirtual\b[^;{(]*?(?<name>\w+)\s*\(")]
     private static partial Regex VirtualMethodDeclaration();
 
     // A class or struct *definition*. The brace is required, which skips forward declarations.
