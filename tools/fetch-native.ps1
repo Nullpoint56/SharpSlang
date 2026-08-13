@@ -93,9 +93,30 @@ if (-not (Test-Path (Join-Path $staged "bin"))) {
 #     synthesise the plain name as a real copy.
 $libDir = if ($Rid.StartsWith('win')) { Join-Path $staged 'bin' } else { Join-Path $staged 'lib' }
 
-$components = @(@{ Match = 'slang-compiler'; Canonical = "$($pre)slang-compiler.$ext" })
-if ($Profile -in 'Spirv', 'Glsl') { $components += @{ Match = 'slang-glslang';    Canonical = "$($pre)slang-glslang.$ext" } }
-if ($Profile -eq 'Glsl')          { $components += @{ Match = 'slang-glsl-module'; Canonical = "$($pre)slang-glsl-module.$ext" } }
+# Which name each library has to be staged under, and it is not the same answer for both.
+#
+# Every Unix library used to be staged twice — once under its real soname, once under the plain
+# name — on the theory that the loader might want either. Byte-identical copies, and zip does not
+# dedupe across entries, so that was 38.8 MB of the 83 MB linux-x64 payload paying for nothing.
+#
+# Measured by holding each copy aside and running the full suite on linux-x64:
+#
+#   without the versioned compiler   520 passed, 1 skipped   -> the soname copy is dead weight
+#   without the versioned glslang    361 failed              -> Slang dlopens it by versioned name
+#   plain compiler + versioned glslang only                  -> 520 passed, 1 skipped
+#
+# So they want opposite names. `DllImport("slang-compiler")` — the only DllImport in the binding —
+# resolves the plain name and never looks at the soname copy. Slang loads glslang itself, and does
+# it by the versioned name, which is the reverse of what the comment here used to claim.
+#
+# Windows has no soname convention: the real file already *is* the canonical name, so Keep changes
+# nothing there and both branches collapse to one copy.
+#
+# slang-glsl-module keeps both, because nothing has measured it — it is Glsl-profile only and no
+# test exercises that path.
+$components = @(@{ Match = 'slang-compiler'; Canonical = "$($pre)slang-compiler.$ext"; Keep = 'Canonical' })
+if ($Profile -in 'Spirv', 'Glsl') { $components += @{ Match = 'slang-glslang';    Canonical = "$($pre)slang-glslang.$ext";    Keep = 'Real' } }
+if ($Profile -eq 'Glsl')          { $components += @{ Match = 'slang-glsl-module'; Canonical = "$($pre)slang-glsl-module.$ext"; Keep = 'Both' } }
 
 $dest = Join-Path $root "runtimes" $Rid "native"
 New-Item -ItemType Directory -Force -Path $dest | Out-Null
@@ -110,14 +131,16 @@ foreach ($c in $components) {
 
     if (-not $real) { throw "no '$($c.Match)' library found in $libDir - the $Rid release layout changed" }
 
-    Copy-Item $real.FullName (Join-Path $dest $real.Name)
-    Write-Host ("    {0,-40} {1,8:N1} MB" -f $real.Name, ($real.Length / 1MB))
+    # On Windows the two names are the same file, so the first branch stages it and the second is
+    # skipped whatever Keep says.
+    if ($c.Keep -in 'Real', 'Both' -or $real.Name -eq $c.Canonical) {
+        Copy-Item $real.FullName (Join-Path $dest $real.Name)
+        Write-Host ("    {0,-40} {1,8:N1} MB" -f $real.Name, ($real.Length / 1MB))
+    }
 
-    # The loader resolves DllImport("slang-compiler") through the plain name, and Slang loads its
-    # downstream compilers by plain name too, so both have to exist.
-    if ($real.Name -ne $c.Canonical) {
+    if ($c.Keep -in 'Canonical', 'Both' -and $real.Name -ne $c.Canonical) {
         Copy-Item $real.FullName (Join-Path $dest $c.Canonical)
-        Write-Host ("    {0,-40} {1,8}" -f $c.Canonical, "(alias)")
+        Write-Host ("    {0,-40} {1,8:N1} MB" -f $c.Canonical, ($real.Length / 1MB))
     }
 }
 
