@@ -230,13 +230,26 @@ public sealed class DxilTests(Xunit.Abstractions.ITestOutputHelper output)
             Assert.True(code.Length > 20 && code.AsSpan(0, 4).SequenceEqual("DXBC"u8),
                 $"{c.EntryPoints[i]}: the code does not start with a DXBC header");
 
-            // The digest is what dxil.dll writes when it validates and signs; an unsigned container
-            // has zeros there, and D3D12 refuses one outside developer mode. RequireDxc does not
-            // check for dxil.dll (see its remarks), so this is the test that the package's second
-            // DLL is not only staged but used. Measured: nonzero for every case.
+            // The digest is the validator's hash of the rest of the container, written when it
+            // signs; a container nothing signed has zeros there. D3D12 refuses that unless
+            // experimental shader models are enabled, which Windows' Developer Mode alone does not
+            // do — measured with it on, on an RTX 4070 SUPER and on WARP: "Compute Shader is
+            // unsigned or a preview shader and experimental shader models are not enabled, or
+            // shader is otherwise corrupt." Nonzero is all this asserts. Whether it is the right
+            // hash is left to D3D12, which checks it in every pipeline NriDeviceTests builds from
+            // DXIL: a digest with one bit changed was refused as "corrupt or in an unrecognized
+            // format". Not every wrong digest is refused, though: with Developer Mode on, sixteen
+            // 0x01 bytes were accepted and the shader ran.
+            //
+            // Which validator signed is not visible here, and it is not dxil.dll. The pinned dxc
+            // signs with the validator built into dxcompiler.dll and never loads dxil.dll. Measured
+            // on compute-fixed: the same 2,908 bytes, digest F7387757C1E54D1675BD3B9EE9C5CB8E
+            // included, with dxil.dll present and with it deleted so that no module of that name
+            // was in the process; dxil.dll's own validator, handed a copy with the digest zeroed,
+            // wrote the same 16 bytes back; and D3D12 built a pipeline from the container made
+            // without it and dispatched it correctly. Measured: nonzero for every case.
             Assert.True(code.AsSpan(4, 16).ContainsAnyExcept((byte)0),
-                $"{c.EntryPoints[i]}: the DXBC digest is all zeros, so the container is unsigned — "
-                + "dxil.dll was not loaded beside dxcompiler.dll");
+                $"{c.EntryPoints[i]}: the DXBC digest is all zeros, so no validator signed the container");
         }
 
         output.WriteLine($"{caseName}: " + string.Join(", ",

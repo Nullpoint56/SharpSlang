@@ -16,8 +16,8 @@ public sealed class TargetOptions
 {
     /// <summary>
     /// Output format. Defaults to SPIR-V, PrismEngine's first target. <c>SLANG_DXIL</c> is the
-    /// other one this binding measures, for D3D12 through PrismSlang.NRI; it needs dxc beside the
-    /// compiler, which the <c>PrismSlang.Native.Dxc</c> package provides and
+    /// other one this binding measures, for D3D12 through PrismSlang.NRI; it needs dxc, which the
+    /// <c>PrismSlang.Native.Dxc</c> package copies into the application's output and
     /// <see cref="SlangGlobalSession.RequireDxc"/> checks at session creation.
     /// </summary>
     public SlangCompileTarget Format { get; init; } = SlangCompileTarget.SLANG_SPIRV;

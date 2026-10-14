@@ -449,17 +449,19 @@ jobs:
 
       # And DxilTests, for dxc itself: every test there is a [DxcFact] or [DxcTheory] and skips
       # when dxc is not loadable, which is the right behaviour on the legs that never stage it and
-      # exactly the wrong one here. If the Fetch dxc step above stops staging dxcompiler.dll and
-      # dxil.dll beside slang-compiler, the DXIL compile, projection and baking checks would all go
-      # quiet on a green run. The NRI gate above would catch the D3D12 half; this catches the half
-      # that needs no device.
+      # exactly the wrong one here. If the test project stops copying dxcompiler.dll beside
+      # slang-compiler (its Microsoft.Direct3D.DXC reference and its import of the dxc targets
+      # file), the DXIL compile, projection and baking checks would all go quiet on a green run.
+      # The NRI gate above would catch the D3D12 half; this catches the half that needs no device.
+      # Neither would notice dxil.dll going missing, and neither needs to: the pinned dxc never
+      # loads it (DxilTests says what was measured).
       #
       # 74, and no skip at all, measured on a workstation with dxc staged by the same package:
       #
       #   33  Every_corpus_entry_point_compiles_to_a_signed_dxil_container, one per corpus case:
-      #       31 cases whose every container has a non-zero digest (so dxil.dll signed them, which RequireDxc
-      #       does not check), and the two dxc refusals (subpass-inputs, wide-vertex-inputs)
-      #       asserted by dxc's own words.
+      #       31 cases whose every container has a non-zero digest (so a validator signed them: the
+      #       one built into dxcompiler.dll, since this dxc does not load dxil.dll), and the two dxc
+      #       refusals (subpass-inputs, wide-vertex-inputs) asserted by dxc's own words.
       #   33  The_dxil_projection_accepts_what_the_spirv_one_does_and_reads_registers.
       #    8  facts: the session with dxc, the session without it (which returns early here, and is
       #       measured on the Linux and macOS legs, where no dxc is staged), the exception lists,

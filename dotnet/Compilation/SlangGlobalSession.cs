@@ -260,11 +260,14 @@ public sealed unsafe class SlangGlobalSession : SlangObject<IGlobalSession>
     /// without <c>dxcompiler.dll</c> on the library search path a DXIL target fails inside the
     /// first compile with Slang's "failed to load dynamic library" note, on a path that otherwise
     /// looks like a shader error. Asked here instead, before any shader, the way
-    /// <see cref="RequireSpirvOptimizer"/> asks about spirv-opt. <c>dxil.dll</c> is not checked:
-    /// without it dxc still compiles and emits an unsigned container, which this runtime accepted
-    /// in measurement, and which the validator in the package makes signed.
+    /// <see cref="RequireSpirvOptimizer"/> asks about spirv-opt. <c>dxil.dll</c> is not checked,
+    /// because the dxc that <c>PrismSlang.Native.Dxc</c> pins does not use it: dxc 1.9.2609.5
+    /// signs with the validator built into <c>dxcompiler.dll</c>. Measured with dxil.dll deleted,
+    /// so that no module of that name was in the process: a compute shader came out byte for byte
+    /// as it did with dxil.dll present, carrying the digest dxil.dll's own validator writes, and
+    /// D3D12 built a pipeline from it under the debug layer and dispatched it correctly.
     /// </remarks>
-    /// <exception cref="SlangException">dxc is not beside the compiler.</exception>
+    /// <exception cref="SlangException">Slang cannot load dxc.</exception>
     public void RequireDxc()
     {
         var hr = Ptr->checkPassThroughSupport(SlangPassThrough.SLANG_PASS_THROUGH_DXC);

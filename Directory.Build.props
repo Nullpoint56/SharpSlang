@@ -76,7 +76,8 @@
       The pinned Microsoft.Direct3D.DXC package, for PrismSlang.Native.Dxc only. Slang compiles to
       DXIL by loading dxc as a downstream compiler, by name, from the library search path — the same
       way it loads slang-glslang — and Slang's own release ships neither dxcompiler.dll nor dxil.dll.
-      So a D3D12 consumer either brings dxc itself or takes the opt-in package that puts it there.
+      So a D3D12 consumer either brings dxc itself or takes the opt-in package, which copies it into
+      the application's output, where PrismSlang loads it from before Slang asks for it by name.
 
       That package carries no binary. It depends on Microsoft's own NuGet package of dxc at exactly
       this version and copies the two DLLs out of it; the first version repackaged them from the
