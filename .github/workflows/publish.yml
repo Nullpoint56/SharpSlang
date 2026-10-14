@@ -29,11 +29,12 @@ name: Publish
 # because the failure arrives attached to a version number.
 #
 # So `workflow_dispatch` accepts `dry_run`, default true: every step runs except the push. It is the
-# whole path — staging all four supported RIDs from a Windows runner, building, testing, packing all
-# five projects, checking that every RID in the core package carries the compiler, the SPIR-V
-# optimiser and Slang's licence texts, and that the dxc package carries its targets and no binary —
-# with only the last step skipped. The .nupkg files are uploaded either way, so a dry run leaves
-# something to inspect.
+# whole path — the full CI matrix on all four RIDs, macOS included, then staging all four payloads
+# from a Windows runner, building, testing, packing all five projects, checking that every RID in
+# the core package carries the compiler, the SPIR-V optimiser and Slang's licence texts, and that
+# the dxc package carries its targets and no binary — with only the last step skipped. The .nupkg
+# files are uploaded either way, so a dry run leaves something to inspect. At October 2026 prices
+# a run, dry or real, is about $0.60, most of it the macOS leg.
 #
 # A tag still publishes for real. dry_run only applies to a manual run, and a manual run never
 # creates a release: there is no tag to attach one to.
@@ -53,15 +54,18 @@ permissions:
   packages: write
 
 jobs:
-  publish:
-    runs-on: windows-latest
+  # The tag names the version, and so does every csproj. Checked before anything is built or
+  # tested, in a job of its own on the cheapest runner, so a tag pushed against the wrong <Version>
+  # fails in seconds with both values named — rather than after the full test matrix, or worse,
+  # publishing packages whose assembly version disagrees with the release they sit on. The same
+  # check PrismNRI's release workflow makes. A manual run has no tag, and the step is skipped
+  # rather than the job, so the jobs that need this one still run.
+  version:
+    name: tag equals v<Version>
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
 
-      # The tag names the version, and so does every csproj. Checked before anything is built, so
-      # a tag pushed against the wrong <Version> fails in seconds with both values named rather than
-      # publishing packages whose assembly version disagrees with the release they sit on. The
-      # same check PrismNRI's release workflow makes.
       - name: Tag equals v<Version>
         if: github.ref_type == 'tag'
         shell: pwsh
@@ -80,6 +84,23 @@ jobs:
           if ($odd) { throw "package versions disagree: $(($odd | ForEach-Object { "$($_.Project)=$($_.Version)" }) -join ', ') vs $($versions[0].Project)=$version" }
           if ($env:RELEASE_TAG -cne "v$version") { throw "tag '$env:RELEASE_TAG' is not 'v$version' (<Version> in the csproj files)" }
           if ((Get-Content README.md -Raw) -notmatch [regex]::Escape("``$version``")) { throw "README.md's Status line does not say ``$version``" }
+
+  # The full test matrix, macOS included, before anything is packed. On a pull request the
+  # osx-arm64 leg only runs when asked for (ci.yml explains the cost), so this is where every RID a
+  # package ships is guaranteed to have been tested — by the run that publishes it. The same
+  # workflow CI runs, called rather than copied, so the two cannot drift.
+  test:
+    needs: version
+    uses: ./.github/workflows/ci.yml
+    with:
+      macos: true
+    secrets: inherit
+
+  publish:
+    needs: [version, test]
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
 
       # The preview quality is there because .NET 11 has no GA release yet; drop it when it does.
       - uses: actions/setup-dotnet@v4

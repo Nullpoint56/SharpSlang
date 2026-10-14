@@ -1,6 +1,29 @@
 name: CI
 
-# Runs on every push and PR what currently only runs by hand.
+# What runs, and when, is a measured decision rather than a default.
+#
+# The first version of this workflow ran on every push to every branch, and again on main after
+# each merge. In October 2026 that, together with PrismNRI's CI on the same account, spent the Free
+# plan's whole monthly Actions allowance — $12, which is 2,000 Linux minutes at $0.006 — in two
+# days, and GitHub refused the last job of the last run. GitHub's own usage report said where it
+# went: a macOS minute costs $0.062, ten times a Linux one, and macOS was 15% of the minutes and 57%
+# of the money; and a third of this repository's runs were repeats on main of code its branch had
+# just passed. So:
+#
+#   * Pull requests, not pushes. A pull_request run tests the merge result, which is what main
+#     becomes, once per push to the pull request, and nothing re-runs on main after the merge. A
+#     branch with no pull request is not built; open a draft to get a run.
+#   * macOS on demand. The osx-arm64 leg is about three quarters of a run's cost, and macOS is not
+#     an engine target yet, so it runs when asked — a manual run of this workflow includes it by
+#     default — and before every release, where publish.yml calls this workflow with it on. A
+#     Windows or Linux regression still fails the pull request; an osx-arm64-only one is caught
+#     before it ships rather than before it merges.
+#   * The check that the generated bindings are current moved to regen.yml, which runs only when
+#     what it checks can have changed.
+#
+# Per run at October 2026 prices, measured from the jobs' durations: about $0.50 with macOS, about
+# $0.14 without. Caches are scoped to the pull request, so its first run downloads the Slang
+# release and the PrismNRI packages afresh — seconds per leg, not minutes.
 #
 # The cross-platform matrix is not box-ticking: the first linux-x64 run of this project found a
 # heap-corrupting ownership bug that had been passing green on Windows since the first commit
@@ -28,21 +51,28 @@ name: CI
 # If these jobs are ever made required status checks, this needs revisiting: a skipped workflow
 # never reports, and a PR waits forever for a check that will not arrive.
 on:
-  push:
-    branches: ['**']
-    tags-ignore: ['v*']      # tags are handled by publish.yml
+  pull_request:
     paths-ignore: ['**.md']
-  # No pull_request trigger. Every branch is already built on push, and a pull request from one
-  # of them ran the whole matrix a second time for the same commit — eight legs instead of four,
-  # which is what used up the GitHub API budget on the first .NET 11 run. The push run's checks
-  # appear on the pull request, since they are reported against the same SHA. A fork's pull
-  # request would not be built; this repository has none.
+  # A manual run is a deliberate one, so it is the full matrix unless told otherwise. Run it on a
+  # branch to put macOS in front of a change that might need it.
   workflow_dispatch:
+    inputs:
+      macos:
+        description: 'Include the osx-arm64 leg'
+        type: boolean
+        default: true
+  # publish.yml calls this before it packs anything, with macOS on: every RID a package ships is
+  # tested by the run that publishes it.
+  workflow_call:
+    inputs:
+      macos:
+        type: boolean
+        default: true
 
 permissions:
   contents: read
 
-# A newer push to the same branch supersedes the run in flight. Without this, a fixup pushed
+# A newer push to the same pull request supersedes the run in flight. Without this, a fixup pushed
 # while the previous commit is still being tested means two full matrices, and when the earlier
 # one is hung (see the Test step's timeout) it means a runner held for nothing.
 concurrency:
@@ -52,39 +82,35 @@ concurrency:
 jobs:
   test:
     name: test (${{ matrix.rid }})
-    runs-on: ${{ matrix.os }}
+    # The runner for each RID, in one place so the matrix can be a plain list of RIDs whose length
+    # depends on whether macOS was asked for.
+    #
+    # linux-x64 is pinned to ubuntu-24.04 rather than ubuntu-latest, which GitHub moves to Ubuntu 26
+    # from October 19, 2026. The lavapipe step installs Mesa and the validation layers by package
+    # name and checks a manifest path, and the allocator-poisoning notes on the Test step are
+    # measurements of glibc 2.39; an image change is a bad thing to discover on a run that was
+    # meant to test something else. Move the pin deliberately, and re-measure those when it moves.
+    #
+    # arm64, and not for completeness. Two things here are architecture-sensitive and had never
+    # been executed on one: every vtable call in the generated layer is
+    # `delegate* unmanaged[Stdcall]`, and stdcall has no meaning on ARM64 — the runtime is expected
+    # to ignore it and fall back to the platform convention. So are the [UnmanagedCallersOnly]
+    # thunks Slang calls back into. "Expected to" is the phrase this project has learned to measure.
+    # Slang publishes slang-<version>-linux-aarch64.zip and fetch-native.ps1 already maps it.
+    #
+    # macOS, when it runs. Until that leg existed, publish.yml staged an osx-arm64 payload into
+    # every package and nothing had ever loaded it — a library shipped to a platform on the
+    # strength of the RID being spelled correctly. macos-14 is Apple Silicon, so the ARM64 half was
+    # already answered by linux-arm64; what is new is the OS: a third allocator, a third dynamic
+    # loader, and the Itanium C++ ABI on a runtime that is not glibc's. No Vulkan there:
+    # VulkanTestDevice finds no loader and the validation tests skip with their reason.
+    runs-on: ${{ fromJSON('{"win-x64":"windows-latest","linux-x64":"ubuntu-24.04","linux-arm64":"ubuntu-24.04-arm","osx-arm64":"macos-14"}')[matrix.rid] }}
     strategy:
       fail-fast: false       # a Windows-only or Linux-only failure is the interesting signal
       matrix:
-        include:
-          - os: windows-latest
-            rid: win-x64
-          - os: ubuntu-latest
-            rid: linux-x64
-          # arm64, and not for completeness. Two things here are architecture-sensitive and have
-          # never been executed on one: every vtable call in the generated layer is
-          # `delegate* unmanaged[Stdcall]`, and stdcall has no meaning on ARM64 — the runtime is
-          # expected to ignore it and fall back to the platform convention. So are the
-          # [UnmanagedCallersOnly] thunks Slang calls back into. "Expected to" is the
-          # phrase this project has learned to measure.
-          #
-          # Slang publishes slang-<version>-linux-aarch64.zip and fetch-native.ps1 already maps it,
-          # so the payload side needed nothing.
-          - os: ubuntu-24.04-arm
-            rid: linux-arm64
-          # The last unrun platform. Until this leg existed, publish.yml staged an osx-arm64 payload
-          # into every package and nothing had ever loaded it — a library shipped to a platform on
-          # the strength of the RID being spelled correctly.
-          #
-          # macos-14 is Apple Silicon, so the ARM64 half of this was already answered by the
-          # linux-arm64 leg. What is new is the OS: a third allocator, a third dynamic loader, and
-          # the Itanium C++ ABI on a runtime that is not glibc's.  were both found by
-          # an OS the code had not run on.
-          #
-          # No Vulkan here. VulkanTestDevice finds no loader and the validation tests skip with
-          # their reason; the lavapipe and validation-count steps are gated on linux.
-          - os: macos-14
-            rid: osx-arm64
+        # osx-arm64 only when asked for: a manual run (on by default) or a release. On a pull
+        # request `inputs` is empty, so the expression takes the three-leg list.
+        rid: ${{ fromJSON(inputs.macos && '["win-x64","linux-x64","linux-arm64","osx-arm64"]' || '["win-x64","linux-x64","linux-arm64"]') }}
 
     steps:
       - uses: actions/checkout@v4
@@ -610,8 +636,12 @@ jobs:
   # runner have to be the same bytes, or content hashes stop matching, incremental cooks redo
   # everything, and the asset that ships is not the asset that was tested.
   #
-  # `needs: test` means this only runs when all four legs passed, so a missing digest here is a
-  # genuine anomaly rather than a knock-on from a failure that already reported.
+  # `needs: test` means this only runs when every leg passed, so a missing digest here is a
+  # genuine anomaly rather than a knock-on from a failure that already reported. On a pull request
+  # that is three legs, and the comparison loses nothing that matters to it: win-x64 and linux-x64
+  # still check "identical within an architecture", and linux-arm64 against both still checks the
+  # cross-architecture exception list. What only macOS adds is a second arm64 leg, checked on the
+  # runs that include it.
   #
   # It earned its place twice. Pointed at win-x64 and linux-x64 locally it found all 28 modules
   # identical and all 28 layouts different, because the layout JSON that goes into a shader package
@@ -625,7 +655,7 @@ jobs:
   digests:
     name: every platform cooks the same asset
     needs: test
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
 
@@ -636,40 +666,6 @@ jobs:
 
       # The count is the argument, and it is the safeguard: a comparison that finds nothing to
       # compare has to fail, because "all legs agreed" and "no leg reported" are otherwise the same
-      # green — and the second is what a renamed artifact actually produces.
-      - run: bash tools/ci/compare-digests.sh digests 4
-
-  regen:
-    name: generated bindings are current
-    runs-on: windows-latest
-    # Vtable *reordering* is a silent ABI break: the code still compiles and calls the wrong
-    # function. Reviewing that diff is the control (docs §4.3), so CI fails if the committed
-    # dotnet/Native/ does not match what the generator produces from the pinned header.
-    steps:
-      - uses: actions/checkout@v4
-
-      # 10.0, not the 11.0 the projects target: ClangSharpPInvokeGenerator 21.1.8.4 is a net10.0
-      # tool, and running it is all this job does. generate-native.ps1 never builds the solution,
-      # so nothing here needs the newer SDK.
-      - uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: '10.0.x'
-
-      - name: Install ClangSharp generator
-        run: dotnet tool install --global ClangSharpPInvokeGenerator
-
-      - name: Regenerate
-        shell: pwsh
-        run: ./tools/generate-native.ps1
-
-      - name: Fail if the committed bindings differ
-        shell: pwsh
-        run: |
-          git add --intent-to-add dotnet/Native
-          $diff = git diff --stat -- dotnet/Native
-          if ($diff) {
-            Write-Host "::error::dotnet/Native is out of date. Run tools/generate-native.ps1 and review the diff."
-            git diff -- dotnet/Native
-            exit 1
-          }
-          Write-Host "generated bindings match the pinned header"
+      # green — and the second is what a renamed artifact actually produces. It is the number of
+      # legs this run had, which is the matrix above.
+      - run: bash tools/ci/compare-digests.sh digests ${{ inputs.macos && 4 || 3 }}
