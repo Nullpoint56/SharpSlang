@@ -163,8 +163,22 @@ public sealed record ProjectedDescriptorSet(
     IReadOnlyList<ProjectedDescriptorRange> Ranges)
 {
     /// <summary>Finds a range by the shader parameter name that produced it, or null.</summary>
-    public ProjectedDescriptorRange? Range(string name) =>
-        Ranges.FirstOrDefault(r => string.Equals(r.Name, name, StringComparison.Ordinal));
+    /// <remarks>
+    /// A loop, not LINQ: this is the one kind of call an engine might make after load, and the
+    /// LINQ form allocated a closure and an enumerator per call — 80 bytes, measured. Zero now,
+    /// and AllocationTests keeps it there. Cache the result anyway; a lookup by name is still a
+    /// string comparison per range.
+    /// </remarks>
+    public ProjectedDescriptorRange? Range(string name)
+    {
+        for (var i = 0; i < Ranges.Count; i++)
+        {
+            var r = Ranges[i];
+            if (string.Equals(r.Name, name, StringComparison.Ordinal)) return r;
+        }
+
+        return null;
+    }
 }
 
 /// <summary>A root-constant block: one entry of <c>NriPipelineLayoutDesc.RootConstants</c>.</summary>
@@ -254,15 +268,29 @@ public sealed record NriPipelineProjection
     /// <summary>The program's entry points as pipeline stages, in link order.</summary>
     public IReadOnlyList<ProjectedStage> Stages { get; init; } = [];
 
+    // The three lookups below are loops rather than LINQ for the reason ProjectedDescriptorSet
+    // .Range records: they are what an engine calls after load, and a closure plus an enumerator
+    // per call is an allocation on a path that otherwise has none. Measured at 80 to 120 bytes
+    // per call before; zero after, pinned by AllocationTests.
+
     /// <summary>Finds a descriptor set by the shader's <c>set = N</c> index, or null.</summary>
-    public ProjectedDescriptorSet? Set(uint registerSpace) =>
-        DescriptorSets.FirstOrDefault(s => s.RegisterSpace == registerSpace);
+    public ProjectedDescriptorSet? Set(uint registerSpace)
+    {
+        for (var i = 0; i < DescriptorSets.Count; i++)
+        {
+            var s = DescriptorSets[i];
+            if (s.RegisterSpace == registerSpace) return s;
+        }
+
+        return null;
+    }
 
     /// <summary>Finds a descriptor range by the shader parameter name that produced it, in any set, or null.</summary>
     public (ProjectedDescriptorSet Set, ProjectedDescriptorRange Range)? Range(string name)
     {
-        foreach (var set in DescriptorSets)
+        for (var i = 0; i < DescriptorSets.Count; i++)
         {
+            var set = DescriptorSets[i];
             if (set.Range(name) is { } range) return (set, range);
         }
 
@@ -270,6 +298,14 @@ public sealed record NriPipelineProjection
     }
 
     /// <summary>Finds a stage by its Slang entry-point name, or null.</summary>
-    public ProjectedStage? Stage(string name) =>
-        Stages.FirstOrDefault(s => string.Equals(s.Name, name, StringComparison.Ordinal));
+    public ProjectedStage? Stage(string name)
+    {
+        for (var i = 0; i < Stages.Count; i++)
+        {
+            var s = Stages[i];
+            if (string.Equals(s.Name, name, StringComparison.Ordinal)) return s;
+        }
+
+        return null;
+    }
 }

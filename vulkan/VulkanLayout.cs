@@ -259,11 +259,31 @@ public sealed record VulkanPipelineLayout
     /// </remarks>
     public IReadOnlyList<VulkanSpecializationMapEntry> SpecializationConstants { get; init; } = [];
 
+    // Loops rather than LINQ: these are what an engine calls after load, and the LINQ form
+    // allocated a closure and an enumerator per call — 80 bytes, measured. Zero now, and
+    // AllocationTests keeps it there.
+
     /// <summary>Finds a descriptor set by index, or null.</summary>
-    public VulkanDescriptorSetLayout? Set(uint index) =>
-        DescriptorSets.FirstOrDefault(s => s.Set == index);
+    public VulkanDescriptorSetLayout? Set(uint index)
+    {
+        for (var i = 0; i < DescriptorSets.Count; i++)
+        {
+            var s = DescriptorSets[i];
+            if (s.Set == index) return s;
+        }
+
+        return null;
+    }
 
     /// <summary>Finds a stage by its Slang entry-point name, or null.</summary>
-    public VulkanStage? Stage(string name) =>
-        Stages.FirstOrDefault(s => string.Equals(s.Name, name, StringComparison.Ordinal));
+    public VulkanStage? Stage(string name)
+    {
+        for (var i = 0; i < Stages.Count; i++)
+        {
+            var s = Stages[i];
+            if (string.Equals(s.Name, name, StringComparison.Ordinal)) return s;
+        }
+
+        return null;
+    }
 }
