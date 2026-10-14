@@ -51,19 +51,22 @@ public static class NriProjection
         layout.RequireEveryParameterIsPlaced();
 
         var allStages = AllStages(layout);
-        var sets = DescriptorSets(layout, options, allStages);
-        var rootConstants = RootConstants(layout, allStages);
+        var promoted = PromotedConstantBuffers(layout, options);
+        var sets = DescriptorSets(layout, options, allStages, promoted);
+        var rootConstants = RootConstants(layout, allStages, promoted);
 
         return new NriPipelineProjection
         {
             Layout = new NriPipelineLayoutDesc
             {
-                // 0 is NRI's own default for a layout with no root descriptors or samplers, and
-                // this projection emits neither: Slang has no construct that maps to a root
-                // descriptor, and a sampler in Slang is a descriptor like any other. The space
-                // still has to be stated, because the Vulkan backend reserves a set index for it
-                // only when there is something in it (PipelineLayoutVK.hpp line 143).
-                RootRegisterSpace = 0,
+                // The space of the constant buffers the host promoted to root constants, which
+                // is where NRI's D3D12 backend binds them (b<registerIndex> of this space), and 0
+                // when there are none: NRI's own default for a layout with no root descriptors or
+                // samplers, and this projection emits neither — Slang has no construct that maps
+                // to a root descriptor, and a sampler in Slang is a descriptor like any other. The
+                // Vulkan backend reserves a set index for the root space only when something is
+                // in it (PipelineLayoutVK.hpp line 143), so an unused 0 costs nothing.
+                RootRegisterSpace = promoted.Count > 0 ? promoted[0].Space : 0,
                 RootConstants = rootConstants.Select(r => r.Desc).ToArray(),
                 DescriptorSets = sets
                     .Select(s => new NriDescriptorSetDesc(s.RegisterSpace, s.Ranges.Select(r => r.Desc).ToArray()))
@@ -98,18 +101,23 @@ public static class NriProjection
     // ---------------------------------------------------------------- descriptor sets
 
     private static List<ProjectedDescriptorSet> DescriptorSets(
-        ProgramLayout layout, NriProjectionOptions options, StageBits allStages)
+        ProgramLayout layout, NriProjectionOptions options, StageBits allStages,
+        IReadOnlyList<PromotedBlock> promoted)
     {
         var sets = new List<ProjectedDescriptorSet>();
 
         foreach (var set in layout.DescriptorSets.OrderBy(s => s.SpaceOffset))
         {
-            var names = layout.DescriptorNames(set.SpaceOffset);
+            var names = new NameLookup(layout, set.SpaceOffset);
 
             // Ordered by binding before indices are assigned, so RangeIndex is the position in
             // the array NRI receives — which is the only thing NriDescriptorSet.Update keys on.
+            // A block the host promoted to root constants leaves the set here: on D3D12 the root
+            // signature binds it at its register directly, and a descriptor range at the same
+            // register would be a second binding of the same b register.
             var ranges = set.Ranges
                 .Where(r => r.BindingType != SlangBindingType.SLANG_BINDING_TYPE_PUSH_CONSTANT)
+                .Where(r => !promoted.Any(p => ReferenceEquals(p.Range, r)))
                 .OrderBy(r => r.IndexOffset)
                 .ToList();
 
@@ -136,15 +144,16 @@ public static class NriProjection
                     new DescriptorRangeDesc
                     {
                         baseRegisterIndex = r.IndexOffset,
-                        descriptorNum = DescriptorCount(r, options, names),
+                        descriptorNum = DescriptorCount(r, options, names.NameOf(r)),
                         descriptorType = type,
                         shaderStages = VisibleStages(type, StagesFor(r, allStages)),
                         flags = RangeFlags(r),
                     },
                     // The range's own name where the walk could attribute one — that is the only
                     // source that reaches inside a ParameterBlock. DescriptorNames is the fallback
-                    // for ranges Slang's binding-range view does not cover.
-                    r.Name ?? names.GetValueOrDefault(r.IndexOffset),
+                    // for ranges Slang's binding-range view does not cover, looked up within the
+                    // range's register class: a DXIL layout numbers b, t, s and u from 0 each.
+                    names.NameOf(r),
                     r.IsUnbounded,
                     r.InputAttachmentIndex,
                     r.ImageFormat,
@@ -160,14 +169,13 @@ public static class NriProjection
     /// <summary>
     /// The count NRI builds the binding with: the shader's, or the host's cap for an unbounded one.
     /// </summary>
-    private static uint DescriptorCount(
-        DescriptorRange range, NriProjectionOptions options, IReadOnlyDictionary<uint, string> names)
+    private static uint DescriptorCount(DescriptorRange range, NriProjectionOptions options, string? resolvedName)
     {
         if (!range.IsUnbounded) return range.DescriptorCount;
 
         if (options.UnboundedArrayCap is { } cap && cap > 0) return cap;
 
-        var name = range.Name ?? names.GetValueOrDefault(range.IndexOffset) ?? $"binding {range.IndexOffset}";
+        var name = resolvedName ?? $"binding {range.IndexOffset}";
         throw new NotSupportedException(
             $"descriptor '{name}' is a runtime-sized array and NRI needs a count to build the " +
             $"binding with: DescriptorRangeDesc.descriptorNum has no spelling for \"unbounded\". " +
@@ -360,7 +368,8 @@ public static class NriProjection
     /// does not allow in one entry point. So, exactly as PrismSlang.Vulkan does, a program with
     /// more than one push-constant buffer is refused with the blocks named.
     /// </remarks>
-    private static List<ProjectedRootConstants> RootConstants(ProgramLayout layout, StageBits allStages)
+    private static List<ProjectedRootConstants> RootConstants(
+        ProgramLayout layout, StageBits allStages, IReadOnlyList<PromotedBlock> promoted)
     {
         var blocks = layout.PushConstantBlocks();
 
@@ -374,9 +383,9 @@ public static class NriProjection
                 $"[vk::push_constant] struct.");
         }
 
-        return blocks
-            .Select((b, i) => new ProjectedRootConstants(
-                (uint)i,
+        var result = blocks
+            .Select(b => new ProjectedRootConstants(
+                0,
                 new RootConstantDesc
                 {
                     registerIndex = 0,
@@ -385,6 +394,149 @@ public static class NriProjection
                 },
                 b.Name))
             .ToList();
+
+        // The host's promoted constant buffers follow, in the order the host listed them, each at
+        // the b register the DXIL reads it from. A push-constant block never coexists with these:
+        // Slang only places one on a SPIR-V target, where promotion is refused, so the index is
+        // simply the position.
+        foreach (var p in promoted)
+        {
+            result.Add(new ProjectedRootConstants(
+                (uint)result.Count,
+                new RootConstantDesc
+                {
+                    registerIndex = p.Range.IndexOffset,
+                    size = checked((uint)p.Size),
+                    shaderStages = StagesFor(p.Range, allStages),
+                },
+                p.Name));
+        }
+
+        for (var i = 0; i < result.Count; i++) result[i] = result[i] with { Index = (uint)i };
+        return result;
+    }
+
+    /// <summary>
+    /// The fallback name for a range the walk could not name, looked up within the range's own
+    /// register class — see <see cref="PipelineInterface.DescriptorNames(ProgramLayout, uint, SlangParameterCategory?)"/>
+    /// for why the class matters on a DXIL layout.
+    /// </summary>
+    private sealed class NameLookup(ProgramLayout layout, uint space)
+    {
+        private readonly Dictionary<SlangParameterCategory, IReadOnlyDictionary<uint, string>> _byClass = [];
+
+        public string? NameOf(DescriptorRange range)
+        {
+            if (range.Name is not null) return range.Name;
+
+            if (!_byClass.TryGetValue(range.Category, out var names))
+                _byClass[range.Category] = names = layout.DescriptorNames(space, range.Category);
+
+            return names.GetValueOrDefault(range.IndexOffset);
+        }
+    }
+
+    /// <summary>A constant buffer the host named in <see cref="NriProjectionOptions.RootConstantParameters"/>, resolved.</summary>
+    private sealed record PromotedBlock(string Name, uint Space, DescriptorRange Range, ulong Size);
+
+    /// <summary>
+    /// Resolves each name in <see cref="NriProjectionOptions.RootConstantParameters"/> to the
+    /// constant-buffer range it promotes, refusing anything the name cannot mean.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The target decides whether promotion is meaningful, and the layout records the target in
+    /// its categories: a DXIL layout places a constant buffer in the <c>CONSTANT_BUFFER</c>
+    /// category at a <c>b</c> register, which NRI's D3D12 root constants bind directly; a SPIR-V
+    /// layout places it in <c>DESCRIPTOR_TABLE_SLOT</c>, and the module reads it as a uniform
+    /// buffer through a descriptor — root constants there would be a push-constant range the
+    /// SPIR-V never reads. So a SPIR-V constant buffer is refused with the attribute that does
+    /// the job on that target, and a block Slang already placed in push-constant storage is the
+    /// no-op that lets one host list serve both.
+    /// </para>
+    /// <para>
+    /// Matched through the parameter list rather than by range name, because the per-space name
+    /// table is keyed by register index alone and D3D numbers each register class from 0: on a
+    /// DXIL layout <c>b0</c>, <c>t0</c>, <c>s0</c> and <c>u0</c> share the index, and a name
+    /// lookup by index would promote whichever came first. The parameter's primary binding has
+    /// the category as well as the index, and the range is found by both.
+    /// </para>
+    /// </remarks>
+    private static List<PromotedBlock> PromotedConstantBuffers(ProgramLayout layout, NriProjectionOptions options)
+    {
+        var result = new List<PromotedBlock>();
+
+        foreach (var name in options.RootConstantParameters)
+        {
+            var parameter = layout.Parameters.FirstOrDefault(p => string.Equals(p.Name, name, StringComparison.Ordinal))
+                ?? throw new NotSupportedException(
+                    $"NriProjectionOptions.RootConstantParameters names '{name}', which this program " +
+                    $"does not declare as a shader parameter. Declared: " +
+                    $"{string.Join(", ", layout.Parameters.Select(p => p.Name))}.");
+
+            // Already root constants by Slang's own placement: naming it is the no-op that lets
+            // the same list cover the SPIR-V build of this shader.
+            if (parameter.Bindings.Any(b => b.Category == SlangParameterCategory.SLANG_PARAMETER_CATEGORY_PUSH_CONSTANT_BUFFER))
+                continue;
+
+            var binding = parameter.PrimaryBinding ?? throw new NotSupportedException(
+                $"'{name}' has no binding, so it cannot be promoted to root constants.");
+
+            if (binding.Category == SlangParameterCategory.SLANG_PARAMETER_CATEGORY_DESCRIPTOR_TABLE_SLOT)
+            {
+                throw new NotSupportedException(
+                    $"'{name}' is a descriptor in a layout compiled for SPIR-V, where the module reads " +
+                    $"it as a uniform buffer through its descriptor. Root constants there would be a " +
+                    $"push-constant range the shader never reads. On a SPIR-V target, declare the " +
+                    $"block [vk::push_constant] and the projection emits root constants on its own; " +
+                    $"RootConstantParameters is for the DXIL build of the same shader.");
+            }
+
+            if (binding.Category != SlangParameterCategory.SLANG_PARAMETER_CATEGORY_CONSTANT_BUFFER)
+            {
+                throw new NotSupportedException(
+                    $"'{name}' is bound in the {binding.Category} category, not as a constant buffer, " +
+                    $"so it cannot be root constants: NRI's D3D12 backend binds root constants at a " +
+                    $"b register, and this parameter has none.");
+            }
+
+            var range = layout.DescriptorSets
+                .Where(s => s.SpaceOffset == binding.Space)
+                .SelectMany(s => s.Ranges)
+                .FirstOrDefault(r =>
+                    r.Category == SlangParameterCategory.SLANG_PARAMETER_CATEGORY_CONSTANT_BUFFER
+                    && r.IndexOffset == binding.Index
+                    && (r.BindingType & SlangBindingType.SLANG_BINDING_TYPE_BASE_MASK)
+                        == SlangBindingType.SLANG_BINDING_TYPE_CONSTANT_BUFFER)
+                ?? throw new NotSupportedException(
+                    $"'{name}' is a constant buffer at b{binding.Index} in space {binding.Space}, but " +
+                    $"no descriptor range of the layout is at that register. The parameter and the " +
+                    $"descriptor-set view disagree, which is a gap in PrismSlang rather than in the " +
+                    $"shader.");
+
+            if (result.Count > 0 && result[0].Space != binding.Space)
+            {
+                throw new NotSupportedException(
+                    $"'{name}' is in register space {binding.Space} and '{result[0].Name}' in space " +
+                    $"{result[0].Space}. NRI has one root register space, so every promoted block " +
+                    $"must share it; put them in one space or promote only one.");
+            }
+
+            // The declared size is the element's uniform footprint, not the wrapper's — the same
+            // reading PipelineInterface.PushConstantBlocks gives a push-constant block.
+            var block = parameter.Type is ContainerLayout c ? c.ElementType : parameter.Type;
+            if (!block.IsUniformSizeKnown)
+            {
+                throw new NotSupportedException(
+                    $"'{name}' has no fixed size: it contains an array whose length is a " +
+                    $"specialization constant, so it cannot be root constants, whose size is part " +
+                    $"of the pipeline layout.");
+            }
+
+            result.Add(new PromotedBlock(name, binding.Space, range, block.UniformSize));
+        }
+
+        return result;
     }
 
     /// <summary>

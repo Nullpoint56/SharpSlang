@@ -1,0 +1,65 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    PrismSlang.Native.Dxc — Microsoft's DirectX Shader Compiler, put where Slang looks for it.
+
+    A packaging project: no code, no assembly in the package, and no binary either. It exists
+    because Slang emits DXIL by loading dxc itself — LoadLibrary("dxcompiler"), and
+    LoadLibrary("dxil") for the validator that signs the result — by name, from the library search
+    path, exactly as it loads slang-glslang. Slang's release ships neither, so the core PrismSlang
+    package compiles every SPIR-V target and no DXIL one. Measured with the pinned Slang 2026.14.1:
+    with dxc in the directory that holds slang-compiler.dll, `dxc available` turns true and a
+    compute shader compiled to DXIL dispatches on D3D12 and reads back correctly; with the same
+    directory and no dxc it is false and getEntryPointCode fails with SLANG_FAIL.
+
+    What the package contains is one dependency and one targets file. The dependency is
+    Microsoft.Direct3D.DXC, Microsoft's own NuGet package of the same two DLLs, at an exact version;
+    the targets file (build/PrismSlang.Native.Dxc.targets) copies dxcompiler.dll and dxil.dll from
+    that package's build/native/bin/x64/ into the consumer's output, beside slang-compiler.dll.
+    The first version of this project repackaged the DLLs from the DirectXShaderCompiler GitHub
+    release, and the Microsoft licence terms that release ships forbid providing them "as a
+    stand-alone offering" — which a payload-only package is. So no Microsoft binary is in this
+    package or this repository: a consumer takes Microsoft's terms by restoring Microsoft's package,
+    and PrismSlang redistributes nothing it is not licensed to. THIRD-PARTY-NOTICES.md records it.
+
+    Separate and opt-in, rather than folded into the core package, because only a D3D12 consumer
+    needs dxc, it is win-x64 only (DXIL is for D3D12 and D3D12 is Windows), and taking on a
+    Microsoft dependency should be a choice made by adding a package, not a side effect of
+    updating one.
+
+    The test project imports the same targets file directly and references the Microsoft package
+    itself, which is how the DXIL tests find dxc beside the compiler without this project shipping
+    anything to them; see tests/PrismSlang.Tests/PrismSlang.Tests.csproj.
+  -->
+
+  <PropertyGroup>
+    <!-- A TFM because the SDK needs one to build at all; nothing compiled here ships. -->
+    <TargetFramework>net11.0</TargetFramework>
+
+    <PackageId>PrismSlang.Native.Dxc</PackageId>
+    <Version>0.1.0-alpha</Version>
+    <Authors>szombathy-tamas</Authors>
+    <Description>Puts Microsoft's DirectX Shader Compiler (dxcompiler.dll, dxil.dll) beside PrismSlang's compiler so Slang can emit DXIL for D3D12. Carries no binary: depends on Microsoft.Direct3D.DXC at a pinned version and copies the two DLLs from it to the output on win-x64. Optional: without it PrismSlang compiles SPIR-V only.</Description>
+    <PackageTags>slang;dxc;dxil;d3d12;shader-compiler</PackageTags>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <RepositoryType>git</RepositoryType>
+
+    <IncludeBuildOutput>false</IncludeBuildOutput>
+    <IncludeSymbols>false</IncludeSymbols>
+    <EnableDefaultItems>false</EnableDefaultItems>
+    <NoWarn>$(NoWarn);NU5128</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!--
+      Exact, as every pin in this repository is. The targets file restates the version in the path
+      it copies from, because NuGet hands a consumer no path property for a transitive package;
+      DocumentedFactsTests pins the two to each other.
+    -->
+    <PackageReference Include="Microsoft.Direct3D.DXC" Version="[$(DxcPackageVersion)]" />
+
+    <None Include="build\PrismSlang.Native.Dxc.targets" Pack="true" PackagePath="build\" />
+    <None Include="$(MSBuildThisFileDirectory)..\THIRD-PARTY-NOTICES.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
+
+</Project>

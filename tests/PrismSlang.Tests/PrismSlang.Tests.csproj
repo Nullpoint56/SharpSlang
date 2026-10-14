@@ -97,6 +97,21 @@
     <ProjectReference Include="..\PrismSlang.Prober\PrismSlang.Prober.csproj"
                       ReferenceOutputAssembly="false"
                       Private="false" />
+
   </ItemGroup>
+
+  <!--
+    dxc beside the compiler, for the DXIL tests, the way a consumer of PrismSlang.Native.Dxc gets
+    it: Microsoft's own package at the pinned version, and the targets file that package ships
+    copying dxcompiler.dll and dxil.dll into the output on a win-x64 host. A ProjectReference to
+    native/PrismSlang.Native.Dxc.csproj would not do it — a referenced project's build/ targets
+    are a package asset and never import — so the package reference and the import are restated
+    here, and the import is the very file the package carries. On any other host the targets
+    copy nothing and the DXIL tests skip with the reason.
+  -->
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Direct3D.DXC" Version="[$(DxcPackageVersion)]" PrivateAssets="all" />
+  </ItemGroup>
+  <Import Project="..\..\native\build\PrismSlang.Native.Dxc.targets" />
 
 </Project>

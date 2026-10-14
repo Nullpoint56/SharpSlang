@@ -103,6 +103,25 @@ public class DocumentedFactsTests
     }
 
     [Fact]
+    public void The_dxc_targets_copy_from_the_package_version_the_pin_names()
+    {
+        // PrismSlang.Native.Dxc depends on Microsoft.Direct3D.DXC at DxcPackageVersion, and its
+        // targets file copies dxcompiler.dll and dxil.dll from that package's folder in the NuGet
+        // cache — a path that has to restate the version, because NuGet hands a consumer no path
+        // property for a transitive package. Two statements of one number, in two files, and a bump
+        // that touches one would restore a package the targets never look at: the build would fail
+        // on every consumer with the targets' own error, which is better than silence but worse
+        // than failing here.
+        var props = Read("Directory.Build.props");
+        var match = System.Text.RegularExpressions.Regex.Match(props, "<DxcPackageVersion>([^<]+)</DxcPackageVersion>");
+        Assert.True(match.Success, "Directory.Build.props does not pin DxcPackageVersion");
+        var pinned = match.Groups[1].Value.Trim();
+
+        Documents("native/build/PrismSlang.Native.Dxc.targets", $">{pinned}<",
+            $"the pin is Microsoft.Direct3D.DXC {pinned}, and the targets file must copy from that version's folder");
+    }
+
+    [Fact]
     public void Every_corpus_shader_has_a_distinct_name()
     {
         // The corpus header says names are unique on purpose, because the agreement diff keys on

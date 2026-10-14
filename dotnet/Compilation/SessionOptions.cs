@@ -14,7 +14,12 @@ namespace PrismSlang;
 /// <summary>What a compilation target should produce.</summary>
 public sealed class TargetOptions
 {
-    /// <summary>Output format. Defaults to SPIR-V, the only target PrismEngine uses.</summary>
+    /// <summary>
+    /// Output format. Defaults to SPIR-V, PrismEngine's first target. <c>SLANG_DXIL</c> is the
+    /// other one this binding measures, for D3D12 through PrismSlang.NRI; it needs dxc beside the
+    /// compiler, which the <c>PrismSlang.Native.Dxc</c> package provides and
+    /// <see cref="SlangGlobalSession.RequireDxc"/> checks at session creation.
+    /// </summary>
     public SlangCompileTarget Format { get; init; } = SlangCompileTarget.SLANG_SPIRV;
 
     /// <summary>
@@ -124,9 +129,24 @@ public sealed class TargetOptions
     /// <summary>Whether this target emits SPIR-V, and so whether the SPIR-V knobs apply.</summary>
     internal bool IsSpirv => Format == SlangCompileTarget.SLANG_SPIRV;
 
+    /// <summary>What a DXIL target falls back to when no profile is named.</summary>
+    /// <remarks>
+    /// The same reasoning as <see cref="FallbackSpirvVersion"/>: a decision rather than an
+    /// inheritance. Left unset, Slang picks a shader model of its own and the emitted container
+    /// moves with the compiler version — measured on 2026.14.1, the two differ by a few dozen
+    /// bytes on the same shader, which is a different shader model, not noise. Shader model 6.5 is
+    /// what this repository's D3D12 device tests compile against: the first model with mesh
+    /// shaders and inline ray tracing, which the corpus declares, and accepted by the RTX 4070
+    /// SUPER those tests were first measured on.
+    /// </remarks>
+    private const string FallbackDxilProfile = "sm_6_5";
+
     /// <summary>The profile name to hand Slang, or null to leave it unset.</summary>
     internal string? ResolveProfile() =>
-        Profile ?? (IsSpirv ? (this.SpirvVersion ?? FallbackSpirvVersion).ToProfileName() : null);
+        Profile
+        ?? (IsSpirv ? (this.SpirvVersion ?? FallbackSpirvVersion).ToProfileName()
+            : Format == SlangCompileTarget.SLANG_DXIL ? FallbackDxilProfile
+            : null);
 
     /// <summary>
     /// The SPIR-V version the emitted module must carry, or Unspecified when nothing was pinned

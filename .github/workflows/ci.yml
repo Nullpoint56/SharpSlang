@@ -369,22 +369,37 @@ jobs:
       # platform the engine runs on (see tests/PrismSlang.Tests/NriFact.cs), and on the other legs
       # every one of them skips with that reason by design.
       #
-      # What is counted is the NONE backend. Hosted Windows has no Vulkan driver, so the tests
-      # gated on NRI's Vulkan backend (the 32-case pipeline theory, which xunit reports as one
-      # skipped row, and the two dispatches: 3 skipped in the TRX) are only ever exercised on a
-      # workstation. NONE needs nothing but NRI.dll, so on this leg exactly these must pass —
-      # measured with PRISMNRI_TEST_BACKEND=NONE, which hides Vulkan the way the runner does:
+      # What is counted is NONE and D3D12. Hosted Windows has no Vulkan driver, so the tests gated
+      # on NRI's Vulkan backend (the 32-case pipeline theory, which xunit reports as one skipped
+      # row, and the two dispatches: 3 skipped in the TRX) are only ever exercised on a workstation.
+      # It does have WARP, which NriTestDevice picks under GITHUB_ACTIONS, and PrismNRI's own
+      # win-x64 job runs its D3D12 suite there with the debug layer — so the D3D12 leg, compiled to
+      # DXIL with dxc copied beside the compiler from Microsoft.Direct3D.DXC, runs here. On this leg exactly these must pass:
       #
-      #   32  A_pipeline_layout_built_from_the_projection_is_accepted_by_the_none_backend, one
-      #       per corpus case: 30 layouts created through PrismNRI's marshalling, and the two
+      #   33  A_pipeline_layout_built_from_the_projection_is_accepted_by_the_none_backend, one
+      #       per corpus case: 31 layouts created through PrismNRI's marshalling, and the two
       #       projection refusals (descriptor-kinds, wide-vertex-inputs) asserted by name.
       #    1  Projected_vertex_formats_agree_with_nris_own_vulkan_conversion_table, a NONE fact
       #       because nriConvertNRIFormatToVK is a static table in NRI.dll and needs no device.
       #    1  Every_declared_refusal_and_exclusion_names_a_shader_that_exists, a plain fact.
+      #   33  A_pipeline_built_from_the_dxil_projection_passes_d3d12_validation, one per corpus
+      #       case: 25 cases whose pipelines are built and accepted, 5 layouts built with the pipeline out of reach
+      #       (mesh, amplification, ray-tracing, tessellation, geometry), the combined-sampler
+      #       refusal, and the two shaders dxc will not compile. The four projection defects this
+      #       leg found on its first run are fixed and build with the rest (NriDeviceTests.cs).
+      #    2  The D3D12 dispatches: compute-fixed through a descriptor, and a constant buffer
+      #       promoted to root constants by RootConstantParameters, both read back.
       #
-      # 34, and the threshold is that exact count rather than a looser floor: if NRI.dll stops loading,
-      # 33 of the 34 skip and the plain fact alone passes, and a floor of "some" would let that by.
-      # A new corpus case adds a theory row, so the count only grows; raise it then.
+      # 70. Measured with PRISMNRI_TEST_SOFTWARE=1 on a workstation, which makes NriTestDevice pick
+      # WARP ("Microsoft Basic Render Driver") for D3D12 the way the runner does: every D3D12 row
+      # passed, with outcomes identical to the RTX 4070 SUPER case for case — WARP reports mesh
+      # shaders and a ray tracing tier, so even the mesh, amplification and ray-tracing layouts
+      # are built on it — and the same messages, error for error and warning for warning.
+      #
+      # The threshold is that exact count rather than a looser floor: if NRI.dll stops loading, 67
+      # of the 68 skip and the plain fact alone passes; if the D3D12 device or dxc goes missing, the
+      # 34 D3D12 rows skip and 34 pass, which a floor of "some" would let by. A new corpus case adds
+      # a row to two theories, so the count only grows; raise it by two then.
       - name: The NRI device tests actually ran
         if: matrix.rid == 'win-x64'
         shell: bash
@@ -399,12 +414,59 @@ jobs:
           echo "$counters"
           passed=$(echo "$counters" | sed -n 's/.*[^a-z]passed="\([0-9]*\)".*/\1/p')
 
-          if [ "${passed:-0}" -lt 34 ]; then
-            echo "::error::only ${passed:-0} NRI device test(s) passed on ${{ matrix.rid }}; expected at least 34 on the NONE backend. NRI.dll did not load or the NONE device could not be created, so nothing checks that PrismNRI accepts what the projection emits; the skip reason is in the output above."
+          if [ "${passed:-0}" -lt 70 ]; then
+            echo "::error::only ${passed:-0} NRI device test(s) passed on ${{ matrix.rid }}; expected at least 70 (35 on the NONE backend, 35 on D3D12 over WARP). NRI.dll did not load, the NONE or D3D12 device could not be created, or dxc was not staged, so something that checks what PrismNRI and D3D12 accept from the projection is switched off; the skip reason is in the output above."
             exit 1
           fi
 
-          echo "::notice::$passed NRI device test(s) ran on ${{ matrix.rid }} (the Vulkan-backed ones skip on hosted runners)"
+          echo "::notice::$passed NRI device test(s) ran on ${{ matrix.rid }} (NONE and D3D12 on WARP; the Vulkan-backed ones skip on hosted runners)"
+
+      # And DxilTests, for dxc itself: every test there is a [DxcFact] or [DxcTheory] and skips
+      # when dxc is not loadable, which is the right behaviour on the legs that never stage it and
+      # exactly the wrong one here. If the Fetch dxc step above stops staging dxcompiler.dll and
+      # dxil.dll beside slang-compiler, the DXIL compile, projection and baking checks would all go
+      # quiet on a green run. The NRI gate above would catch the D3D12 half; this catches the half
+      # that needs no device.
+      #
+      # 74, and no skip at all, measured on a workstation with dxc staged by the same package:
+      #
+      #   33  Every_corpus_entry_point_compiles_to_a_signed_dxil_container, one per corpus case:
+      #       31 cases whose every container has a non-zero digest (so dxil.dll signed them, which RequireDxc
+      #       does not check), and the two dxc refusals (subpass-inputs, wide-vertex-inputs)
+      #       asserted by dxc's own words.
+      #   33  The_dxil_projection_accepts_what_the_spirv_one_does_and_reads_registers.
+      #    8  facts: the session with dxc, the session without it (which returns early here, and is
+      #       measured on the Linux and macOS legs, where no dxc is staged), the exception lists,
+      #       the borrowed range names, the push-constant promotion, the texture refusal, the
+      #       space-0 constant buffer defect, and a baked DXIL package round-tripped through a file.
+      #
+      # Skips are counted as well as passes, because here a skip has only one cause.
+      - name: The DXIL tests actually ran
+        if: matrix.rid == 'win-x64'
+        shell: bash
+        run: |
+          dotnet test PrismSlang.slnx -c Release --no-build --nologo \
+            --filter "FullyQualifiedName~DxilTests" \
+            --logger "console;verbosity=detailed" \
+            --logger "trx;LogFileName=dxil.trx" \
+            --results-directory dxil-results
+
+          counters=$(grep -o '<Counters [^>]*>' dxil-results/dxil.trx | head -1)
+          echo "$counters"
+          passed=$(echo "$counters"  | sed -n 's/.*[^a-z]passed="\([0-9]*\)".*/\1/p')
+          skipped=$(echo "$counters" | sed -n 's/.*[^a-z]notExecuted="\([0-9]*\)".*/\1/p')
+
+          if [ "${skipped:-0}" -ne 0 ]; then
+            echo "::error::${skipped} DXIL test(s) skipped on ${{ matrix.rid }}. dxc is not loadable beside slang-compiler, so nothing checks that the corpus compiles to DXIL or what the projection makes of a DXIL layout; the skip reason is in the output above."
+            exit 1
+          fi
+
+          if [ "${passed:-0}" -lt 74 ]; then
+            echo "::error::only ${passed:-0} DXIL test(s) passed on ${{ matrix.rid }}; expected at least 74."
+            exit 1
+          fi
+
+          echo "::notice::$passed DXIL test(s) ran on ${{ matrix.rid }}, none skipped"
 
       # Also the loadability gate, and on a new platform that is the job that matters most. Almost
       # every test is a [NativeFact], which *skips* when slang-compiler cannot be loaded — so a

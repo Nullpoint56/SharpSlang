@@ -18,6 +18,7 @@ recalled — and the traps flagged along the way are the ones that actually bit 
 - [Filling a uniform buffer](#filling-a-uniform-buffer)
 - [Projecting to Vulkan](#projecting-to-vulkan)
 - [Projecting to NRI](#projecting-to-nri)
+- [Targeting D3D12](#targeting-d3d12)
 - [Specialization constants](#specialization-constants)
 - [Compute and dispatch](#compute-and-dispatch)
 - [Baking and loading](#baking-and-loading)
@@ -264,11 +265,59 @@ push-constant block. NRI also has no specialization constants: a shader that dec
 specialized at link time, and a compute stage whose group size is a specialization constant reports
 `ThreadGroupSize.IsSpecialized` with nothing to resolve it against.
 
-Vulkan is the first NRI backend this is measured against — `NriDeviceTests` builds every corpus
-shader into real NRI pipeline layouts and pipelines on a validated device and dispatches compute
-work bound through the projection. The `STRUCTURED_BUFFER` / `STORAGE_STRUCTURED_BUFFER` and
-`BUFFER` / `STORAGE_BUFFER` splits are what a D3D12 backend will need to tell an SRV from a UAV;
-on Vulkan both halves of each pair are the same descriptor type.
+Both NRI backends judge this: `NriDeviceTests` builds every corpus shader into real NRI pipeline
+layouts and pipelines on a validated Vulkan device from SPIR-V and on a validated D3D12 device from
+DXIL, and dispatches compute work bound through the projection on each. The `STRUCTURED_BUFFER` /
+`STORAGE_STRUCTURED_BUFFER` and `BUFFER` / `STORAGE_BUFFER` splits are what tell an SRV from a UAV
+on D3D12; on Vulkan both halves of each pair are the same descriptor type.
+
+## Targeting D3D12
+
+The same shader, cooked twice: one session per target, one baked package per target, and the same
+`ToNri` call on each. What changes is below.
+
+```csharp
+using var dxil = global.CreateSession(new SessionOptions
+{
+    Targets = [new TargetOptions { Format = SlangCompileTarget.SLANG_DXIL }],   // sm_6_5 by default
+});
+```
+
+**dxc has to be there.** Slang emits DXIL by handing HLSL to dxc, and ships none. Reference
+`PrismSlang.Native.Dxc`, which stages `dxcompiler.dll` and `dxil.dll` beside the compiler for
+`win-x64`; `CreateSession` refuses a DXIL target without it, naming the package, so the failure is
+at session creation rather than inside the first compile.
+
+**Registers are per class.** A DXIL layout reports `b0`, `t0`, `s0` and `u0` as four bindings at
+index 0 in the categories `CONSTANT_BUFFER`, `SHADER_RESOURCE`, `SAMPLER_STATE` and
+`UNORDERED_ACCESS`, where a SPIR-V layout numbers every descriptor of a set consecutively. The
+projection passes each index through as `baseRegisterIndex` and NRI's D3D12 backend sorts them by
+descriptor type, which is what makes the same projection code correct on both. `[[vk::binding]]`
+is ignored on DXIL: measured, a texture declared `[[vk::binding(3, 2)]]` lands at the next free
+`t` register of space 0.
+
+**Push constants need a name.** On a SPIR-V target `[vk::push_constant]` makes the block root
+constants on its own. On DXIL Slang drops the attribute and lays the block out as an ordinary
+constant buffer, and reflection keeps no trace of the attribute on either target. So the host names
+the block:
+
+```csharp
+var options = new NriProjectionOptions { RootConstantParameters = ["push"] };
+var vk  = spirvPackage.Layout.ToNri(options);   // "push" is already root constants: a no-op
+var d3d = dxilPackage.Layout.ToNri(options);    // "push" leaves the descriptor set and becomes
+                                                // RootConstantDesc at its b register
+```
+
+One list serves both builds. Naming a constant buffer that is not a push-constant block on a
+SPIR-V layout is refused, because the SPIR-V reads it through its descriptor and root constants
+there would be a push-constant range the shader never reads. On DXIL, NRI's D3D12 backend binds
+root constants at `b<registerIndex>` of `RootRegisterSpace`, which the projection sets to the
+block's space, so the shader needs no change.
+
+**What a DXIL package does not carry.** `BakedEntryPoint.SpirvVersion` is `Unspecified` and
+`WorkgroupSize` is null, because there is no SPIR-V module to read them from; `ToNriShaderDesc`
+does not need either. The thread-group size still comes from reflection on `ProjectedStage`.
+`ModuleEntryPointName` is `main`, which D3D12 ignores: a DXIL container has one entry point.
 
 ## Specialization constants
 

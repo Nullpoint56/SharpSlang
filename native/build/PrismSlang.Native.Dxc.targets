@@ -1,0 +1,53 @@
+<!--
+  Imported into every project that references the PrismSlang.Native.Dxc package. NuGet imports a
+  package's build/<PackageId>.targets into the consuming project, and that is the whole mechanism:
+  this file puts dxc beside the consumer's slang-compiler.dll, where Slang finds downstream
+  compilers by name.
+
+  The DLLs come from Microsoft.Direct3D.DXC, Microsoft's own NuGet package, which this package
+  depends on at an exact version. That package lays them out for C++ consumers — a build/native/
+  tree with props and targets that only a vcxproj imports — so a .NET project that references it
+  gets nothing copied, and this file does the copy instead. Copied from the package cache rather
+  than carried here: PrismSlang redistributes no Microsoft binary, and a consumer takes Microsoft's
+  terms by restoring Microsoft's package (THIRD-PARTY-NOTICES.md).
+
+  The version below is the one dependency version this package declares, restated because a
+  transitive package's path is not handed to a consumer as a property: NuGet generates
+  Pkg* path properties only for direct references with GeneratePathProperty, and the package root
+  is the one thing every SDK project knows. DocumentedFactsTests pins this value to the
+  DxcPackageVersion in Directory.Build.props, so the two cannot drift apart silently.
+
+  win-x64 only, for the same reason the package is: the binaries are x64 Windows builds, and on
+  any other host they would sit beside a slang-compiler that cannot load them. On those hosts the
+  item group is empty and the build is unchanged.
+-->
+<Project>
+
+  <PropertyGroup>
+    <PrismSlangDxcPackageVersion Condition="'$(PrismSlangDxcPackageVersion)' == ''">1.9.2609.5</PrismSlangDxcPackageVersion>
+
+    <!-- The host RID, resolved as dotnet/PrismSlang.csproj resolves it for the Slang payload. -->
+    <PrismSlangDxcHostRid Condition="'$(PrismSlangDxcHostRid)' == ''">$(RuntimeIdentifier)</PrismSlangDxcHostRid>
+    <PrismSlangDxcHostRid Condition="'$(PrismSlangDxcHostRid)' == ''">$(NETCoreSdkPortableRuntimeIdentifier)</PrismSlangDxcHostRid>
+
+    <PrismSlangDxcBin>$(NuGetPackageRoot)microsoft.direct3d.dxc\$(PrismSlangDxcPackageVersion)\build\native\bin\x64\</PrismSlangDxcBin>
+  </PropertyGroup>
+
+  <ItemGroup Condition="'$(PrismSlangDxcHostRid)' == 'win-x64'">
+    <None Include="$(PrismSlangDxcBin)dxcompiler.dll;$(PrismSlangDxcBin)dxil.dll"
+          CopyToOutputDirectory="PreserveNewest"
+          Link="%(Filename)%(Extension)"
+          Visible="false" />
+  </ItemGroup>
+
+  <!--
+    An error rather than a silent empty copy. A restore that resolved a different version, or a
+    package cache in an unexpected place, would otherwise build cleanly and fail inside Slang's
+    first DXIL compile, which reads as a shader error.
+  -->
+  <Target Name="PrismSlangDxcRequirePackage" BeforeTargets="Build"
+          Condition="'$(PrismSlangDxcHostRid)' == 'win-x64' And !Exists('$(PrismSlangDxcBin)dxcompiler.dll')">
+    <Error Text="PrismSlang.Native.Dxc expects Microsoft.Direct3D.DXC $(PrismSlangDxcPackageVersion) at $(PrismSlangDxcBin), and dxcompiler.dll is not there. Restore the project, and check that the dependency resolved to exactly that version." />
+  </Target>
+
+</Project>

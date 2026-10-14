@@ -364,6 +364,62 @@ public class NriProjectionTests
         Assert.DoesNotContain(projection.DescriptorSets.SelectMany(s => s.Ranges), r => r.Name == "push");
     }
 
+    [NativeFact]
+    public void Naming_a_push_constant_block_as_a_root_constant_parameter_changes_nothing()
+    {
+        // The no-op that lets one host list serve the SPIR-V and the DXIL build of a shader: on
+        // SPIR-V the block is already root constants by Slang's placement.
+        const string WithPush = """
+            struct PushData { float4 tint; };
+            [vk::push_constant] ConstantBuffer<PushData> push;
+            ConstantBuffer<PushData> frame;
+
+            [shader("fragment")]
+            float4 fragmentMain() : SV_Target { return push.tint + frame.tint; }
+            """;
+
+        var layout = Reflect(WithPush, "fragmentMain");
+        var plain = layout.ToNri();
+        var named = layout.ToNri(new NriProjectionOptions { RootConstantParameters = ["push"] });
+
+        Assert.Equal(plain.RootConstants, named.RootConstants);
+        Assert.Equal(plain.Layout.RootRegisterSpace, named.Layout.RootRegisterSpace);
+        Assert.Equal(plain.DescriptorSets.Select(s => s.Ranges.Count), named.DescriptorSets.Select(s => s.Ranges.Count));
+    }
+
+    [NativeFact]
+    public void Promoting_a_spirv_constant_buffer_is_refused_with_the_attribute_that_does_the_job()
+    {
+        // On a SPIR-V target the module reads `frame` through its descriptor; root constants
+        // there would be a push-constant range the shader never reads. The DXIL build of the same
+        // shader is where the name means something — NriDeviceTests measures that one.
+        const string WithBuffer = """
+            struct FrameData { float4 tint; };
+            ConstantBuffer<FrameData> frame;
+
+            [shader("fragment")]
+            float4 fragmentMain() : SV_Target { return frame.tint; }
+            """;
+
+        var layout = Reflect(WithBuffer, "fragmentMain");
+        var e = Assert.Throws<NotSupportedException>(
+            () => layout.ToNri(new NriProjectionOptions { RootConstantParameters = ["frame"] }));
+
+        Assert.Contains("frame", e.Message);
+        Assert.Contains("[vk::push_constant]", e.Message);
+    }
+
+    [NativeFact]
+    public void A_root_constant_parameter_the_program_does_not_declare_is_refused_by_name()
+    {
+        var layout = Reflect(Shader, "vertexMain", "fragmentMain");
+        var e = Assert.Throws<NotSupportedException>(
+            () => layout.ToNri(new NriProjectionOptions { RootConstantParameters = ["nothing"] }));
+
+        Assert.Contains("'nothing'", e.Message);
+        Assert.Contains("albedo", e.Message);   // the declared names are listed, so the typo is findable
+    }
+
     // ---------------------------------------------------------------- refusals
 
     [NativeFact]

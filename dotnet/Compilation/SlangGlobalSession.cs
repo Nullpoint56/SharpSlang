@@ -247,10 +247,49 @@ public sealed unsafe class SlangGlobalSession : SlangObject<IGlobalSession>
         return Ptr->findProfile(n);
     }
 
+    /// <summary>
+    /// Throws unless dxc is loadable, naming the fix.
+    /// </summary>
+    /// <remarks>
+    /// Slang emits DXIL by handing HLSL to dxc, and its own release ships no dxc: on a machine
+    /// without <c>dxcompiler.dll</c> on the library search path a DXIL target fails inside the
+    /// first compile with Slang's "failed to load dynamic library" note, on a path that otherwise
+    /// looks like a shader error. Asked here instead, before any shader, the way
+    /// <see cref="RequireSpirvOptimizer"/> asks about spirv-opt. <c>dxil.dll</c> is not checked:
+    /// without it dxc still compiles and emits an unsigned container, which this runtime accepted
+    /// in measurement, and which the validator in the package makes signed.
+    /// </remarks>
+    /// <exception cref="SlangException">dxc is not beside the compiler.</exception>
+    public void RequireDxc()
+    {
+        var hr = Ptr->checkPassThroughSupport(SlangPassThrough.SLANG_PASS_THROUGH_DXC);
+        if (SlangResult.Succeeded(hr)) return;
+
+        throw new SlangException(hr, "dxc unavailable", """
+            Slang cannot load dxc ('dxcompiler.dll'), which it needs to emit DXIL. Slang's own
+            release does not ship it.
+
+            Add the PrismSlang.Native.Dxc package, which puts dxcompiler.dll and dxil.dll beside
+            the compiler on win-x64 from Microsoft's own Microsoft.Direct3D.DXC package. In this
+            repository the test project already does that; restore it.
+
+            DXIL is only needed for D3D12. A Vulkan-only build never sees this.
+            """);
+    }
+
     /// <summary>Creates a session. See <see cref="SessionOptions"/> for what it configures.</summary>
+    /// <exception cref="SlangException">
+    /// A target asks for DXIL and dxc is not loadable — see <see cref="RequireDxc"/>.
+    /// </exception>
     public SlangSession CreateSession(SessionOptions options)
     {
         ArgumentNullException.ThrowIfNull(options);
+
+        // Checked per session rather than per global session, because this is where the target
+        // is named: a cooker that only ever emits SPIR-V must not be refused for a dxc it never
+        // asked for, and one that asks for DXIL should hear about dxc before its first shader.
+        if (options.Targets.Any(t => t.Format == SlangCompileTarget.SLANG_DXIL)) RequireDxc();
+
         return SlangSession.Create(this, options);
     }
 

@@ -22,6 +22,11 @@
 //      and a root constant.
 //   4. Does NRI's own NRI-to-VkFormat table agree with the Vulkan projection's choice for every
 //      vertex attribute and fragment output? The one place a third party judges the format mapping.
+//   5. Questions 2 and 3 again on D3D12, with the shader compiled to DXIL. A different oracle, not
+//      a repeat: D3D12 checks the root signature against the registers the DXIL reads when it
+//      creates a pipeline, D3D links stages by register and inputs by semantic, and a DXIL layout
+//      numbers b, t, s and u registers separately. Its first run found four projection defects the
+//      Vulkan leg cannot see, since fixed; D3D12ProjectionDefects records them and waits for the next.
 //
 // A case that cannot be built states why, in a dictionary below, and the dictionaries are checked:
 // a stale entry is a failing test, so they cannot quietly grow to excuse a regression.
@@ -113,18 +118,32 @@ public sealed class NriDeviceTests(Xunit.Abstractions.ITestOutputHelper output)
         // The lists are only trustworthy while they are exact. A renamed corpus case would leave a
         // dead entry that excuses nothing, and a typo would silently exclude nothing while reading
         // as though it excluded something.
-        var unknown = Refused.Keys.Concat(PipelineOutOfReach.Keys)
+        var unknown = Refused.Keys.Concat(PipelineOutOfReach.Keys).Concat(D3D12PipelineOutOfReach.Keys)
+            .Concat(D3D12ProjectionDefects.Keys)
             .Where(name => ShaderCorpus.All.All(c => c.Name != name))
             .Order(StringComparer.Ordinal)
             .ToList();
 
         Assert.True(unknown.Count == 0,
-            "Refused or PipelineOutOfReach names shaders the corpus does not have: "
+            "Refused, PipelineOutOfReach, D3D12PipelineOutOfReach or D3D12ProjectionDefects names "
+            + "shaders the corpus does not have: "
             + string.Join(", ", unknown));
 
         // And a refused case is not also out of reach: the refusal is asserted, the exclusion only
         // explained, and a case in both would have its assertion skipped by whichever ran first.
         Assert.Empty(Refused.Keys.Intersect(PipelineOutOfReach.Keys));
+        Assert.Empty(Refused.Keys.Intersect(D3D12PipelineOutOfReach.Keys));
+
+        // Nor is a case DXIL cannot compile also out of reach on D3D12: the D3D12 theory returns at
+        // the compile, so an exclusion behind it would explain something that never happens.
+        // wide-vertex-inputs is the one case in both Refused and CannotCompile, and that overlap
+        // is right: the SPIR-V legs reach its refusal, the DXIL leg never gets that far.
+        Assert.Empty(DxilTests.CannotCompile.Keys.Intersect(D3D12PipelineOutOfReach.Keys));
+
+        // A pinned defect is asserted to be refused by D3D12, so it must be a case the theory
+        // actually hands D3D12 a pipeline for: compiled, projected, and not excluded.
+        Assert.Empty(D3D12ProjectionDefects.Keys.Intersect(
+            DxilTests.CannotCompile.Keys.Concat(Refused.Keys).Concat(D3D12PipelineOutOfReach.Keys)));
     }
 
     // ---------------------------------------------------------------- 1. the NONE backend
@@ -172,7 +191,7 @@ public sealed class NriDeviceTests(Xunit.Abstractions.ITestOutputHelper output)
         // So each stage's module names its entry point as the shader does. NRI hands the name to
         // pName, and without this every stage is `main` — legal, but a two-stage pipeline would
         // then be two modules that cannot be told apart in a validation message.
-        var compiled = Compile(caseName, source, entryPointNames, useEntryPointNameInSpirv: true);
+        var compiled = Compile(caseName, source, entryPointNames, new TargetOptions { UseEntryPointNameInSpirv = true });
 
         if (Refused.TryGetValue(caseName, out var construct))
         {
@@ -204,7 +223,7 @@ public sealed class NriDeviceTests(Xunit.Abstractions.ITestOutputHelper output)
             if (PipelineOutOfReach.TryGetValue(caseName, out var why))
                 output.WriteLine($"pipeline layout built; no pipeline — {why}");
             else
-                BuildPipelines(device, layout, projection, compiled.Code);
+                BuildPipelines(device, layout, projection, compiled.Code, SpirvShaderDesc);
         }
 
         foreach (var m in fixture.Messages) output.WriteLine(m.ToString());
@@ -241,6 +260,11 @@ public sealed class NriDeviceTests(Xunit.Abstractions.ITestOutputHelper output)
     /// here on a workstation — all 30 projectable cases build their layout, 23 build pipelines on
     /// top, and the other 7 are the PipelineOutOfReach entries. The conditions exist for lavapipe,
     /// which has no ray tracing and no mesh shaders.
+    ///
+    /// The D3D12 theory asks the same of its device. Measured on the RTX's D3D12 device and on
+    /// WARP (PRISMNRI_TEST_SOFTWARE=1, what hosted Windows runs): neither trips any condition —
+    /// WARP reports mesh shaders and a ray tracing tier — so on both, the mesh, amplification and
+    /// ray-tracing layouts are built, and the two devices' outcomes match case for case.
     /// </remarks>
     private static string? LayoutUnbuildable(NriPipelineProjection projection, NriDevice device)
     {
@@ -275,8 +299,13 @@ public sealed class NriDeviceTests(Xunit.Abstractions.ITestOutputHelper output)
     }
 
     /// <summary>Every pipeline the program describes that this harness knows how to build.</summary>
+    /// <remarks>
+    /// <paramref name="shaderDesc"/> is the one thing that differs between the backends: a SPIR-V
+    /// module is named by the entry point inside it, a DXIL container is not named at all.
+    /// </remarks>
     private void BuildPipelines(
-        NriDevice device, NriPipelineLayout layout, NriPipelineProjection projection, byte[][] code)
+        NriDevice device, NriPipelineLayout layout, NriPipelineProjection projection, byte[][] code,
+        Func<StageBits, byte[], NriShaderDesc> shaderDesc)
     {
         var built = 0;
 
@@ -290,7 +319,7 @@ public sealed class NriDeviceTests(Xunit.Abstractions.ITestOutputHelper output)
             using var pipeline = device.CreateComputePipeline(new NriComputePipelineDesc
             {
                 PipelineLayout = layout,
-                Shader = ShaderDesc(projection.Stages[i].Stage, code[i]),
+                Shader = shaderDesc(projection.Stages[i].Stage, code[i]),
             });
             built++;
         }
@@ -305,8 +334,8 @@ public sealed class NriDeviceTests(Xunit.Abstractions.ITestOutputHelper output)
             var fragment = IndexOf(projection, StageBits.FRAGMENT_SHADER);
 
             NriShaderDesc[] shaders = fragment >= 0
-                ? [ShaderDesc(StageBits.VERTEX_SHADER, code[vertex]), ShaderDesc(StageBits.FRAGMENT_SHADER, code[fragment])]
-                : [ShaderDesc(StageBits.VERTEX_SHADER, code[vertex])];
+                ? [shaderDesc(StageBits.VERTEX_SHADER, code[vertex]), shaderDesc(StageBits.FRAGMENT_SHADER, code[fragment])]
+                : [shaderDesc(StageBits.VERTEX_SHADER, code[vertex])];
 
             using var pipeline = device.CreateGraphicsPipeline(new NriGraphicsPipelineDesc
             {
@@ -342,7 +371,7 @@ public sealed class NriDeviceTests(Xunit.Abstractions.ITestOutputHelper output)
     /// (see ProjectedStage) — and pName has to match the bytes. The same reading the Vulkan driver
     /// does.
     /// </remarks>
-    private static NriShaderDesc ShaderDesc(StageBits stage, byte[] code) =>
+    private static NriShaderDesc SpirvShaderDesc(StageBits stage, byte[] code) =>
         new(stage, code, SpirvModule.Read(code).EntryPoints[0].Name);
 
     /// <summary>Each attribute in its own stream, at offset zero.</summary>
@@ -440,6 +469,21 @@ public sealed class NriDeviceTests(Xunit.Abstractions.ITestOutputHelper output)
         RequireNoErrors(fixture);
     }
 
+    /// <summary>
+    /// One <c>uint</c> of push constants and a buffer to write it to, for the root-constant
+    /// dispatches on both backends: the same source, a SPIR-V push-constant range on Vulkan and a
+    /// promoted <c>b0</c> on D3D12.
+    /// </summary>
+    private const string PushConstantShader = """
+        struct Pc { uint value; };
+        [vk::push_constant] ConstantBuffer<Pc> pc;
+        RWStructuredBuffer<uint> outBuf;
+
+        [shader("compute")]
+        [numthreads(64, 1, 1)]
+        void main(uint id : SV_DispatchThreadID) { outBuf[id] = pc.value + id; }
+        """;
+
     [NriVulkanFact]
     public void Root_constants_projected_from_a_push_constant_block_reach_the_shader()
     {
@@ -448,19 +492,10 @@ public sealed class NriDeviceTests(Xunit.Abstractions.ITestOutputHelper output)
         // wants, that its size and stages make the push constant range the module reads, and that
         // the value lands at offset 0 of the block. Each thread adds its own id, so a value that
         // arrived as zero, or a write landing at the wrong index, is visible per element.
-        const string Shader = """
-            struct Pc { uint value; };
-            [vk::push_constant] ConstantBuffer<Pc> pc;
-            RWStructuredBuffer<uint> outBuf;
-
-            [shader("compute")]
-            [numthreads(64, 1, 1)]
-            void main(uint id : SV_DispatchThreadID) { outBuf[id] = pc.value + id; }
-            """;
         const int Count = 64;
         const uint Value = 0xC0FFEE00u;
 
-        var package = Bake(Shader, "main");
+        var package = Bake(PushConstantShader, "main");
         var shader = package.EntryPoints[0].ToNriShaderDesc();
         var projection = package.Layout.ToNri(Capped);
 
@@ -656,19 +691,336 @@ public sealed class NriDeviceTests(Xunit.Abstractions.ITestOutputHelper output)
         }
     }
 
+    // ---------------------------------------------------------------- 5. the same, on D3D12
+
+    /// <summary>
+    /// Corpus cases whose pipeline the D3D12 leg cannot build, and why. Each is a property of the
+    /// pipeline shape, the same way <see cref="PipelineOutOfReach"/>'s are; what DXIL cannot
+    /// express at all is <see cref="DxilTests.CannotCompile"/>, and the device's limits are
+    /// <see cref="LayoutUnbuildable"/>.
+    /// </summary>
+    /// <remarks>
+    /// Shorter than the Vulkan list by two, and both are measured rather than assumed:
+    /// <c>interpolation-modifiers</c> is out on Vulkan because Slang's SPIR-V forgets a capability,
+    /// which is not a problem DXIL has, and it builds here; <c>subpass-inputs</c> never reaches a
+    /// device because dxc refuses <c>SubpassInput</c>, so it is in CannotCompile instead.
+    /// </remarks>
+    private static readonly Dictionary<string, string> D3D12PipelineOutOfReach = new(StringComparer.Ordinal)
+    {
+        ["mesh"] = "a mesh pipeline, which NRI creates through its mesh shader extension; see PipelineOutOfReach.",
+        ["amplification"] = "half of a mesh pipeline; see PipelineOutOfReach.",
+        ["ray-tracing"] =
+            "a ray tracing state object with shader groups and a shader table; see PipelineOutOfReach. "
+            + "The layout, with its acceleration structure range at a t register, is still built.",
+        ["tessellation"] = "hull and domain with no vertex stage; see PipelineOutOfReach.",
+        ["geometry"] = "a geometry stage with no vertex stage; see PipelineOutOfReach.",
+    };
+
+    /// <summary>
+    /// Corpus cases where D3D12 refuses what the projection says, and the words it refuses with:
+    /// defects in PrismSlang, pinned so that each fix is a red test rather than a silent change.
+    /// Empty now, and kept because the mechanism is the point: the next defect the D3D12 leg finds
+    /// goes here with D3D12's own words, and leaves when it is fixed.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The first run of this leg found four, none visible on Vulkan, and all four are fixed in
+    /// the walker and the shared helper rather than in this file. Recorded here because they are
+    /// what this oracle is for:
+    /// </para>
+    /// <list type="bullet">
+    /// <item><c>vertex-interface</c>: a <c>float4x4 viInstance : INSTANCE</c> attribute is four
+    /// rows, and HLSL numbers them <c>INSTANCE0</c> to <c>INSTANCE3</c>. The projection gave all
+    /// four <c>SemanticIndex = 0</c>, and CreateInputLayout refused "have the same Semantic
+    /// (INSTANCE 0)". PipelineInterface now advances the index per row and per array element.</item>
+    /// <item><c>entry-point-uniforms</c>: on DXIL the entry point's <c>uniform float4 euTint</c>
+    /// lives in a constant buffer at <c>b0</c>, reported as an ordinary range — and the projection
+    /// also read the uniforms as root constants, as it rightly does on SPIR-V where they are push
+    /// constants. The root signature serializer refused "Shader register range of type CBV …
+    /// overlaps with another shader register range". PushConstantBlocks now reads the entry
+    /// point's base offsets, and reports the block only where it is push-constant storage.</item>
+    /// <item><c>parameter-blocks</c> and <c>buffer-arrays</c>: a <c>ParameterBlock</c> with uniform
+    /// data has an implicit constant buffer at <c>b0</c> of its own space, and the walker only
+    /// recognised it in the Vulkan slot category, so a DXIL layout had the block's textures and
+    /// no buffer. D3D12 refused "Shader CBV descriptor range (BaseShaderRegister=0,
+    /// NumDescriptors=1, RegisterSpace=1) is not fully bound in root signature", which is exactly
+    /// the check this theory exists to make. The walker now accepts the D3D category too.</item>
+    /// </list>
+    /// <para>
+    /// A refusal is asserted by the words D3D12 or NRI used, read off the device's own message
+    /// record or the exception, and only for the case it belongs to — not by a filter across the
+    /// theory, so an unrelated error in one of these cases still fails, and a fix fails too.
+    /// </para>
+    /// </remarks>
+    private static readonly Dictionary<string, D3D12Refusal> D3D12ProjectionDefects = new(StringComparer.Ordinal);
+
+    /// <summary>How D3D12 refuses a pinned defect.</summary>
+    /// <param name="Words">What the refusal must say, somewhere in the record or the exception.</param>
+    /// <param name="Family">
+    /// What every error message of this one refusal contains, when it produces more than one;
+    /// <paramref name="Words"/> otherwise. An error outside the family fails the case as usual.
+    /// </param>
+    private sealed record D3D12Refusal(string Words, string? Family = null)
+    {
+        public bool Owns(NriMessage m) => m.ToString().Contains(Family ?? Words, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// <see cref="VulkanCorpusValidationTests.PairedWithAVertexStage"/>, with each supplied vertex
+    /// stage's <c>SV_Position</c> moved behind the varyings it writes.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Vulkan links a vertex stage to a fragment stage by <c>location</c>, so the corpus's supplied
+    /// vertex stages write <c>SV_Position</c> first and nobody minds. D3D12 links them by hardware
+    /// register, allocated in declaration order, and a pixel shader that reads <c>INDEX</c> but
+    /// not <c>SV_Position</c> has <c>INDEX</c> in register 0 while that vertex stage writes it to
+    /// register 1. Measured, before this reordering: <c>descriptor-arrays</c>,
+    /// <c>existential-types</c> and <c>buffer-arrays</c> each failed with "Vertex Shader - Pixel
+    /// Shader linkage error: Signatures between stages are incompatible. Semantic '…' is defined
+    /// for mismatched hardware registers" — a fault in this harness's pairing, not in anything
+    /// PrismSlang said.
+    /// </para>
+    /// <para>
+    /// With <c>SV_Position</c> last, the varyings take registers from 0 in the order the pixel
+    /// shader declares them, and a pixel shader is allowed to read a prefix of what the vertex
+    /// stage writes. All four supplied vertex stages have the one shape this rewrites; a fifth
+    /// that does not is refused here rather than paired wrongly.
+    /// </para>
+    /// </remarks>
+    private static (string Source, List<string> EntryPoints) PairedForD3D12(ShaderCase c)
+    {
+        var (source, entryPoints) = VulkanCorpusValidationTests.PairedWithAVertexStage(c);
+        if (c.ValidationVertex is null) return (source, entryPoints);
+
+        var reordered = System.Text.RegularExpressions.Regex.Replace(
+            c.ValidationVertex,
+            @"struct (\w+) \{ float4 (\w+) : SV_Position; (.+?) \};",
+            "struct $1 { $3 float4 $2 : SV_Position; };");
+
+        if (reordered == c.ValidationVertex)
+        {
+            throw new InvalidOperationException(
+                $"'{c.Name}' supplies a vertex stage this harness cannot put in D3D12 register order; "
+                + "teach PairedForD3D12 its shape");
+        }
+
+        return (source.Replace(c.ValidationVertex, reordered, StringComparison.Ordinal), entryPoints);
+    }
+
+    [NriD3D12Theory]
+    [MemberData(nameof(Cases))]
+    public void A_pipeline_built_from_the_dxil_projection_passes_d3d12_validation(string caseName)
+    {
+        // The Vulkan theory above, with the shader compiled to DXIL and the device a D3D12 one with
+        // the debug layer on. And a stricter oracle than it looks: D3D12 checks the root signature
+        // against the shader's own resource bindings when it creates a pipeline state, and refuses
+        // the pipeline when a register the DXIL reads is not covered by the layout — so on this
+        // backend a pipeline that is created at all is a layout that binds every register the
+        // shader uses, in the class and space the shader uses it. Nothing about that needs a
+        // validation message to be read; the creation fails.
+        var shaderCase = ShaderCorpus.Case(caseName);
+
+        if (DxilTests.CannotCompile.TryGetValue(caseName, out var notDxil))
+        {
+            // Asserted in DxilTests, where the compile is the subject. Here it only means there is
+            // nothing to hand a device.
+            output.WriteLine($"not compiled — {notDxil.Reason}");
+            return;
+        }
+
+        var (source, entryPointNames) = PairedForD3D12(shaderCase);
+        var compiled = Compile(caseName, source, entryPointNames, Dxil);
+
+        if (Refused.TryGetValue(caseName, out var construct))
+        {
+            var e = Assert.Throws<NotSupportedException>(() => compiled.Layout.ToNri(Capped));
+            Assert.Contains(construct, e.Message);
+            return;
+        }
+
+        var projection = compiled.Layout.ToNri(Capped);
+        Assert.Equal(entryPointNames.Count, projection.Stages.Count);
+
+        using var fixture = NriTestDevice.Create(GraphicsAPI.D3D12);
+        var device = fixture.Device;
+        Assert.NotEqual(0, device.Desc.features.shaderBytecodeDXIL);
+
+        if (LayoutUnbuildable(projection, device) is { } reason)
+        {
+            output.WriteLine($"layout not built on this device — {reason}");
+            return;
+        }
+
+        Exception? refused = null;
+        try
+        {
+            using var layout = device.CreatePipelineLayout(projection.Layout);
+            Assert.Same(projection.Layout, layout.Desc);
+
+            if (D3D12PipelineOutOfReach.TryGetValue(caseName, out var why))
+                output.WriteLine($"pipeline layout built; no pipeline — {why}");
+            else
+                BuildPipelines(device, layout, projection, compiled.Code, DxilShaderDesc);
+        }
+        catch (Exception e) when (D3D12ProjectionDefects.ContainsKey(caseName))
+        {
+            // How a refusal arrives depends on where it happens: CreatePipelineLayout returns
+            // INVALID_ARGUMENT and PrismNRI throws NriException; a refused pipeline state reaches
+            // managed code as an SEHException, because with the debug layer on D3D12 raises its
+            // error as a structured exception once the message is recorded. Either way the
+            // message record has the words, and only these cases are allowed to throw.
+            refused = e;
+        }
+
+        foreach (var m in fixture.Messages) output.WriteLine(m.ToString());
+
+        if (D3D12ProjectionDefects.TryGetValue(caseName, out var defect))
+        {
+            var said = string.Join("\n", fixture.Messages.Select(m => m.ToString()).Append(refused?.Message ?? ""));
+            Assert.True(refused is not null && said.Contains(defect.Words, StringComparison.Ordinal),
+                $"'{caseName}' is pinned as a projection defect D3D12 refuses with \"{defect.Words}\", and "
+                + (refused is null
+                    ? "it was built without complaint. Fixed? Remove it from D3D12ProjectionDefects."
+                    : $"D3D12 refused it with something else:\n{said}"));
+
+            // Only the pinned error: anything else D3D12 said about this case is still a failure.
+            var others = fixture.Errors.Where(m => !defect.Owns(m)).ToList();
+            Assert.True(others.Count == 0,
+                $"besides the pinned defect, D3D12 reported:\n" + string.Join("\n", others.Select(m => "  " + m)));
+            output.WriteLine($"pinned projection defect, refused as recorded — {defect.Words}");
+            return;
+        }
+
+        // Only errors fail. Two messages arrive on every D3D12 device creation and are not about
+        // anything this test did: an INFO "Using ID3D12Device14" and a WARNING that
+        // CheckFeatureSupport(options22) failed with E_INVALIDARG — NRI asking the runtime about a
+        // feature block newer than it knows. fragment-outputs adds two warnings of its own, both
+        // about this harness's attachments rather than the projection: SV_Target2 writes two
+        // components into an RGBA8 attachment (the harness picks RGBA8 for every float output,
+        // see ColourAttachments), and the pixel shader "expects a Depth Stencil View" because it
+        // writes SV_Depth with none bound — legal, as the message itself says. All four are left
+        // in the log and none is matched by text, for the reason the Vulkan theory's remarks give.
+        var errors = fixture.Errors.ToList();
+        Assert.True(errors.Count == 0,
+            $"NRI or the D3D12 debug layer rejected what was built from PrismSlang's NRI projection "
+            + $"of the DXIL build of the '{caseName}' shader:\n"
+            + string.Join("\n", fixture.Messages.Select(m => "  " + m)));
+    }
+
+    /// <summary>A DXIL shader desc.</summary>
+    /// <remarks>
+    /// <c>main</c>, and it does not matter: a DXIL container holds one entry point and D3D12 never
+    /// asks its name. It is the name <c>BakedEntryPoint.ModuleEntryPointName</c> reports for a DXIL
+    /// package, so the corpus theory and the baked dispatches below hand NRI the same desc.
+    /// </remarks>
+    private static NriShaderDesc DxilShaderDesc(StageBits stage, byte[] code) => new(stage, code, "main");
+
+    [NriD3D12Fact]
+    public void A_compute_dispatch_on_d3d12_bound_through_the_dxil_projection_writes_what_the_shader_says()
+    {
+        // The Vulkan dispatch, on D3D12, through a DXIL package: bake, project, bind by the indices
+        // the projection reports, dispatch, read back. What it adds is the register-class reading:
+        // cfOutput is u0 here, not binding 0 of a set, and NRI's D3D12 backend turns the range
+        // into a UAV descriptor table entry at u0 from baseRegisterIndex and descriptorType alone.
+        const int Count = 8;
+        var c = ShaderCorpus.Case("compute-fixed");
+
+        var package = Bake(c.Source, c.EntryPoints[0], Dxil);
+        var shader = package.EntryPoints[0].ToNriShaderDesc();
+        Assert.Equal(StageBits.COMPUTE_SHADER, shader.Stage);
+
+        var projection = package.Layout.ToNri(Capped);
+        var (set, range) = projection.Range("cfOutput")
+            ?? throw new InvalidOperationException("the projection has no range named cfOutput");
+        Assert.Equal(DescriptorType.STORAGE_STRUCTURED_BUFFER, range.Desc.descriptorType);
+
+        using var fixture = NriTestDevice.Create(GraphicsAPI.D3D12);
+        Assert.NotEqual(0, fixture.Device.Desc.features.shaderBytecodeDXIL);
+        var words = DispatchOnce<float>(fixture.Device, projection, shader, set, range, Count, sizeof(float),
+            record: null);
+
+        for (var i = 0; i < Count; i++) Assert.Equal(1.0f, words[i]);
+        RequireNoErrors(fixture);
+    }
+
+    [NriD3D12Fact]
+    public void A_constant_buffer_promoted_by_name_reaches_the_dxil_shader_as_root_constants()
+    {
+        // The D3D12 half of the root-constant dispatch, and the reason RootConstantParameters
+        // exists. The same source as the Vulkan fact: on DXIL Slang drops [vk::push_constant] and
+        // puts `pc` at b0 as an ordinary constant buffer, so left alone the projection describes a
+        // descriptor and no root constants at all. Named, the block leaves the set and becomes a
+        // RootConstantDesc at b0 of RootRegisterSpace — which is where the DXIL reads it, so a value
+        // set with SetRootConstants is the value the shader sees, or the readback says otherwise.
+        const int Count = 64;
+        const uint Value = 0xC0FFEE00u;
+
+        var package = Bake(PushConstantShader, "main", Dxil);
+        var shader = package.EntryPoints[0].ToNriShaderDesc();
+
+        Assert.Empty(package.Layout.ToNri(Capped).RootConstants);
+
+        var projection = package.Layout.ToNri(Capped with { RootConstantParameters = ["pc"] });
+        var block = Assert.Single(projection.RootConstants);
+        var pc = package.Layout.Parameters.Single(p => p.Name == "pc").PrimaryBinding
+            ?? throw new InvalidOperationException("pc has no binding");
+
+        Assert.Equal("pc", block.Name);
+        Assert.Equal(pc.Index, block.Desc.registerIndex);
+        Assert.Equal(pc.Space, projection.Layout.RootRegisterSpace);
+        Assert.Equal(StageBits.COMPUTE_SHADER, block.Desc.shaderStages);
+        Assert.Null(projection.Range("pc"));
+        output.WriteLine($"root constant block '{block.Name}': index {block.Index}, b{block.Desc.registerIndex} "
+                       + $"space {projection.Layout.RootRegisterSpace}, size {block.Desc.size}");
+
+        var (set, range) = projection.Range("outBuf")
+            ?? throw new InvalidOperationException("the projection has no range named outBuf");
+
+        // A local, because SetRootConstants takes the value by reference and a const has no address.
+        var value = Value;
+
+        using var fixture = NriTestDevice.Create(GraphicsAPI.D3D12);
+        var words = DispatchOnce<uint>(fixture.Device, projection, shader, set, range, Count, sizeof(uint),
+            record: cmd => cmd.SetRootConstants(block.Index, in value, 0, BindPoint.COMPUTE));
+
+        for (var i = 0; i < Count; i++) Assert.Equal(Value + (uint)i, words[i]);
+        RequireNoErrors(fixture);
+
+        // Watched failing before it was trusted to pass, as the Vulkan theory was. With the
+        // promoted block dropped from the layout by hand (RootConstants = [], everything else as
+        // projected), the root signature covers u0 and nothing at b0, and D3D12 refused the
+        // pipeline at creation — an SEHException out of CreateComputePipeline, with the debug
+        // layer's record reading:
+        //
+        //   [882] ID3D12Device::CreateComputePipelineState: Root Signature doesn't match Compute
+        //   Shader: Shader CBV descriptor range (BaseShaderRegister=0, NumDescriptors=1,
+        //   RegisterSpace=0) is not fully bound in root signature
+        //
+        // So the pass above is D3D12 agreeing that b0 is covered, not D3D12 not looking; and the
+        // same message is what parameter-blocks and buffer-arrays are pinned by in
+        // D3D12ProjectionDefects. Reverted; the fault is not kept as a test, because its whole
+        // content is the one message recorded here.
+    }
+
     // ---------------------------------------------------------------- compiling
 
-    private sealed record Compiled(ProgramLayout Layout, byte[][] Code);
+    internal sealed record Compiled(ProgramLayout Layout, byte[][] Code);
 
-    /// <summary>Compiles, links and reflects, keeping each entry point's code.</summary>
-    private static Compiled Compile(
-        string name, string source, IReadOnlyList<string> entryPointNames, bool useEntryPointNameInSpirv)
+    /// <summary>The DXIL target every D3D12 test compiles for: the binding's default profile.</summary>
+    /// <remarks>
+    /// No profile named, on purpose, so the tests run against what TargetOptions falls back to
+    /// (<c>sm_6_5</c>) — the profile a host that did not think about it gets, which is the one most
+    /// worth knowing works.
+    /// </remarks>
+    internal static TargetOptions Dxil => new() { Format = PrismSlang.Native.SlangCompileTarget.SLANG_DXIL };
+
+    /// <summary>Compiles, links and reflects for one target, keeping each entry point's code.</summary>
+    internal static Compiled Compile(
+        string name, string source, IReadOnlyList<string> entryPointNames, TargetOptions target)
     {
         using var global = SlangGlobalSession.Create();
-        using var session = global.CreateSession(new SessionOptions
-        {
-            Targets = [new TargetOptions { UseEntryPointNameInSpirv = useEntryPointNameInSpirv }],
-        });
+        using var session = global.CreateSession(new SessionOptions { Targets = [target] });
         using var module = session.LoadModuleFromSource(name, $"{name}.slang", source);
 
         var entryPoints = entryPointNames.Select(module.FindEntryPoint).ToList();
@@ -688,11 +1040,11 @@ public sealed class NriDeviceTests(Xunit.Abstractions.ITestOutputHelper output)
         }
     }
 
-    /// <summary>Bakes a one-entry-point program with default target options.</summary>
-    private static ShaderPackage Bake(string source, string entryPointName)
+    /// <summary>Bakes a one-entry-point program; default (SPIR-V) target options unless told otherwise.</summary>
+    internal static ShaderPackage Bake(string source, string entryPointName, TargetOptions? target = null)
     {
         using var global = SlangGlobalSession.Create();
-        using var session = global.CreateSession(new SessionOptions { Targets = [new TargetOptions()] });
+        using var session = global.CreateSession(new SessionOptions { Targets = [target ?? new TargetOptions()] });
         using var module = session.LoadModuleFromSource("baked", "baked.slang", source);
 
         using var entryPoint = module.FindEntryPoint(entryPointName);

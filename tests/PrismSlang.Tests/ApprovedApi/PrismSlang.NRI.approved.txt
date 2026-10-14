@@ -27,6 +27,7 @@ namespace PrismSlang.NRI
     public sealed class NriProjectionOptions : System.IEquatable<PrismSlang.NRI.NriProjectionOptions>
     {
         public NriProjectionOptions() { }
+        public System.Collections.Generic.IReadOnlyList<string> RootConstantParameters { get; init; }
         public uint? UnboundedArrayCap { get; init; }
         public PrismNRI.Native.VKBindingOffsets VkBindingOffsets { get; init; }
     }
