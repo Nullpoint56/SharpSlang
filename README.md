@@ -154,7 +154,9 @@ failing inside the first compile. A Vulkan-only pipeline never needs it.
 
 ## Using it
 
-Packages are published to **GitHub Packages** on a `v*` tag. Add the feed, then take what you need:
+Packages are published on a `v*` tag, twice: to **GitHub Packages**, and as a **GitHub release**
+carrying the same `.nupkg` files for anyone without feed access. Add the feed, then take what you
+need:
 
 ```bash
 dotnet nuget add source https://nuget.pkg.github.com/Nullpoint56/index.json \
