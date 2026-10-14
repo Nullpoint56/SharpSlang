@@ -24,8 +24,8 @@
       feed in nupkg-feed/ holds. Read by:
 
         tools/fetch-nri.ps1           which release to download the packages from
-        nri/PrismSlang.NRI.csproj     the PrismNRI.Descs reference
-        tests/PrismSlang.Tests        the PrismNRI and PrismNRI.Testing references
+        nri/PrismSlang.NRI.csproj     the PrismNRI.Descs reference, in package mode (below)
+        tests/PrismSlang.Tests        the PrismNRI and PrismNRI.Testing references, likewise
 
       Exact, like the Slang pin, and for a smaller version of the same reason: PrismNRI is
       pre-1.0 and its descriptor structs are a transcription of NRI's headers, so a minor bump can
@@ -33,7 +33,44 @@
       Nothing fetches on its own; a restore against a version the feed does not hold fails with
       NU1102, which is the prompt to run the script.
     -->
-    <PrismNriVersion>0.2.0-alpha</PrismNriVersion>
+    <PrismNriVersion>0.3.0-alpha</PrismNriVersion>
+
+    <!--
+      Where PrismNRI comes from: the projects of a PrismNRI checkout beside this repository when
+      there is one, and the release pinned above when there is not.
+
+      The release is the fallback and what CI builds: a runner has no PrismNRI checkout, and
+      building NRI natively there would spend Actions minutes the account does not have. A
+      workstation with PrismNRI checked out next to this repository builds against that checkout
+      instead, as ProjectReferences, so a PrismNRI change is exercised here before it is released —
+      and in October 2026 PrismNRI could not release 0.4.0-alpha at all, its Actions allowance
+      spent. Read by:
+
+        nri/PrismSlang.NRI.csproj     PrismNRI.Descs: the checkout's project, or the pinned package
+        tests/PrismSlang.Tests        PrismNRI and PrismNRI.Testing, the same way
+
+      PrismNriRoot is the checkout: the folder PrismNRI next to this repository's root unless it is
+      set, as a property (-p:PrismNriRoot=...) or as an environment variable of the same name,
+      absolute or relative to this file, with or without the trailing separator. PrismNriSource is
+      `project` when that folder holds dotnet\PrismNRI.csproj and `package` when it does not, and
+      -p:PrismNriSource=package takes the release even beside a checkout. PrismNriRootFull is the
+      root made absolute, which is what the references use.
+
+      The fallback is silent by nature: a git worktree, a runner or any other folder layout simply
+      has no sibling and builds against the release. So every build says which one it took, once,
+      from ReportPrismNriSource below.
+
+      In project mode PrismNRI's managed projects build into the checkout's own obj\ and bin\, and
+      its native library has to be built there already: PrismNRI.csproj stops the build with
+      PRISMNRI001 when it is not, naming the commands to run in the checkout. And PrismSlang.NRI
+      refuses to pack in project mode, because pack would turn the ProjectReference into a
+      dependency on whatever PrismNRI.Descs version the checkout carries — unreleased, and a floor
+      where the package reference is an exact pin.
+    -->
+    <PrismNriRoot Condition="'$(PrismNriRoot)' == ''">$([MSBuild]::NormalizeDirectory('$(MSBuildThisFileDirectory)', '..', 'PrismNRI'))</PrismNriRoot>
+    <PrismNriRootFull>$([MSBuild]::NormalizeDirectory('$(MSBuildThisFileDirectory)', '$(PrismNriRoot)'))</PrismNriRootFull>
+    <PrismNriSource Condition="'$(PrismNriSource)' == '' and Exists('$(PrismNriRootFull)dotnet\PrismNRI.csproj')">project</PrismNriSource>
+    <PrismNriSource Condition="'$(PrismNriSource)' == ''">package</PrismNriSource>
 
     <!--
       The pinned Microsoft.Direct3D.DXC package, for PrismSlang.Native.Dxc only. Slang compiles to
@@ -64,5 +101,27 @@
     -->
     <DxcPackageVersion>1.9.2609.5</DxcPackageVersion>
   </PropertyGroup>
+
+  <!--
+    Which PrismNRI this build took, said once per build at high importance, so it shows at the
+    default verbosity. Said by PrismSlang.NRI alone because every build that involves PrismNRI builds
+    it — the tests and the reader-only consumer both reference it — where saying it from every
+    project that imports this file would say it nine times. Before BeforeBuild, so it comes before
+    the references are resolved: an unknown PrismNriSource, or `project` with no checkout to take
+    it from, stops here with the reason rather than as a reference that resolves to nothing.
+  -->
+  <Target Name="ReportPrismNriSource" BeforeTargets="BeforeBuild" Condition="'$(MSBuildProjectName)' == 'PrismSlang.NRI'">
+    <Error Condition="'$(PrismNriSource)' != 'project' and '$(PrismNriSource)' != 'package'"
+           Text="PrismNriSource is '$(PrismNriSource)'. It is 'project', for the PrismNRI checkout at PrismNriRoot, or 'package', for the $(PrismNriVersion) release from nupkg-feed." />
+    <Error Condition="'$(PrismNriSource)' == 'project' and !Exists('$(PrismNriRootFull)dotnet\PrismNRI.csproj')"
+           Text="PrismNriSource is 'project', but $(PrismNriRootFull) holds no dotnet\PrismNRI.csproj. Point PrismNriRoot at a PrismNRI checkout, or build with -p:PrismNriSource=package." />
+
+    <PropertyGroup>
+      <_PrismNriReport Condition="'$(PrismNriSource)' == 'project'">PrismNRI: the projects of the checkout at $(PrismNriRootFull) (PrismNriSource=project)</_PrismNriReport>
+      <_PrismNriReport Condition="'$(PrismNriSource)' == 'package' and Exists('$(PrismNriRootFull)dotnet\PrismNRI.csproj')">PrismNRI: the $(PrismNriVersion) release packages from nupkg-feed (PrismNriSource=package, set explicitly; the checkout at $(PrismNriRootFull) is not used)</_PrismNriReport>
+      <_PrismNriReport Condition="'$(PrismNriSource)' == 'package' and !Exists('$(PrismNriRootFull)dotnet\PrismNRI.csproj')">PrismNRI: the $(PrismNriVersion) release packages from nupkg-feed (PrismNriSource=package; no PrismNRI checkout at $(PrismNriRootFull))</_PrismNriReport>
+    </PropertyGroup>
+    <Message Importance="high" Text="$(_PrismNriReport)" />
+  </Target>
 
 </Project>

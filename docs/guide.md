@@ -277,6 +277,31 @@ foreach (var a in nri.VertexAttributes)                // Location, Format and D
 var shader = package.EntryPoints[0].ToNriShaderDesc(); // stage, bytes, ModuleEntryPointName
 ```
 
+**Per frame, keep the integers and your own storage.** Look names up once, at load, and keep the
+set and range indices. Every frame, reset the pool and allocate each projected set into an array you
+own with PrismNRI's span overload; `NriDescriptorSet` is a struct, so the array holds the sets
+themselves and none of this allocates:
+
+```csharp
+// Once, at load: the integers NRI is indexed by, and somewhere for the sets to live.
+var (set, range) = nri.Range("albedo")!.Value;
+uint albedoSet = set.SetIndex, albedoRange = range.RangeIndex;
+var sets = new NriDescriptorSet[nri.DescriptorSets.Count];  // SetIndex is the position: index by it
+
+// Every frame, once the GPU has finished with what this pool held:
+pool.Reset();
+for (var i = 0; i < sets.Length; i++)
+    pool.AllocateDescriptorSets(pipelineLayout, nri.DescriptorSets[i].SetIndex, sets.AsSpan(i, 1));
+sets[albedoSet].Update(albedoRange, 0, albedoView);
+for (var i = 0; i < sets.Length; i++)
+    cmd.SetDescriptorSet(nri.DescriptorSets[i].SetIndex, sets[i]);
+```
+
+Two things undo that, both measured: the array-returning `AllocateDescriptorSets(layout, setIndex,
+count)`, which allocates its array on every call, and a `foreach` over `DescriptorSets` or `Ranges`,
+which boxes an enumerator, hence the indexed loops. [What allocates](#what-allocates) has the frame
+they were measured in.
+
 **`SetIndex` is not the register space.** NRI's descriptor API is indexed by position in the desc's
 `DescriptorSets` array; the SPIR-V is indexed by `set = N`. They coincide until a shader skips a
 space — `[[vk::binding(0, 2)]]` with nothing in space 1 — and then set index 1 is register space
@@ -785,6 +810,18 @@ on the projected records.
 
 The same holds on Vulkan and on D3D12. The NRI projection is one object whichever backend consumes
 it, and the DXIL build differs only in what was baked.
+
+**A whole frame, measured.** PrismNRI measures its own per-frame calls at zero on NRI's NONE
+backend, and the lookups above are zero one at a time, but the frame an engine writes is the two
+together, and `AllocationTests` measures that as well: a compute frame driven purely through an
+`NriPipelineProjection`, with the sets allocated into an array it owns by the span overload and
+bound by `SetIndex`, every range written by `RangeIndex`, three ranges found by name, root constants
+set by `Index` from a struct, the group count read from `ThreadGroupSize`, then submit and wait. It
+allocates 0 bytes over 300 frames after one warm-up frame, `SetPipeline` and `SetRootConstants`
+included, which PrismNRI's measured frames do not call. Planted in it, the array-returning
+`AllocateDescriptorSets` cost 40 bytes per set per frame, the one-buffer
+`queue.Submit(cmd, fence, value)` 48 per call, and a `foreach` over `DescriptorSets` and `Ranges` 40
+per enumerator it boxed. It runs where the NRI device tests do, on win-x64.
 
 ## Traps worth knowing
 

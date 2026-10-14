@@ -59,10 +59,31 @@
     NriProjectionTests pins the stamped value to the revision whose Vulkan backend this
     projection's rules were measured against. The package comes from the folder feed
     tools/fetch-nri.ps1 fills; see nuget.config.
+
+    Or, beside a PrismNRI checkout, the checkout's PrismNRI.Descs project instead: PrismNriSource
+    in Directory.Build.props decides, and every build says which it took. The package is what CI
+    builds, and the only thing this packs against; see the target below.
   -->
   <ItemGroup>
     <ProjectReference Include="..\runtime\PrismSlang.Runtime.csproj" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(PrismNriSource)' == 'package'">
     <PackageReference Include="PrismNRI.Descs" Version="[$(PrismNriVersion)]" />
   </ItemGroup>
+
+  <ItemGroup Condition="'$(PrismNriSource)' == 'project'">
+    <ProjectReference Include="$(PrismNriRootFull)descs\PrismNRI.Descs.csproj" />
+  </ItemGroup>
+
+  <!--
+    Packed against the release only. In project mode the reference above is a ProjectReference, and
+    pack would write it into the nuspec as a dependency on whatever version the checkout's
+    PrismNRI.Descs carries — 0.4.0-alpha when this was written, which no release has — and as a
+    floor where the package reference is an exact range. So pack stops before the nuspec is written.
+  -->
+  <Target Name="PackOnlyAgainstThePrismNriRelease" BeforeTargets="GenerateNuspec" Condition="'$(PrismNriSource)' == 'project'">
+    <Error Text="PrismSlang.NRI is being packed against the PrismNRI checkout at $(PrismNriRootFull), which would make the package depend on that checkout's unreleased PrismNRI.Descs. Pack against the $(PrismNriVersion) release with -p:PrismNriSource=package." />
+  </Target>
 
 </Project>
