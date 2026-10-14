@@ -44,9 +44,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # The preview quality is there because .NET 11 has no GA release yet; drop it when it does.
       - uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: '10.0.x'
+          dotnet-version: '11.0.x'
+          dotnet-quality: preview
 
       - name: Stage native payloads for every supported RID
         shell: pwsh

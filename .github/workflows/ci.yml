@@ -79,9 +79,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # The preview quality is there because .NET 11 has no GA release yet; drop it when it does.
       - uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: '10.0.x'
+          dotnet-version: '11.0.x'
+          dotnet-quality: preview
 
       - name: Cache the Slang release
         uses: actions/cache@v4
@@ -490,6 +492,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # 10.0, not the 11.0 the projects target: ClangSharpPInvokeGenerator 21.1.8.4 is a net10.0
+      # tool, and running it is all this job does. generate-native.ps1 never builds the solution,
+      # so nothing here needs the newer SDK.
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.x'

@@ -9,7 +9,7 @@
 #
 # Prerequisites:
 #   pwsh tools/fetch-native.ps1 -Rid linux-x64      # stage the payload (runs fine from Windows)
-#   a .NET 10 SDK on this machine
+#   a .NET 11 SDK on this machine
 #
 # Under WSL from Windows:
 #   wsl -d Ubuntu -- bash /mnt/e/path/to/PrismSlang/tools/ci/verify-linux.sh
@@ -22,7 +22,7 @@ if [[ ! -x "$DOTNET" ]]; then
 fi
 if [[ -z "$DOTNET" || ! -x "$DOTNET" ]]; then
     echo "no dotnet found. Install with:" >&2
-    echo "  curl -sSL https://dot.net/v1/dotnet-install.sh | bash -s -- --channel 10.0" >&2
+    echo "  curl -sSL https://dot.net/v1/dotnet-install.sh | bash -s -- --channel 11.0 --quality preview" >&2
     exit 1
 fi
 export DOTNET_ROOT="$(dirname "$DOTNET")"
