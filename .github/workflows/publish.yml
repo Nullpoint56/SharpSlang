@@ -1,12 +1,15 @@
 name: Publish to GitHub Packages
 
-# Publishes both packages on a version tag (e.g. `v0.1.0`), or on manual dispatch. The version is
+# Publishes every package on a version tag (e.g. `v0.1.0`), or on manual dispatch. The version is
 # taken from the tag (`v0.1.0` -> 0.1.0); manual runs fall back to <Version> in the csproj.
 #
-# Two packages, deliberately:
-#   PrismSlang         Slang-neutral. Compilation and reflection.
-#   PrismSlang.Vulkan  The Vulkan reading of a reflection snapshot. Opt-in, so a D3D12 or Metal
-#                      consumer never pulls Vulkan concepts in.
+# Four packages, deliberately:
+#   PrismSlang          Slang-neutral. Compilation and reflection.
+#   PrismSlang.Runtime  Reads baked shaders in the shipped game. No compiler, no native payload.
+#   PrismSlang.Vulkan   The Vulkan reading of a reflection snapshot. Opt-in, so a D3D12 or Metal
+#                       consumer never pulls Vulkan concepts in.
+#   PrismSlang.NRI      The NRI (NVIDIA Render Interface) reading of a reflection snapshot, onto
+#                       PrismNRI's descs. Opt-in like the Vulkan one.
 #
 # Unlike PrismUSD, the native payload is not committed: runtimes/ is gitignored and fetched from
 # the release pinned in Directory.Build.props. So this workflow stages every RID before packing —
@@ -19,7 +22,7 @@ name: Publish to GitHub Packages
 #
 # So `workflow_dispatch` accepts `dry_run`, default true: every step runs except the push. It is the
 # whole path — staging all four supported RIDs from a Windows runner, building, testing, packing all
-# three projects, and checking that every RID in the core package carries the compiler, the SPIR-V
+# four projects, and checking that every RID in the core package carries the compiler, the SPIR-V
 # optimiser and Slang's licence texts — with only the last step skipped. The .nupkg files are
 # uploaded either way, so a dry run leaves something to inspect.
 #
@@ -63,6 +66,17 @@ jobs:
             ./tools/fetch-native.ps1 -Rid $rid -Profile Spirv
           }
 
+      # Into the folder feed nuget.config names, nupkg-feed/, for PrismSlang.NRI and the tests.
+      # PrismNRI is a private repository, so a fine-grained PAT with read access to its contents
+      # (Contents: read) is stored on THIS repository as the secret PRISMNRI_READ_TOKEN. The job's
+      # own GITHUB_TOKEN cannot stand in: it is scoped to the repository the workflow runs in, and
+      # another repository's release assets are outside that scope whatever `permissions:` says.
+      - name: Fetch the PrismNRI packages
+        shell: pwsh
+        env:
+          PRISMNRI_TOKEN: ${{ secrets.PRISMNRI_READ_TOKEN }}
+        run: ./tools/fetch-nri.ps1
+
       - name: Resolve version
         id: version
         shell: pwsh
@@ -95,7 +109,7 @@ jobs:
         run: |
           $v = "${{ steps.version.outputs.value }}"
           $extra = if ($v) { @("-p:Version=$v") } else { @() }
-          foreach ($proj in @('runtime/PrismSlang.Runtime.csproj', 'dotnet/PrismSlang.csproj', 'vulkan/PrismSlang.Vulkan.csproj')) {
+          foreach ($proj in @('runtime/PrismSlang.Runtime.csproj', 'dotnet/PrismSlang.csproj', 'vulkan/PrismSlang.Vulkan.csproj', 'nri/PrismSlang.NRI.csproj')) {
             dotnet pack $proj -c Release -o artifacts --no-build @extra
             if ($LASTEXITCODE -ne 0) { throw "pack failed for $proj" }
           }

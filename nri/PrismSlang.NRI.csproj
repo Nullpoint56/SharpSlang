@@ -1,0 +1,68 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    PrismSlang.NRI — the Slang-to-NRI reading of a reflection snapshot.
+
+    The second projection, beside PrismSlang.Vulkan and built the same way: a separate assembly and
+    a separate package, so a consumer that talks to the GPU through NRI (NVIDIA Render Interface)
+    takes this and a consumer that talks Vulkan directly never hears of it. Everything the two
+    projections agree on — which leaf attributes the vertex stage reads, which outputs the fragment
+    stage writes, which blocks are push constants, what a descriptor is called — is answered once
+    in PrismSlang.Runtime's PipelineInterface, and this assembly only gives those answers NRI's
+    spelling: DescriptorType per binding kind, StageBits per stage, Format per leaf type, and the
+    array flags NRI wants where Vulkan wants a count.
+
+    It references PrismNRI.Descs and nothing else of PrismNRI. That package is NRI's vocabulary as
+    plain .NET types — the descriptor structs and enums, generated from the pinned NRI headers —
+    with no native dependency, which is precisely what a projection needs: it constructs an
+    NriPipelineLayoutDesc without a device or NRI.dll in hand, and the host hands that desc to a
+    PrismNRI device it created itself. So a cooker can project at bake time on a machine with no
+    GPU driver, and a game that reads baked packages carries no NRI binary it did not ask for.
+    AssemblySplitTests measures that: the reader-only consumer's output holds PrismNRI.Descs.dll
+    and no NRI.dll.
+
+    What it deliberately does NOT emit — renderer policy, not compiler output:
+      * vertex stream indices, strides, offsets or step rates (only locations and formats; the
+        attribute descs come back with Offset 0 and StreamIndex 0 for the renderer to fill in)
+      * any meaning attached to a register space ("space 1 is per-material")
+      * descriptor pool sizing or update strategy
+      * the cap for an unbounded descriptor array — the host states it in NriProjectionOptions,
+        because the shader does not know and NRI's desc has no way to say "unbounded"
+  -->
+
+  <PropertyGroup>
+    <TargetFramework>net11.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>PrismSlang.NRI</RootNamespace>
+
+    <PackageId>PrismSlang.NRI</PackageId>
+    <Version>0.1.0-alpha</Version>
+    <Authors>szombathy-tamas</Authors>
+    <Description>NRI (NVIDIA Render Interface) projection for PrismSlang reflection: a PrismNRI pipeline layout desc, root constants, vertex attributes and shader descs from a Slang shader. References PrismNRI.Descs only, so no NRI binary comes with it. Alpha: built for the PrismEngine renderer and not yet load-tested by a shipping game.</Description>
+    <PackageTags>slang;nri;vulkan;d3d12;spirv;shader;reflection;descriptor-set</PackageTags>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <RepositoryType>git</RepositoryType>
+  </PropertyGroup>
+
+  <!--
+    PrismSlang.Runtime, not PrismSlang, for the reason PrismSlang.Vulkan gives: projecting a layout
+    is arithmetic over managed data and never touches the compiler, so referencing the compiler
+    would drag a 36 MB per-RID payload behind a small assembly for every consumer.
+
+    PrismNRI.Descs at the version pinned in Directory.Build.props, as an exact range. A bare
+    Version="x" is a floor to NuGet — any newer PrismNRI.Descs a consumer restores alongside wins —
+    and the descs are generated from one NRI header revision, so a floor would let the projection
+    be compiled against one NRI's vocabulary and run against another's. The brackets make the pin
+    mean what the props comment says. NRI itself is not pinned here, because nothing here loads it:
+    PrismNRI.Descs carries that pin and stamps it into its assembly as NriVersion, and
+    NriProjectionTests pins the stamped value to the revision whose Vulkan backend this
+    projection's rules were measured against. The package comes from the folder feed
+    tools/fetch-nri.ps1 fills; see nuget.config.
+  -->
+  <ItemGroup>
+    <ProjectReference Include="..\runtime\PrismSlang.Runtime.csproj" />
+    <PackageReference Include="PrismNRI.Descs" Version="[$(PrismNriVersion)]" />
+  </ItemGroup>
+
+</Project>

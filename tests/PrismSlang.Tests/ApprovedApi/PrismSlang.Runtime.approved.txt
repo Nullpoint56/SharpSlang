@@ -407,6 +407,14 @@ namespace PrismSlang.Reflection
         [System.Text.Json.Serialization.JsonIgnore]
         public ulong UniformOffset { get; }
     }
+    public sealed class FragmentOutput : System.IEquatable<PrismSlang.Reflection.FragmentOutput>
+    {
+        public FragmentOutput(uint Location, PrismSlang.Reflection.TypeLayout Type, string Name, string? Semantic = null) { }
+        public uint Location { get; init; }
+        public string Name { get; init; }
+        public string? Semantic { get; init; }
+        public PrismSlang.Reflection.TypeLayout Type { get; init; }
+    }
     public sealed class FunctionParameter : System.IEquatable<PrismSlang.Reflection.FunctionParameter>
     {
         public FunctionParameter(string Name, string Type, PrismSlang.Reflection.ParameterDirection Direction, System.Collections.Generic.IReadOnlyList<PrismSlang.Reflection.UserAttribute>? Attributes = null) { }
@@ -500,6 +508,14 @@ namespace PrismSlang.Reflection
         Out = 1,
         InOut = 2,
     }
+    public static class PipelineInterface
+    {
+        public static System.Collections.Generic.IReadOnlyDictionary<uint, string> DescriptorNames(this PrismSlang.Reflection.ProgramLayout layout, uint space) { }
+        public static System.Collections.Generic.IReadOnlyList<PrismSlang.Reflection.FragmentOutput> FragmentOutputs(this PrismSlang.Reflection.ProgramLayout layout) { }
+        public static System.Collections.Generic.IReadOnlyList<PrismSlang.Reflection.PushConstantBlock> PushConstantBlocks(this PrismSlang.Reflection.ProgramLayout layout) { }
+        public static void RequireEveryParameterIsPlaced(this PrismSlang.Reflection.ProgramLayout layout) { }
+        public static System.Collections.Generic.IReadOnlyList<PrismSlang.Reflection.VertexInput> VertexInputs(this PrismSlang.Reflection.ProgramLayout layout) { }
+    }
     public sealed class ProgramLayout : System.IEquatable<PrismSlang.Reflection.ProgramLayout>
     {
         public ProgramLayout() { }
@@ -519,6 +535,13 @@ namespace PrismSlang.Reflection
         public PrismSlang.Reflection.SpecializationConstant? SpecializationConstant(string name) { }
         public string ToJson() { }
         public static PrismSlang.Reflection.ProgramLayout FromJson(string json) { }
+    }
+    public sealed class PushConstantBlock : System.IEquatable<PrismSlang.Reflection.PushConstantBlock>
+    {
+        public PushConstantBlock(string Name, ulong Size, PrismSlang.Native.SlangStage? Stage = default) { }
+        public string Name { get; init; }
+        public ulong Size { get; init; }
+        public PrismSlang.Native.SlangStage? Stage { get; init; }
     }
     public sealed class ResourceLayout : PrismSlang.Reflection.TypeLayout, System.IEquatable<PrismSlang.Reflection.ResourceLayout>
     {
@@ -654,6 +677,16 @@ namespace PrismSlang.Reflection
         public VectorLayout() { }
         public required int ElementCount { get; init; }
         public required PrismSlang.Native.SlangScalarType ElementType { get; init; }
+    }
+    public sealed class VertexInput : System.IEquatable<PrismSlang.Reflection.VertexInput>
+    {
+        public VertexInput(uint Location, PrismSlang.Reflection.TypeLayout Type, uint LocationsConsumed, string Name, string? Semantic = null, uint SemanticIndex = 0) { }
+        public uint Location { get; init; }
+        public uint LocationsConsumed { get; init; }
+        public string Name { get; init; }
+        public string? Semantic { get; init; }
+        public uint SemanticIndex { get; init; }
+        public PrismSlang.Reflection.TypeLayout Type { get; init; }
     }
 }
 namespace PrismSlang.Spirv

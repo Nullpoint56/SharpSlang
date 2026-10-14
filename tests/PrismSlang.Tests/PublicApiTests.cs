@@ -1,4 +1,4 @@
-// The public surface of all three packages, written down.
+// The public surface of all four packages, written down.
 //
 // These are libraries an engine builds against, and the moment one of them is 1.0 its surface is a
 // promise. Nothing was checking the promise. A member removed, a parameter reordered, a type
@@ -40,7 +40,8 @@ public class PublicApiTests(Xunit.Abstractions.ITestOutputHelper output)
         ],
     };
 
-    private static readonly string[] Packages = ["PrismSlang", "PrismSlang.Runtime", "PrismSlang.Vulkan"];
+    private static readonly string[] Packages =
+        ["PrismSlang", "PrismSlang.Runtime", "PrismSlang.Vulkan", "PrismSlang.NRI"];
 
     public static TheoryData<string> Assemblies()
     {
@@ -106,6 +107,7 @@ public class PublicApiTests(Xunit.Abstractions.ITestOutputHelper output)
         "PrismSlang" => typeof(SlangGlobalSession).Assembly,
         "PrismSlang.Runtime" => typeof(Reflection.ProgramLayout).Assembly,
         "PrismSlang.Vulkan" => typeof(Vulkan.VulkanPipelineLayout).Assembly,
+        "PrismSlang.NRI" => typeof(NRI.NriPipelineProjection).Assembly,
         _ => throw new ArgumentOutOfRangeException(nameof(name), name, "not a package of this repo"),
     };
 

@@ -1,6 +1,6 @@
 # Third-party notices
 
-PrismSlang's own source is MIT — see [LICENSE](LICENSE). One of the three packages redistributes
+PrismSlang's own source is MIT — see [LICENSE](LICENSE). One of the four packages redistributes
 binaries it did not write, and this file says which, under what terms, and where the licence texts
 are.
 
@@ -10,6 +10,7 @@ are.
 |---|---|
 | `PrismSlang.Runtime` | nothing. MIT only. |
 | `PrismSlang.Vulkan` | nothing. MIT only. Its enum values are transcribed from the Vulkan specification's `vk.xml`; values are facts, not expression. |
+| `PrismSlang.NRI` | nothing. MIT only. It references the `PrismNRI.Descs` package (MIT) for NRI's descriptor types and redistributes no NRI binary. |
 | **`PrismSlang`** | binaries from the [Slang](https://github.com/shader-slang/slang) project, one set per runtime identifier |
 
 Under `runtimes/<rid>/native/` in the `PrismSlang` package, taken unmodified from Slang's own

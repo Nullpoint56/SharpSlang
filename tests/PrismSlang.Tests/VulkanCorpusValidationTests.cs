@@ -292,7 +292,7 @@ public sealed unsafe class VulkanCorpusValidationTests(Xunit.Abstractions.ITestO
     /// The added stage is not free of consequence and is checked for consequence: see
     /// <see cref="RequireTheAddedStageChangedNothing"/>.
     /// </remarks>
-    private static (string Source, List<string> EntryPoints) PairedWithAVertexStage(ShaderCase c)
+    internal static (string Source, List<string> EntryPoints) PairedWithAVertexStage(ShaderCase c)
     {
         var stages = c.Source;
         var needsVertex =

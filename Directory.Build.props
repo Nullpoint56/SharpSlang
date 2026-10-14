@@ -1,7 +1,7 @@
 <Project>
 
   <!--
-    Single source of truth for the pinned Slang release.
+    Single source of truth for the pinned Slang release, and for the pinned PrismNRI release.
 
     Slang's public ABI is explicitly not stable (docs/design.md §3.5), so this is an exact
     pin, not a floor. Everything downstream reads it from here:
@@ -16,6 +16,23 @@
 
   <PropertyGroup>
     <SlangVersion>v2026.14.1</SlangVersion>
+
+    <!--
+      The pinned PrismNRI release. Its GitHub release tag is `v` + this value, and the three
+      packages it carries (PrismNRI, PrismNRI.Descs, PrismNRI.Testing) are what the local folder
+      feed in nupkg-feed/ holds. Read by:
+
+        tools/fetch-nri.ps1           which release to download the packages from
+        nri/PrismSlang.NRI.csproj     the PrismNRI.Descs reference
+        tests/PrismSlang.Tests        the PrismNRI and PrismNRI.Testing references
+
+      Exact, like the Slang pin, and for a smaller version of the same reason: PrismNRI is
+      pre-1.0 and its descriptor structs are a transcription of NRI's headers, so a minor bump can
+      move a field. Bumping it is: change this line, re-run `pwsh tools/fetch-nri.ps1`, restore.
+      Nothing fetches on its own; a restore against a version the feed does not hold fails with
+      NU1102, which is the prompt to run the script.
+    -->
+    <PrismNriVersion>0.2.0-alpha</PrismNriVersion>
   </PropertyGroup>
 
 </Project>

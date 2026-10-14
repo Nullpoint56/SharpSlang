@@ -27,7 +27,7 @@ waits on it. Expect breaking changes until then.
 
 ## What you get
 
-Three packages. Which one you want depends on where the code runs.
+Four packages. Which ones you want depends on where the code runs and what it talks to.
 
 ### `PrismSlang` — compile, in your asset pipeline
 
@@ -75,8 +75,9 @@ foreach (var entry in package.EntryPoints)
 ProgramLayout layout = package.Layout;          // the reflection snapshot, as baked
 ```
 
-`AssemblySplitTests` builds a consumer referencing only this and `PrismSlang.Vulkan`, and checks the
-output carries no `slang-compiler`, no `slang-glslang` and no `runtimes/` tree.
+`AssemblySplitTests` builds a consumer referencing only this, `PrismSlang.Vulkan` and
+`PrismSlang.NRI`, and checks the output carries no `slang-compiler`, no `slang-glslang`, no `NRI`
+library and no `runtimes/` tree.
 
 ### `PrismSlang.Vulkan` — turn reflection into Vulkan pipeline state
 
@@ -103,6 +104,36 @@ foreach (var b in set.Bindings)
 Also on the layout: `PushConstants`, `VertexInputs`, `FragmentOutputs`, `Stages`,
 `SpecializationConstants`, and dispatch geometry for compute.
 
+### `PrismSlang.NRI` — turn reflection into an NRI pipeline layout
+
+The same reading, onto [NRI](https://github.com/NVIDIA-RTX/NRI) through
+[PrismNRI](https://github.com/Nullpoint56/PrismNRI). It references `PrismNRI.Descs` — NRI's
+descriptor structs and enums as plain types — and nothing with a native library in it, so a cooker
+can project on a machine with no driver and a game carries no `NRI.dll` it did not ask for.
+
+```csharp
+NriPipelineProjection nri = layout.ToNri(new NriProjectionOptions { UnboundedArrayCap = 1024 });
+
+using var pipelineLayout = device.CreatePipelineLayout(nri.Layout);   // a PrismNRI NriDevice
+
+var (set, range) = nri.Range("albedo")!.Value;                        // by shader parameter name
+var descriptorSet = pool.AllocateDescriptorSet(pipelineLayout, set.SetIndex);
+descriptorSet.Update(range.RangeIndex, 0, albedoView);
+
+var shader = package.EntryPoints[0].ToNriShaderDesc();               // stage, bytes, entry name
+```
+
+The desc is NRI's; what the projection adds is the bookkeeping NRI's API is indexed by and the
+desc cannot carry: the set index and range index each shader parameter became, the root-constant
+index of a `[vk::push_constant]` block, vertex attributes with their locations and formats, and the
+fragment outputs. Register spaces, `ARRAY` flags, stage masks and the fragment-only rule for input
+attachments follow NRI's own Vulkan backend, and `NriDeviceTests` builds every corpus shader into
+real NRI pipeline layouts and pipelines on a validated device to check that they do.
+
+Vulkan is the first NRI backend this is measured against. NRI has no specialization constants, so
+a shader that uses them is specialized at link time; NRI's `Format` has no 64-bit vertex formats,
+so a `double` attribute is refused rather than guessed.
+
 ## Using it
 
 Packages are published to **GitHub Packages** on a `v*` tag. Add the feed, then take what you need:
@@ -113,13 +144,19 @@ dotnet nuget add source https://nuget.pkg.github.com/Nullpoint56/index.json \
 
 dotnet add package PrismSlang            # asset pipeline
 dotnet add package PrismSlang.Runtime    # shipped game
-dotnet add package PrismSlang.Vulkan     # renderer
+dotnet add package PrismSlang.Vulkan     # renderer, talking Vulkan directly
+dotnet add package PrismSlang.NRI        # renderer, talking NRI through PrismNRI
 ```
+
+`PrismSlang.NRI` depends on `PrismNRI.Descs`, which PrismNRI publishes on its own GitHub releases
+rather than on a feed; a consumer needs read access to that repository and the same version
+pinned as `PrismNriVersion` in `Directory.Build.props`. This repository consumes it through a
+local folder feed, `nupkg-feed/`, filled by `tools/fetch-nri.ps1`.
 
 The usual shape of an integration is: cook offline with `PrismSlang`, bake a `.pslb` per shader,
 ship those, and at run time read them with `PrismSlang.Runtime` and project with
-`PrismSlang.Vulkan`. **[docs/guide.md](docs/guide.md)** walks through each step, plus lifetime,
-threading, diagnostics, and the traps worth knowing before you meet them.
+`PrismSlang.Vulkan` or `PrismSlang.NRI`. **[docs/guide.md](docs/guide.md)** walks through each
+step, plus lifetime, threading, diagnostics, and the traps worth knowing before you meet them.
 
 ## What it does not decide for you
 
@@ -143,7 +180,10 @@ shader construct that caused it.
 | `linux-arm64` | `ubuntu-24.04-arm` | the only leg exercising ARM64 calling conventions |
 | `osx-arm64` | `macos-14` | the only leg on a non-glibc allocator and loader |
 
-All four run the full suite on every push, and all four ship in the `PrismSlang` package. If you
+All four run the full suite on every push, and all four ship in the `PrismSlang` package. The NRI
+device tests run on `win-x64` only, by decision rather than by capability: PrismNRI ships Linux and
+macOS payloads too, but that is not where the engine runs yet, and the projection tests that need
+no device run everywhere. If you
 content-address cooked assets, note that x64 and ARM64 emit byte-identical SPIR-V within an
 architecture and differ on shaders using `SV_VertexID`; the modules are equivalent but will never
 compare equal. [The traps table](docs/guide.md#traps-worth-knowing) has the detail.
@@ -155,6 +195,7 @@ the payload fetch and the binding regeneration, because Slang's ABI is not stabl
 
 ```bash
 pwsh tools/fetch-native.ps1 -Rid win-x64 -Profile Spirv   # stage the pinned Slang payload
+pwsh tools/fetch-nri.ps1 -Token <token>                   # the pinned PrismNRI packages, into nupkg-feed/
 dotnet build PrismSlang.slnx -c Release
 dotnet test  PrismSlang.slnx -c Release
 dotnet run --project samples/PrismSlang.Smoke -c Release  # source -> SPIR-V, end to end
@@ -164,6 +205,11 @@ dotnet run --project samples/PrismSlang.Smoke -c Release  # source -> SPIR-V, en
 `slang-compiler` and `slang-glslang`; the latter is where `spirv-opt` lives, and without it every
 shader compiles about 23% larger while Slang mentions it exactly once per session.
 
+`nupkg-feed/*.nupkg` is gitignored too. PrismNRI is a private repository, so the second script
+needs a token that can read it (`-Token`, `PRISMNRI_TOKEN` or `GITHUB_TOKEN`); in CI that is the
+`PRISMNRI_READ_TOKEN` secret. It downloads `PrismNRI`, `PrismNRI.Descs` and `PrismNRI.Testing` at
+the pinned version from the release, and `nuget.config` points the restore at the folder.
+
 A C++ compiler is optional but wanted. Six tests generate a probe, compile it against the pinned
 `slang.h`, and compare struct sizes, field offsets, bitfield packing and every function signature —
 all 278 `DllImport`s and all 231 vtable methods — against what the header actually declares. It is
@@ -171,7 +217,7 @@ the only check in the suite that can see a layout error, and the only one that c
 parameter list on a vtable slot nothing has ever called. They skip with instructions where no
 compiler is found; CI has one on every runner.
 
-**542 tests** run on all four platforms each push, against oracles rather than expected values typed
+**687 tests** run on all four platforms each push, against oracles rather than expected values typed
 by hand: the emitted SPIR-V, Slang's own alternate route to each fact, a vk.xml-generated enum
 mirror, the Khronos validation layers building real pipelines on a headless device from a
 **32-shader corpus**, and Slang's own test suite — 31 shaders whose expected reflection the Slang
@@ -198,8 +244,8 @@ of what those cost to find out.
 
 `dotnet/Native/` is statically generated by ClangSharp from Slang's headers.
 
-Everything else — the rest of `PrismSlang`, `PrismSlang.Runtime`, `PrismSlang.Vulkan`, the tests and
-these documents — was written with AI assistance.
+Everything else — the rest of `PrismSlang`, `PrismSlang.Runtime`, `PrismSlang.Vulkan`,
+`PrismSlang.NRI`, the tests and these documents — was written with AI assistance.
 
 ## What it uses
 
@@ -208,12 +254,14 @@ these documents — was written with AI assistance.
 | [Slang](https://github.com/shader-slang/slang) | the compiler this binds. Its prebuilt release is the native payload |
 | [ClangSharp](https://github.com/dotnet/ClangSharp) | generates `dotnet/Native/` from Slang's headers |
 | [.NET 11](https://github.com/dotnet/runtime) | the runtime, and the P/Invoke and `[UnmanagedCallersOnly]` machinery |
+| [PrismNRI.Descs](https://github.com/Nullpoint56/PrismNRI) | NRI's descriptor structs and enums as plain types, the one dependency of `PrismSlang.NRI`. No native library |
 
 Test-only, none of it shipped in a package:
 
 | | |
 |---|---|
 | [xUnit](https://github.com/xunit/xunit) | the test framework |
+| [PrismNRI](https://github.com/Nullpoint56/PrismNRI) and `PrismNRI.Testing` | NRI itself, with its validated headless device: builds real pipeline layouts and pipelines out of the NRI projection and dispatches compute work bound through it |
 | [PublicApiGenerator](https://github.com/PublicApiGenerator/PublicApiGenerator) | renders each package's public surface for approval testing |
 | [Vortice.Vulkan](https://github.com/amerkoleci/Vortice.Vulkan) | `vk.xml`-generated Vulkan bindings, used as the oracle for the mirrored enum values and to build real pipelines and dispatch real compute work in the device tests |
 | [Mesa lavapipe](https://gitlab.freedesktop.org/mesa/mesa) | a software Vulkan device, so those tests run on a CI runner with no GPU |
@@ -232,4 +280,5 @@ library its release ships, not separate dependencies of this repository.
 The `PrismSlang` package additionally redistributes Slang's own prebuilt binaries, which are
 `Apache-2.0 WITH LLVM-exception`. Their licence texts ship inside the package under
 `runtimes/<rid>/`, and [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) says what is bundled and
-under what terms. `PrismSlang.Runtime` and `PrismSlang.Vulkan` bundle nothing and are MIT alone.
+under what terms. `PrismSlang.Runtime`, `PrismSlang.Vulkan` and `PrismSlang.NRI` bundle nothing and
+are MIT alone.

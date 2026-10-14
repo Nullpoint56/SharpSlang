@@ -125,6 +125,27 @@ jobs:
         shell: pwsh
         run: ./tools/fetch-native.ps1 -Rid ${{ matrix.rid }} -Profile Spirv
 
+      # Keyed on the pin like the caches above, so a PrismNRI bump misses and refetches. Not keyed
+      # on the RID: the packages are the same bytes on every leg, with every RID's native inside.
+      # fetch-nri.ps1 skips packages already present, so a hit means the step below makes no API
+      # call and never needs the token.
+      - name: Cache the PrismNRI packages
+        uses: actions/cache@v4
+        with:
+          path: nupkg-feed/*.nupkg
+          key: prismnri-${{ hashFiles('Directory.Build.props') }}
+
+      # Into the folder feed nuget.config names, nupkg-feed/. PrismNRI is a private repository, so
+      # a fine-grained PAT with read access to its contents (Contents: read) is stored on THIS
+      # repository as the secret PRISMNRI_READ_TOKEN. The job's own GITHUB_TOKEN cannot stand in:
+      # it is scoped to the repository the workflow runs in, and another repository's release
+      # assets are outside that scope whatever `permissions:` says.
+      - name: Fetch the PrismNRI packages
+        shell: pwsh
+        env:
+          PRISMNRI_TOKEN: ${{ secrets.PRISMNRI_READ_TOKEN }}
+        run: ./tools/fetch-nri.ps1
+
       - name: Payload carries the SPIR-V optimiser
         shell: pwsh
         run: |
@@ -338,6 +359,52 @@ jobs:
           fi
 
           echo "::notice::$passed header and corpus checks ran on ${{ matrix.rid }}, none skipped"
+
+      # The same gate again, for NriDeviceTests, and for the same reason: every test in it skips
+      # rather than fails when NRI.dll does not load or a backend is missing, and a skipped test is
+      # green. A PrismNRI package that restores without its native payload would otherwise turn
+      # the whole class off on a run that reports success.
+      #
+      # win-x64 only, by decision rather than measurement: the NRI device tests target the one
+      # platform the engine runs on (see tests/PrismSlang.Tests/NriFact.cs), and on the other legs
+      # every one of them skips with that reason by design.
+      #
+      # What is counted is the NONE backend. Hosted Windows has no Vulkan driver, so the tests
+      # gated on NRI's Vulkan backend (the 32-case pipeline theory, which xunit reports as one
+      # skipped row, and the two dispatches: 3 skipped in the TRX) are only ever exercised on a
+      # workstation. NONE needs nothing but NRI.dll, so on this leg exactly these must pass —
+      # measured with PRISMNRI_TEST_BACKEND=NONE, which hides Vulkan the way the runner does:
+      #
+      #   32  A_pipeline_layout_built_from_the_projection_is_accepted_by_the_none_backend, one
+      #       per corpus case: 30 layouts created through PrismNRI's marshalling, and the two
+      #       projection refusals (descriptor-kinds, wide-vertex-inputs) asserted by name.
+      #    1  Projected_vertex_formats_agree_with_nris_own_vulkan_conversion_table, a NONE fact
+      #       because nriConvertNRIFormatToVK is a static table in NRI.dll and needs no device.
+      #    1  Every_declared_refusal_and_exclusion_names_a_shader_that_exists, a plain fact.
+      #
+      # 34, and the threshold is that exact count rather than a looser floor: if NRI.dll stops loading,
+      # 33 of the 34 skip and the plain fact alone passes, and a floor of "some" would let that by.
+      # A new corpus case adds a theory row, so the count only grows; raise it then.
+      - name: The NRI device tests actually ran
+        if: matrix.rid == 'win-x64'
+        shell: bash
+        run: |
+          dotnet test PrismSlang.slnx -c Release --no-build --nologo \
+            --filter "FullyQualifiedName~NriDeviceTests" \
+            --logger "console;verbosity=detailed" \
+            --logger "trx;LogFileName=nri.trx" \
+            --results-directory nri-results
+
+          counters=$(grep -o '<Counters [^>]*>' nri-results/nri.trx | head -1)
+          echo "$counters"
+          passed=$(echo "$counters" | sed -n 's/.*[^a-z]passed="\([0-9]*\)".*/\1/p')
+
+          if [ "${passed:-0}" -lt 34 ]; then
+            echo "::error::only ${passed:-0} NRI device test(s) passed on ${{ matrix.rid }}; expected at least 34 on the NONE backend. NRI.dll did not load or the NONE device could not be created, so nothing checks that PrismNRI accepts what the projection emits; the skip reason is in the output above."
+            exit 1
+          fi
+
+          echo "::notice::$passed NRI device test(s) ran on ${{ matrix.rid }} (the Vulkan-backed ones skip on hosted runners)"
 
       # Also the loadability gate, and on a new platform that is the job that matters most. Almost
       # every test is a [NativeFact], which *skips* when slang-compiler cannot be loaded — so a
