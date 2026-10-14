@@ -1,8 +1,10 @@
 <!--
   Imported into every project that references the PrismSlang.Native.Dxc package. NuGet imports a
   package's build/<PackageId>.targets into the consuming project, and that is the whole mechanism:
-  this file puts dxc beside the consumer's slang-compiler.dll, where Slang finds downstream
-  compilers by name.
+  this file copies dxc into the root of the consumer's output. That is beside slang-compiler.dll
+  for a RID-specific build, and one runtimes\win-x64\native\ away from it for a portable one;
+  SlangGlobalSession loads dxc from either before Slang looks for it by name (CompanionLibraries
+  in PrismSlang says why that has to be done for it).
 
   The DLLs come from Microsoft.Direct3D.DXC, Microsoft's own NuGet package, which this package
   depends on at an exact version. That package lays them out for C++ consumers — a build/native/
@@ -30,7 +32,14 @@
     <PrismSlangDxcHostRid Condition="'$(PrismSlangDxcHostRid)' == ''">$(RuntimeIdentifier)</PrismSlangDxcHostRid>
     <PrismSlangDxcHostRid Condition="'$(PrismSlangDxcHostRid)' == ''">$(NETCoreSdkPortableRuntimeIdentifier)</PrismSlangDxcHostRid>
 
-    <PrismSlangDxcBin>$(NuGetPackageRoot)microsoft.direct3d.dxc\$(PrismSlangDxcPackageVersion)\build\native\bin\x64\</PrismSlangDxcBin>
+    <!--
+      EnsureTrailingSlash, because the package root does not always end in one. NuGet writes it
+      with a separator for the default cache and without one for a globalPackagesFolder set in
+      nuget.config, and adds the separator itself in the imports it generates. Concatenated bare,
+      the path became obj\packagesmicrosoft.direct3d.dxc\... and the copy failed with MSB3030:
+      found by publish.yml's portable consumer, the first build of this file under such a config.
+    -->
+    <PrismSlangDxcBin>$([MSBuild]::EnsureTrailingSlash('$(NuGetPackageRoot)'))microsoft.direct3d.dxc\$(PrismSlangDxcPackageVersion)\build\native\bin\x64\</PrismSlangDxcBin>
   </PropertyGroup>
 
   <ItemGroup Condition="'$(PrismSlangDxcHostRid)' == 'win-x64'">
