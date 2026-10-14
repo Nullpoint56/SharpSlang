@@ -44,9 +44,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # The preview quality is there because .NET 11 has no GA release yet; drop it when it does.
       - uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: '10.0.x'
+          dotnet-version: '11.0.x'
+          dotnet-quality: preview
 
       - name: Stage native payloads for every supported RID
         shell: pwsh
@@ -75,6 +77,10 @@ jobs:
 
       - name: Verify before publishing
         shell: pwsh
+        env:
+          # For SlangTestCorpus's GitHub API call, as in ci.yml: a cold cache on a tag build must
+          # not depend on the runner IP's unauthenticated budget.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           $v = "${{ steps.version.outputs.value }}"
           $args = @('-c', 'Release', '--nologo', '-warnaserror')

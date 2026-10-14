@@ -19,7 +19,7 @@ own prebuilt release, pinned to a version and fetched by a script.
 
 ## Status
 
-`0.1.0-alpha`, against Slang `v2026.14.1`, on .NET 10.
+`0.1.0-alpha`, against Slang `v2026.14.1`, on .NET 11.
 
 Alpha because nothing has exercised it but a test suite — thorough, but not a shipping game hitting
 the reflection surface with shaders nobody anticipated. PrismEngine will do that slowly, and 1.0
@@ -148,7 +148,7 @@ content-address cooked assets, note that x64 and ARM64 emit byte-identical SPIR-
 architecture and differ on shaders using `SV_VertexID`; the modules are equivalent but will never
 compare equal. [The traps table](docs/guide.md#traps-worth-knowing) has the detail.
 
-.NET 10 and C# 14. The Slang version is pinned in `Directory.Build.props`, and that pin drives both
+.NET 11 and C# 15. The Slang version is pinned in `Directory.Build.props`, and that pin drives both
 the payload fetch and the binding regeneration, because Slang's ABI is not stable across versions.
 
 ## Building from source
@@ -207,7 +207,7 @@ these documents — was written with AI assistance.
 |---|---|
 | [Slang](https://github.com/shader-slang/slang) | the compiler this binds. Its prebuilt release is the native payload |
 | [ClangSharp](https://github.com/dotnet/ClangSharp) | generates `dotnet/Native/` from Slang's headers |
-| [.NET 10](https://github.com/dotnet/runtime) | the runtime, and the P/Invoke and `[UnmanagedCallersOnly]` machinery |
+| [.NET 11](https://github.com/dotnet/runtime) | the runtime, and the P/Invoke and `[UnmanagedCallersOnly]` machinery |
 
 Test-only, none of it shipped in a package:
 

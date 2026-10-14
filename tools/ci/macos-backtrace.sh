@@ -14,7 +14,10 @@
 # can turn a red run into a differently-red run is worse than no diagnostic.
 set -u
 
-prober=tests/PrismSlang.Prober/bin/Release/net10.0/PrismSlang.Prober
+# The target framework is part of this path, and a stale one does not fail: it reads as "the prober
+# is not built" below, and the debugger reproduction quietly stops happening. Retargeting the
+# projects means changing it here too.
+prober=tests/PrismSlang.Prober/bin/Release/net11.0/PrismSlang.Prober
 
 if command -v lldb >/dev/null 2>&1 && [ -x "$prober" ]; then
   echo "=== the out-of-order teardown, under lldb"

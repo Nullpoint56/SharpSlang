@@ -385,9 +385,33 @@ public static partial class SlangTestCorpus
         using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(120) };
         http.DefaultRequestHeaders.UserAgent.ParseAdd("PrismSlang-tests");
 
-        var listing = http.GetStringAsync(
-                $"https://api.github.com/repos/shader-slang/slang/contents/tests/{suite}?ref={Version}")
-            .GetAwaiter().GetResult();
+        // The listing is the one call here that goes through the GitHub API, and the API allows
+        // 60 unauthenticated requests an hour per IP. On a hosted runner that IP is shared with
+        // whoever else is running, so the budget can be gone before this process makes its first
+        // call: both legs of the first .NET 11 run failed all six corpus tests with a 403 while
+        // the caches, evicted after a quiet week on main, were being rebuilt. A token raises the
+        // limit to a thousand an hour per repository for the Actions job token, which is why
+        // ci.yml and publish.yml pass GITHUB_TOKEN to the test step. Locally it is optional.
+        var token = Environment.GetEnvironmentVariable("GITHUB_TOKEN");
+        if (!string.IsNullOrWhiteSpace(token))
+            http.DefaultRequestHeaders.Authorization = new("Bearer", token);
+
+        string listing;
+        try
+        {
+            listing = http.GetStringAsync(
+                    $"https://api.github.com/repos/shader-slang/slang/contents/tests/{suite}?ref={Version}")
+                .GetAwaiter().GetResult();
+        }
+        catch (HttpRequestException e) when (e.StatusCode == System.Net.HttpStatusCode.Forbidden)
+        {
+            throw new InvalidOperationException(
+                $"listing tests/{suite} at {Version} was refused by the GitHub API (403), which "
+                + "is its rate limit: 60 requests an hour per IP without a token. Set GITHUB_TOKEN "
+                + (string.IsNullOrWhiteSpace(token)
+                    ? "to any token with public read access and retry."
+                    : "to a token that is still valid; the one set was refused."), e);
+        }
 
         var entries = JsonDocument.Parse(listing).RootElement.EnumerateArray()
             .Where(e => e.GetProperty("type").GetString() == "file")
@@ -396,8 +420,8 @@ public static partial class SlangTestCorpus
 
         if (entries.Count == 0)
             throw new InvalidOperationException(
-                $"tests/{suite} at {Version} listed no files. The layout changed, or the GitHub API "
-                + "rate limit was hit (60/hour unauthenticated).");
+                $"tests/{suite} at {Version} listed no files. The layout changed upstream, or the "
+                + "listing is not what it was: a 403 is reported separately above.");
 
         foreach (var (fileName, url) in entries)
         {
