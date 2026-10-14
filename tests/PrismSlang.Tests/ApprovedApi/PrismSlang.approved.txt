@@ -86,6 +86,7 @@ namespace PrismSlang
         public PrismSlang.Native.SlangCapabilityID FindCapability(string name) { }
         public PrismSlang.Native.SlangProfileID FindProfile(string name) { }
         public bool IsDownstreamCompilerAvailable(PrismSlang.Native.SlangPassThrough compiler) { }
+        public void RequireDxc() { }
         public void RequireSpirvOptimizer() { }
         public bool SupportsTarget(PrismSlang.Native.SlangCompileTarget target) { }
         public static PrismSlang.SlangGlobalSession Create(PrismSlang.GlobalSessionOptions? options = null) { }

@@ -48,6 +48,37 @@ public sealed record NriProjectionOptions
     /// check it, not so it can be honoured.
     /// </remarks>
     public VKBindingOffsets VkBindingOffsets { get; init; }
+
+    /// <summary>
+    /// Constant-buffer parameters to bind as root constants rather than as descriptors, by shader
+    /// parameter name.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The D3D12 half of push constants. On a SPIR-V target Slang honours
+    /// <c>[vk::push_constant]</c> and reports the block as a push-constant buffer, which the
+    /// projection turns into root constants on its own. On a DXIL target Slang drops the attribute
+    /// and lays the block out as an ordinary constant buffer at a <c>b</c> register, and reflection
+    /// keeps no trace of the attribute on either target (measured on 2026.14.1: the block arrives
+    /// with no attributes at all). So on D3D12 the intent has to come from the host, and this is
+    /// where it says it.
+    /// </para>
+    /// <para>
+    /// A named parameter must be a constant buffer that occupies a descriptor slot, or a block
+    /// Slang already placed in push-constant storage, which makes the name a no-op — so one host
+    /// list serves both targets. A name the program does not declare, or that names anything else,
+    /// is refused. Each named block becomes a <c>RootConstantDesc</c> at its own register index,
+    /// its range leaves the descriptor set, and <c>RootRegisterSpace</c> becomes its register
+    /// space; the named blocks must share one space, because NRI has one root space.
+    /// </para>
+    /// <para>
+    /// NRI's D3D12 backend binds root constants at <c>b&lt;registerIndex&gt;</c> of the root space,
+    /// which is the register the DXIL reads the block from, so the shader needs no change. Its
+    /// Vulkan backend ignores the register and builds a push-constant range, which is what a
+    /// SPIR-V-compiled block of the same name is anyway.
+    /// </para>
+    /// </remarks>
+    public IReadOnlyList<string> RootConstantParameters { get; init; } = [];
 }
 
 /// <summary>One descriptor range of a set, with everything the desc cannot say about it.</summary>

@@ -1,7 +1,8 @@
 <Project>
 
   <!--
-    Single source of truth for the pinned Slang release, and for the pinned PrismNRI release.
+    Single source of truth for the pinned Slang release, the pinned PrismNRI release, and the pinned
+    DirectXShaderCompiler release.
 
     Slang's public ABI is explicitly not stable (docs/design.md §3.5), so this is an exact
     pin, not a floor. Everything downstream reads it from here:
@@ -33,6 +34,35 @@
       NU1102, which is the prompt to run the script.
     -->
     <PrismNriVersion>0.2.0-alpha</PrismNriVersion>
+
+    <!--
+      The pinned Microsoft.Direct3D.DXC package, for PrismSlang.Native.Dxc only. Slang compiles to
+      DXIL by loading dxc as a downstream compiler, by name, from the library search path — the same
+      way it loads slang-glslang — and Slang's own release ships neither dxcompiler.dll nor dxil.dll.
+      So a D3D12 consumer either brings dxc itself or takes the opt-in package that puts it there.
+
+      That package carries no binary. It depends on Microsoft's own NuGet package of dxc at exactly
+      this version and copies the two DLLs out of it; the first version repackaged them from the
+      DirectXShaderCompiler GitHub release, and Microsoft's licence terms in that release forbid a
+      stand-alone offering of the files, which a payload-only package is. Read by:
+
+        native/PrismSlang.Native.Dxc.csproj          the PackageReference, as an exact range
+        native/build/PrismSlang.Native.Dxc.targets   restated there as the path to copy from, since
+                                                     NuGet hands a consumer no path property for a
+                                                     transitive package; DocumentedFactsTests pins
+                                                     the two to each other
+        tests/PrismSlang.Tests                       the same reference and import, so the DXIL
+                                                     tests find dxc beside the compiler
+
+      1.9.2609.5 was the newest non-prerelease version on 2026-10-14 (1.10.2605.37-preview is newer
+      by date and marked preview); it is the same build as the v1.9.2609 GitHub release, and the
+      DLLs report file version 1.9.2609.5. Measured with it: Slang 2026.14.1 reports dxc available,
+      compiles the corpus to DXIL, and a compute shader dispatched on D3D12 through the NRI
+      projection reads back correctly.
+
+      Bumping it is: change this line and the one in the targets file, restore, run the DXIL tests.
+    -->
+    <DxcPackageVersion>1.9.2609.5</DxcPackageVersion>
   </PropertyGroup>
 
 </Project>

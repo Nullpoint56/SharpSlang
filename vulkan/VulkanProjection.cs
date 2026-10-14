@@ -31,7 +31,7 @@ public static class VulkanProjection
         foreach (var set in layout.DescriptorSets.OrderBy(s => s.SpaceOffset))
         {
             var stages = stagesBySpace.TryGetValue(set.SpaceOffset, out var s) ? s : AllStages(layout);
-            var names = layout.DescriptorNames(set.SpaceOffset);
+            var names = new NameLookup(layout, set.SpaceOffset);
 
             var bindings = set.Ranges
                 .Where(r => r.BindingType != SlangBindingType.SLANG_BINDING_TYPE_PUSH_CONSTANT)
@@ -43,7 +43,7 @@ public static class VulkanProjection
                     // The range's own name where the walk could attribute one — that is the only
                     // source that reaches inside a ParameterBlock. DescriptorNames is the fallback
                     // for ranges Slang's binding-range view does not cover.
-                    r.Name ?? names.GetValueOrDefault(r.IndexOffset),
+                    names.NameOf(r),
                     r.IsUnbounded,
                     r.InputAttachmentIndex,
                     r.ImageFormat,
@@ -362,6 +362,31 @@ public static class VulkanProjection
         VulkanFormat.R64G64B64Sfloat or VulkanFormat.R64G64B64A64Sfloat => 2,
         _ => 1,
     };
+
+    /// <summary>
+    /// The fallback name for a range the walk could not name, looked up within the range's own
+    /// register class.
+    /// </summary>
+    /// <remarks>
+    /// By class and not by index alone, because a layout compiled for D3D numbers each register
+    /// class from 0 and an index-only lookup lends a constant buffer the name of the texture at
+    /// the same number — see <see cref="PipelineInterface.DescriptorNames(ProgramLayout, uint, SlangParameterCategory?)"/>.
+    /// A SPIR-V layout has one class per set, so this is the same lookup it always was there.
+    /// </remarks>
+    private sealed class NameLookup(ProgramLayout layout, uint space)
+    {
+        private readonly Dictionary<SlangParameterCategory, IReadOnlyDictionary<uint, string>> _byClass = [];
+
+        public string? NameOf(DescriptorRange range)
+        {
+            if (range.Name is not null) return range.Name;
+
+            if (!_byClass.TryGetValue(range.Category, out var names))
+                _byClass[range.Category] = names = layout.DescriptorNames(space, range.Category);
+
+            return names.GetValueOrDefault(range.IndexOffset);
+        }
+    }
 
     /// <summary>
     /// Which stages touch each space, as the fallback when a binding does not say.

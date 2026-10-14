@@ -35,9 +35,10 @@
     <NoWarn>$(NoWarn);NU5128</NoWarn>
   </PropertyGroup>
 
-  <!-- This is the only package that redistributes anything, so it is the only one that has to carry
-       the notice. Slang's own licence texts ride along under runtimes/<rid>/, staged there by
-       tools/fetch-native.ps1; this file is what explains them. -->
+  <!-- This package and the opt-in PrismSlang.Native.Dxc are the only ones that redistribute
+       anything, so they are the ones that carry the notice. Slang's own licence texts ride along
+       under runtimes/<rid>/, staged there by tools/fetch-native.ps1; this file is what explains
+       them. -->
   <ItemGroup>
     <None Include="$(MSBuildThisFileDirectory)..\THIRD-PARTY-NOTICES.md" Pack="true" PackagePath="\" />
   </ItemGroup>

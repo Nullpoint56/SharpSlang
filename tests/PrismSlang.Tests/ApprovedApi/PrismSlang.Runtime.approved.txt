@@ -511,6 +511,7 @@ namespace PrismSlang.Reflection
     public static class PipelineInterface
     {
         public static System.Collections.Generic.IReadOnlyDictionary<uint, string> DescriptorNames(this PrismSlang.Reflection.ProgramLayout layout, uint space) { }
+        public static System.Collections.Generic.IReadOnlyDictionary<uint, string> DescriptorNames(this PrismSlang.Reflection.ProgramLayout layout, uint space, PrismSlang.Native.SlangParameterCategory? category) { }
         public static System.Collections.Generic.IReadOnlyList<PrismSlang.Reflection.FragmentOutput> FragmentOutputs(this PrismSlang.Reflection.ProgramLayout layout) { }
         public static System.Collections.Generic.IReadOnlyList<PrismSlang.Reflection.PushConstantBlock> PushConstantBlocks(this PrismSlang.Reflection.ProgramLayout layout) { }
         public static void RequireEveryParameterIsPlaced(this PrismSlang.Reflection.ProgramLayout layout) { }

@@ -957,9 +957,90 @@ public static unsafe class ReflectionWalker
             CollectSpaces(varLayout, typeLayout, parentSpace: 0, bySpace);
         }
 
+        RelocateExplicitlySpacedParameters(shader, bySpace);
         AddUncoveredParameters(shader, bySpace);
 
-        return bySpace.Select(kv => new DescriptorSet(kv.Key, kv.Value)).ToList();
+        return bySpace
+            .Where(kv => kv.Value.Count > 0)
+            .Select(kv => new DescriptorSet(kv.Key, kv.Value))
+            .ToList();
+    }
+
+    /// <summary>
+    /// Moves a top-level parameter's range to the register space the parameter itself reports,
+    /// where Slang's descriptor-set view put it somewhere else.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Measured against slang-compiler 2026.14.1 with
+    /// <c>[[vk::binding(0, 1)]] ConstantBuffer&lt;T&gt; spA : register(b0, space1)</c> beside a
+    /// texture declared the same way: the parameter reports space 1 for both, the module (and
+    /// Slang's own "explicit binding overlap" warning) place both in space 1, and the
+    /// descriptor-set view puts the texture in space 1 and the constant buffer in space 0. The
+    /// same on a DXIL target. So a renderer built from the set view bound the buffer at set 0
+    /// where the shader read set 1 — and on SPIR-V the reconciliation pass below then added an
+    /// <c>UNKNOWN</c> range at the real slot, which the projections refuse, so the symptom there
+    /// was a refusal naming a gap in PrismSlang; on DXIL nothing was added, and D3D12 refused the
+    /// pipeline because its root signature did not cover the register.
+    /// </para>
+    /// <para>
+    /// The parameter list is the half of Slang's reflection that matches the module, which is the
+    /// same judgement <see cref="AddUncoveredParameters"/> rests on, so the range follows the
+    /// parameter. Matched by name, category and index, and only for a top-level parameter that
+    /// does not introduce a space of its own: a parameter block's contents are placed by the
+    /// recursion above and are not in question. A parameter whose range is already where it says
+    /// is a no-op, which is every parameter without an explicit space.
+    /// </para>
+    /// </remarks>
+    private static void RelocateExplicitlySpacedParameters(
+        SlangProgramLayout* shader,
+        SortedDictionary<uint, List<DescriptorRange>> bySpace)
+    {
+        var paramCount = SlangApi.spReflection_GetParameterCount(shader);
+        for (uint i = 0; i < paramCount; i++)
+        {
+            var varLayout = SlangApi.spReflection_GetParameterByIndex(shader, i);
+            var typeLayout = SlangApi.spReflectionVariableLayout_GetTypeLayout(varLayout);
+            if (typeLayout is null) continue;
+            if (SubElementSpace(varLayout, typeLayout) is not null) continue;
+
+            var variable = SlangApi.spReflectionVariableLayout_GetVariable(varLayout);
+            var name = variable is null ? null : Utf8.Read(SlangApi.spReflectionVariable_GetName(variable));
+            if (name is null) continue;
+
+            var categories = SlangApi.spReflectionTypeLayout_GetCategoryCount(typeLayout);
+            for (uint c = 0; c < categories; c++)
+            {
+                var category = SlangApi.spReflectionTypeLayout_GetCategoryByIndex(typeLayout, c);
+                if (category is not (SlangParameterCategory.SLANG_PARAMETER_CATEGORY_DESCRIPTOR_TABLE_SLOT
+                                     or SlangParameterCategory.SLANG_PARAMETER_CATEGORY_CONSTANT_BUFFER
+                                     or SlangParameterCategory.SLANG_PARAMETER_CATEGORY_SHADER_RESOURCE
+                                     or SlangParameterCategory.SLANG_PARAMETER_CATEGORY_UNORDERED_ACCESS
+                                     or SlangParameterCategory.SLANG_PARAMETER_CATEGORY_SAMPLER_STATE))
+                {
+                    continue;
+                }
+
+                var space = (uint)SlangApi.spReflectionVariableLayout_GetSpace(varLayout, category);
+                var index = (uint)SlangApi.spReflectionVariableLayout_GetOffset(varLayout, category);
+
+                foreach (var (otherSpace, ranges) in bySpace)
+                {
+                    if (otherSpace == space) continue;
+
+                    var misplaced = ranges.FindIndex(r =>
+                        r.Name == name && r.Category == category && r.IndexOffset == index
+                        && r.BindingType != SlangBindingType.SLANG_BINDING_TYPE_UNKNOWN);
+                    if (misplaced < 0) continue;
+
+                    var range = ranges[misplaced];
+                    ranges.RemoveAt(misplaced);
+                    if (!bySpace.TryGetValue(space, out var target)) bySpace[space] = target = [];
+                    target.Add(range);
+                    break;
+                }
+            }
+        }
     }
 
     /// <summary>
@@ -1352,8 +1433,18 @@ public static unsafe class ReflectionWalker
         var categories = SlangApi.spReflectionTypeLayout_GetCategoryCount(containerType);
         for (uint c = 0; c < categories; c++)
         {
+            // The category the target files the buffer under: DESCRIPTOR_TABLE_SLOT for SPIR-V,
+            // CONSTANT_BUFFER — a `b` register — for D3D. This used to accept the first only, and
+            // on a DXIL layout a ParameterBlock with uniform data therefore had no constant buffer
+            // at all: its textures were in their space and the block itself was nowhere. Found by
+            // the D3D12 device leg, which refuses a pipeline whose root signature does not cover a
+            // register the shader reads: "Shader CBV descriptor range (BaseShaderRegister=0,
+            // NumDescriptors=1, RegisterSpace=1) is not fully bound in root signature", on
+            // parameter-blocks and buffer-arrays. Vulkan never saw it because Vulkan never ran a
+            // DXIL layout.
             var category = SlangApi.spReflectionTypeLayout_GetCategoryByIndex(containerType, c);
-            if (category != SlangParameterCategory.SLANG_PARAMETER_CATEGORY_DESCRIPTOR_TABLE_SLOT)
+            if (category is not (SlangParameterCategory.SLANG_PARAMETER_CATEGORY_DESCRIPTOR_TABLE_SLOT
+                                 or SlangParameterCategory.SLANG_PARAMETER_CATEGORY_CONSTANT_BUFFER))
                 continue;
 
             var index = (uint)SlangApi.spReflectionVariableLayout_GetOffset(container, category);
@@ -1361,9 +1452,11 @@ public static unsafe class ReflectionWalker
             if (!bySpace.TryGetValue(space, out var ranges))
                 bySpace[space] = ranges = [];
 
-            // Only add if nothing already claims that binding — the element's own sets take
-            // precedence, and duplicate bindings would produce an invalid set layout.
-            if (ranges.All(r => r.IndexOffset != index))
+            // Only add if nothing already claims that register — the element's own sets take
+            // precedence, and duplicate bindings would produce an invalid set layout. The register
+            // is the index within its category: on D3D a texture at t0 and this buffer at b0 share
+            // the index and are different registers.
+            if (ranges.All(r => r.IndexOffset != index || r.Category != category))
             {
                 // Named after the block, which is what the module calls it: a ParameterBlock<Frame>
                 // named gFrame decorates its implicit buffer `gFrame`, while its contents get

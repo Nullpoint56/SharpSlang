@@ -35,6 +35,7 @@
   <Project Path="dotnet/PrismSlang.csproj" />
   <Project Path="vulkan/PrismSlang.Vulkan.csproj" />
   <Project Path="nri/PrismSlang.NRI.csproj" />
+  <Project Path="native/PrismSlang.Native.Dxc.csproj" />
   <Project Path="tests/PrismSlang.Tests/PrismSlang.Tests.csproj" />
   <Project Path="tests/PrismSlang.Runtime.Consumer/PrismSlang.Runtime.Consumer.csproj" />
   <Project Path="tests/PrismSlang.Prober/PrismSlang.Prober.csproj" />

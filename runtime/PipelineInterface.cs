@@ -156,9 +156,23 @@ public static class PipelineInterface
         // An entry point's `uniform` value parameters become an implicit push-constant buffer.
         // Without this they are in the shader and in no pipeline layout, so the push has nowhere
         // to write and the values the shader reads are undefined.
+        //
+        // On a SPIR-V target, that is. The entry point's base offsets say where Slang put them:
+        // measured on 2026.14.1, entry-point-uniforms reports PUSH_CONSTANT_BUFFER at its base
+        // for SPIR-V and CONSTANT_BUFFER — an ordinary `b` register, with a range in the
+        // descriptor-set view to match — for DXIL. Reporting a push-constant block there too put
+        // the same register in the layout twice, and D3D12 refused the root signature: "Shader
+        // register range of type CBV … overlaps with another shader register range". So the block
+        // is reported only where the entry point's uniforms are in push-constant storage.
         foreach (var ep in layout.EntryPoints)
         {
             if (ep.UniformSize == 0) continue;
+            if (ep.ParameterBase?.Any(b => b.Category
+                    == SlangParameterCategory.SLANG_PARAMETER_CATEGORY_PUSH_CONSTANT_BUFFER) != true)
+            {
+                continue;
+            }
+
             result.Add(new PushConstantBlock($"{ep.Name}.uniforms", ep.UniformSize, ep.Stage));
         }
 
@@ -304,8 +318,13 @@ public static class PipelineInterface
                     ? new ScalarLayout { Kind = LayoutKind.Scalar, ScalarType = m.ElementType }
                     : new VectorLayout { Kind = LayoutKind.Vector, ElementType = m.ElementType, ElementCount = width };
 
+                // The semantic index advances with the row. HLSL numbers a matrix attribute's rows
+                // INSTANCE0 to INSTANCE3, and D3D12 binds vertex attributes by semantic name and
+                // index: four rows all declared INSTANCE0 are refused by CreateInputLayout with
+                // "have the same Semantic". Found by the D3D12 device leg on vertex-interface;
+                // Vulkan binds by location and never looked at the index.
                 for (var i = 0u; i < locations; i++)
-                    into.Add(new VertexInput(location + i, piece, 1, $"{name}[{i}]", semantic, semanticIndex));
+                    into.Add(new VertexInput(location + i, piece, 1, $"{name}[{i}]", semantic, semanticIndex + i));
                 return;
             }
 
@@ -313,8 +332,11 @@ public static class PipelineInterface
             {
                 var locations = VaryingLocations(a);
                 var stride = locations == 0 ? 1u : locations / (uint)count;
+                // The semantic index advances by what each element consumes, for the same reason
+                // as the matrix rows above: `float2 uv[3] : TEXCOORD0` is TEXCOORD0, 1, 2 in HLSL,
+                // and an array of matrices steps by the rows of each.
                 for (var i = 0u; i < count; i++)
-                    Emit($"{name}[{i}]", a.ElementType, semantic, semanticIndex, location + (i * stride), into);
+                    Emit($"{name}[{i}]", a.ElementType, semantic, semanticIndex + (i * stride), location + (i * stride), into);
                 return;
             }
 
@@ -413,7 +435,26 @@ public static class PipelineInterface
     /// excluding kinds as they turned up. A whitelist cannot grow a third.
     /// </para>
     /// </remarks>
-    public static IReadOnlyDictionary<uint, string> DescriptorNames(this ProgramLayout layout, uint space)
+    public static IReadOnlyDictionary<uint, string> DescriptorNames(this ProgramLayout layout, uint space) =>
+        layout.DescriptorNames(space, category: null);
+
+    /// <summary>
+    /// <see cref="DescriptorNames(ProgramLayout, uint)"/> for one register class, keyed by the
+    /// index within that class.
+    /// </summary>
+    /// <remarks>
+    /// The overload a projection should use, passing the range's own
+    /// <see cref="DescriptorRange.Category"/>. On a SPIR-V layout every descriptor of a set is in
+    /// <c>DESCRIPTOR_TABLE_SLOT</c> and the index is unique within the set, so the class changes
+    /// nothing. On a DXIL layout each register class is numbered from 0 — <c>b0</c>, <c>t0</c>,
+    /// <c>s0</c> and <c>u0</c> all have index 0 — and a lookup by index alone lends a constant
+    /// buffer the name of whichever texture or UAV sits at the same number. Measured by the D3D12
+    /// device leg on three corpus shaders: the implicit buffer of <c>global-uniforms</c> was
+    /// reported as <c>guTexture</c>, and a host binding by name would have put a texture where a
+    /// constant buffer is read. Null means any class, which is the index-only reading.
+    /// </remarks>
+    public static IReadOnlyDictionary<uint, string> DescriptorNames(
+        this ProgramLayout layout, uint space, SlangParameterCategory? category)
     {
         ArgumentNullException.ThrowIfNull(layout);
         var names = new Dictionary<uint, string>();
@@ -423,19 +464,22 @@ public static class PipelineInterface
             if (!p.OccupiesDescriptorSlot) continue;
             if (p.DescriptorSet != space) continue;
             var b = p.PrimaryBinding;
-            if (b is not null) names.TryAdd(b.Value.Index, p.Name);
+            if (b is null) continue;
+            if (category is { } wanted && b.Value.Category != wanted) continue;
+            names.TryAdd(b.Value.Index, p.Name);
         }
 
         // Entry-point `uniform` parameters are descriptors too, numbered from the entry point's
         // own base rather than absolutely. See ReflectionWalker.CollectEntryPointSets.
         foreach (var ep in layout.EntryPoints)
         {
-            var baseIndex = ep.BaseOffset(SlangParameterCategory.SLANG_PARAMETER_CATEGORY_DESCRIPTOR_TABLE_SLOT);
             foreach (var p in ep.Parameters)
             {
                 if (!p.OccupiesDescriptorSlot) continue;
                 var b = p.PrimaryBinding;
-                if (b is not null && b.Value.Space == space) names.TryAdd(baseIndex + b.Value.Index, p.Name);
+                if (b is null || b.Value.Space != space) continue;
+                if (category is { } wanted && b.Value.Category != wanted) continue;
+                names.TryAdd(ep.BaseOffset(b.Value.Category) + b.Value.Index, p.Name);
             }
         }
 

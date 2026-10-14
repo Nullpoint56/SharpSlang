@@ -166,6 +166,26 @@ public static class ShaderCorpus
             }
             """, ["esFragment"]),
 
+        // A constant buffer with an explicit register space, which the descriptor-set view used to
+        // put in space 0 while the parameter, the module and Slang's own overlap warning all said
+        // space 1 — on SPIR-V and DXIL alike. explicit-spaces above covers textures and samplers,
+        // which the view places correctly; the buffer is the case it gets wrong, and it is what
+        // the D3D12 leg refused on its first run. Both the Vulkan attribute and the D3D register
+        // are given, so the same shader pins both targets and Slang has no shift to warn about.
+        new("explicit-buffer-spaces", """
+            struct EbFrame { float4 ebTint; };
+            struct EbLight { float4 ebDir; };
+            [[vk::binding(0, 1)]] ConstantBuffer<EbFrame> ebFrame   : register(b0, space1);
+            [[vk::binding(2, 0)]] ConstantBuffer<EbLight> ebLight   : register(b2, space0);
+            [[vk::binding(1, 1)]] Texture2D               ebTexture : register(t1, space1);
+
+            [shader("fragment")]
+            float4 ebFragment() : SV_Target
+            {
+                return ebFrame.ebTint + ebLight.ebDir + ebTexture.Load(0);
+            }
+            """, ["ebFragment"]),
+
         // ------------------------------------------------------------ uniform memory
         new("uniform-layout", """
             struct UlMaterial
