@@ -32,6 +32,7 @@ recalled — and the traps flagged along the way are the ones that actually bit 
 - [The payload has to be the pinned one](#the-payload-has-to-be-the-pinned-one)
 - [Lifetime](#lifetime)
 - [Threads](#threads)
+- [What allocates](#what-allocates)
 - [Traps worth knowing](#traps-worth-knowing)
 
 ---
@@ -725,6 +726,25 @@ Both patterns are measured on every platform in CI, byte-compared against a seri
   too.
 - **A `ProgramLayout` is immutable managed data** and is safe to read from any number of threads,
   with no lock and no relationship to the objects it came from. That is what the snapshot is for.
+
+## What allocates
+
+Two halves, and they allocate differently on purpose.
+
+**Once per shader, in the cooker or at load:** compiling, reflecting, baking, reading a package and
+projecting it. All of it builds trees of records and lists of descs, and all of it is garbage you
+pay once. Measured on a two-stage shader with five descriptors: reading a package parses about
+100 KB, `ToNri` and `ToVulkan` each allocate about 5 KB, `Pack` under 1 KB.
+
+**After load, nothing.** Every property and indexer on a projection, and every lookup on it —
+`Range(name)`, `Set(space)`, `Stage(name)` on both projections, `GroupCountFor` — allocates zero
+bytes per call, and `AllocationTests` measures that with `GC.GetAllocatedBytesForCurrentThread` so
+it stays zero. Cache the results anyway: a lookup by name is still a string comparison per range,
+and what a renderer wants per draw is the set index and the range index, which are plain integers
+on the projected records.
+
+The same holds on Vulkan and on D3D12. The NRI projection is one object whichever backend consumes
+it, and the DXIL build differs only in what was baked.
 
 ## Traps worth knowing
 
