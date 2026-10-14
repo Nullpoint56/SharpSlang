@@ -65,18 +65,29 @@
       agreeing with the specification. See VulkanEnumTests, and docs .
     -->
     <PackageReference Include="Vortice.Vulkan" Version="3.2.3" />
+  </ItemGroup>
 
-    <!--
-      The device behind the NRI projection, and the same reasoning as Vortice above: the package
-      references PrismNRI.Descs and nothing with a native library in it, so that a cooker can
-      project on a machine with no driver, while the tests can carry whatever gives them a real
-      answer. PrismNRI is NRI itself, which creates the pipeline layouts and pipelines the
-      projection describes; PrismNRI.Testing is its validated headless device, with NRI's own
-      validation and the Vulkan layers on and every message recorded. Both at the version pinned
-      in Directory.Build.props, from the folder feed tools/fetch-nri.ps1 fills.
-    -->
+  <!--
+    The device behind the NRI projection, and the same reasoning as Vortice above: the package
+    references PrismNRI.Descs and nothing with a native library in it, so that a cooker can project
+    on a machine with no driver, while the tests can carry whatever gives them a real answer.
+    PrismNRI is NRI itself, which creates the pipeline layouts and pipelines the projection
+    describes; PrismNRI.Testing is its validated headless device, with NRI's own validation and the
+    Vulkan layers on and every message recorded.
+
+    Both from where Directory.Build.props says PrismNRI comes from (PrismNriSource): the release
+    pinned there, from the folder feed tools/fetch-nri.ps1 fills, or the projects of a PrismNRI
+    checkout beside this repository. The packages put NRI.dll under runtimes/ and name it in
+    deps.json; the projects copy the host RID's NRI.dll flat into this output.
+  -->
+  <ItemGroup Condition="'$(PrismNriSource)' == 'package'">
     <PackageReference Include="PrismNRI" Version="[$(PrismNriVersion)]" />
     <PackageReference Include="PrismNRI.Testing" Version="[$(PrismNriVersion)]" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(PrismNriSource)' == 'project'">
+    <ProjectReference Include="$(PrismNriRootFull)dotnet\PrismNRI.csproj" />
+    <ProjectReference Include="$(PrismNriRootFull)testing\PrismNRI.Testing.csproj" />
   </ItemGroup>
 
   <ItemGroup>

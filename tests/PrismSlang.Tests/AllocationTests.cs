@@ -213,7 +213,10 @@ public class AllocationTests
         // allocating, in place of the span overload: 24,000 bytes, 80 per frame, a one-element
         // NriDescriptorSet[] for each of the two sets. The one-command-buffer Submit(cmd, fence,
         // value) in place of Submit over spans: 14,400 bytes, 48 per frame, the one-element array
-        // its signal span is built from. A foreach over DescriptorSets and each set's Ranges in
+        // its signal span was built from — against the 0.3.0-alpha release. This test found that,
+        // PrismNRI changed the overload to a span over a local (2b4ccf4), and against that PrismNRI
+        // checkout the same planted fault measures 0, so it now fails only in package mode. A
+        // foreach over DescriptorSets and each set's Ranges in
         // place of the indexed loops: 36,000 bytes, 120 per frame, three boxed List<T> enumerators.
         Assert.True(bytes == 0,
             $"{Frames} frames bound through PrismSlang.NRI's projection allocated {bytes:N0} managed "
@@ -415,13 +418,15 @@ public class AllocationTests
                 + "Lookups_on_a_projection_allocate_nothing also pins at zero on its own",
             "writing the ranges: a foreach over DescriptorSets or Ranges takes its enumerator "
                 + "through IReadOnlyList and boxes it; index them",
-            "binding: Barrier, SetPipelineLayout and SetDescriptorSet are in PrismNRI's own measured "
-                + "frame, SetPipeline and SetRootConstants are measured only here; the root constants "
-                + "go in as a struct by reference",
+            "binding: Barrier, SetPipelineLayout, SetDescriptorSet, SetPipeline and both "
+                + "SetRootConstants overloads are in PrismNRI's own measured frame (the last two from "
+                + "PrismNRI 3eceaf1, after this test measured them first); the root constants go in "
+                + "as a struct by reference",
             "the dispatch: Dispatch and End are in PrismNRI's measured frame, so first the group "
                 + "count read from ProjectedStage.ThreadGroupSize",
-            "submitting and waiting: the one-command-buffer Submit(cmd, fence, value) builds its "
-                + "signal from an array; Submit over spans does not",
+            "submitting and waiting: the one-command-buffer Submit(cmd, fence, value) built its "
+                + "signal from an array up to PrismNRI 0.3.0-alpha (48 bytes a call); Submit over "
+                + "spans never did, and from PrismNRI 2b4ccf4 neither does the one-buffer form",
         ];
 
         private readonly long[] _bytes = new long[Suspects.Length];
