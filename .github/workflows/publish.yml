@@ -130,10 +130,13 @@ jobs:
           # not depend on the runner IP's unauthenticated budget.
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          # Built up as an array and never assigned from an `if`, for the reason the Pack step
+          # records. Not named $args: that is PowerShell's automatic parameter variable, and
+          # assigning to it works until the day it does not.
           $v = "${{ steps.version.outputs.value }}"
-          $args = @('-c', 'Release', '--nologo', '-warnaserror')
-          if ($v) { $args += "-p:Version=$v" }
-          dotnet build PrismSlang.slnx @args
+          $buildArgs = @('-c', 'Release', '--nologo', '-warnaserror')
+          if ($v) { $buildArgs += "-p:Version=$v" }
+          dotnet build PrismSlang.slnx @buildArgs
           if ($LASTEXITCODE -ne 0) { throw "build failed" }
           dotnet test PrismSlang.slnx -c Release --no-build --nologo
           if ($LASTEXITCODE -ne 0) { throw "tests failed" }
@@ -141,8 +144,16 @@ jobs:
       - name: Pack
         shell: pwsh
         run: |
+          # The version argument is appended to an array, not assigned from an `if`. The first
+          # tagged run, v0.1.0-alpha's, failed here and only here: `$extra = if ($v) { @("x") }`
+          # hands the if-statement's output through the pipeline, which unrolls a one-element
+          # array to the string, and splatting a string enumerates its characters — MSBuild was
+          # invoked with `- p : V e r s i o n = 0 . 1 . 0 - a l p h a`, one letter per argument.
+          # Every dry run had passed, because without a tag $v is empty and the else branch's
+          # empty array splats to nothing. Measured on run #5 of this workflow.
           $v = "${{ steps.version.outputs.value }}"
-          $extra = if ($v) { @("-p:Version=$v") } else { @() }
+          $extra = @()
+          if ($v) { $extra += "-p:Version=$v" }
           foreach ($proj in @('runtime/PrismSlang.Runtime.csproj', 'dotnet/PrismSlang.csproj', 'vulkan/PrismSlang.Vulkan.csproj', 'nri/PrismSlang.NRI.csproj', 'native/PrismSlang.Native.Dxc.csproj')) {
             dotnet pack $proj -c Release -o artifacts --no-build @extra
             if ($LASTEXITCODE -ne 0) { throw "pack failed for $proj" }
