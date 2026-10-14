@@ -13,6 +13,7 @@ recalled — and the traps flagged along the way are the ones that actually bit 
 ## Contents
 
 - [The two halves](#the-two-halves)
+- [Referencing PrismSlang from source](#referencing-prismslang-from-source)
 - [Compiling](#compiling)
 - [Reflecting](#reflecting)
 - [Filling a uniform buffer](#filling-a-uniform-buffer)
@@ -55,6 +56,45 @@ half has no native dependency, so a shipped build carries no compiler.
 
 `ShaderPackage` — the container, its reader, and the staleness checks — is in the runtime half.
 `ShaderPackageBaker`, which is the only thing that needs a compiler, is in `PrismSlang`.
+
+## Referencing PrismSlang from source
+
+An engine developed alongside PrismSlang can reference its projects instead of its packages: a
+sibling checkout and `ProjectReference`s, so a change on one side is visible on the other without
+a pack in between.
+
+```xml
+<!-- the cooker; ../PrismSlang is the checkout -->
+<ProjectReference Include="..\PrismSlang\dotnet\PrismSlang.csproj" />
+<ProjectReference Include="..\PrismSlang\nri\PrismSlang.NRI.csproj" />
+```
+
+**Stage the payload in the checkout.** Run `pwsh tools/fetch-native.ps1` there once per Slang pin.
+The reference to `dotnet/PrismSlang.csproj` then copies the host RID's payload flat into the
+engine's output, beside its own assemblies.
+
+**DXIL takes the targets by hand.** A package's `build/` files do not flow through a project
+reference, so referencing `native/PrismSlang.Native.Dxc.csproj` would copy no dxc. The cooker does
+what the package does: reference Microsoft's package at PrismSlang's `DxcPackageVersion` and import
+the targets file, as `tests/PrismSlang.Tests/PrismSlang.Tests.csproj` does.
+
+```xml
+<ItemGroup>
+  <PackageReference Include="Microsoft.Direct3D.DXC" Version="[1.9.2609.5]" PrivateAssets="all" />
+</ItemGroup>
+<Import Project="..\PrismSlang\native\build\PrismSlang.Native.Dxc.targets" />
+```
+
+**Both solutions build into PrismSlang's `obj/` and `bin/`.** The engine builds PrismSlang's
+projects in place, so each solution's restore rewrites the other's. With the same target framework
+on both sides that is harmless.
+
+**Start it from anywhere.** As its own executable or as `dotnet engine.dll`, from any directory.
+Slang loads `slang-glslang` and `dxcompiler` itself, by name, and Windows looks for a name beside
+the executable and in the working directory rather than beside the compiler; so on Windows
+`SlangGlobalSession.Create` first loads them from where the compiler was loaded from, and dxc from
+the application's directory as well. On Linux the payload's own `$ORIGIN` search path does the
+same, measured; on macOS its `@loader_path` rpaths should, and the osx-arm64 test leg measures it.
 
 ## Compiling
 
@@ -285,9 +325,9 @@ using var dxil = global.CreateSession(new SessionOptions
 ```
 
 **dxc has to be there.** Slang emits DXIL by handing HLSL to dxc, and ships none. Reference
-`PrismSlang.Native.Dxc`, which stages `dxcompiler.dll` and `dxil.dll` beside the compiler for
-`win-x64`; `CreateSession` refuses a DXIL target without it, naming the package, so the failure is
-at session creation rather than inside the first compile.
+`PrismSlang.Native.Dxc`, which stages `dxcompiler.dll` and `dxil.dll` in the application's output
+for `win-x64`; `CreateSession` refuses a DXIL target without it, naming the package, so the failure
+is at session creation rather than inside the first compile.
 
 **Registers are per class.** A DXIL layout reports `b0`, `t0`, `s0` and `u0` as four bindings at
 index 0 in the categories `CONSTANT_BUFFER`, `SHADER_RESOURCE`, `SAMPLER_STATE` and

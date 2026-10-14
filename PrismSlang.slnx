@@ -32,6 +32,13 @@
     <File Path=".github/workflows/publish.yml" />
     <File Path=".github/workflows/regen.yml" />
   </Folder>
+  <!-- Files, not a project: it restores from the packages publish.yml packs, which do not exist
+       until a release is being made, so as a project it would fail every restore of the solution. -->
+  <Folder Name="/tests/PrismSlang.PackageConsumer/">
+    <File Path="tests/PrismSlang.PackageConsumer/PrismSlang.PackageConsumer.csproj" />
+    <File Path="tests/PrismSlang.PackageConsumer/Program.cs" />
+    <File Path="tests/PrismSlang.PackageConsumer/nuget.config" />
+  </Folder>
   <Project Path="runtime/PrismSlang.Runtime.csproj" />
   <Project Path="dotnet/PrismSlang.csproj" />
   <Project Path="vulkan/PrismSlang.Vulkan.csproj" />

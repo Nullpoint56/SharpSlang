@@ -16,6 +16,7 @@
 
 using System.Diagnostics;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Text.RegularExpressions;
 
 namespace PrismSlang.Tests;
@@ -76,6 +77,60 @@ public class ProberTests(Xunit.Abstractions.ITestOutputHelper output)
             }
         }
 
+        return Execute(info, probe);
+    }
+
+    /// <summary>
+    /// The prober in <paramref name="proberDirectory"/> as <c>dotnet PrismSlang.Prober.dll</c>,
+    /// working in <paramref name="workingDirectory"/>.
+    /// </summary>
+    /// <remarks>
+    /// The launch every other probe avoids, and the one a consumer gets from `dotnet app.dll`: the
+    /// executable is the dotnet host, so the process's own directory is the host's, and the
+    /// working directory is whatever the caller says. Windows searches both for a library loaded by
+    /// bare name and neither is where the prober and its payload are.
+    /// </remarks>
+    private static Outcome RunUnderMuxer(string probe, string proberDirectory, string workingDirectory)
+    {
+        var dll = Path.Combine(proberDirectory, "PrismSlang.Prober.dll");
+        Assert.True(File.Exists(dll), $"the prober is not built at {dll}.");
+
+        var info = new ProcessStartInfo(Muxer())
+        {
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            WorkingDirectory = workingDirectory,
+        };
+
+        info.ArgumentList.Add(dll);
+        info.ArgumentList.Add(probe);
+
+        return Execute(info, probe);
+    }
+
+    /// <summary>The dotnet host that owns the runtime this test is running on.</summary>
+    /// <remarks>
+    /// Not <c>Environment.ProcessPath</c>, which under `dotnet test` on Windows is testhost.exe, the
+    /// mistake Run's comment records. The shared runtime sits at
+    /// <c>&lt;root&gt;/shared/Microsoft.NETCore.App/&lt;version&gt;/</c> and the host at the root,
+    /// so the child runs on the same runtime as the runner without a PATH lookup that could find
+    /// another one.
+    /// </remarks>
+    private static string Muxer()
+    {
+        var runtime = RuntimeEnvironment.GetRuntimeDirectory();
+        var muxer = Path.Combine(
+            Path.GetFullPath(Path.Combine(runtime, "..", "..", "..")),
+            OperatingSystem.IsWindows() ? "dotnet.exe" : "dotnet");
+
+        Assert.True(File.Exists(muxer),
+            $"no dotnet host at {muxer}, three directories above the runtime at {runtime}");
+        return muxer;
+    }
+
+    private static Outcome Execute(ProcessStartInfo info, string probe)
+    {
         using var process = Process.Start(info)
             ?? throw new InvalidOperationException("could not start the prober");
 
@@ -623,6 +678,147 @@ public class ProberTests(Xunit.Abstractions.ITestOutputHelper output)
                 "on macOS the C++ exception was caught rather than ending the process, which is "
                 + $"the Windows behaviour arriving somewhere new:\n{outcome}");
             Assert.Contains("Slang::InternalError", outcome.Stderr, StringComparison.Ordinal);
+        }
+    }
+
+    [NativeFact]
+    public void Launched_by_dotnet_from_another_directory_the_compiler_still_finds_its_companions()
+    {
+        // The defect CompanionLibraries fixes, asserted the way it was found. Slang loads
+        // slang-glslang and dxcompiler itself, by bare name, and on Windows that search covers the
+        // executable's directory and the working directory, not the compiler's. Every other probe
+        // here runs the apphost from its own output directory, which is exactly the launch where
+        // the search succeeds by accident; this one runs `dotnet PrismSlang.Prober.dll` from an
+        // empty directory, so the executable is the dotnet host and neither place holds anything.
+        //
+        // Measured on win-x64 with CompanionLibraries.Preload made to return at once:
+        //
+        //     exit 1
+        //     stderr: SlangException: SPIR-V optimiser unavailable failed: SLANG_E_NOT_FOUND
+        //             Slang cannot load spirv-opt, which lives in the 'slang-glslang' shared library.
+        //
+        // With it: exit 0, 2,048 bytes of SPIR-V optimised to 1,664, and a signed DXIL container.
+        //
+        // Not Windows-only, though the preload is. The launch is the same everywhere and so is what
+        // a consumer needs from it; elsewhere it is the payload's own search path that has to pass
+        // it. Run by hand under WSL, linux-x64 passed with no preload at all, through
+        // libslang-compiler.so's $ORIGIN runpath. On osx-arm64 the same is read from the dylib's
+        // @loader_path rpaths and not yet measured; this test is what measures it, on that leg's
+        // next run.
+        var elsewhere = Directory.CreateTempSubdirectory("prismslang-elsewhere-");
+        try
+        {
+            var outcome = RunUnderMuxer("downstream-compilers", ProberDirectory(), elsewhere.FullName);
+            output.WriteLine(outcome.ToString());
+
+            AssertLaunchedElsewhere(outcome, ProberDirectory());
+            Assert.True(outcome.ExitCode == 0,
+                "started by the dotnet host from another directory, the prober could not create a "
+                + "global session that finds spirv-opt, or could not compile with it. Every portable "
+                + "consumer of the package and every `dotnet app.dll` launch is in this position; "
+                + $"CompanionLibraries is what should have made the libraries findable.\n{outcome}");
+            Assert.Contains("spirv-opt available: True", outcome.Stdout, StringComparison.Ordinal);
+
+            // Smaller at maximal, which is spirv-opt having run rather than merely loaded.
+            var sizes = Regex.Match(outcome.Stdout,
+                @"spirv (?<maximal>\d+) bytes at maximal, (?<none>\d+) at none");
+            Assert.True(sizes.Success, $"the probe printed no SPIR-V sizes:\n{outcome}");
+            Assert.True(int.Parse(sizes.Groups["maximal"].Value) < int.Parse(sizes.Groups["none"].Value),
+                "the optimised module is not smaller than the unoptimised one, so spirv-opt did not "
+                + $"run:\n{outcome}");
+
+            // DXIL wherever the targets file staged dxc beside the prober, which is a win-x64 host
+            // and nowhere else. There its absence is a broken build, not a reason to skip the half
+            // of this that a D3D12 cooker depends on.
+            var dxcStaged = File.Exists(Path.Combine(ProberDirectory(), "dxcompiler.dll"));
+            if (OperatingSystem.IsWindows() && RuntimeInformation.ProcessArchitecture == Architecture.X64)
+            {
+                Assert.True(dxcStaged,
+                    "no dxcompiler.dll beside the prober on win-x64, where the Microsoft.Direct3D.DXC "
+                    + "reference and the targets import in PrismSlang.Prober.csproj put it");
+            }
+
+            if (dxcStaged)
+                Assert.Contains("DXBC, signed", outcome.Stdout, StringComparison.Ordinal);
+            else
+                Assert.Contains("dxil not attempted", outcome.Stdout, StringComparison.Ordinal);
+        }
+        finally
+        {
+            elsewhere.Delete(recursive: true);
+        }
+    }
+
+    [NativeFact]
+    public void Without_slang_glslang_the_optimiser_guard_still_refuses_after_the_preload()
+    {
+        // The other half: loading what is present must change nothing about what is absent. A copy
+        // of the prober's output with slang-glslang left out, launched the same way, has to fail
+        // as a broken deployment always has, out of Create with RequireSpirvOptimizer's message
+        // naming the fix: not with an exception out of the preload, and not by passing on a copy
+        // of the library found somewhere else. dxc is left out too; nothing here reaches it.
+        var copy = Directory.CreateTempSubdirectory("prismslang-no-glslang-");
+        var elsewhere = Directory.CreateTempSubdirectory("prismslang-elsewhere-");
+        try
+        {
+            CopyDirectory(ProberDirectory(), copy.FullName, skip: name =>
+                name.Contains("slang-glslang", StringComparison.OrdinalIgnoreCase)
+                || name.StartsWith("dxcompiler", StringComparison.OrdinalIgnoreCase)
+                || name.StartsWith("dxil", StringComparison.OrdinalIgnoreCase));
+
+            var outcome = RunUnderMuxer("downstream-compilers", copy.FullName, elsewhere.FullName);
+            output.WriteLine(outcome.ToString());
+
+            AssertLaunchedElsewhere(outcome, copy.FullName);
+            Assert.True(outcome.ExitCode == 1,
+                $"with no slang-glslang anywhere, Create should have refused, and exit 1 is that:\n{outcome}");
+            Assert.Contains("SPIR-V optimiser unavailable", outcome.Stderr, StringComparison.Ordinal);
+            Assert.Contains("fetch-native.ps1 -Profile Spirv", outcome.Stderr, StringComparison.Ordinal);
+        }
+        finally
+        {
+            copy.Delete(recursive: true);
+            elsewhere.Delete(recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// That the child really was the dotnet host, working somewhere other than its own directory.
+    /// </summary>
+    /// <remarks>
+    /// Both tests above rest on it. A launch that quietly became the apphost, or a working
+    /// directory that resolved to the output, would pass with the preload deleted: that is the
+    /// launch every other probe makes, and the one where nothing was ever wrong.
+    /// </remarks>
+    private static void AssertLaunchedElsewhere(Outcome outcome, string proberDirectory)
+    {
+        var process = Regex.Match(outcome.Stdout, @"^\s*process\s+(?<path>.+)$", RegexOptions.Multiline);
+        var working = Regex.Match(outcome.Stdout, @"^\s*working in\s+(?<path>.+)$", RegexOptions.Multiline);
+        Assert.True(process.Success && working.Success, $"the probe did not report how it was launched:\n{outcome}");
+
+        var executable = process.Groups["path"].Value.Trim();
+        Assert.True(Path.GetFileNameWithoutExtension(executable) == "dotnet",
+            $"the child's executable was {executable}, not the dotnet host:\n{outcome}");
+
+        var directory = working.Groups["path"].Value.Trim();
+        Assert.False(
+            string.Equals(Path.TrimEndingDirectorySeparator(Path.GetFullPath(directory)),
+                          Path.TrimEndingDirectorySeparator(Path.GetFullPath(proberDirectory)),
+                          OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal),
+            $"the child worked in its own output directory, which is the launch that always worked:\n{outcome}");
+    }
+
+    private static void CopyDirectory(string from, string to, Func<string, bool> skip)
+    {
+        foreach (var file in Directory.EnumerateFiles(from))
+        {
+            if (!skip(Path.GetFileName(file))) File.Copy(file, Path.Combine(to, Path.GetFileName(file)));
+        }
+
+        foreach (var directory in Directory.EnumerateDirectories(from))
+        {
+            var target = Directory.CreateDirectory(Path.Combine(to, Path.GetFileName(directory)));
+            CopyDirectory(directory, target.FullName, skip);
         }
     }
 

@@ -84,6 +84,11 @@ public sealed unsafe class SlangGlobalSession : SlangObject<IGlobalSession>
         var desc = Defaults.GlobalSessionDesc();
         desc.enableGLSL = options.EnableGlsl ? (byte)1 : (byte)0;
 
+        // Before Slang can look for a companion library by name, which on Windows searches the
+        // executable's directory rather than the compiler's: every portable package consumer lost
+        // spirv-opt, and `dotnet app.dll` started elsewhere lost dxc too. See CompanionLibraries.
+        CompanionLibraries.Preload();
+
         IGlobalSession* p = null;
         var hr = SlangApi.slang_createGlobalSession2(&desc, &p);
         if (SlangResult.Failed(hr) || p is null)
@@ -269,9 +274,9 @@ public sealed unsafe class SlangGlobalSession : SlangObject<IGlobalSession>
             Slang cannot load dxc ('dxcompiler.dll'), which it needs to emit DXIL. Slang's own
             release does not ship it.
 
-            Add the PrismSlang.Native.Dxc package, which puts dxcompiler.dll and dxil.dll beside
-            the compiler on win-x64 from Microsoft's own Microsoft.Direct3D.DXC package. In this
-            repository the test project already does that; restore it.
+            Add the PrismSlang.Native.Dxc package, which puts dxcompiler.dll and dxil.dll in the
+            application's output on win-x64 from Microsoft's own Microsoft.Direct3D.DXC package.
+            In this repository the test project already does that; restore it.
 
             DXIL is only needed for D3D12. A Vulkan-only build never sees this.
             """);

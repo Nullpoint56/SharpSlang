@@ -147,7 +147,125 @@ internal static class Cases
         ["threads-shared-global-session"] = ThreadsSharedGlobalSession,
         ["threads-parallel-backend"] = ThreadsParallelBackend,
         ["report-a-disagreement"] = ReportADisagreement,
+
+        // Whether the compiler finds the libraries it loads by name when the process did not start
+        // where they are. Out of process because where a process started is the variable: on
+        // Windows Slang's LoadLibrary("slang-glslang") searches the executable's directory and the
+        // working directory, so `dotnet PrismSlang.Prober.dll` from anywhere else lost spirv-opt
+        // until CompanionLibraries preloaded it. ProberTests launches this case exactly that way.
+        ["downstream-compilers"] = DownstreamCompilers,
     };
+
+    /// <summary>
+    /// A global session that requires spirv-opt, a SPIR-V compile with the optimiser on, and DXIL
+    /// wherever dxc is staged beside the prober, with where every library came from.
+    /// </summary>
+    /// <remarks>
+    /// The default options on purpose. A missing optimiser then throws out of Create with the
+    /// message a consumer would read, which is exit 1 with that message on stderr, and the test
+    /// distinguishes it from a crash.
+    /// </remarks>
+    private static void DownstreamCompilers()
+    {
+        Console.Out.WriteLine($"    process     {Environment.ProcessPath}");
+        Console.Out.WriteLine($"    working in  {Environment.CurrentDirectory}");
+        Console.Out.WriteLine($"    app in      {AppContext.BaseDirectory}");
+        Console.Out.Flush();
+
+        // A first global session, released before anything is measured. Slang frees the libraries
+        // it loaded when a global session goes, so the one asked below is a second session finding
+        // them again, which is what a cooker that creates one per batch or per thread does.
+        SlangGlobalSession.Create().Dispose();
+
+        using var global = SlangGlobalSession.Create();
+        Console.Out.WriteLine("    spirv-opt available: "
+            + global.IsDownstreamCompilerAvailable(SlangPassThrough.SLANG_PASS_THROUGH_SPIRV_OPT));
+
+        // Both levels, because "available" is Slang's answer and a smaller module is spirv-opt's.
+        // DownstreamCompilerTests measured this shader at 2,048 bytes unoptimised and 1,664 at
+        // maximal.
+        var none = CompileSpirv(global, SlangOptimizationLevel.SLANG_OPTIMIZATION_LEVEL_NONE);
+        var maximal = CompileSpirv(global, SlangOptimizationLevel.SLANG_OPTIMIZATION_LEVEL_MAXIMAL);
+        Console.Out.WriteLine($"    spirv {maximal.Length} bytes at maximal, {none.Length} at none");
+
+        // DXIL only where the targets file staged dxc, which it does on a win-x64 host and nowhere
+        // else; where there is no dxc there is nothing to find, and DxilTests owns the refusal.
+        if (File.Exists(Path.Combine(AppContext.BaseDirectory, "dxcompiler.dll")))
+        {
+            using var session = global.CreateSession(new SessionOptions
+            {
+                Targets = [new TargetOptions { Format = SlangCompileTarget.SLANG_DXIL }],
+            });
+            using var module = session.LoadModuleFromSource("dc", "dc.slang", """
+                RWStructuredBuffer<float> dcOutput;
+
+                [shader("compute")]
+                [numthreads(64, 1, 1)]
+                void dcMain(uint3 id : SV_DispatchThreadID) { dcOutput[id.x] = id.x * 2.0; }
+                """);
+            using var entry = module.FindEntryPoint("dcMain");
+            using var program = session.Link(module, entry);
+            var code = program.GetEntryPointCodeBytes(0);
+
+            // A DXBC container: the magic, then a 16-byte digest that is zeros when unsigned.
+            var container = code.Length > 20 && code.AsSpan(0, 4).SequenceEqual("DXBC"u8);
+            var signed = container && code.AsSpan(4, 16).ContainsAnyExcept((byte)0);
+            Console.Out.WriteLine($"    dxil {code.Length} bytes, "
+                + (!container ? "NOT A DXBC CONTAINER" : signed ? "DXBC, signed" : "DXBC, UNSIGNED"));
+        }
+        else
+        {
+            Console.Out.WriteLine("    dxil not attempted: no dxcompiler.dll beside the prober");
+        }
+
+        // Where each one was loaded from, which is the finding when this fails and the evidence
+        // when it passes. Printed after the compiles, so whatever Slang loaded lazily is listed.
+        try
+        {
+            foreach (var path in System.Diagnostics.Process.GetCurrentProcess().Modules
+                         .Cast<System.Diagnostics.ProcessModule>()
+                         .Select(m => m.FileName)
+                         .Where(f => ((string[])["slang-", "libslang-", "dxcompiler", "libdxcompiler", "dxil", "libdxil"])
+                             .Any(p => Path.GetFileName(f).StartsWith(p, StringComparison.OrdinalIgnoreCase)))
+                         .Order(StringComparer.OrdinalIgnoreCase))
+            {
+                Console.Out.WriteLine($"    loaded      {path}");
+            }
+        }
+        catch (Exception e) when (e is PlatformNotSupportedException or InvalidOperationException
+                                    or System.ComponentModel.Win32Exception)
+        {
+            Console.Out.WriteLine($"    loaded      (not listable here: {e.GetType().Name})");
+        }
+
+        static byte[] CompileSpirv(SlangGlobalSession global, SlangOptimizationLevel level)
+        {
+            using var session = global.CreateSession(new SessionOptions { Targets = [new TargetOptions()] });
+            using var module = session.LoadModuleFromSource($"dc{level}", $"dc{level}.slang", """
+                struct U { float4x4 mvp; float3 tint; float exposure; };
+                ConstantBuffer<U> u;
+                Texture2D albedo;
+                SamplerState samp;
+                float3 heavy(float3 c)
+                {
+                    for (int i = 0; i < 4; ++i) { c = c * 1.0 + 0.0; c = normalize(c + 0.0001); }
+                    return c;
+                }
+                [shader("fragment")]
+                float4 fragmentMain(float2 uv : TEXCOORD0) : SV_Target
+                {
+                    float3 c = albedo.Sample(samp, uv).rgb * u.tint * u.exposure;
+                    return float4(heavy(c), 1.0);
+                }
+                """);
+            using var entry = module.FindEntryPoint("fragmentMain");
+            using var program = session.Link(module, [entry], new LinkOptions
+            {
+                CompilerOptions = new LinkTimeOptions { Optimization = level },
+            });
+            return program.GetEntryPointCodeBytes(0);
+        }
+    }
 
     /// <summary>Whether the allocator is really poisoning freed memory, and at which sizes.</summary>
     /// <remarks>

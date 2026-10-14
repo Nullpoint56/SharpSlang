@@ -31,10 +31,11 @@ name: Publish
 # So `workflow_dispatch` accepts `dry_run`, default true: every step runs except the push. It is the
 # whole path — the full CI matrix on all four RIDs, macOS included, then staging all four payloads
 # from a Windows runner, building, testing, packing all five projects, checking that every RID in
-# the core package carries the compiler, the SPIR-V optimiser and Slang's licence texts, and that
-# the dxc package carries its targets and no binary — with only the last step skipped. The .nupkg
-# files are uploaded either way, so a dry run leaves something to inspect. At October 2026 prices
-# a run, dry or real, is about $0.60, most of it the macOS leg.
+# the core package carries the compiler, the SPIR-V optimiser and Slang's licence texts, that the
+# dxc package carries its targets and no binary, and that a portable app built against the packed
+# packages compiles SPIR-V and DXIL — with only the last step skipped. The .nupkg files are
+# uploaded either way, so a dry run leaves something to inspect. At October 2026 prices a run, dry
+# or real, is about $0.60, most of it the macOS leg.
 #
 # A tag still publishes for real. dry_run only applies to a manual run, and a manual run never
 # creates a release: there is no tag to attach one to.
@@ -273,6 +274,47 @@ jobs:
 
             Write-Host "    targets present, depends on Microsoft.Direct3D.DXC [$pinned], no binary carried"
           } finally { $zip.Dispose() }
+
+      # The steps above read the packages; this one uses them. tests/PrismSlang.PackageConsumer is a
+      # portable app, no RuntimeIdentifier, that restores PrismSlang and PrismSlang.Native.Dxc from
+      # artifacts/ at the version just packed (and Microsoft.Direct3D.DXC from nuget.org), then
+      # compiles SPIR-V with the optimiser required and a signed DXIL container. It is started twice
+      # from a directory that is not its output: as its apphost, and as `dotnet <dll>`.
+      #
+      # That is the layout and the launch nothing else here has. The solution references PrismSlang
+      # as a project, which copies the payload flat; a package consumer's portable build keeps it
+      # under runtimes/win-x64/native/, which Windows' library search never looks in. Measured on
+      # Windows 11 with the 0.1.0-alpha packages, before CompanionLibraries: spirv-opt could not be
+      # loaded under either launch, nor dxc under `dotnet <dll>`, and this step failed at the
+      # apphost with "SPIR-V optimiser unavailable" on packages that both checks above passed.
+      - name: A portable app consuming the packed packages compiles SPIR-V and DXIL
+        shell: pwsh
+        run: |
+          $core = Get-ChildItem artifacts -Filter 'PrismSlang.*.nupkg' |
+                  Where-Object { $_.Name -match '^PrismSlang\.\d' } | Select-Object -First 1
+          if (-not $core) { throw "no PrismSlang core package in artifacts/" }
+          $version = $core.Name -replace '^PrismSlang\.(.+)\.nupkg$', '$1'
+          Write-Host "consuming the packed $version"
+
+          # obj/ holds the consumer's own packages folder (see its nuget.config), emptied so that
+          # what restores is what was just packed and never an earlier pack of the same version.
+          $consumer = 'tests/PrismSlang.PackageConsumer'
+          Remove-Item "$consumer/bin", "$consumer/obj" -Recurse -Force -ErrorAction SilentlyContinue
+          dotnet build $consumer -c Release --nologo "-p:PrismSlangPackageVersion=$version"
+          if ($LASTEXITCODE -ne 0) { throw "the consumer did not build against the packed $version" }
+
+          $out = (Resolve-Path "$consumer/bin/Release/net11.0").Path
+          if (-not (Test-Path "$out/runtimes/win-x64/native/slang-compiler.dll")) {
+            throw "the payload is not under runtimes/win-x64/native/ in $out, so this is not the portable layout the check exists for"
+          }
+
+          Push-Location $env:RUNNER_TEMP
+          try {
+            & "$out/PrismSlang.PackageConsumer.exe"
+            if ($LASTEXITCODE -ne 0) { throw "the packed packages failed a portable consumer started as its apphost" }
+            dotnet "$out/PrismSlang.PackageConsumer.dll"
+            if ($LASTEXITCODE -ne 0) { throw "the packed packages failed a portable consumer started as dotnet <dll>" }
+          } finally { Pop-Location }
 
       - name: Dry run — everything above ran, the push is skipped
         if: inputs.dry_run
