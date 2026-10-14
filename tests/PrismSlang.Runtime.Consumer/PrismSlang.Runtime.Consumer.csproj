@@ -3,10 +3,11 @@
   <!--
     The acceptance criterion for the assembly split, written as a project rather than as a claim.
 
-    It references PrismSlang.Runtime and PrismSlang.Vulkan and NOTHING ELSE — no PrismSlang, no
-    Vortice, no test framework. If either of those ever picks up a transitive edge to the compiler,
-    slang-compiler.dll and the runtimes/ tree land in this project's output, and
-    AssemblySplitTests notices.
+    It references PrismSlang.Runtime, PrismSlang.Vulkan and PrismSlang.NRI and NOTHING ELSE — no
+    PrismSlang, no Vortice, no PrismNRI proper, no test framework. If any of those ever picks up a
+    transitive edge to the compiler, slang-compiler.dll and the runtimes/ tree land in this
+    project's output; if PrismSlang.NRI ever references PrismNRI rather than PrismNRI.Descs, NRI.dll
+    does. AssemblySplitTests notices either.
 
     It is an exe rather than a library so that it produces the real deployment closure a game would
     get, including everything a ProjectReference copies flat.
@@ -24,6 +25,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\runtime\PrismSlang.Runtime.csproj" />
     <ProjectReference Include="..\..\vulkan\PrismSlang.Vulkan.csproj" />
+    <ProjectReference Include="..\..\nri\PrismSlang.NRI.csproj" />
   </ItemGroup>
 
 </Project>

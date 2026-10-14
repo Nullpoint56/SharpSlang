@@ -65,11 +65,24 @@
       agreeing with the specification. See VulkanEnumTests, and docs .
     -->
     <PackageReference Include="Vortice.Vulkan" Version="3.2.3" />
+
+    <!--
+      The device behind the NRI projection, and the same reasoning as Vortice above: the package
+      references PrismNRI.Descs and nothing with a native library in it, so that a cooker can
+      project on a machine with no driver, while the tests can carry whatever gives them a real
+      answer. PrismNRI is NRI itself, which creates the pipeline layouts and pipelines the
+      projection describes; PrismNRI.Testing is its validated headless device, with NRI's own
+      validation and the Vulkan layers on and every message recorded. Both at the version pinned
+      in Directory.Build.props, from the folder feed tools/fetch-nri.ps1 fills.
+    -->
+    <PackageReference Include="PrismNRI" Version="[$(PrismNriVersion)]" />
+    <PackageReference Include="PrismNRI.Testing" Version="[$(PrismNriVersion)]" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\..\dotnet\PrismSlang.csproj" />
     <ProjectReference Include="..\..\vulkan\PrismSlang.Vulkan.csproj" />
+    <ProjectReference Include="..\..\nri\PrismSlang.NRI.csproj" />
 
     <!--
       Built, never referenced. AssemblySplitTests needs the consumer's output directory to exist and

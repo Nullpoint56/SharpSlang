@@ -2,6 +2,15 @@
 //
 // Everything here is a mechanical consequence of the Vulkan specification plus what Slang reported.
 // Where a mapping is genuinely ambiguous the code says so rather than guessing quietly.
+//
+// The API-neutral half — which leaf attributes the vertex stage reads and where, which outputs
+// the fragment stage writes, which blocks are push constants, what a descriptor slot is called,
+// and the invariant that every parameter was placed somewhere — lives in
+// PrismSlang.Reflection.PipelineInterface, in the Runtime assembly, because PrismSlang.NRI needs
+// exactly the same answers. This file gives each of those answers its Vulkan spelling and adds the
+// rules that are Vulkan's alone: the descriptor type per binding kind, the stage bits, the
+// VkFormat per leaf type, and the two-locations-for-a-wide-64-bit-vector rule the module itself
+// gets wrong.
 
 using PrismSlang.Native;
 using PrismSlang.Reflection;
@@ -22,7 +31,7 @@ public static class VulkanProjection
         foreach (var set in layout.DescriptorSets.OrderBy(s => s.SpaceOffset))
         {
             var stages = stagesBySpace.TryGetValue(set.SpaceOffset, out var s) ? s : AllStages(layout);
-            var names = NamesForSpace(layout, set.SpaceOffset);
+            var names = layout.DescriptorNames(set.SpaceOffset);
 
             var bindings = set.Ranges
                 .Where(r => r.BindingType != SlangBindingType.SLANG_BINDING_TYPE_PUSH_CONSTANT)
@@ -32,7 +41,7 @@ public static class VulkanProjection
                     r.DescriptorCount,
                     VisibleStages(ToDescriptorType(r.BindingType), StagesFor(r, stages)),
                     // The range's own name where the walk could attribute one — that is the only
-                    // source that reaches inside a ParameterBlock. The scan below is the fallback
+                    // source that reaches inside a ParameterBlock. DescriptorNames is the fallback
                     // for ranges Slang's binding-range view does not cover.
                     r.Name ?? names.GetValueOrDefault(r.IndexOffset),
                     r.IsUnbounded,
@@ -45,7 +54,7 @@ public static class VulkanProjection
             if (bindings.Count > 0) sets.Add(new VulkanDescriptorSetLayout(set.SpaceOffset, bindings));
         }
 
-        RequireEveryParameterIsPlaced(layout);
+        layout.RequireEveryParameterIsPlaced();
 
         return new VulkanPipelineLayout
         {
@@ -56,42 +65,6 @@ public static class VulkanProjection
             SpecializationConstants = layout.SpecializationMap(),
             Stages = Stages(layout),
         };
-    }
-
-    /// <summary>
-    /// Refuses a program holding a shader parameter that Slang placed nowhere.
-    /// </summary>
-    /// <remarks>
-    /// <para>
-    /// An invariant rather than a comparison, and it is here because comparing against the emitted
-    /// module cannot catch this one: when Slang cannot place a parameter it drops the parameter
-    /// <em>and</em> emits no descriptor for it, so reflection and the module agree by being equally
-    /// silent while the shader still reads the thing.
-    /// </para>
-    /// <para>
-    /// Measured cause, against slang-compiler 2026.14.1: a buffer whose contents include an array
-    /// whose length is a specialization constant. <c>ConstantBuffer&lt;Push&gt;</c> and
-    /// <c>[[vk::push_constant]] ConstantBuffer&lt;Push&gt;</c> both come back with no bindings at
-    /// all, no descriptor range and no push-constant range, and a renderer built from that layout
-    /// binds nothing where the shader expects a buffer.
-    /// </para>
-    /// </remarks>
-    private static void RequireEveryParameterIsPlaced(ProgramLayout layout)
-    {
-        foreach (var p in layout.Parameters)
-        {
-            if (p.Bindings.Count > 0) continue;
-
-            var cause = p.Type is ContainerLayout c && !c.ElementType.IsUniformSizeKnown
-                ? " Its size is not known: it holds an array whose length is a specialization "
-                  + "constant, and Vulkan needs the size when the pipeline layout is built, which "
-                  + "is before any specialization value exists. Give the array a fixed length."
-                : "";
-
-            throw new NotSupportedException(
-                $"shader parameter '{p.Name}' ({p.Type.Kind}) has no binding of any kind, so it is "
-                + $"in the shader and in no part of the pipeline layout.{cause}");
-        }
     }
 
     /// <summary>The program's entry points as pipeline stages.</summary>
@@ -114,51 +87,20 @@ public static class VulkanProjection
     /// Colour attachments the fragment stage writes, ordered by location.
     /// </summary>
     /// <remarks>
-    /// A deferred renderer needs the count to size
+    /// Which outputs exist, and at which locations, is decided once in
+    /// <see cref="PipelineInterface.FragmentOutputs"/>; this only gives each one a format. A
+    /// deferred renderer needs the count to size
     /// <c>VkPipelineColorBlendStateCreateInfo::attachmentCount</c>, and the count has to come from
     /// the shader — a mismatch between it and the render pass is a pipeline creation failure.
-    /// Locations are the <c>VARYING_OUTPUT</c> offsets Slang reported, which match the module's
-    /// <c>Output</c> location decorations.
     ///
     /// The format is what the shader <em>writes</em>, not what the attachment stores. A shader
     /// returning <c>float4</c> writes fine into an <c>R8G8B8A8_UNORM</c> target; the attachment's
     /// real format is the render pass's business.
     /// </remarks>
-    private static List<VulkanFragmentOutput> FragmentOutputs(ProgramLayout layout)
-    {
-        var fragment = layout.EntryPoints.FirstOrDefault(e => e.Stage == SlangStage.SLANG_STAGE_FRAGMENT);
-        if (fragment?.ResultType is not { } result) return [];
-
-        var outputs = new List<VulkanFragmentOutput>();
-
-        if (result is StructLayout s)
-        {
-            foreach (var f in s.Fields)
-            {
-                // Presence of the category, not the name of the semantic, is what separates a
-                // colour attachment from a system value. Measured: `float depth : SV_Depth`
-                // reports no VARYING_OUTPUT category at all and is decorated BuiltIn FragDepth
-                // with no location, so it drops out here without needing a list of semantic names
-                // to keep up to date.
-                if (!Offset(f.Offsets, SlangParameterCategory.SLANG_PARAMETER_CATEGORY_VARYING_OUTPUT,
-                        out var location))
-                {
-                    continue;
-                }
-
-                outputs.Add(new VulkanFragmentOutput(
-                    location, ToVertexFormat(f.Type), f.Name, f.Semantic));
-            }
-        }
-        else if (ToVertexFormat(result) != VulkanFormat.Undefined)
-        {
-            // A bare `float4 fragmentMain() : SV_Target` return: one attachment at location 0.
-            outputs.Add(new VulkanFragmentOutput(0, ToVertexFormat(result), fragment.Name, "SV_TARGET"));
-        }
-
-        return outputs.OrderBy(o => o.Location).ToList();
-    }
-
+    private static List<VulkanFragmentOutput> FragmentOutputs(ProgramLayout layout) =>
+        layout.FragmentOutputs()
+            .Select(o => new VulkanFragmentOutput(o.Location, ToVertexFormat(o.Type), o.Name, o.Semantic))
+            .ToList();
 
     // ---------------------------------------------------------------- descriptor types
 
@@ -299,54 +241,20 @@ public static class VulkanProjection
     /// <c>uniform</c> value parameters, which Slang also places in a push-constant buffer.
     /// </summary>
     /// <remarks>
-    /// The offset needs care. Slang counts push-constant <em>buffers</em>, so the offset it reports
-    /// is a buffer index, not a byte offset — they coincide at 0, which is why a single range has
+    /// The blocks themselves come from <see cref="PipelineInterface.PushConstantBlocks"/>. The
+    /// offset needs care. Slang counts push-constant <em>buffers</em>, so the offset it reports is
+    /// a buffer index, not a byte offset — they coincide at 0, which is why a single range has
     /// always looked right. Rather than convert a quantity we cannot convert, a program with more
     /// than one push-constant buffer is refused: Vulkan wants byte offsets into one block, and
     /// silently emitting a buffer index as one produces a range that overlaps or misses.
     /// </remarks>
     private static List<VulkanPushConstantRange> PushConstants(ProgramLayout layout)
     {
-        var result = new List<VulkanPushConstantRange>();
         var stages = AllStages(layout);
-
-        foreach (var p in layout.Parameters)
-        {
-            if (!p.Bindings.Any(b => b.Category
-                    == SlangParameterCategory.SLANG_PARAMETER_CATEGORY_PUSH_CONSTANT_BUFFER))
-            {
-                continue;
-            }
-
-            // The declared size is the element's uniform footprint, not the wrapper's.
-            var block = p.Type is ContainerLayout c ? c.ElementType : p.Type;
-
-            // Unreachable for every shader measured — a block with an unknown size loses its
-            // bindings entirely and RequireEveryParameterIsPlaced catches it first. Kept because
-            // the alternative is casting a marker near ulong.MaxValue to uint, producing a
-            // 0xFFFFFFFE push-constant range that fails inside vkCreatePipelineLayout with nothing
-            // pointing back at the shader.
-            if (!block.IsUniformSizeKnown)
-            {
-                throw new NotSupportedException(
-                    $"push-constant block '{p.Name}' has no fixed size: it contains an array whose " +
-                    $"length is a specialization constant, so its footprint is not known until the " +
-                    $"pipeline is created. Vulkan needs the size when the pipeline layout is built, " +
-                    $"which is earlier. Give the array a fixed length.");
-            }
-
-            result.Add(new VulkanPushConstantRange(0, (uint)block.UniformSize, stages, p.Name));
-        }
-
-        // An entry point's `uniform` value parameters become an implicit push-constant buffer.
-        // Without this they are in the shader and in no pipeline layout, so vkCmdPushConstants has
-        // nowhere to write and the values the shader reads are undefined.
-        foreach (var ep in layout.EntryPoints)
-        {
-            if (ep.UniformSize == 0) continue;
-            result.Add(new VulkanPushConstantRange(
-                0, (uint)ep.UniformSize, ToStage(ep.Stage), $"{ep.Name}.uniforms"));
-        }
+        var result = layout.PushConstantBlocks()
+            .Select(b => new VulkanPushConstantRange(
+                0, (uint)b.Size, b.Stage is { } stage ? ToStage(stage) : stages, b.Name))
+            .ToList();
 
         if (result.Count > 1)
         {
@@ -364,39 +272,36 @@ public static class VulkanProjection
     /// Vertex attributes of the vertex stage, at the locations the module actually uses.
     /// </summary>
     /// <remarks>
-    /// Every location here comes from the offset Slang reported for that field, never from
-    /// counting. The counting version of this function was wrong in two ways at once, and both
-    /// were invisible until the emitted module was read back:
-    ///
-    /// <list type="bullet">
-    /// <item>A field can span more than one location. A <c>float4x4</c> occupies four, so every
-    /// attribute declared after one was reported four locations too low — the shader read
-    /// whichever buffer the renderer had bound at the wrong index.</item>
-    /// <item>A field whose format did not map was skipped but still advanced the counter by one,
-    /// so the matrix itself vanished from the layout entirely. Instanced rendering with a
-    /// per-instance transform simply had no transform.</item>
-    /// </list>
-    ///
-    /// Measured for <c>struct VIn { float3 position; float4x4 instanceXform; float2 uv; uint4
-    /// bones; }</c>: the module decorates 0, 1, 5, 6. The old code produced 0, 2, 3 and dropped
-    /// the matrix.
+    /// Which leaf attributes exist and where — a struct flattened, a matrix split into one
+    /// attribute per location, a builtin with no location left out — is decided once in
+    /// <see cref="PipelineInterface.VertexInputs"/>, which also records the two location-counting
+    /// bugs that used to live here. This gives each leaf a <c>VkFormat</c>, and refuses one it has
+    /// no format for rather than dropping it: silently dropping an attribute is how the matrix bug
+    /// hid, and if the type occupies locations, refusing is the only honest answer.
     /// </remarks>
     private static List<VulkanVertexInput> VertexInputs(ProgramLayout layout)
     {
-        var vertex = layout.EntryPoints.FirstOrDefault(e => e.Stage == SlangStage.SLANG_STAGE_VERTEX);
-        if (vertex is null) return [];
-
         var result = new List<VulkanVertexInput>();
 
-        foreach (var p in vertex.Parameters)
+        foreach (var input in layout.VertexInputs())
         {
-            if (!Varying(p.Bindings, out var location)) continue;
-            Emit(p.Name, p.Type, p.Semantic, location, result);
+            var format = ToVertexFormat(input.Type);
+            if (format == VulkanFormat.Undefined)
+            {
+                if (input.LocationsConsumed == 0) continue;
+
+                throw new NotSupportedException(
+                    $"vertex input '{input.Name}' is {input.Type.Kind}" +
+                    $"{(input.Type.Name is null ? "" : $" ('{input.Type.Name}')")}, which has no Vulkan " +
+                    $"attribute format, but it occupies {input.LocationsConsumed} location(s). " +
+                    $"PrismSlang.Vulkan will not guess one.");
+            }
+
+            result.Add(new VulkanVertexInput(input.Location, format, input.Name, input.Semantic));
         }
 
-        var ordered = result.OrderBy(v => v.Location).ToList();
-        RequireDistinctLocations(ordered);
-        return ordered;
+        RequireDistinctLocations(result);
+        return result;
     }
 
     /// <summary>
@@ -457,151 +362,6 @@ public static class VulkanProjection
         VulkanFormat.R64G64B64Sfloat or VulkanFormat.R64G64B64A64Sfloat => 2,
         _ => 1,
     };
-
-    /// <summary>The VARYING_INPUT offset, if the parameter has one at all.</summary>
-    /// <remarks>
-    /// Presence is checked rather than defaulted. A system-value input such as
-    /// <c>SV_VertexID</c> is a builtin with no location, and defaulting its absent offset to 0
-    /// would collide it with the attribute genuinely at location 0.
-    /// </remarks>
-    private static bool Varying(IReadOnlyList<ParameterBinding> bindings, out uint location)
-    {
-        foreach (var b in bindings)
-        {
-            if (b.Category != SlangParameterCategory.SLANG_PARAMETER_CATEGORY_VARYING_INPUT) continue;
-            location = b.Index;
-            return true;
-        }
-
-        location = 0;
-        return false;
-    }
-
-    /// <summary>
-    /// A field's offset in one category, and whether it has one at all.
-    /// </summary>
-    /// <remarks>
-    /// Presence is the interesting half. A field with no offset in a varying category is a
-    /// builtin — <c>SV_VertexID</c> on the way in, <c>SV_Depth</c> on the way out — and defaulting
-    /// its absent offset to 0 would put it at the location of a real attribute.
-    /// </remarks>
-    private static bool Offset(
-        IReadOnlyList<CategoryOffset> offsets,
-        SlangParameterCategory category,
-        out uint offset)
-    {
-        foreach (var o in offsets)
-        {
-            if (o.Category != category) continue;
-            offset = (uint)o.Offset;
-            return true;
-        }
-
-        offset = 0;
-        return false;
-    }
-
-    /// <summary>Locations this type consumes, as Slang counted them.</summary>
-    private static uint VaryingLocations(TypeLayout type) =>
-        (uint)type.Sizes
-            .FirstOrDefault(s => s.Category == SlangParameterCategory.SLANG_PARAMETER_CATEGORY_VARYING_INPUT)
-            .Size;
-
-    private static void Emit(
-        string name,
-        TypeLayout type,
-        string? semantic,
-        uint location,
-        List<VulkanVertexInput> into)
-    {
-        switch (type)
-        {
-            case StructLayout s:
-                foreach (var f in s.Fields)
-                {
-                    if (!Offset(f.Offsets, SlangParameterCategory.SLANG_PARAMETER_CATEGORY_VARYING_INPUT,
-                            out var fieldOffset))
-                    {
-                        continue;
-                    }
-                    Emit(f.Name, f.Type, f.Semantic, location + fieldOffset, into);
-                }
-                return;
-
-            // A matrix is several attributes at consecutive locations — the standard way to hand a
-            // per-instance transform to a vertex shader. How many, and how wide each is, is derived
-            // from the location count Slang reported rather than from an assumption about whether
-            // rows or columns come first, which depends on the session's matrix layout mode.
-            case MatrixLayout m:
-            {
-                var locations = VaryingLocations(m);
-                var components = m.RowCount * m.ColumnCount;
-                if (locations == 0 || components % locations != 0)
-                {
-                    throw new NotSupportedException(
-                        $"vertex input '{name}' is a {m.RowCount}x{m.ColumnCount} matrix occupying " +
-                        $"{locations} location(s), which does not divide evenly. PrismSlang.Vulkan " +
-                        $"cannot say what each location holds; declare the attribute explicitly.");
-                }
-
-                var width = (int)(components / locations);
-                for (var i = 0u; i < locations; i++)
-                {
-                    into.Add(new VulkanVertexInput(
-                        location + i,
-                        VectorFormat(m.ElementType, width, name),
-                        $"{name}[{i}]",
-                        semantic));
-                }
-                return;
-            }
-
-            case ArrayLayout { ElementCount: { } count } a when count > 0:
-            {
-                var locations = VaryingLocations(a);
-                var stride = locations == 0 ? 1u : locations / (uint)count;
-                for (var i = 0u; i < count; i++)
-                    Emit($"{name}[{i}]", a.ElementType, semantic, location + (i * stride), into);
-                return;
-            }
-
-            default:
-            {
-                var format = ToVertexFormat(type);
-                if (format != VulkanFormat.Undefined)
-                {
-                    into.Add(new VulkanVertexInput(location, format, name, semantic));
-                    return;
-                }
-
-                // Silently dropping an attribute is how the matrix bug hid. If the type occupies
-                // locations, refusing is the only honest answer.
-                if (VaryingLocations(type) > 0)
-                {
-                    throw new NotSupportedException(
-                        $"vertex input '{name}' is {type.Kind}" +
-                        $"{(type.Name is null ? "" : $" ('{type.Name}')")}, which has no Vulkan " +
-                        $"attribute format, but it occupies {VaryingLocations(type)} location(s). " +
-                        $"PrismSlang.Vulkan will not guess one.");
-                }
-
-                return;
-            }
-        }
-    }
-
-    private static VulkanFormat VectorFormat(SlangScalarType scalar, int count, string name)
-    {
-        var format = ToVertexFormat(count == 1
-            ? new ScalarLayout { Kind = LayoutKind.Scalar, ScalarType = scalar }
-            : new VectorLayout { Kind = LayoutKind.Vector, ElementType = scalar, ElementCount = count });
-
-        return format != VulkanFormat.Undefined
-            ? format
-            : throw new NotSupportedException(
-                $"vertex input '{name}' needs a {count}-component {scalar} format, which has no " +
-                $"Vulkan equivalent here.");
-    }
 
     /// <summary>
     /// Which stages touch each space, as the fallback when a binding does not say.
@@ -669,45 +429,4 @@ public static class VulkanProjection
         type == VulkanDescriptorType.InputAttachment
             ? stages & VulkanShaderStages.Fragment
             : stages;
-
-    /// <summary>
-    /// Names for the bindings of one space, so a descriptor can be reported as "albedo" rather
-    /// than "set 0 binding 1".
-    /// </summary>
-    /// <remarks>
-    /// Only parameters that genuinely occupy a descriptor slot are considered, and asking the
-    /// question that way round is load-bearing. Slang reports specialization constants and
-    /// <c>[vk::push_constant]</c> blocks in the same top-level list, with an index and a space that
-    /// look exactly like a descriptor's: <c>[vk::constant_id(0)]</c> and a push-constant block both
-    /// claim (space 0, index 0), the same coordinates as the descriptor at set 0 binding 0, and
-    /// both sort ahead of it — so the first-writer-wins <c>TryAdd</c> below labelled real
-    /// descriptors with their names. That was two separate bugs, found one at a time while
-    /// excluding kinds as they turned up. A whitelist cannot grow a third.
-    /// </remarks>
-    private static Dictionary<uint, string> NamesForSpace(ProgramLayout layout, uint space)
-    {
-        var names = new Dictionary<uint, string>();
-        foreach (var p in layout.Parameters)
-        {
-            if (!p.OccupiesDescriptorSlot) continue;
-            if (p.DescriptorSet != space) continue;
-            var b = p.PrimaryBinding;
-            if (b is not null) names.TryAdd(b.Value.Index, p.Name);
-        }
-
-        // Entry-point `uniform` parameters are descriptors too, numbered from the entry point's
-        // own base rather than absolutely. See ReflectionWalker.CollectEntryPointSets.
-        foreach (var ep in layout.EntryPoints)
-        {
-            var baseIndex = ep.BaseOffset(SlangParameterCategory.SLANG_PARAMETER_CATEGORY_DESCRIPTOR_TABLE_SLOT);
-            foreach (var p in ep.Parameters)
-            {
-                if (!p.OccupiesDescriptorSlot) continue;
-                var b = p.PrimaryBinding;
-                if (b is not null && b.Value.Space == space) names.TryAdd(baseIndex + b.Value.Index, p.Name);
-            }
-        }
-
-        return names;
-    }
 }

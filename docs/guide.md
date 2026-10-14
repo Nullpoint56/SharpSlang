@@ -17,6 +17,7 @@ recalled — and the traps flagged along the way are the ones that actually bit 
 - [Reflecting](#reflecting)
 - [Filling a uniform buffer](#filling-a-uniform-buffer)
 - [Projecting to Vulkan](#projecting-to-vulkan)
+- [Projecting to NRI](#projecting-to-nri)
 - [Specialization constants](#specialization-constants)
 - [Compute and dispatch](#compute-and-dispatch)
 - [Baking and loading](#baking-and-loading)
@@ -202,6 +203,72 @@ different number from the binding and you need both.
 `StageFlags` is **conservative** — every stage in the program is reported on every binding, because
 Slang's global-scope reflection does not attribute a parameter to entry points. It over-permits
 rather than omitting a stage that reads the binding; narrow it per pipeline if you care.
+
+## Projecting to NRI
+
+```csharp
+using PrismSlang.NRI;
+
+NriPipelineProjection nri = layout.ToNri(new NriProjectionOptions { UnboundedArrayCap = 1024 });
+using var pipelineLayout = device.CreatePipelineLayout(nri.Layout);
+```
+
+`nri.Layout` is a PrismNRI `NriPipelineLayoutDesc`, filled in from the same reading of the snapshot
+as the Vulkan projection: one `NriDescriptorSetDesc` per register space the shader uses, one
+`DescriptorRangeDesc` per binding, one `RootConstantDesc` per push-constant block, and
+`ShaderStages` set to every stage the program has. `PrismSlang.NRI` references `PrismNRI.Descs`
+only — the descs as plain types, no `NRI.dll` — so this runs wherever `PrismSlang.Runtime` does.
+
+What NRI's API is indexed by, and the desc cannot carry, is on the projection beside it:
+
+```csharp
+var (set, range) = nri.Range("albedo")!.Value;        // which set, which range, by parameter name
+var descriptorSet = pool.AllocateDescriptorSet(pipelineLayout, set.SetIndex);
+descriptorSet.Update(range.RangeIndex, 0, albedoView);
+
+var push = nri.RootConstants[0];                       // Index for cmd.SetRootConstants, Desc.size
+cmd.SetRootConstants(push.Index, in myPushData);
+
+foreach (var a in nri.VertexAttributes)                // Location, Format and D3D semantic filled
+    attributes.Add(a.Desc with { StreamIndex = 0, Offset = myOffsetFor(a.Name) });
+
+var shader = package.EntryPoints[0].ToNriShaderDesc(); // stage, bytes, ModuleEntryPointName
+```
+
+**`SetIndex` is not the register space.** NRI's descriptor API is indexed by position in the desc's
+`DescriptorSets` array; the SPIR-V is indexed by `set = N`. They coincide until a shader skips a
+space — `[[vk::binding(0, 2)]]` with nothing in space 1 — and then set index 1 is register space
+2. The projection reports both; NRI's Vulkan backend places each set at its register space and
+fills the gap with an empty layout, so the module binds where it says.
+
+**An unbounded array needs a cap.** `Texture2D t[];` is a runtime-sized array, and NRI's
+`DescriptorRangeDesc.descriptorNum` has no spelling for "unbounded" — whatever number goes there is
+the size of the binding the device creates. `ToNri` refuses the program unless
+`UnboundedArrayCap` is set; the range comes back `ARRAY | PARTIALLY_BOUND` with that count. Add
+`VARIABLE_SIZED_ARRAY` yourself only if the range is the last binding of its set, which Slang does
+not arrange for.
+
+**`ARRAY` is on every array range**, and it is load-bearing: NRI's Vulkan backend reads a range
+without it as `descriptorNum` consecutive bindings of one descriptor each — the D3D register-range
+reading — where Slang's SPIR-V declares one binding of `descriptorNum` descriptors.
+
+**The device must have zero `VkBindingOffsets`.** NRI's Vulkan backend adds the per-register-class
+shifts to every binding it builds, assuming the shader compiler was told the same shifts. Slang was
+not. State the device's offsets in `NriProjectionOptions.VkBindingOffsets` and the projection refuses
+a non-zero set rather than let the mismatch surface as a wrong texture at draw time.
+
+What NRI has no word for is refused with the construct named, as the Vulkan projection does: a
+combined texture sampler (`Sampler2D` — declare a `Texture2D` and a `SamplerState`), an inline
+uniform block, a 64-bit or three-component half vertex attribute (`Format` has none), a second
+push-constant block. NRI also has no specialization constants: a shader that declares them is
+specialized at link time, and a compute stage whose group size is a specialization constant reports
+`ThreadGroupSize.IsSpecialized` with nothing to resolve it against.
+
+Vulkan is the first NRI backend this is measured against — `NriDeviceTests` builds every corpus
+shader into real NRI pipeline layouts and pipelines on a validated device and dispatches compute
+work bound through the projection. The `STRUCTURED_BUFFER` / `STORAGE_STRUCTURED_BUFFER` and
+`BUFFER` / `STORAGE_BUFFER` splits are what a D3D12 backend will need to tell an SRV from a UAV;
+on Vulkan both halves of each pair are the same descriptor type.
 
 ## Specialization constants
 

@@ -19,8 +19,13 @@ namespace PrismSlang.Tests;
 public class AssemblySplitTests
 {
     /// <summary>The native files that must never reach a consumer of the reader assembly.</summary>
+    /// <remarks>
+    /// <c>NRI</c> is here because PrismSlang.NRI references PrismNRI.Descs and not PrismNRI, and
+    /// that is the whole reason the Descs package exists: a projection must not drag NRI.dll into
+    /// a process that only wanted a desc. One wrong ProjectReference and it would.
+    /// </remarks>
     private static readonly string[] Payload =
-        ["slang-compiler", "slang-glslang", "slang-rhi", "gfx", "slang"];
+        ["slang-compiler", "slang-glslang", "slang-rhi", "gfx", "slang", "NRI"];
 
     private static string ConsumerOutput =>
         typeof(AssemblySplitTests).Assembly
@@ -44,8 +49,8 @@ public class AssemblySplitTests
             .ToList();
 
         Assert.True(offenders.Count == 0,
-            $"a project referencing only PrismSlang.Runtime and PrismSlang.Vulkan picked up native "
-            + $"files. Something grew a reference to the compiler:\n"
+            $"a project referencing only PrismSlang.Runtime, PrismSlang.Vulkan and PrismSlang.NRI "
+            + $"picked up native files. Something grew a reference to the compiler or to NRI:\n"
             + string.Join("", offenders.Select(f => $"    {f}\n")));
 
         static bool IsNative(string path)
@@ -69,9 +74,12 @@ public class AssemblySplitTests
     }
 
     [Fact]
-    public void The_consumer_closure_is_the_three_assemblies_and_nothing_else()
+    public void The_consumer_closure_is_the_reader_assemblies_and_nothing_else()
     {
         // Stated positively so the test says what the deliverable is, not only what it excludes.
+        // PrismNRI.Descs is NRI's vocabulary as plain types and is the one dependency the NRI
+        // projection brings; PrismNRI.dll, which would bring NRI.dll with it, is the one it must
+        // not.
         var assemblies = Directory
             .EnumerateFiles(ConsumerOutput, "*.dll", SearchOption.TopDirectoryOnly)
             .Select(Path.GetFileName)
@@ -79,7 +87,13 @@ public class AssemblySplitTests
             .ToList();
 
         Assert.Equal(
-            ["PrismSlang.Runtime.Consumer.dll", "PrismSlang.Runtime.dll", "PrismSlang.Vulkan.dll"],
+            [
+                "PrismNRI.Descs.dll",
+                "PrismSlang.NRI.dll",
+                "PrismSlang.Runtime.Consumer.dll",
+                "PrismSlang.Runtime.dll",
+                "PrismSlang.Vulkan.dll",
+            ],
             assemblies);
     }
 
@@ -113,6 +127,7 @@ public class AssemblySplitTests
 
             // Everything the criterion named, in the order the consumer prints it.
             Assert.Contains("descriptor set(s)", output);
+            Assert.Contains("root constant block(s)", output);
             Assert.Contains("specialization:", output);
             Assert.Contains("stride", output);
             Assert.Contains("OK - read, projected and packed", output);
