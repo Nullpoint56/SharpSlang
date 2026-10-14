@@ -33,7 +33,7 @@
       Nothing fetches on its own; a restore against a version the feed does not hold fails with
       NU1102, which is the prompt to run the script.
     -->
-    <PrismNriVersion>0.2.0-alpha</PrismNriVersion>
+    <PrismNriVersion>0.3.0-alpha</PrismNriVersion>
 
     <!--
       The pinned Microsoft.Direct3D.DXC package, for PrismSlang.Native.Dxc only. Slang compiles to
