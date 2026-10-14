@@ -1,7 +1,12 @@
-name: Publish to GitHub Packages
+name: Publish
 
-# Publishes every package on a version tag (e.g. `v0.1.0`), or on manual dispatch. The version is
-# taken from the tag (`v0.1.0` -> 0.1.0); manual runs fall back to <Version> in the csproj.
+# Publishes every package on a version tag (e.g. `v0.1.0`), or on manual dispatch: to GitHub
+# Packages, where consumers restore from, and — on a tag — as a GitHub release carrying the same
+# .nupkg files, the way PrismNRI publishes. The release is the durable, browsable record and the
+# one place a consumer without feed access (tools/fetch-nri.ps1 is the same idea, pointed the other
+# way) can download the packages from. The tag has to equal `v` + <Version> in the five csproj
+# files, checked first, so that the version a package carries, the tag, the release name and the
+# README's "Status" line cannot disagree; manual runs have no tag and build whatever <Version> says.
 #
 # Five packages, deliberately:
 #   PrismSlang             Slang-neutral. Compilation and reflection.
@@ -30,7 +35,8 @@ name: Publish to GitHub Packages
 # with only the last step skipped. The .nupkg files are uploaded either way, so a dry run leaves
 # something to inspect.
 #
-# A tag still publishes for real. dry_run only applies to a manual run.
+# A tag still publishes for real. dry_run only applies to a manual run, and a manual run never
+# creates a release: there is no tag to attach one to.
 on:
   push:
     tags: ['v*']
@@ -41,8 +47,9 @@ on:
         type: boolean
         default: true
 
+# contents: write for the release step and nothing else; the checkout and the build need read.
 permissions:
-  contents: read
+  contents: write
   packages: write
 
 jobs:
@@ -50,6 +57,29 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+
+      # The tag names the version, and so does every csproj. Checked before anything is built, so
+      # a tag pushed against the wrong <Version> fails in seconds with both values named rather than
+      # publishing packages whose assembly version disagrees with the release they sit on. The
+      # same check PrismNRI's release workflow makes.
+      - name: Tag equals v<Version>
+        if: github.ref_type == 'tag'
+        shell: pwsh
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          $projects = 'runtime/PrismSlang.Runtime.csproj', 'dotnet/PrismSlang.csproj', 'vulkan/PrismSlang.Vulkan.csproj',
+                      'nri/PrismSlang.NRI.csproj', 'native/PrismSlang.Native.Dxc.csproj'
+          $versions = foreach ($p in $projects) {
+            if ((Get-Content $p -Raw) -notmatch '<Version>([^<]+)</Version>') { throw "<Version> not found in $p" }
+            [pscustomobject]@{ Project = $p; Version = $Matches[1].Trim() }
+          }
+          $versions | Format-Table -AutoSize | Out-String | Write-Host
+          $version = $versions[0].Version
+          $odd = @($versions | Where-Object Version -ne $version)
+          if ($odd) { throw "package versions disagree: $(($odd | ForEach-Object { "$($_.Project)=$($_.Version)" }) -join ', ') vs $($versions[0].Project)=$version" }
+          if ($env:RELEASE_TAG -cne "v$version") { throw "tag '$env:RELEASE_TAG' is not 'v$version' (<Version> in the csproj files)" }
+          if ((Get-Content README.md -Raw) -notmatch [regex]::Escape("``$version``")) { throw "README.md's Status line does not say ``$version``" }
 
       # The preview quality is there because .NET 11 has no GA release yet; drop it when it does.
       - uses: actions/setup-dotnet@v4
@@ -221,7 +251,7 @@ jobs:
           Write-Host "would push:"
           $pkgs | ForEach-Object { Write-Host ("    {0,-46} {1,7:N0} KB" -f $_.Name, ($_.Length / 1KB)) }
           Write-Host ""
-          Write-Host "Dry run. Re-run with dry_run unchecked, or push a v* tag, to publish."
+          Write-Host "Dry run. Re-run with dry_run unchecked to push to GitHub Packages, or push a v* tag to push and create the release."
 
       - name: Push to GitHub Packages
         if: ${{ !inputs.dry_run }}
@@ -241,3 +271,18 @@ jobs:
         with:
           name: packages
           path: artifacts/*.nupkg
+
+      # The release, with every package attached. Prerelease whenever the version carries a
+      # suffix (`0.1.0-alpha`), which is how the README's "alpha" is spelled on the releases page;
+      # the notes are GitHub's, generated from the merged pull requests since the previous tag,
+      # which is where the measured facts of each change already are. fail_on_unmatched_files, so
+      # a pack that produced nothing cannot publish an empty release.
+      - uses: softprops/action-gh-release@v2
+        if: github.ref_type == 'tag'
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: PrismSlang ${{ github.ref_name }}
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: artifacts/*.nupkg
