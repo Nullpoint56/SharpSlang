@@ -43,7 +43,9 @@ try
         """);
 
     // A DXBC container, and a signed one: the 16 bytes after the magic are zeros when it is not,
-    // and D3D12 refuses an unsigned container outside developer mode.
+    // and D3D12 refuses an unsigned container unless experimental shader models are enabled, which
+    // Developer Mode alone does not do (measured with it on; DxilTests records the words). The
+    // pinned dxc signs with the validator inside dxcompiler.dll, so this does not need dxil.dll.
     if (dxil.Length < 20 || !dxil.AsSpan(0, 4).SequenceEqual("DXBC"u8))
         throw new InvalidOperationException("the DXIL target produced something that is not a DXBC container");
     if (!dxil.AsSpan(4, 16).ContainsAnyExcept((byte)0))

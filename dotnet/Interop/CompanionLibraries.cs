@@ -126,12 +126,20 @@ internal static unsafe class CompanionLibraries
     /// module name.
     /// </para>
     /// <para>
-    /// dxil.dll before dxcompiler.dll, the dependency first, though the pinned dxc 1.9.2609.5 was
-    /// measured not to care: a compute shader came out as the same 2,900-byte container, digest and
-    /// all, with dxil.dll loaded first, loaded second, or absent from the disk, and with dxc on the
-    /// search path nothing loaded dxil.dll at all. That dxc signs with its own validator. dxil.dll
-    /// is preloaded for a dxc that still loads it by name to sign, which is what it ships beside
-    /// dxcompiler.dll for; two megabytes of mapping is the whole cost.
+    /// dxil.dll too, though the pinned dxc does not use it. dxc 1.9.2609.5 signs with the
+    /// validator built into dxcompiler.dll and never loads dxil.dll, measured: its output was byte
+    /// for byte the same with dxil.dll loaded first, loaded second, or deleted; with dxil.dll in
+    /// the working directory and first on PATH, where a load by name would have found it, nothing
+    /// loaded it; and its digest is the real one, because dxil.dll's own validator, handed
+    /// compute-fixed's 2,908-byte container with the digest zeroed, wrote back the same 16 bytes.
+    /// dxc 1.8.2502.7, from the package cache, likewise wrote a byte-identical container with
+    /// dxil.dll present and deleted. The release notes in the package say why: 1.8.2502
+    /// open-sourced the validator's hash, and from 1.8.2505 the compiler always uses its internal
+    /// validator instead of searching for dxil.dll. Releases before 1.8.2502 signed only through
+    /// dxil.dll and wanted it loaded before dxcompiler.dll — read from Microsoft's description of
+    /// them and from the order Dawn loads the two in, not measured here. So dxil.dll is loaded
+    /// first, for a dxc a consumer brings that still signs that way, and two megabytes of mapping
+    /// is the whole cost.
     /// </para>
     /// </remarks>
     private static void PreloadDxc(string? compilerDirectory)

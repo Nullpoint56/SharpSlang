@@ -139,8 +139,10 @@ has no 64-bit vertex formats, so a `double` attribute is refused rather than gue
 Slang emits DXIL by handing HLSL to dxc, and Slang's own release ships no dxc. This package carries
 no binary either: it depends on Microsoft's own
 [`Microsoft.Direct3D.DXC`](https://www.nuget.org/packages/Microsoft.Direct3D.DXC) package at a
-pinned version and copies `dxcompiler.dll` and `dxil.dll` from it to the output, beside the
-compiler, on `win-x64`. Add it to the asset pipeline that targets D3D12 and nothing else:
+pinned version and copies `dxcompiler.dll` and `dxil.dll` from it into the application's output on
+`win-x64`: beside the compiler in a flat build, one `runtimes\win-x64\native\` away from it in a
+portable one, and PrismSlang loads dxc from there before Slang looks for it. Add it to the asset
+pipeline that targets D3D12 and nothing else:
 
 ```csharp
 using var session = global.CreateSession(new SessionOptions
@@ -279,7 +281,7 @@ assistance.
 | [ClangSharp](https://github.com/dotnet/ClangSharp) | generates `dotnet/Native/` from Slang's headers |
 | [.NET 11](https://github.com/dotnet/runtime) | the runtime, and the P/Invoke and `[UnmanagedCallersOnly]` machinery |
 | [PrismNRI.Descs](https://github.com/Nullpoint56/PrismNRI) | NRI's descriptor structs and enums as plain types, the one dependency of `PrismSlang.NRI`. No native library |
-| [Microsoft.Direct3D.DXC](https://www.nuget.org/packages/Microsoft.Direct3D.DXC) | Microsoft's package of `dxcompiler.dll` and `dxil.dll`, the one dependency of `PrismSlang.Native.Dxc`, which copies them beside the compiler. Slang hands it HLSL to emit DXIL |
+| [Microsoft.Direct3D.DXC](https://www.nuget.org/packages/Microsoft.Direct3D.DXC) | Microsoft's package of `dxcompiler.dll` and `dxil.dll`, the one dependency of `PrismSlang.Native.Dxc`, which copies them into the application's output. Slang hands it HLSL to emit DXIL |
 
 Test-only, none of it shipped in a package:
 

@@ -15,9 +15,10 @@ name: Publish
 #                          consumer never pulls Vulkan concepts in.
 #   PrismSlang.NRI         The NRI (NVIDIA Render Interface) reading of a reflection snapshot, onto
 #                          PrismNRI's descs. Opt-in like the Vulkan one.
-#   PrismSlang.Native.Dxc  Puts Microsoft's dxc beside the compiler so Slang can emit DXIL. No
-#                          binary of its own: a dependency on Microsoft.Direct3D.DXC and a targets
-#                          file that copies from it. Opt-in, for D3D12 only.
+#   PrismSlang.Native.Dxc  Copies Microsoft's dxc into the app's output, where PrismSlang loads it
+#                          for Slang, so Slang can emit DXIL. No binary of its own: a dependency on
+#                          Microsoft.Direct3D.DXC and a targets file that copies from it. Opt-in,
+#                          for D3D12 only.
 #
 # Unlike PrismUSD, the native payload is not committed: runtimes/ is gitignored and fetched from
 # the release pinned in Directory.Build.props. So this workflow stages every RID before packing —

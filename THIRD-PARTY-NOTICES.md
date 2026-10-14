@@ -13,7 +13,7 @@ is a dependency rather than a redistribution.
 | `PrismSlang.Vulkan` | nothing. MIT only. Its enum values are transcribed from the Vulkan specification's `vk.xml`; values are facts, not expression. |
 | `PrismSlang.NRI` | nothing. MIT only. It references the `PrismNRI.Descs` package (MIT) for NRI's descriptor types and redistributes no NRI binary. |
 | **`PrismSlang`** | binaries from the [Slang](https://github.com/shader-slang/slang) project, one set per runtime identifier |
-| `PrismSlang.Native.Dxc` | nothing. MIT only. It depends on Microsoft's `Microsoft.Direct3D.DXC` package and copies `dxcompiler.dll` and `dxil.dll` out of it beside the compiler; see below. Opt-in: nothing else depends on it. |
+| `PrismSlang.Native.Dxc` | nothing. MIT only. It depends on Microsoft's `Microsoft.Direct3D.DXC` package and copies `dxcompiler.dll` and `dxil.dll` out of it into the application's output; see below. Opt-in: nothing else depends on it. |
 
 Under `runtimes/<rid>/native/` in the `PrismSlang` package, taken unmodified from Slang's own
 prebuilt release for that platform:
@@ -51,25 +51,33 @@ the same texts.
 on Microsoft's own [`Microsoft.Direct3D.DXC`](https://www.nuget.org/packages/Microsoft.Direct3D.DXC)
 package from nuget.org, pinned exactly to the version in `Directory.Build.props`
 (`DxcPackageVersion`), and a `build/PrismSlang.Native.Dxc.targets` that copies two files out of
-that package's `build/native/bin/x64/` into the consumer's output, beside `slang-compiler.dll`:
+that package's `build/native/bin/x64/` into the root of the consumer's output — beside
+`slang-compiler.dll` when the output is flat, one `runtimes/win-x64/native/` away from it in a
+portable build:
 
-- `dxcompiler.dll` — the compiler Slang loads by name when asked for DXIL
-- `dxil.dll` — the DXIL validator that signs the result
+- `dxcompiler.dll` — the compiler Slang loads by name when asked for DXIL. The pinned version
+  also validates and signs what it compiles, with the validator built into it.
+- `dxil.dll` — Microsoft's stand-alone DXIL validator. The pinned dxc never loads it: its
+  release notes say the compiler always uses its internal validator from 1.8.2505 on, and its
+  output was measured byte for byte the same with `dxil.dll` deleted. It is copied for a dxc that
+  still signs through it, as releases before 1.8.2502 did; that release's notes record the
+  validator's hash being open-sourced.
 
 So `dxcompiler.dll` and `dxil.dll` reach a consumer from Microsoft's package, restored from
 nuget.org under the terms that package carries — `LICENSE-LLVM.txt` (the LLVM Release License,
-University of Illinois/NCSA, DXC's declared licence) and `LICENSE.txt` (the Microsoft Software
-License Terms for the DirectX Shader Compiler) — and never from a PrismSlang package or this
-repository. That is the point of the shape. The DirectXShaderCompiler GitHub release carries the
-same binaries with Microsoft's terms beside them, and those terms permit distributing the covered
-code only inside an application that adds significant primary functionality and forbid providing
-it "as a stand-alone offering", which a payload-only NuGet package arguably is. Microsoft's own
-package on nuget.org is Microsoft providing it, and a consumer restoring that package takes its
-terms directly.
+University of Illinois/NCSA, DXC's declared licence) and `LICENSE-MS.txt` (the Microsoft Software
+License Terms for the DirectX Shader Compiler), with `LICENCE-MIT.txt` for one header the package
+also carries — and never from a PrismSlang package or this repository. That is the point of the
+shape. The DirectXShaderCompiler GitHub release carries the same binaries with Microsoft's terms
+beside them, and those terms permit distributing the covered code only inside an application that
+adds significant primary functionality and forbid providing it "as a stand-alone offering", which
+a payload-only NuGet package arguably is. Microsoft's own package on nuget.org is Microsoft
+providing it, and a consumer restoring that package takes its terms directly.
 
 PrismSlang never calls dxc itself: Slang loads it as a downstream compiler when a session targets
-DXIL, and PrismSlang only puts it where Slang looks. `SlangGlobalSession.CreateSession` refuses a
-DXIL target when dxc is not loadable, naming the package.
+DXIL, and PrismSlang only copies it into the output and loads it from there before Slang asks for
+it by name. `SlangGlobalSession.CreateSession` refuses a DXIL target when dxc is not loadable,
+naming the package.
 
 The publish workflow refuses to push a `PrismSlang.Native.Dxc` package that carries anything
 under `runtimes/`, that lacks the targets file, or whose dependency on `Microsoft.Direct3D.DXC` is

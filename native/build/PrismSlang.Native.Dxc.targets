@@ -50,13 +50,24 @@
   </ItemGroup>
 
   <!--
-    An error rather than a silent empty copy. A restore that resolved a different version, or a
-    package cache in an unexpected place, would otherwise build cleanly and fail inside Slang's
-    first DXIL compile, which reads as a shader error.
+    An error that names the package, in place of the copy's own. When the folder above is missing —
+    a restore that resolved a different version, a package cache somewhere else — the copy cannot
+    succeed, and MSBuild says so as MSB3030, "Could not copy the file "...\dxcompiler.dll" because
+    it was not found": a path under the package cache, and nothing about which package was meant to
+    be there or what to do about it. Both DLLs are checked because the copy names both.
+
+    Before BeforeBuild, the first target Build runs, so it comes before the references are resolved
+    and before anything is compiled or copied. It was BeforeTargets="Build", which is too late: a
+    target hooked before another runs after that target's own dependencies, and Build's are
+    BeforeBuild, CoreBuild and AfterBuild, with the copy inside CoreBuild (PrepareForRun,
+    CopyFilesToOutputDirectory). CoreBuild and CopyFilesToOutputDirectory are too late for the same
+    reason. Measured with a project importing this file at a Microsoft.Direct3D.DXC version the
+    cache does not hold: hooked before Build, the build failed with two MSB3030s, one per DLL, and
+    this message never appeared; hooked here, it fails with this message and nothing else.
   -->
-  <Target Name="PrismSlangDxcRequirePackage" BeforeTargets="Build"
-          Condition="'$(PrismSlangDxcHostRid)' == 'win-x64' And !Exists('$(PrismSlangDxcBin)dxcompiler.dll')">
-    <Error Text="PrismSlang.Native.Dxc expects Microsoft.Direct3D.DXC $(PrismSlangDxcPackageVersion) at $(PrismSlangDxcBin), and dxcompiler.dll is not there. Restore the project, and check that the dependency resolved to exactly that version." />
+  <Target Name="PrismSlangDxcRequirePackage" BeforeTargets="BeforeBuild"
+          Condition="'$(PrismSlangDxcHostRid)' == 'win-x64' And (!Exists('$(PrismSlangDxcBin)dxcompiler.dll') Or !Exists('$(PrismSlangDxcBin)dxil.dll'))">
+    <Error Text="PrismSlang.Native.Dxc copies dxcompiler.dll and dxil.dll from Microsoft.Direct3D.DXC $(PrismSlangDxcPackageVersion) at $(PrismSlangDxcBin), and they are not both there. Restore the project, and check that the dependency resolved to exactly that version." />
   </Target>
 
 </Project>
