@@ -32,12 +32,22 @@ on:
     branches: ['**']
     tags-ignore: ['v*']      # tags are handled by publish.yml
     paths-ignore: ['**.md']
-  pull_request:
-    paths-ignore: ['**.md']
+  # No pull_request trigger. Every branch is already built on push, and a pull request from one
+  # of them ran the whole matrix a second time for the same commit — eight legs instead of four,
+  # which is what used up the GitHub API budget on the first .NET 11 run. The push run's checks
+  # appear on the pull request, since they are reported against the same SHA. A fork's pull
+  # request would not be built; this repository has none.
   workflow_dispatch:
 
 permissions:
   contents: read
+
+# A newer push to the same branch supersedes the run in flight. Without this, a fixup pushed
+# while the previous commit is still being tested means two full matrices, and when the earlier
+# one is hung (see the Test step's timeout) it means a runner held for nothing.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   test:
@@ -98,7 +108,11 @@ jobs:
       #
       # Worth caching for a second reason: the corpus listing goes through the GitHub API, which
       # allows 60 unauthenticated requests an hour per IP. Four legs on shared runner IPs is not a
-      # comfortable margin, and SlangTestCorpus fails loudly rather than running a subset.
+      # comfortable margin, and SlangTestCorpus fails loudly rather than running a subset. The
+      # margin ran out on the first .NET 11 push: the caches had been evicted after a quiet week
+      # on main, and two legs out of eight got a 403 on their very first call. So the test step
+      # now hands the job token to the tests, which makes a cache miss a cost rather than a
+      # failure; this cache remains the reason the budget is rarely touched at all.
       - name: Cache the pinned headers and Slang's test corpus
         uses: actions/cache@v4
         with:
@@ -207,7 +221,17 @@ jobs:
       # completion and exited 0. The default hardening is what caught the double free in , and
       # MALLOC_CHECK_ would have replaced it with something weaker.
       - name: Test
+        # The suite takes two to four minutes on every leg. Without a bound, a hang holds the
+        # runner for the six-hour default: the push-triggered win-x64 run of the .NET 11 migration
+        # went quiet one minute in, on a commit whose other run had finished in under three, and
+        # was cancelled by hand at twenty-two. The bound turns the next one into a failure with
+        # the --blame sequence file intact, which the step below reads to name the test.
+        timeout-minutes: 20
         env:
+          # For SlangTestCorpus's one GitHub API call, so a cache miss does not spend the runner
+          # IP's unauthenticated budget — see the cache step above. Read-only on this repository
+          # and ignored by every other test.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           MALLOC_PERTURB_: 165
           GLIBC_TUNABLES: glibc.malloc.tcache_count=0
           MallocScribble: 1
@@ -341,22 +365,25 @@ jobs:
         if: failure()
         shell: pwsh
         run: |
-          $trx = Get-ChildItem -Recurse -Filter results.trx -ErrorAction SilentlyContinue |
-                 Select-Object -First 1
-          if (-not $trx) { Write-Host "no TRX — the run did not get that far"; exit 0 }
-
-          # --blame's sequence file names the test that was executing when the host died. It only
-          # exists when the run did not finish, which is exactly when it is wanted.
+          # --blame's sequence file names the test that was executing when the host died — or when
+          # the step's timeout killed it. It only exists when the run did not finish, which is
+          # exactly when it is wanted, and it is read before the TRX because a timed-out run has no
+          # TRX at all: the logger writes that file at the end, and the first win-x64 hang on .NET
+          # 11 was cancelled with twenty minutes of silence and nothing to say which test it was in.
           $seq = Get-ChildItem -Recurse -Filter '*.Sequence.xml' -ErrorAction SilentlyContinue |
                  Select-Object -First 1
           if ($seq) {
-            Write-Host "=== the host died during:"
+            Write-Host "=== the host died, or was killed, during:"
             ([xml](Get-Content $seq.FullName)).TestSequence.Test |
               ForEach-Object { Write-Host ("    {0}.{1}" -f $_.source, $_.fullyQualifiedName) }
             Write-Host ""
           } else {
             Write-Host "no --blame sequence file: the host did not crash, or did not get that far."
           }
+
+          $trx = Get-ChildItem -Recurse -Filter results.trx -ErrorAction SilentlyContinue |
+                 Select-Object -First 1
+          if (-not $trx) { Write-Host "no TRX — the run did not get that far"; exit 0 }
 
           [xml]$doc = Get-Content $trx.FullName
           $ns = @{ t = 'http://microsoft.com/schemas/VisualStudio/TeamTest/2010' }
