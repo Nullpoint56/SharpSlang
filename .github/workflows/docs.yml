@@ -8,11 +8,9 @@ name: docs
 # break is a link, or a § reference that a code comment depends on, and neither of those was
 # checked by anything before this existed.
 
+# Pull requests only, like ci.yml and for the same reason: a push trigger ran this a second time
+# for every pull request's commits, and again on main after the merge.
 on:
-  push:
-    branches: ['**']
-    tags-ignore: ['v*']
-    paths: ['**.md', '**.slnx', 'tools/ci/check-docs.sh', '.github/workflows/docs.yml']
   pull_request:
     paths: ['**.md', '**.slnx', 'tools/ci/check-docs.sh', '.github/workflows/docs.yml']
   workflow_dispatch:

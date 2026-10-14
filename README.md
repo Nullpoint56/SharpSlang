@@ -197,11 +197,13 @@ shader construct that caused it.
 | RID | CI | Notes |
 |---|---|---|
 | `win-x64` | `windows-latest` | |
-| `linux-x64` | `ubuntu-latest` | also runs the Vulkan validation layers via lavapipe |
+| `linux-x64` | `ubuntu-24.04` | also runs the Vulkan validation layers via lavapipe |
 | `linux-arm64` | `ubuntu-24.04-arm` | the only leg exercising ARM64 calling conventions |
-| `osx-arm64` | `macos-14` | the only leg on a non-glibc allocator and loader |
+| `osx-arm64` | `macos-14` | the only leg on a non-glibc allocator and loader; on demand and before every release |
 
-All four run the full suite on every push, and all four ship in the `PrismSlang` package. The NRI
+Windows and both Linux legs run the full suite on every pull request. The macOS leg runs when a
+run is started by hand, and before every release, because a macOS minute costs ten times a Linux
+one and macOS is not an engine target yet. All four ship in the `PrismSlang` package. The NRI
 device tests run on `win-x64` only, by decision rather than by capability: PrismNRI ships Linux and
 macOS payloads too, but that is not where the engine runs yet, and the projection tests that need
 no device run everywhere. If you
@@ -238,7 +240,7 @@ the only check in the suite that can see a layout error, and the only one that c
 parameter list on a vtable slot nothing has ever called. They skip with instructions where no
 compiler is found; CI has one on every runner.
 
-**807 tests** run on all four platforms each push, against oracles rather than expected values typed
+**807 tests** run on every leg, against oracles rather than expected values typed
 by hand: the emitted SPIR-V, Slang's own alternate route to each fact, a vk.xml-generated enum
 mirror, the Khronos validation layers building real pipelines on a headless device from a
 **33-shader corpus**, and Slang's own test suite — 31 shaders whose expected reflection the Slang

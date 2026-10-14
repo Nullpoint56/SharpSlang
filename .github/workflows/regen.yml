@@ -1,0 +1,59 @@
+name: regen
+
+# The generated bindings are current: the committed dotnet/Native/ is what the generator produces
+# from the pinned slang.h.
+#
+# Vtable *reordering* is a silent ABI break: the code still compiles and calls the wrong function.
+# Reviewing that diff is the control (docs §4.3), so this fails if the committed bindings do not
+# match the generator's output for the pinned header.
+#
+# Its own workflow, and only when its inputs change, for cost: it used to be a job in ci.yml, a
+# Windows runner on every run, checking files that change only when the Slang pin, the generator
+# script or the bindings themselves do. The generator reads exactly those three things — the
+# SlangVersion pin in Directory.Build.props, the header it downloads for that pin, and its own
+# script — and writes dotnet/Native, so those paths are the trigger. A Directory.Build.props change
+# to another pin runs it too, which is a minute spent rather than a check missed.
+on:
+  pull_request:
+    paths:
+      - 'Directory.Build.props'
+      - 'tools/generate-native.ps1'
+      - 'dotnet/Native/**'
+      - '.github/workflows/regen.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  regen:
+    name: generated bindings are current
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # 10.0, not the 11.0 the projects target: ClangSharpPInvokeGenerator 21.1.8.4 is a net10.0
+      # tool, and running it is all this job does. generate-native.ps1 never builds the solution,
+      # so nothing here needs the newer SDK.
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Install ClangSharp generator
+        run: dotnet tool install --global ClangSharpPInvokeGenerator
+
+      - name: Regenerate
+        shell: pwsh
+        run: ./tools/generate-native.ps1
+
+      - name: Fail if the committed bindings differ
+        shell: pwsh
+        run: |
+          git add --intent-to-add dotnet/Native
+          $diff = git diff --stat -- dotnet/Native
+          if ($diff) {
+            Write-Host "::error::dotnet/Native is out of date. Run tools/generate-native.ps1 and review the diff."
+            git diff -- dotnet/Native
+            exit 1
+          }
+          Write-Host "generated bindings match the pinned header"
