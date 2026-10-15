@@ -242,7 +242,7 @@ the only check in the suite that can see a layout error, and the only one that c
 parameter list on a vtable slot nothing has ever called. They skip with instructions where no
 compiler is found; CI has one on every runner.
 
-**810 tests** run on every leg, against oracles rather than expected values typed
+**846 tests** run on every leg, against oracles rather than expected values typed
 by hand: the emitted SPIR-V, Slang's own alternate route to each fact, a vk.xml-generated enum
 mirror, the Khronos validation layers building real pipelines on a headless device from a
 **33-shader corpus**, and Slang's own test suite — 31 shaders whose expected reflection the Slang

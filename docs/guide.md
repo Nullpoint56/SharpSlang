@@ -474,6 +474,9 @@ a shader running the version before last. Content hashes, not timestamps, so a c
 rebuild the project.
 
 `ReadFrom` has exactly one failure mode — `InvalidDataException` — whatever is wrong with the bytes.
+`Bake` reads its own layout back before returning, and throws `InvalidOperationException` if the
+package could not be loaded again. That is a defect in PrismSlang to report, not an error in the
+shader.
 
 ## Serving shaders from your own filesystem
 

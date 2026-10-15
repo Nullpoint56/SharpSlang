@@ -297,7 +297,7 @@ namespace PrismSlang.Reflection
     public sealed class ArrayLayout : PrismSlang.Reflection.TypeLayout, System.IEquatable<PrismSlang.Reflection.ArrayLayout>
     {
         public ArrayLayout() { }
-        public required int? ElementCount { get; init; }
+        public int? ElementCount { get; init; }
         public required ulong ElementStride { get; init; }
         public required PrismSlang.Reflection.TypeLayout ElementType { get; init; }
         public bool IsSpecializationSized { get; init; }
