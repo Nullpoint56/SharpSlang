@@ -328,7 +328,22 @@ public sealed record ArrayLayout : TypeLayout
     /// whose length is a specialization constant. <see cref="IsSpecializationSized"/> separates the
     /// two.
     /// </summary>
-    public required int? ElementCount { get; init; }
+    /// <remarks>
+    /// <para>
+    /// Absent in the layout JSON means null. It must not be <c>required</c>: <c>ToJson</c> drops
+    /// nulls, and a <c>required</c> member that is absent is refused on read. It was, and every
+    /// package containing an unbounded array baked and wrote fine and then failed in
+    /// <c>ReadFrom</c> with "JSON deserialization for type 'PrismSlang.Reflection.ArrayLayout' was
+    /// missing required properties including: 'ElementCount'."
+    /// </para>
+    /// <para>
+    /// Fixed on the reading side rather than with <c>[JsonIgnore(Condition = Never)]</c>, which
+    /// would write <c>"ElementCount": null</c> instead. This way the written bytes stay identical,
+    /// so packages cooked before the fix become readable without a rebake, and "absent means null"
+    /// stays the one convention of the whole layout JSON.
+    /// </para>
+    /// </remarks>
+    public int? ElementCount { get; init; }
 
     /// <summary>
     /// Whether the length is a specialization constant, so it is fixed at pipeline creation rather

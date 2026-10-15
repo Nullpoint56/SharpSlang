@@ -94,6 +94,16 @@ public static class ShaderPackageBaker
 
         var layout = program.Reflect(targetIndex);
 
+        // Read the layout back before handing the package out. The layout JSON is the one lossy
+        // conversion in the container: every other field is written and read symmetrically, while
+        // this one goes through a serializer whose options (nulls dropped, enums as strings) and
+        // annotations (`required`) have to agree with each other, and the consumer cannot know
+        // which parts are lossy. They disagreed once: a `required` nullable dropped on write made
+        // every package with an unbounded array unreadable, and the engine's cook caught the read
+        // exception in its up-to-date check and silently re-cooked, so the defect only surfaced at
+        // pipeline creation. The check costs one serialize and one parse, at build time.
+        VerifyLayoutRoundTrips(layout.ToJson());
+
         var entryPoints = new List<BakedEntryPoint>(program.EntryPointNames.Count);
         for (var i = 0; i < program.EntryPointNames.Count; i++)
         {
@@ -134,5 +144,49 @@ public static class ShaderPackageBaker
             EntryPoints = entryPoints,
             Dependencies = dependencies,
         };
+    }
+
+    /// <summary>
+    /// Throws unless <paramref name="json"/>, a serialized <see cref="ProgramLayout"/>, reads back
+    /// and serializes to exactly the same text.
+    /// </summary>
+    /// <remarks>
+    /// Only the public <see cref="ProgramLayout.ToJson"/> and <see cref="ProgramLayout.FromJson"/>,
+    /// because they are what <see cref="ShaderPackage.ReadFrom"/> runs on, and because
+    /// PrismSlang.Runtime grants this assembly no internals by decision.
+    /// </remarks>
+    internal static void VerifyLayoutRoundTrips(string json)
+    {
+        const string Defect =
+            "The baked layout does not read back. This is a defect in PrismSlang's layout " +
+            "serializer, not in the shader; please report it with the shader that triggered it.";
+
+        string reread;
+        try
+        {
+            reread = ProgramLayout.FromJson(json).ToJson();
+        }
+        catch (Exception e) when (e is System.Text.Json.JsonException or NotSupportedException
+                                       or InvalidOperationException or ArgumentException)
+        {
+            throw new InvalidOperationException($"{Defect} Reading it failed: {e.Message}", e);
+        }
+
+        if (string.Equals(json, reread, StringComparison.Ordinal))
+            return;
+
+        var written = json.Split('\n');
+        var read = reread.Split('\n');
+        var line = 0;
+        while (line < written.Length && line < read.Length
+               && string.Equals(written[line], read[line], StringComparison.Ordinal))
+            line++;
+
+        throw new InvalidOperationException(
+            $"{Defect} The first difference is on line {line + 1}: written as " +
+            $"{Describe(written, line)}, read back as {Describe(read, line)}.");
+
+        static string Describe(string[] lines, int index) =>
+            index < lines.Length ? $"'{lines[index].Trim()}'" : "the end of the text";
     }
 }

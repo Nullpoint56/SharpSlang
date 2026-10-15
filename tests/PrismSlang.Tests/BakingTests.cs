@@ -1,5 +1,8 @@
 // Offline baking: compile once at build time, load at run time with no compiler present.
 
+using System.Reflection;
+using System.Runtime.CompilerServices;
+using System.Text.Json;
 using PrismSlang.Baking;
 using PrismSlang.Native;
 using PrismSlang.Reflection;
@@ -192,5 +195,166 @@ public class BakingTests
             package.WriteTo(buffer);
             return buffer.ToArray();
         }
+    }
+
+    public static TheoryData<string> CorpusCases()
+    {
+        var data = new TheoryData<string>();
+        foreach (var c in ShaderCorpus.All) data.Add(c.Name);
+        return data;
+    }
+
+    private static ShaderPackage BakeCorpusCase(ShaderCase c)
+    {
+        using var global = SlangGlobalSession.Create();
+        using var session = global.CreateSession(new SessionOptions { Targets = [new TargetOptions()] });
+        using var module = session.LoadModuleFromSource("t", "t.slang", c.Source);
+
+        var eps = c.EntryPoints.Select(module.FindEntryPoint).ToArray();
+        try
+        {
+            using var program = session.Link(module, eps);
+            return ShaderPackageBaker.Bake(program, c.Source);
+        }
+        finally
+        {
+            foreach (var e in eps) e.Dispose();
+        }
+    }
+
+    private static ShaderPackage RoundTrip(ShaderPackage package)
+    {
+        using var buffer = new MemoryStream();
+        package.WriteTo(buffer);
+        buffer.Position = 0;
+        return ShaderPackage.ReadFrom(buffer);
+    }
+
+    /// <summary>The first line two JSON texts differ on, for a failure message worth reading.</summary>
+    private static string FirstDifference(string expected, string actual)
+    {
+        var e = expected.Split('\n');
+        var a = actual.Split('\n');
+        for (var i = 0; i < Math.Max(e.Length, a.Length); i++)
+        {
+            var left = i < e.Length ? e[i].Trim() : "<end of text>";
+            var right = i < a.Length ? a[i].Trim() : "<end of text>";
+            if (left != right) return $"first difference on line {i + 1}: wrote {left}, read back {right}";
+        }
+        return "no difference";
+    }
+
+    [NativeTheory]
+    [MemberData(nameof(CorpusCases))]
+    public void Every_corpus_layout_survives_the_package_round_trip(string caseName)
+    {
+        // The package is the contract between the cook and the engine, and the layout JSON in it is
+        // the one part that is converted rather than copied. Package_round_trips_through_a_stream
+        // covers one ordinary shader, which is how an unbounded array, present in this corpus twice,
+        // baked and wrote fine and could not be read back. So: every shape the corpus has, through
+        // the real container, not just ToJson and FromJson.
+        var c = ShaderCorpus.Case(caseName);
+        var original = BakeCorpusCase(c);
+        var restored = RoundTrip(original);
+
+        var before = original.Layout.ToJson();
+        var after = restored.Layout.ToJson();
+        Assert.True(before == after, $"{caseName}: the layout changed in the round trip, {FirstDifference(before, after)}");
+
+        Assert.Equal(original.EntryPoints.Select(e => e.Name), restored.EntryPoints.Select(e => e.Name));
+        foreach (var e in original.EntryPoints)
+            Assert.Equal(e.Code, restored.EntryPoint(e.Name)!.Code);
+    }
+
+    [NativeFact]
+    public void An_unbounded_array_survives_the_package_round_trip()
+    {
+        // ArrayLayout.ElementCount was `required int?`, null for an unbounded array, and ToJson
+        // drops nulls (WhenWritingNull). So the member was absent on write and refused on read:
+        // every package containing a `Texture2D t[]` baked and wrote fine, and ReadFrom threw
+        //
+        //   InvalidDataException: not a readable PrismSlang shader package: JSON deserialization
+        //   for type 'PrismSlang.Reflection.ArrayLayout' was missing required properties
+        //   including: 'ElementCount'.
+        //
+        // Measured before the fix, on this test and on the two corpus cases with an unbounded
+        // array, descriptor-arrays and buffer-arrays; the other corpus cases passed.
+        //
+        // Reported by the PrismEngine team. Their cook caught that in its up-to-date check and
+        // silently re-cooked, so it surfaced only at pipeline creation.
+        var original = BakeCorpusCase(ShaderCorpus.Case("descriptor-arrays"));
+        var restored = RoundTrip(original);
+
+        var unbounded = Assert.IsType<ArrayLayout>(restored.Layout.Parameter("daUnbounded")!.Type);
+        Assert.Null(unbounded.ElementCount);
+        Assert.False(unbounded.IsSpecializationSized);
+
+        var fixedSize = Assert.IsType<ArrayLayout>(restored.Layout.Parameter("daFixed")!.Type);
+        Assert.Equal(4, fixedSize.ElementCount);
+
+        // Absence is the encoding of null, and stays so: the fix changed the reader, not the bytes,
+        // which is what makes packages cooked before it readable without a rebake.
+        using var json = JsonDocument.Parse(original.Layout.ToJson());
+        var parameters = json.RootElement.GetProperty("Parameters").EnumerateArray().ToList();
+        var unboundedType = parameters.Single(p => p.GetProperty("Name").GetString() == "daUnbounded").GetProperty("Type");
+        var fixedType = parameters.Single(p => p.GetProperty("Name").GetString() == "daFixed").GetProperty("Type");
+        Assert.False(unboundedType.TryGetProperty("ElementCount", out _));
+        Assert.Equal(4, fixedType.GetProperty("ElementCount").GetInt32());
+    }
+
+    [Fact]
+    public void No_serialized_layout_type_requires_a_nullable_property()
+    {
+        // The fault class behind the unbounded-array defect, not just its one instance: ToJson
+        // writes with WhenWritingNull, so a null value is absent from the JSON, and a `required`
+        // member that is absent is refused on read. A `required` nullable property therefore makes
+        // every null value of it unreadable, and nothing fails until a package is loaded.
+        var context = new NullabilityInfoContext();
+
+        // Not vacuous: the context does see the assembly's annotations, on a reference type and on
+        // a value type.
+        Assert.Equal(NullabilityState.Nullable,
+            context.Create(typeof(ResourceLayout).GetProperty(nameof(ResourceLayout.ResultType))!).ReadState);
+        Assert.Equal(NullabilityState.Nullable,
+            context.Create(typeof(ArrayLayout).GetProperty(nameof(ArrayLayout.ElementCount))!).ReadState);
+
+        var offenders = typeof(ProgramLayout).Assembly.GetTypes()
+            .Where(t => t.Namespace == "PrismSlang.Reflection")
+            .SelectMany(t => t.GetProperties(BindingFlags.Public | BindingFlags.NonPublic
+                                             | BindingFlags.Instance | BindingFlags.DeclaredOnly))
+            .Where(p => p.IsDefined(typeof(RequiredMemberAttribute), inherit: false))
+            .Where(p => Nullable.GetUnderlyingType(p.PropertyType) is not null
+                        || context.Create(p).ReadState == NullabilityState.Nullable)
+            .Select(p => $"{p.DeclaringType!.Name}.{p.Name}")
+            .ToList();
+
+        Assert.True(offenders.Count == 0,
+            "required nullable properties, which ToJson omits when null (WhenWritingNull) and FromJson " +
+            $"then refuses as missing, so a package holding a null one cannot be read: {string.Join(", ", offenders)}");
+    }
+
+    [NativeFact]
+    public void Bake_refuses_a_layout_that_does_not_read_back()
+    {
+        // Bake reads its own layout back before returning, so a serializer defect like the
+        // unbounded-array one fails the cook, naming the line, instead of failing the load.
+        var json = BakeCorpusCase(ShaderCorpus.Case("descriptor-arrays")).Layout.ToJson();
+
+        // The real layout passes.
+        ShaderPackageBaker.VerifyLayoutRoundTrips(json);
+
+        // Delete a line the reader tolerates losing and the writer reinstates: a non-null default,
+        // which still parses (IsSpecializationSized is not required) and re-serializes as written.
+        // A line that does not end the object, so the JSON stays valid without its comma.
+        var lines = json.Split('\n').ToList();
+        var removed = lines.FindIndex(l => l.Trim() == "\"IsSpecializationSized\": false,");
+        Assert.True(removed >= 0, "the layout has no array, so there is nothing to mutate");
+        lines.RemoveAt(removed);
+        var mutated = string.Join('\n', lines);
+
+        var ex = Assert.Throws<InvalidOperationException>(() => ShaderPackageBaker.VerifyLayoutRoundTrips(mutated));
+        Assert.Contains("PrismSlang", ex.Message);
+        Assert.Contains($"line {removed + 1}", ex.Message);
+        Assert.Contains("read back as '\"IsSpecializationSized\": false,'", ex.Message);
     }
 }
