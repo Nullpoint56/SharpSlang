@@ -12,7 +12,7 @@
 //
 //   1. Does PrismNRI marshal every desc the projection emits? The NONE backend validates nothing
 //      and allocates nothing, so what it answers is purely the managed side — array pins, counts,
-//      the tree of native structs — and it answers it on every CI leg that runs Windows.
+//      the tree of native structs — and it answers it on the win-x64 and linux-x64 CI legs.
 //   2. Does a validated Vulkan device accept the layout and the pipelines built from it, for the
 //      whole corpus? The VulkanCorpusValidationTests twin, with NRI between the projection and the
 //      driver instead of hand-written Vortice calls.
@@ -152,7 +152,7 @@ public sealed class NriDeviceTests(Xunit.Abstractions.ITestOutputHelper output)
         // native arrays (one pinned ranges array per set, fixed root constants, counts read off the
         // arrays), and this asks that every shape the projection emits survives that — empty sets,
         // a set per parameter block, a gap in register space, a root constant block with no sets.
-        // It is also the half that runs on hosted CI, where there is no Vulkan driver.
+        // It is also the half that runs on hosted Windows, where there is no Vulkan driver.
         var c = ShaderCorpus.Case(caseName);
         var layout = NriProjectionTests.Reflect(c.Source, [.. c.EntryPoints]);
 
@@ -253,8 +253,11 @@ public sealed class NriDeviceTests(Xunit.Abstractions.ITestOutputHelper output)
     ///
     /// Measured on the RTX 4070 SUPER: every condition below is satisfied, so no case is skipped
     /// here on a workstation — all 30 projectable cases build their layout, 23 build pipelines on
-    /// top, and the other 7 are the PipelineOutOfReach entries. The conditions exist for lavapipe,
-    /// which has no ray tracing and no mesh shaders.
+    /// top, and the other 7 are the PipelineOutOfReach entries. The conditions were written for
+    /// lavapipe, which had no ray tracing and no mesh shaders — but Mesa 25.2.8's lavapipe (Ubuntu
+    /// 24.04's updates, which the linux-x64 runner's apt step resolves to) reports both, and
+    /// measured under WSL with the SDK's 1.4.363 layer it trips none of them either: every
+    /// projectable case builds its layout there too, 24 with pipelines.
     ///
     /// The D3D12 theory asks the same of its device. Measured on the RTX's D3D12 device and on
     /// WARP (PRISMNRI_TEST_SOFTWARE=1, what hosted Windows runs): neither trips any condition —
@@ -630,7 +633,7 @@ public sealed class NriDeviceTests(Xunit.Abstractions.ITestOutputHelper output)
         //
         // A NONE fact rather than a Vulkan one, deliberately: nriConvertNRIFormatToVK is a static
         // table in NRI.dll and needs no device, so gating it on a Vulkan driver would switch it off
-        // on hosted CI for nothing.
+        // on hosted Windows for nothing.
         var mismatches = new List<string>();
         var compared = 0;
         var unknown = 0;
