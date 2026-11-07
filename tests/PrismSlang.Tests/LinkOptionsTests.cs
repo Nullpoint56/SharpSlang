@@ -37,9 +37,9 @@ public class LinkOptionsTests
     private static byte[] Hash(LinkTimeOptions? options, string source = Shader) =>
         With(options, p => p.GetEntryPointIdentityHash(0), source);
 
-    private static byte[] With(
+    private static T With<T>(
         LinkTimeOptions? options,
-        Func<LinkedProgram, byte[]> read,
+        Func<LinkedProgram, T> read,
         string source = Shader)
     {
         using var global = SlangGlobalSession.Create();
@@ -54,18 +54,15 @@ public class LinkOptionsTests
     }
 
     [NativeFact]
-    public void The_identity_hash_is_deaf_to_the_optimisation_level()
+    public void The_identity_hash_follows_the_optimisation_level()
     {
-        // The reason getEntryPointHash went unbound for so long, now bound and pinned instead.
+        // The reason getEntryPointHash went unbound for so long, and the measurement that changed.
         //
-        // The obvious use for a per-entry-point hash is a pipeline cache key, and for that it is
-        // wrong: None and Maximal produce *different code* — the test below asserts exactly that —
-        // and the *same hash*. A cooker keying a cache on it serves optimised code for an
-        // unoptimised request, or the reverse, with nothing to notice.
-        //
-        // Pinned rather than documented, so upstream changing it is a failing test rather than a
-        // sentence in a document quietly becoming false. If this ever fails, the remarks on
-        // LinkedProgram.GetEntryPointIdentityHash are what need rewriting — and the news is good.
+        // On slang-compiler 2026.14.1, None and Maximal produced *different code* — the test below
+        // asserts exactly that — and the *same hash*, so a cooker keying a pipeline cache on it
+        // served optimised code for an unoptimised request with nothing to notice. This test
+        // pinned that, as The_identity_hash_is_deaf_to_the_optimisation_level, and failed on
+        // 2026.21: the hash now follows the options. Turned around, so going back is the failure.
         var none = Hash(new LinkTimeOptions
         {
             Optimization = SlangOptimizationLevel.SLANG_OPTIMIZATION_LEVEL_NONE,
@@ -76,7 +73,25 @@ public class LinkOptionsTests
         });
 
         Assert.NotEmpty(none);
-        Assert.Equal(none, maximal);
+        Assert.NotEqual(none, maximal);
+    }
+
+    [NativeFact]
+    public void The_identity_hash_moves_with_an_option_that_changes_nothing()
+    {
+        // What the hash follows is the options, not the code. Naming the default optimisation
+        // level explicitly emits byte-identical SPIR-V to naming none, and hashes differently;
+        // measured on 2026.21, so did High against Maximal and a link-time DebugInformation, both
+        // byte-identical too. So it is no longer a "same shader" key across option sets, and as a
+        // cache key it errs towards a miss. LinkedProgram.GetEntryPointIdentityHash says which
+        // way that cuts.
+        var unset = With(null, p => (Hash: p.GetEntryPointIdentityHash(0), Code: p.GetEntryPointCodeBytes(0)));
+        var named = With(
+            new LinkTimeOptions { Optimization = SlangOptimizationLevel.SLANG_OPTIMIZATION_LEVEL_DEFAULT },
+            p => (Hash: p.GetEntryPointIdentityHash(0), Code: p.GetEntryPointCodeBytes(0)));
+
+        Assert.Equal(unset.Code, named.Code);
+        Assert.NotEqual(unset.Hash, named.Hash);
     }
 
     [NativeFact]

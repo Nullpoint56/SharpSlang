@@ -233,7 +233,7 @@ public static unsafe class ReflectionWalker
             if (bindingRange < 0) continue;
 
             // Not from getSubObjectRangeOffset. That returns a variable layout with no variable
-            // behind it — measured on 2026.14.1, every name came back null — so the name comes from
+            // behind it — measured on 2026.21, every name came back null — so the name comes from
             // the binding range it points at, which is the same object reached the other way.
             var variable = SlangApi.spReflectionTypeLayout_getBindingRangeLeafVariable(
                 globalScope, bindingRange);
@@ -760,7 +760,7 @@ public static unsafe class ReflectionWalker
 
             var name = Utf8.Read(SlangApi.spReflectionTypeParameter_GetName(param));
 
-            // Measured against slang-compiler 2026.14.1, because the two cases are not
+            // Measured against slang-compiler 2026.21, because the two cases are not
             // distinguished by any flag:
             //   `type_param T : IFoo;`      -> named,   constraints ["IFoo"]  -> a type parameter
             //   `uniform IFoo param;`       -> unnamed, no constraints        -> an existential
@@ -925,7 +925,8 @@ public static unsafe class ReflectionWalker
     /// Builds the full descriptor-set picture, including sets introduced by parameter blocks.
     /// </summary>
     /// <remarks>
-    /// Determined empirically against slang-compiler 2026.14.1, because the shape is not obvious:
+    /// Determined empirically against slang-compiler 2026.14.1, because the shape is not obvious, and
+    /// the same on 2026.21:
     /// <list type="bullet">
     /// <item>The global scope's type layout reports only the sets for things bound *directly* in
     /// it. A <c>ParameterBlock</c> appears there as a binding range with
@@ -972,7 +973,7 @@ public static unsafe class ReflectionWalker
     /// </summary>
     /// <remarks>
     /// <para>
-    /// Measured against slang-compiler 2026.14.1 with
+    /// Measured against slang-compiler 2026.21 with
     /// <c>[[vk::binding(0, 1)]] ConstantBuffer&lt;T&gt; spA : register(b0, space1)</c> beside a
     /// texture declared the same way: the parameter reports space 1 for both, the module (and
     /// Slang's own "explicit binding overlap" warning) place both in space 1, and the
@@ -1232,7 +1233,7 @@ public static unsafe class ReflectionWalker
     /// The rebasing is the fiddly part. An entry point's parameters and descriptor ranges are
     /// numbered from zero within the entry point's own block, and the block's position in the
     /// global numbering is the offset on <c>getVarLayout</c> — per category. Measured against
-    /// slang-compiler 2026.14.1: with three global descriptors the entry-point block reports
+    /// slang-compiler 2026.21: with three global descriptors the entry-point block reports
     /// <c>DESCRIPTOR_TABLE_SLOT off=3</c>, and its two ranges at relative 0 and 1 land at absolute
     /// bindings 3 and 4, exactly matching the module's decorations.
     /// </remarks>
@@ -1335,9 +1336,10 @@ public static unsafe class ReflectionWalker
     /// acceleration structure. Either the crash was measured on an earlier pin and the version
     /// travelled with the sentence, or the original shape had an ingredient not reconstructed here;
     /// there is no way to tell from this side, and claiming either would be inventing history.
+    /// 2026.21 answers the same: <c>unknown</c> for every one of those shapes.
     ///
     /// The guard stays. Dropping it would trade a free branch for a class of failure that ends the
-    /// process, on the strength of one release behaving. What has changed is that the claim is now
+    /// process, on the strength of two releases behaving. What has changed is that the claim is now
     /// tested rather than remembered — <c>ProberTests</c> runs the call across every binding-range
     /// shape in a child process, so if it ever crashes again that is a red test rather than a dead
     /// runner.
@@ -1386,7 +1388,7 @@ public static unsafe class ReflectionWalker
     /// separate storage buffer holding the count. Slang reports the second as an ordinary binding
     /// range named <c>counter</c>, so a shader with an append and a consume buffer produces two
     /// bindings both called <c>counter</c> and nothing to tell them apart — and the parameter list
-    /// omits both, because neither is a declared parameter. Measured on 2026.14.1: three declared
+    /// omits both, because neither is a declared parameter. Measured on 2026.21: three declared
     /// buffers, five bindings.
     ///
     /// The offset is relative to the owning buffer's own descriptor index, so the caller adds it to
@@ -1581,7 +1583,7 @@ public static unsafe class ReflectionWalker
                 // An array whose length is a specialization constant reports CategorySize.Unknown,
                 // and spReflectionType_GetElementCount access-violates on it — as does
                 // GetSpecializedElementCount, which the C++ header presents as the resolving
-                // version. Measured against slang-compiler 2026.14.1; see ArrayLayout for the
+                // version. Measured against slang-compiler 2026.21; see ArrayLayout for the
                 // resource-array case, which has no such signal and cannot be guarded.
                 var specializationSized = sizes.Any(s => !s.IsKnown);
 

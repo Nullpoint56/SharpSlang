@@ -91,7 +91,7 @@ public sealed class ShaderPackage
     // current after its imports moved, is not.
     private const uint FormatVersion = 4;
 
-    /// <summary>The Slang build that produced this package, e.g. <c>2026.14.1</c>.</summary>
+    /// <summary>The Slang build that produced this package, e.g. <c>2026.21</c>.</summary>
     public required string SlangVersion { get; init; }
 
     /// <summary>

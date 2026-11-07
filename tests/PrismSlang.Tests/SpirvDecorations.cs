@@ -307,6 +307,54 @@ public static class SpirvDecorations
             .ToList();
     }
 
+    /// <summary>
+    /// Every struct type an <c>Input</c> variable's type reaches, through pointers, arrays and
+    /// struct members, that decorates a member with <c>Offset</c>. Named by <c>OpName</c> where it
+    /// has one, by result id where it does not.
+    /// </summary>
+    public static List<string> InputStructsWithMemberOffsets(ReadOnlySpan<byte> spirv)
+    {
+        const uint OpTypeArray = 28, OpTypeRuntimeArray = 29, OpTypeStruct = 30, OpTypePointer = 32;
+
+        var instructions = Instructions(MemoryMarshal.Cast<byte, uint>(spirv));
+        var names = Names(spirv);
+
+        var children = new Dictionary<uint, uint[]>();
+        var offsetStructs = new HashSet<uint>();
+        var inputTypes = new List<uint>();
+
+        foreach (var (op, operands) in instructions)
+        {
+            switch (op)
+            {
+                case OpTypePointer when operands.Length >= 3: children[operands[0]] = [operands[2]]; break;
+                case OpTypeArray or OpTypeRuntimeArray when operands.Length >= 2: children[operands[0]] = [operands[1]]; break;
+                case OpTypeStruct when operands.Length >= 1: children[operands[0]] = operands[1..]; break;
+                case OpMemberDecorate when operands.Length >= 3 && operands[2] == DecorationOffset:
+                    offsetStructs.Add(operands[0]);
+                    break;
+                case OpVariable when operands.Length >= 3 && operands[2] == SpirvVariable.Input:
+                    inputTypes.Add(operands[0]);
+                    break;
+            }
+        }
+
+        var seen = new HashSet<uint>();
+        var pending = new Stack<uint>(inputTypes);
+        while (pending.Count > 0)
+        {
+            var id = pending.Pop();
+            if (!seen.Add(id) || !children.TryGetValue(id, out var next)) continue;
+            foreach (var n in next) pending.Push(n);
+        }
+
+        return seen
+            .Where(offsetStructs.Contains)
+            .Select(id => names.TryGetValue(id, out var name) ? name : $"%{id}")
+            .Order(StringComparer.Ordinal)
+            .ToList();
+    }
+
     /// <summary><c>OpName</c> by result id.</summary>
     public static Dictionary<uint, string> Names(ReadOnlySpan<byte> spirv) =>
         FirstPerKey(

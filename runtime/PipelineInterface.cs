@@ -77,7 +77,7 @@ public static class PipelineInterface
     /// silent while the shader still reads the thing.
     /// </para>
     /// <para>
-    /// Measured cause, against slang-compiler 2026.14.1: a buffer whose contents include an array
+    /// Measured cause, against slang-compiler 2026.21: a buffer whose contents include an array
     /// whose length is a specialization constant. <c>ConstantBuffer&lt;Push&gt;</c> and
     /// <c>[[vk::push_constant]] ConstantBuffer&lt;Push&gt;</c> both come back with no bindings at
     /// all, no descriptor range and no push-constant range, and a renderer built from that layout
@@ -158,7 +158,7 @@ public static class PipelineInterface
         // to write and the values the shader reads are undefined.
         //
         // On a SPIR-V target, that is. The entry point's base offsets say where Slang put them:
-        // measured on 2026.14.1, entry-point-uniforms reports PUSH_CONSTANT_BUFFER at its base
+        // measured on 2026.21, entry-point-uniforms reports PUSH_CONSTANT_BUFFER at its base
         // for SPIR-V and CONSTANT_BUFFER — an ordinary `b` register, with a range in the
         // descriptor-set view to match — for DXIL. Reporting a push-constant block there too put
         // the same register in the layout twice, and D3D12 refused the root signature: "Shader

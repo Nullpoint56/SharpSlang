@@ -37,19 +37,22 @@ public sealed class DxilTests(Xunit.Abstractions.ITestOutputHelper output)
     /// <summary>Corpus cases Slang cannot compile to DXIL, measured with dxc 1.9 at sm_6_5.</summary>
     /// <remarks>
     /// <para>
-    /// Both refusals come from dxc, not from Slang: Slang emits HLSL for them without complaint and
-    /// dxc rejects it, so the failure surfaces from <c>GetEntryPointCodeBytes</c> with dxc's
-    /// diagnostic in the message. The diagnostic fragment is asserted, so a case that starts
-    /// failing for some other reason is not excused by this list.
+    /// Two of the three refusals come from dxc, not from Slang: Slang emits HLSL for them without
+    /// complaint and dxc rejects it, so the failure surfaces from <c>GetEntryPointCodeBytes</c> with
+    /// dxc's diagnostic in the message. The third, <c>compute-specialized</c>, is Slang's own
+    /// E55205, raised from the same call. The diagnostic fragment is asserted, so a case that
+    /// starts failing for some other reason is not excused by this list.
     /// </para>
     /// <para>
-    /// Specialization constants are not here, and that is a measurement rather than the
-    /// expectation it was: <c>specialization-constants</c> and <c>compute-specialized</c> both
-    /// compile. Slang lowers each <c>[vk::constant_id]</c> constant to a member of a constant buffer
-    /// at <c>b0</c> that nobody declared — <c>compute-specialized</c>'s <c>numthreads(csGroupX)</c>
-    /// is resolved to the declared default at compile time — so the DXIL is legal and the
-    /// "constant" is uniform data the host would have to fill. Neither is specializable on D3D12,
-    /// which has no such thing; they compile, and the projection describes the buffer.
+    /// Specialization constants as such are not here, and that is a measurement rather than the
+    /// expectation it was: <c>specialization-constants</c> compiles. Slang lowers each
+    /// <c>[vk::constant_id]</c> constant to a member of a constant buffer at <c>b0</c> that nobody
+    /// declared, so the DXIL is legal and the "constant" is uniform data the host would have to
+    /// fill. It is not specializable on D3D12, which has no such thing; it compiles, and the
+    /// projection describes the buffer. A specialization constant in <c>numthreads</c> is the
+    /// exception, and the one that changed: slang-compiler 2026.14.1 resolved
+    /// <c>numthreads(csGroupX)</c> to the declared default at compile time and compiled it, and
+    /// 2026.21 refuses it.
     /// </para>
     /// </remarks>
     internal static readonly Dictionary<string, NotDxil> CannotCompile = new(StringComparer.Ordinal)
@@ -63,6 +66,11 @@ public sealed class DxilTests(Xunit.Abstractions.ITestOutputHelper output)
             + "double in a stage signature, so the shader never reaches the projection — where on "
             + "SPIR-V it is refused for the same underlying reason (NRI has no 64-bit vertex format).",
             "cannot be used as shader inputs or outputs"),
+        ["compute-specialized"] = new(
+            "a specialization constant as a workgroup size. D3D12 fixes the thread group size in "
+            + "the shader, and Slang refuses to choose one for it: 2026.14.1 compiled the declared "
+            + "default in, 2026.21 says so instead.",
+            "specialization constants not supported for numthreads"),
     };
 
     /// <summary>Corpus cases the NRI projection refuses on a DXIL layout, and the construct each message must name.</summary>
@@ -93,8 +101,8 @@ public sealed class DxilTests(Xunit.Abstractions.ITestOutputHelper output)
     /// </para>
     /// <para>
     /// The descriptors themselves are right — each range has the right type, register and space,
-    /// and the D3D12 corpus theory builds the pipelines of <c>compute-specialized</c> and
-    /// <c>global-uniforms</c> (<c>entry-point-uniforms</c> is refused there for a different reason,
+    /// and the D3D12 corpus theory builds the pipeline of <c>global-uniforms</c>
+    /// (<c>entry-point-uniforms</c> is refused there for a different reason,
     /// pinned in NriDeviceTests' D3D12ProjectionDefects). Only the name is wrong,
     /// which is worse than the null it is on SPIR-V: a host binding by name would put a texture
     /// where a constant buffer is read. The fix is the class-aware lookup PromotedConstantBuffers
@@ -103,7 +111,6 @@ public sealed class DxilTests(Xunit.Abstractions.ITestOutputHelper output)
     /// </remarks>
     private static readonly Dictionary<string, string> BorrowedNames = new(StringComparer.Ordinal)
     {
-        ["compute-specialized"] = "csOutput on CONSTANT_BUFFER b0",
         ["entry-point-uniforms"] = "euAlbedo on CONSTANT_BUFFER b0",
         ["global-uniforms"] = "guTexture on CONSTANT_BUFFER b0",
     };

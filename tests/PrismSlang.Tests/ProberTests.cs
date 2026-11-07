@@ -359,7 +359,7 @@ public class ProberTests(Xunit.Abstractions.ITestOutputHelper output)
         // a comment saying getBindingRangeImageFormat access-violates on a PARAMETER_BLOCK binding
         // range, "measured against slang-compiler 2026.14.1". Re-measured against 2026.14.1 it
         // returns unknown — for a parameter block, a nested one, a constant buffer, a sampler, two
-        // raw buffers and an acceleration structure.
+        // raw buffers and an acceleration structure. 2026.21 answers the same.
         //
         // The guard stays; the claim is now checked. If a future Slang brings the crash back this
         // fails, which is the whole point of pinning a claim that used to be true.

@@ -140,11 +140,11 @@ public class LifetimeTests
         // The measurement the test below used to rest on a convention for.
         //
         // "Each object holds its own reference to what it needs" was read off COM convention and
-        // never checked. On 2026.14.1 it is true of some of Slang's objects and false of others:
-        // ISession retains IGlobalSession, and IModule does *not* retain ISession. So disposing a
-        // session while a module was alive dropped the last reference and destroyed it. Windows
-        // and both Linux allocators tolerated the use-after-free; macOS did not, and the test
-        // below is where its host died.
+        // never checked. On 2026.14.1 and 2026.21 it is true of some of Slang's objects and false
+        // of others: ISession retains IGlobalSession, and IModule does *not* retain ISession. So
+        // disposing a session while a module was alive dropped the last reference and destroyed
+        // it. Windows and both Linux allocators tolerated the use-after-free; macOS did not, and
+        // the test below is where its host died.
         //
         // SlangObject now takes a native reference on its owner, which is what makes the ordering
         // guarantee true. Asserted as a delta rather than an absolute: the absolute counts include

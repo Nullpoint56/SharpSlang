@@ -6,7 +6,8 @@ for consumption by PrismEngine's Renderer Core.
 Measured against `shader-slang/slang` @ `master`, cross-checked against release **v2026.14.1**
 (30 July 2026). Counts below come from regex analysis of `include/slang.h` (6,133 lines) and
 `include/slang-deprecated.h` (1,715 lines); treat them as accurate to within a few entries, not
-to the unit.
+to the unit. The pin has since moved to **v2026.21** (4 November 2026); the counts are the study's
+and were not re-taken, while every number the test suite checks was.
 
 > **How the binding is built and why.** It began as a study written before any of it existed, and
 > the sections that argued a case are kept in the tense they argued it in — §4.3 predicted a
@@ -151,8 +152,9 @@ written against `slang.dll` would break within months.
 ### 3.5 Slang's ABI is explicitly unstable, so the native payload must be pinned.
 
 `docs/building.md` states the public ABI "is not currently stable" and directs redistributors to
-ship the exact libraries they built against. Combined with Slang's release cadence — roughly
-monthly, v2026.14.1 being the current tag — this means:
+ship the exact libraries they built against. Combined with Slang's release cadence — eleven
+releases between v2026.14.1 (30 July 2026) and v2026.21 (4 November 2026), the current pin — this
+means:
 
 - One PrismSlang version pins exactly one Slang version. No floating range.
 - The Slang version belongs in the package identity and in an assert-on-load version check
@@ -278,9 +280,9 @@ pinned `slang.h` and compares:
 | | |
 |---|---:|
 | Structs measured — `sizeof` and `alignof` | 51 |
-| Field offsets — `offsetof`, every named field | 115 |
+| Field offsets — `offsetof`, every named field | 116 |
 | Bitfield accessors — the exact bytes each property writes | 2 |
-| Free-function signatures — `static_assert` per `DllImport` | 278 |
+| Free-function signatures — `static_assert` per `DllImport` | 279 |
 | Vtable method signatures — one per method an interface declares | 231 |
 
 All of them agree, on all four platforms. Two of those numbers are the ones this section's argument
@@ -513,7 +515,9 @@ flat-copy for `ProjectReference` — with three changes:
   | `bin/slang*.exe`, `bin/slang.dll` | — | tooling; legacy proxy |
 
   `tools/fetch-native.ps1` stages three profiles from this. **Measured win-x64: 29.8 MB minimal,
-  35.7 MB with glslang**, against a 54 MB archive.
+  35.7 MB with glslang**, against a 54 MB archive. At v2026.21 the archive is 60.8 MB and the
+  standard modules alone are 31.6 MB, 27 MB of it the four `numerics` modules that arrived after
+  v2026.14.1, so the staged win-x64 payload with glslang is 63.1 MB.
 
 - **`slang-glslang` is required in practice — but not for the reason the docs suggest.** The spike
   settled this (§8). Direct SPIR-V emission genuinely does not need glslang: with the minimal
@@ -549,11 +553,11 @@ exist.
 
 | Risk | Severity | Enforced by |
 |---|---|---|
-| Reflection C API relocated or renamed out of `slang-deprecated.h` (§3.3) | Medium | `NativeExportTests` resolves all 278 bound exports against the shipped binary, so a rename fails CI rather than surfacing as a `DllNotFoundException` in a consumer's build |
+| Reflection C API relocated or renamed out of `slang-deprecated.h` (§3.3) | Medium | `NativeExportTests` resolves all 279 bound exports against the shipped binary, so a rename fails CI rather than surfacing as a `DllNotFoundException` in a consumer's build |
 | Unstable ABI across Slang versions (§3.5) | Medium | `SlangGlobalSession.Create` refuses a payload whose build tag is not the pinned one; `Build_tag_matches_the_pinned_version` ties the pin itself to `Directory.Build.props` |
 | `slang.dll` alias removal, end of 2026 (§3.4) | **Already handled** | `slang-compiler` bound from the first commit; the export test above would catch a regression |
 | Vtable layout drift on version bump | Medium | `VtableOrderTests` derives all 374 slot indices from the declaration order in the pinned header and compares them against the `lpVtbl[n]` each generated method actually calls, so a reordering fails a test rather than depending on a human reading the `regen` diff. The `regen` job still runs and still fails on any diff |
-| The generated layer mistranslating a layout or a signature | Medium | `NativeAbiTests` compiles a generated probe against the pinned `slang.h` with a real C++ compiler and checks 51 struct sizes, 115 field offsets, 2 bitfield accessors and 509 signatures — 278 free functions and 231 vtable methods (§4.3). Nothing else in the suite can see an offset error; the calls all still compile and dispatch |
+| The generated layer mistranslating a layout or a signature | Medium | `NativeAbiTests` compiles a generated probe against the pinned `slang.h` with a real C++ compiler and checks 51 struct sizes, 116 field offsets, 2 bitfield accessors and 510 signatures — 279 free functions and 231 vtable methods (§4.3). Nothing else in the suite can see an offset error; the calls all still compile and dispatch |
 | The projection reporting a layout that is self-consistently wrong | Medium | Every other reflection oracle is Slang describing itself. `SlangWalkerCorpusTests` compares `ReflectionWalker` against the expected results in Slang's own `tests/reflection`, which the Slang team wrote, and `SlangComputeCorpusTests` dispatches 56 shaders from `tests/compute` with their buffers, storage images and samplers bound where reflection says, and compares the readback with the words upstream recorded. 55 match; the one that does not is declared, with the decoding of why |
 | Reverse-interop lifetime bugs (L4) | Medium | `CallbackBoundaryTests` drives every vtable slot with a null `this`, a null out-parameter and a provider that throws from inside a read; `LifetimeTests` covers ownership; the linux CI job runs the whole suite under `MALLOC_PERTURB_`, so a freed block is no longer quietly readable |
 | `slang-glslang` needed at runtime after all | Low | Shipped. `DownstreamCompilerTests` asserts it from inside the process and a CI step asserts it in the staged payload, because its absence is reported once, on a *successful* result |

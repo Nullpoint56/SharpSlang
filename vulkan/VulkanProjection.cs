@@ -316,7 +316,7 @@ public static class VulkanProjection
     /// <para>
     /// Vulkan's location assignment gives a three- or four-component 64-bit vector <em>two</em>
     /// consecutive locations, where every 32-bit type and a scalar or two-component 64-bit vector
-    /// takes one. Measured against slang-compiler 2026.14.1 with
+    /// takes one. Measured against slang-compiler 2026.21 with
     /// <c>float3, double, double2, double4, float2</c>: Slang assigns 0, 1, 2, 3, 4 and decorates
     /// the module the same way, so the <c>double4</c> at 3 and the <c>float2</c> at 4 overlap. A
     /// pipeline built from that is rejected by the validation layers, and the diagnostic points at

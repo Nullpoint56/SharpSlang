@@ -13,7 +13,7 @@
 //   * offsetof for every named field
 //   * the exact bits a bitfield property writes, byte for byte
 //   * sizeof(interface) == sizeof(void*), which is what `void** lpVtbl` assumes
-//   * every signature — 278 DllImports and 231 vtable methods — as a static_assert that fails to
+//   * every signature — 279 DllImports and 231 vtable methods — as a static_assert that fails to
 //     compile if it is wrong, naming the function and printing both types
 //
 // Vtable slot *order* is deliberately not here. clang only lays out a vtable it is going to emit,
@@ -692,7 +692,7 @@ public sealed partial class NativeAbiTests(Xunit.Abstractions.ITestOutputHelper 
     /// <remarks>
     /// <para>
     /// The gap the rest of this file leaves. <c>VtableOrderTests</c> proves slot N holds the right
-    /// <em>function</em>; the free-function probe above proves the 278 <c>DllImport</c>s have the
+    /// <em>function</em>; the free-function probe above proves the 279 <c>DllImport</c>s have the
     /// right <em>signature</em>. Nothing until now checked the signature of a vtable method — and
     /// 246 of the 374 slots have never been called, so a wrong parameter list on one of those is a
     /// stack the first caller corrupts.

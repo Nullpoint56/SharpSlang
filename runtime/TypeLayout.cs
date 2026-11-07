@@ -187,7 +187,7 @@ public sealed record VectorLayout : TypeLayout
 /// A session set to <c>ROW_MAJOR</c> produces members decorated <c>ColMajor</c>, and vice versa.
 /// That is not a contradiction: HLSL writes <c>float4x4</c> as rows-by-columns while SPIR-V's
 /// <c>OpTypeMatrix</c> is a list of column vectors, so the same bytes are described by opposite
-/// words. Both were measured against slang-compiler 2026.14.1 across four matrix shapes in both
+/// words. Both were measured against slang-compiler 2026.21 across four matrix shapes in both
 /// modes. Read <see cref="Mode"/> and <see cref="Stride"/> together and ignore the decoration; the
 /// pair says exactly where a component goes without anyone having to hold the transposition in
 /// their head.
@@ -354,7 +354,7 @@ public sealed record ArrayLayout : TypeLayout
     /// Reported, and reported without asking Slang how many elements there are — because asking is
     /// fatal. <c>spReflectionType_GetElementCount</c> and its
     /// <c>GetSpecializedElementCount</c> counterpart both access-violate on an array of this shape,
-    /// measured against slang-compiler 2026.14.1. The signal used instead is the size marker:
+    /// measured against slang-compiler 2026.21. The signal used instead is the size marker:
     /// such an array reports <see cref="CategorySize.Unknown"/> for its uniform footprint.
     /// </para>
     /// <para>

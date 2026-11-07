@@ -8,7 +8,7 @@
     because Slang emits DXIL by loading dxc itself — LoadLibrary("dxcompiler"), by name, from the
     library search path, exactly as it loads slang-glslang — and Slang's release does not ship it,
     so the core PrismSlang package compiles every SPIR-V target and no DXIL one. Measured with the
-    pinned Slang 2026.14.1: with dxc in the directory that holds slang-compiler.dll, `dxc
+    pinned Slang 2026.21: with dxc in the directory that holds slang-compiler.dll, `dxc
     available` turns true and a compute shader compiled to DXIL dispatches on D3D12 and reads back
     correctly; with the same directory and no dxc it is false and getEntryPointCode fails with
     SLANG_FAIL.

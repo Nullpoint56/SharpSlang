@@ -32,7 +32,7 @@ namespace PrismSlang.Spirv;
 [JsonConverter(typeof(JsonStringEnumConverter<SpirvVersion>))]
 public enum SpirvVersion
 {
-    /// <summary>No version pinned. Slang picks; measured to be 1.5 in slang-compiler 2026.14.1.</summary>
+    /// <summary>No version pinned. Slang picks; measured to be 1.5 in slang-compiler 2026.21.</summary>
     Unspecified = 0,
 
     V1_0 = 0x0001_0000,
@@ -61,7 +61,7 @@ public static class SpirvVersions
     /// The Slang target profile that pins this version, e.g. <c>spirv_1_5</c>.
     /// </summary>
     /// <remarks>
-    /// Measured against slang-compiler 2026.14.1: the profile is the only knob that moves the
+    /// Measured against slang-compiler 2026.21: the profile is the only knob that moves the
     /// emitted header. Passing <c>-capability spirv_1_6</c> at link time is silently ignored and
     /// still emits 1.5. See docs .
     /// </remarks>
@@ -187,7 +187,7 @@ public sealed record SpirvWorkgroupSize(
 /// </param>
 /// <remarks>
 /// This is not the Slang function name, and assuming it is has cost people pipelines. Measured
-/// against slang-compiler 2026.14.1:
+/// against slang-compiler 2026.21:
 /// <list type="bullet">
 /// <item><c>getEntryPointCode</c> emits one module per entry point, and names it <c>main</c>
 /// regardless of what the function was called.</item>

@@ -763,5 +763,26 @@ public sealed class SlangWalkerCorpusTests(Xunit.Abstractions.ITestOutputHelper 
         ["stage"] =
             "the stage on a varying's binding, which repeats what the entry point already says. "
             + "Compared there",
+
+        // The next four are absent from slang-compiler 2026.14.1's corpus and present in 2026.21's,
+        // where the JSON writer starts saying "version": "1.1".
+        ["version"] =
+            "the reflection JSON format's own version. A property of Slang's writer, not of the "
+            + "program, so there is nothing in the projection to compare it with",
+
+        ["globalScope"] =
+            "the global scope as one variable layout: the container Slang wraps the globals in, "
+            + "and under it the top-level `parameters` again. Measured across the 2026.21 corpus, "
+            + "identical to the top-level list in 32 of 33 files, the other differing only in "
+            + "writing a pointer's valueType as a name; the top-level list is compared",
+
+        ["scope"] =
+            "an entry point's parameters again, inside the container Slang would put its uniform "
+            + "parameters in. Measured across the 2026.21 corpus, identical to the entry point's "
+            + "own `parameters` in all 34 entry points, which are compared",
+
+        ["valueType"] =
+            "the pointee of a `pointer` type. The projection reports a pointer as "
+            + "LayoutKind.Pointer and carries no pointee, so there is nothing to compare it with",
     };
 }
