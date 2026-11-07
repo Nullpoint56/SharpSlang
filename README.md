@@ -206,9 +206,11 @@ shader construct that caused it.
 Windows and both Linux legs run the full suite on every pull request. The macOS leg runs when a
 run is started by hand, and before every release, because a macOS minute costs ten times a Linux
 one and macOS is not an engine target yet. All four ship in the `PrismSlang` package. The NRI
-device tests run on `win-x64` only, by decision rather than by capability: PrismNRI ships Linux and
-macOS payloads too, but that is not where the engine runs yet, and the projection tests that need
-no device run everywhere. If you
+device tests run on `win-x64` and `linux-x64`; `linux-arm64` skips them because PrismNRI ships no
+library for it, and macOS by decision, since it is not an engine target yet. The projection tests
+that need no device run everywhere. The Vulkan half needs a Khronos validation layer as new as the
+Vulkan headers NRI is built with (the Vulkan SDK's 1.4.363 is; Ubuntu 24.04's 1.3.275 is not, and
+the tests skip with its error quoted). If you
 content-address cooked assets, note that x64 and ARM64 emit byte-identical SPIR-V within an
 architecture and differ on shaders using `SV_VertexID`; the modules are equivalent but will never
 compare equal. [The traps table](docs/guide.md#traps-worth-knowing) has the detail.

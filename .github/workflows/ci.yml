@@ -391,13 +391,15 @@ jobs:
       # green. A PrismNRI package that restores without its native payload would otherwise turn
       # the whole class off on a run that reports success.
       #
-      # win-x64 only, by decision rather than measurement: the NRI device tests target the one
-      # platform the engine runs on (see tests/PrismSlang.Tests/NriFact.cs), and on the other legs
-      # every one of them skips with that reason by design.
+      # This step counts win-x64 and the next one linux-x64, the two legs the NRI device tests run
+      # on (tests/PrismSlang.Tests/NriFact.cs). On linux-arm64 every one of them skips because the
+      # PrismNRI package has no payload for it, and on osx-arm64 by decision, since macOS is not an
+      # engine target yet; each says so in its skip reason.
       #
       # What is counted is NONE and D3D12. Hosted Windows has no Vulkan driver, so the tests gated
-      # on NRI's Vulkan backend (the 32-case pipeline theory, which xunit reports as one skipped
-      # row, and the two dispatches: 3 skipped in the TRX) are only ever exercised on a workstation.
+      # on NRI's Vulkan backend (the 33-case pipeline theory, which xunit reports as one skipped
+      # row, and the two dispatches: 3 skipped in the TRX) skip here. They skip on linux-x64 too,
+      # for a different reason (the next step), so for now only a workstation exercises them.
       # It does have WARP, which NriTestDevice picks under GITHUB_ACTIONS, and PrismNRI's own
       # win-x64 job runs its D3D12 suite there with the debug layer — so the D3D12 leg, compiled to
       # DXIL with dxc copied beside the compiler from Microsoft.Direct3D.DXC, runs here. On this leg exactly these must pass:
@@ -446,6 +448,61 @@ jobs:
           fi
 
           echo "::notice::$passed NRI device test(s) ran on ${{ matrix.rid }} (NONE and D3D12 on WARP; the Vulkan-backed ones skip on hosted runners)"
+
+      # The same gate for linux-x64, as its own step rather than a per-RID number in the one above:
+      # the two legs count different backends, fail for different reasons, and each count is
+      # derived on its own. What is counted here is NONE alone.
+      #
+      # D3D12 does not exist on Linux: its 3 TRX rows (the 33-case theory as one row, and two
+      # facts) skip with NriTestDevice's own "D3D12 is Windows only". Vulkan does, on lavapipe, and
+      # the device tests pass on it — measured under WSL on the Mesa 25.2.8 lavapipe this runner
+      # installs, with the Vulkan SDK's 1.4.363 layer: all 35 Vulkan rows ran, both dispatches read
+      # back what the shaders wrote, every projectable case built its layout (lavapipe now reports
+      # mesh shaders and ray tracing, so none is excused by NriDeviceTests' device limits), and the
+      # one failure was vertex-interface's VUID-StandaloneSpirv-Offset-12509, the workstation's.
+      # But they are not counted, because on this runner they skip: the apt step above installs
+      # Ubuntu's layer, 1.3.275, which is older than the Vulkan headers NRI is built with and
+      # reports NRI's own vkCreateDevice as VUID-VkDeviceCreateInfo-pNext-pNext before anything of
+      # PrismSlang's is involved. NriFact's Vulkan gate creates one bare device first and skips
+      # with that error quoted, so the 3 Vulkan rows are skipped rather than 33 of them failing.
+      # Measured with that exact package (1.3.275.0-1, unpacked under WSL and put on VK_LAYER_PATH).
+      # On this leg exactly these must pass:
+      #
+      #   33  A_pipeline_layout_built_from_the_projection_is_accepted_by_the_none_backend, one
+      #       per corpus case, as on win-x64.
+      #    1  Projected_vertex_formats_agree_with_nris_own_vulkan_conversion_table, NRI's static
+      #       format table in libNRI.so.
+      #    1  Every_declared_refusal_and_exclusion_names_a_shader_that_exists, a plain fact.
+      #
+      # 35, of 41 rows, with 6 skipped: measured with PRISMNRI_TEST_SOFTWARE=1 (the software device
+      # GITHUB_ACTIONS selects) and the Test step's allocator settings. NONE needs only libNRI.so
+      # and glibc (it dlopens libvulkan.so.1 itself, and only for a Vulkan device), so it does not
+      # depend on what the runner's apt resolves to. Exact rather than a floor: if libNRI.so stops loading, every gated row skips
+      # and the plain fact alone passes, which is 1. A new corpus case adds a row to the NONE
+      # theory; raise it by one then. A newer layer here would let the Vulkan rows run and the
+      # count reach 70 (69 while Slang 2026.14.1's float4x4 vertex input still trips
+      # VUID-StandaloneSpirv-Offset-12509 in vertex-interface); raise it then too.
+      - name: The NRI device tests actually ran (linux-x64)
+        if: matrix.rid == 'linux-x64'
+        env:
+          MALLOC_PERTURB_: 165
+        run: |
+          dotnet test PrismSlang.slnx -c Release --no-build --nologo \
+            --filter "FullyQualifiedName~NriDeviceTests" \
+            --logger "console;verbosity=detailed" \
+            --logger "trx;LogFileName=nri.trx" \
+            --results-directory nri-results
+
+          counters=$(grep -o '<Counters [^>]*>' nri-results/nri.trx | head -1)
+          echo "$counters"
+          passed=$(echo "$counters" | sed -n 's/.*[^a-z]passed="\([0-9]*\)".*/\1/p')
+
+          if [ "${passed:-0}" -lt 35 ]; then
+            echo "::error::only ${passed:-0} NRI device test(s) passed on ${{ matrix.rid }}; expected at least 35 (the NONE backend). libNRI.so did not load or the NONE device could not be created, so nothing checks that PrismNRI marshals what the projection emits on Linux; the skip reason is in the output above."
+            exit 1
+          fi
+
+          echo "::notice::$passed NRI device test(s) ran on ${{ matrix.rid }} (NONE; D3D12 does not exist here, and the Vulkan-backed ones skip because Ubuntu's validation layer rejects NRI's device creation)"
 
       # And DxilTests, for dxc itself: every test there is a [DxcFact] or [DxcTheory] and skips
       # when dxc is not loadable, which is the right behaviour on the legs that never stage it and

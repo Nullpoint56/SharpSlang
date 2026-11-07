@@ -829,7 +829,7 @@ allocates 0 bytes over 300 frames after one warm-up frame, `SetPipeline` and `Se
 included, which PrismNRI's measured frames do not call. Planted in it, the array-returning
 `AllocateDescriptorSets` cost 40 bytes per set per frame, the one-buffer
 `queue.Submit(cmd, fence, value)` 48 per call, and a `foreach` over `DescriptorSets` and `Ranges` 40
-per enumerator it boxed. It runs where the NRI device tests do, on win-x64.
+per enumerator it boxed. It runs where the NRI device tests do, on win-x64 and linux-x64.
 
 ## Traps worth knowing
 
