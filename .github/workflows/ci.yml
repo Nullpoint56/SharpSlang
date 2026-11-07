@@ -213,15 +213,17 @@ jobs:
     #
     # macOS, when it runs. Until that leg existed, publish.yml staged an osx-arm64 payload into
     # every package and nothing had ever loaded it — a library shipped to a platform on the
-    # strength of the RID being spelled correctly. macos-14 is Apple Silicon, so the ARM64 half was
+    # strength of the RID being spelled correctly. macos-15 is Apple Silicon, so the ARM64 half was
     # already answered by linux-arm64; what is new is the OS: a third allocator, a third dynamic
     # loader, and the Itanium C++ ABI on a runtime that is not glibc's. No Vulkan there:
-    # VulkanTestDevice finds no loader and the validation tests skip with their reason.
+    # VulkanTestDevice finds no loader and the validation tests skip with their reason. It was
+    # macos-14 until 2026-11-07, when GitHub refused that image ("The configuration
+    # 'macos-14-arm64-us-xl' is not supported") and cancelled the leg in its first second.
     needs: gate
     # The legs come from the gate: none when this tree already passed them, and osx-arm64 only
     # when a manual run or a release asked for it.
     if: needs.gate.outputs.legs != '[]'
-    runs-on: ${{ fromJSON('{"win-x64":"windows-latest","linux-x64":"ubuntu-24.04","linux-arm64":"ubuntu-24.04-arm","osx-arm64":"macos-14"}')[matrix.rid] }}
+    runs-on: ${{ fromJSON('{"win-x64":"windows-latest","linux-x64":"ubuntu-24.04","linux-arm64":"ubuntu-24.04-arm","osx-arm64":"macos-15"}')[matrix.rid] }}
     strategy:
       fail-fast: false       # a Windows-only or Linux-only failure is the interesting signal
       matrix:

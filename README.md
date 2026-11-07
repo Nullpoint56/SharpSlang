@@ -201,7 +201,7 @@ shader construct that caused it.
 | `win-x64` | `windows-latest` | |
 | `linux-x64` | `ubuntu-24.04` | also runs the Vulkan validation layers via lavapipe |
 | `linux-arm64` | `ubuntu-24.04-arm` | the only leg exercising ARM64 calling conventions |
-| `osx-arm64` | `macos-14` | the only leg on a non-glibc allocator and loader; on demand and before every release |
+| `osx-arm64` | `macos-15` | the only leg on a non-glibc allocator and loader; on demand and before every release |
 
 Windows and both Linux legs run the full suite when CI is started by hand on a branch, which is
 the only way a branch is tested, and on main only for code that no branch run has already passed.
