@@ -23,7 +23,7 @@ jobs:
     name: links and section references
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # Needs the source tree, not just docs/: half the check is that every § a code comment cites
       # resolves to a real heading in design.md. The numbered sections are cited from code by bare

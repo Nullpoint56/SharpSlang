@@ -66,7 +66,7 @@ jobs:
     name: tag equals v<Version>
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Tag equals v<Version>
         if: github.ref_type == 'tag'
@@ -102,10 +102,10 @@ jobs:
     needs: [version, test]
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # The preview quality is there because .NET 11 has no GA release yet; drop it when it does.
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: '11.0.x'
           dotnet-quality: preview
@@ -342,7 +342,7 @@ jobs:
               --skip-duplicate
           }
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: packages
           path: artifacts/*.nupkg
@@ -352,7 +352,7 @@ jobs:
       # the notes are GitHub's, generated from the merged pull requests since the previous tag,
       # which is where the measured facts of each change already are. fail_on_unmatched_files, so
       # a pack that produced nothing cannot publish an empty release.
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         if: github.ref_type == 'tag'
         with:
           tag_name: ${{ github.ref_name }}

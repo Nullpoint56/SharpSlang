@@ -40,8 +40,8 @@ name: CI
 # the current upstream layout.
 
 # Markdown-only changes skip all of this and run docs.yml instead. A full run is four runners each
-# downloading a 36 MB payload, building, and executing 520 tests, plus a job that installs ClangSharp
-# and regenerates the bindings — none of which a paragraph can affect.
+# downloading the pinned Slang payload, building, and executing the whole suite, plus a job that
+# installs ClangSharp and regenerates the bindings — none of which a paragraph can affect.
 #
 # paths-ignore only skips when *every* changed file matches, so a commit touching a document and a
 # source file still runs everything. That is the behaviour worth having: the docs here are not inert
@@ -113,16 +113,16 @@ jobs:
         rid: ${{ fromJSON(inputs.macos && '["win-x64","linux-x64","linux-arm64","osx-arm64"]' || '["win-x64","linux-x64","linux-arm64"]') }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # The preview quality is there because .NET 11 has no GA release yet; drop it when it does.
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: '11.0.x'
           dotnet-quality: preview
 
       - name: Cache the Slang release
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           # Keyed on the pin, so a version bump misses the cache and re-downloads by design.
           path: obj/slang-dist
@@ -140,7 +140,7 @@ jobs:
       # now hands the job token to the tests, which makes a cache miss a cost rather than a
       # failure; this cache remains the reason the budget is rarely touched at all.
       - name: Cache the pinned headers and Slang's test corpus
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             obj/slang-headers
@@ -156,7 +156,7 @@ jobs:
       # fetch-nri.ps1 skips packages already present, so a hit means the step below makes no API
       # call and never needs the token.
       - name: Cache the PrismNRI packages
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: nupkg-feed/*.nupkg
           key: prismnri-${{ hashFiles('Directory.Build.props') }}
@@ -237,7 +237,7 @@ jobs:
       - name: Cache the Khronos validation layer
         if: matrix.rid == 'linux-x64'
         id: vvl
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: obj/vvl
           key: vvl-linux-x64-1.4.363.0
@@ -351,7 +351,11 @@ jobs:
         # difference between knowing the crasher and inferring it from test ordering on a different
         # platform. Reached for after two macOS runs were diagnosed by guesswork; it is the tool
         # that exists for this and should have been the first move.
-        run: dotnet test PrismSlang.slnx -c Release --no-build --nologo --blame --logger "trx;LogFileName=results.trx"
+        #
+        # The TRX goes to one fixed place, test-results/results.trx, because every "actually ran"
+        # gate below counts its classes from this file instead of running them again (see
+        # tools/ci/count-tests.ps1). The upload and crash steps search recursively and find it here.
+        run: dotnet test PrismSlang.slnx -c Release --no-build --nologo --blame --logger "trx;LogFileName=results.trx" --results-directory test-results
 
       # A skipped test is green, so installing lavapipe and never noticing it failed to load would
       # leave the whole validation harness silently switched off. Two of the three run on any
@@ -370,31 +374,32 @@ jobs:
       # mode  is about, and a gate that can never fail is the one 's driver was.
       - name: The validation-layer tests actually ran
         if: startsWith(matrix.rid, 'linux')
-        env:
-          MALLOC_PERTURB_: 165
         run: |
           # The count comes from the TRX, not from the console. The first version of this step
           # scraped the one-line "Passed!  - Failed: 0, Passed: 2, ..." summary, which is what the
           # default console logger prints — and then gained a
           # `--logger "console;verbosity=detailed"` for a better log, which prints a multi-line
           # block instead and no such line at all. It reported "only 0 ran" on a run where two had
-          # passed. TRX has a <Counters> element and does not change shape to suit a verbosity.
+          # passed. TRX records every result and does not change shape to suit a verbosity.
           #
-          # The detailed console logger stays, because it is what puts the skip reason in the log.
+          # And from the Test step's TRX, not from a second run. These gates used to re-run their
+          # classes with --filter only to read a count, which cost a test host and a second
+          # execution of the same tests per gate: 64 seconds on win-x64's three gates in the
+          # October 2026 runs, and more on linux-x64 once its NRI gate re-ran the Vulkan rows.
+          # tools/ci/count-tests.ps1 counts the same classes in the file the Test step
+          # already wrote, matching them as the filter did, and prints each skipped test with its
+          # reason, which is what the detailed console logger was there for. Its counts reproduced
+          # every gate's outcome on the October 2026 runs' TRX files, the skips included.
+          #
           # SlangComputeCorpusTests is here too, and needs the same device. It is the only thing
           # in the suite that executes a shader — 51 of Slang's own compute tests dispatched with
           # buffers bound where reflection says, compared against the words upstream recorded — so
           # if lavapipe is missing, the check that offsets and binding indices actually work goes
           # quiet along with the layers.
-          dotnet test PrismSlang.slnx -c Release --no-build --nologo \
-            --filter "FullyQualifiedName~VulkanValidationTests|FullyQualifiedName~SlangComputeCorpusTests" \
-            --logger "console;verbosity=detailed" \
-            --logger "trx;LogFileName=vulkan.trx" \
-            --results-directory vulkan-results
-
-          counters=$(grep -o '<Counters [^>]*>' vulkan-results/vulkan.trx | head -1)
-          echo "$counters"
-          passed=$(echo "$counters" | sed -n 's/.*[^a-z]passed="\([0-9]*\)".*/\1/p')
+          counts=$(pwsh -NoProfile -File tools/ci/count-tests.ps1 -Trx test-results/results.trx \
+            -Class "VulkanValidationTests,SlangComputeCorpusTests") || { echo "$counts"; exit 1; }
+          echo "$counts"
+          passed=$(echo "$counts" | tail -1 | sed -n 's/.*passed=\([0-9]*\).*/\1/p')
 
           if [ "${passed:-0}" -lt 5 ]; then
             echo "::error::only ${passed:-0} device-backed test(s) ran on ${{ matrix.rid }}. lavapipe or the layers did not load, so the only oracle in the suite that is not Slang judging itself is switched off, and nothing dispatches a shader; the skip reason is in the output above."
@@ -409,7 +414,7 @@ jobs:
       #   NativeAbiTests needs a C++ compiler. Every runner has one — clang++ on the Linux and
       #   macOS images, LLVM at its default install path on Windows — so a skip here means the
       #   image changed, not that the check is unavailable. Without it, nothing compares the
-      #   binding's struct layout, field offsets, bitfield packing or 278 DllImport signatures
+      #   binding's struct layout, field offsets, bitfield packing or 279 DllImport signatures
       #   against the header, and none of those failures are visible any other way.
       #
       #   SlangReflectionCorpusTests and SlangWalkerCorpusTests need the corpus download. They are
@@ -422,19 +427,13 @@ jobs:
         # Every leg, unlike the lavapipe gate above, so `shell: bash` is explicit — a Windows
         # runner defaults to pwsh and would read the script below as PowerShell.
         shell: bash
-        env:
-          MALLOC_PERTURB_: 165
         run: |
-          dotnet test PrismSlang.slnx -c Release --no-build --nologo \
-            --filter "FullyQualifiedName~NativeAbiTests|FullyQualifiedName~SlangReflectionCorpusTests|FullyQualifiedName~SlangWalkerCorpusTests|FullyQualifiedName~VtableOrderTests" \
-            --logger "console;verbosity=detailed" \
-            --logger "trx;LogFileName=oracles.trx" \
-            --results-directory oracle-results
-
-          counters=$(grep -o '<Counters [^>]*>' oracle-results/oracles.trx | head -1)
-          echo "$counters"
-          passed=$(echo "$counters"  | sed -n 's/.*[^a-z]passed="\([0-9]*\)".*/\1/p')
-          skipped=$(echo "$counters" | sed -n 's/.*[^a-z]notExecuted="\([0-9]*\)".*/\1/p')
+          counts=$(pwsh -NoProfile -File tools/ci/count-tests.ps1 -Trx test-results/results.trx \
+            -Class "NativeAbiTests,SlangReflectionCorpusTests,SlangWalkerCorpusTests,VtableOrderTests") \
+            || { echo "$counts"; exit 1; }
+          echo "$counts"
+          passed=$(echo "$counts"  | tail -1 | sed -n 's/.*passed=\([0-9]*\).*/\1/p')
+          skipped=$(echo "$counts" | tail -1 | sed -n 's/.*skipped=\([0-9]*\).*/\1/p')
 
           if [ "${skipped:-0}" -ne 0 ]; then
             echo "::error::${skipped} of the header and corpus checks skipped on ${{ matrix.rid }}. The reason is printed above; each one is an oracle that is now switched off while reporting green."
@@ -494,15 +493,10 @@ jobs:
         if: matrix.rid == 'win-x64'
         shell: bash
         run: |
-          dotnet test PrismSlang.slnx -c Release --no-build --nologo \
-            --filter "FullyQualifiedName~NriDeviceTests" \
-            --logger "console;verbosity=detailed" \
-            --logger "trx;LogFileName=nri.trx" \
-            --results-directory nri-results
-
-          counters=$(grep -o '<Counters [^>]*>' nri-results/nri.trx | head -1)
-          echo "$counters"
-          passed=$(echo "$counters" | sed -n 's/.*[^a-z]passed="\([0-9]*\)".*/\1/p')
+          counts=$(pwsh -NoProfile -File tools/ci/count-tests.ps1 -Trx test-results/results.trx \
+            -Class "NriDeviceTests") || { echo "$counts"; exit 1; }
+          echo "$counts"
+          passed=$(echo "$counts" | tail -1 | sed -n 's/.*passed=\([0-9]*\).*/\1/p')
 
           if [ "${passed:-0}" -lt 70 ]; then
             echo "::error::only ${passed:-0} NRI device test(s) passed on ${{ matrix.rid }}; expected at least 70 (35 on the NONE backend, 35 on D3D12 over WARP). NRI.dll did not load, the NONE or D3D12 device could not be created, or dxc was not staged, so something that checks what PrismNRI and D3D12 accept from the projection is switched off; the skip reason is in the output above."
@@ -550,18 +544,11 @@ jobs:
       # new corpus case adds a row to two theories here; raise it by two then.
       - name: The NRI device tests actually ran (linux-x64)
         if: matrix.rid == 'linux-x64'
-        env:
-          MALLOC_PERTURB_: 165
         run: |
-          dotnet test PrismSlang.slnx -c Release --no-build --nologo \
-            --filter "FullyQualifiedName~NriDeviceTests" \
-            --logger "console;verbosity=detailed" \
-            --logger "trx;LogFileName=nri.trx" \
-            --results-directory nri-results
-
-          counters=$(grep -o '<Counters [^>]*>' nri-results/nri.trx | head -1)
-          echo "$counters"
-          passed=$(echo "$counters" | sed -n 's/.*[^a-z]passed="\([0-9]*\)".*/\1/p')
+          counts=$(pwsh -NoProfile -File tools/ci/count-tests.ps1 -Trx test-results/results.trx \
+            -Class "NriDeviceTests") || { echo "$counts"; exit 1; }
+          echo "$counts"
+          passed=$(echo "$counts" | tail -1 | sed -n 's/.*passed=\([0-9]*\).*/\1/p')
 
           if [ "${passed:-0}" -lt 70 ]; then
             echo "::error::only ${passed:-0} NRI device test(s) passed on ${{ matrix.rid }}; expected at least 70 (35 on the NONE backend, 35 on Vulkan over lavapipe). libNRI.so did not load, lavapipe or libvulkan is missing, or the 1.4.363 validation layer is not in front of Ubuntu's, so something that checks what PrismNRI and Vulkan accept from the projection is switched off; the skip reason is in the output above."
@@ -596,16 +583,11 @@ jobs:
         if: matrix.rid == 'win-x64'
         shell: bash
         run: |
-          dotnet test PrismSlang.slnx -c Release --no-build --nologo \
-            --filter "FullyQualifiedName~DxilTests" \
-            --logger "console;verbosity=detailed" \
-            --logger "trx;LogFileName=dxil.trx" \
-            --results-directory dxil-results
-
-          counters=$(grep -o '<Counters [^>]*>' dxil-results/dxil.trx | head -1)
-          echo "$counters"
-          passed=$(echo "$counters"  | sed -n 's/.*[^a-z]passed="\([0-9]*\)".*/\1/p')
-          skipped=$(echo "$counters" | sed -n 's/.*[^a-z]notExecuted="\([0-9]*\)".*/\1/p')
+          counts=$(pwsh -NoProfile -File tools/ci/count-tests.ps1 -Trx test-results/results.trx \
+            -Class "DxilTests") || { echo "$counts"; exit 1; }
+          echo "$counts"
+          passed=$(echo "$counts"  | tail -1 | sed -n 's/.*passed=\([0-9]*\).*/\1/p')
+          skipped=$(echo "$counts" | tail -1 | sed -n 's/.*skipped=\([0-9]*\).*/\1/p')
 
           if [ "${skipped:-0}" -ne 0 ]; then
             echo "::error::${skipped} DXIL test(s) skipped on ${{ matrix.rid }}. dxc is not loadable beside slang-compiler, so nothing checks that the corpus compiles to DXIL or what the projection makes of a DXIL layout; the skip reason is in the output above."
@@ -704,7 +686,7 @@ jobs:
         if: failure() && matrix.rid == 'osx-arm64'
         run: bash tools/ci/macos-backtrace.sh
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: test-results-${{ matrix.rid }}
@@ -714,7 +696,7 @@ jobs:
       # What this machine cooked, for the digests job below to compare against the other three.
       # Two files: the module and the layout obey different rules, and one file could only ever be
       # compared one way.
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: spirv-digests-${{ matrix.rid }}
@@ -782,9 +764,9 @@ jobs:
     needs: test
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           pattern: spirv-digests-*
           path: digests
