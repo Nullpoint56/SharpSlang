@@ -2,28 +2,34 @@ name: CI
 
 # What runs, and when, is a measured decision rather than a default.
 #
-# The first version of this workflow ran on every push to every branch, and again on main after
-# each merge. In October 2026 that, together with PrismNRI's CI on the same account, spent the Free
-# plan's whole monthly Actions allowance — $12, which is 2,000 Linux minutes at $0.006 — in two
-# days, and GitHub refused the last job of the last run. GitHub's own usage report said where it
-# went: a macOS minute costs $0.062, ten times a Linux one, and macOS was 15% of the minutes and 57%
-# of the money; and a third of this repository's runs were repeats on main of code its branch had
-# just passed. So:
+# The repository is private on the Free plan: $12 of Actions a month, which is 2,000 Linux minutes
+# at $0.006, with Windows at $0.010 and macOS at $0.062. Every job is billed rounded up to whole
+# minutes. October 2026's allowance was spent in two days. A third of the runs then were repeats on
+# main of code its branch had just passed, and macOS was 57% of the money. The rules since
+# 2026-11-07 are the owner's:
 #
-#   * Pull requests, not pushes. A pull_request run tests the merge result, which is what main
-#     becomes, once per push to the pull request, and nothing re-runs on main after the merge. A
-#     branch with no pull request is not built; open a draft to get a run.
-#   * macOS on demand. The osx-arm64 leg is about three quarters of a run's cost, and macOS is not
-#     an engine target yet, so it runs when asked — a manual run of this workflow includes it by
-#     default — and before every release, where publish.yml calls this workflow with it on. A
-#     Windows or Linux regression still fails the pull request; an osx-arm64-only one is caught
-#     before it ships rather than before it merges.
-#   * The check that the generated bindings are current moved to regen.yml, which runs only when
-#     what it checks can have changed.
+#   * Nothing starts by itself on a branch. A push to a pull request runs nothing. A branch is
+#     tested when someone starts this workflow by hand on it: Actions > CI > Run workflow, choosing
+#     the branch. A run started that way does not appear in a pull request's checks, so the report
+#     job posts its outcome on the tested commit as a commit status named "ci", and the pull
+#     request shows it.
+#   * A branch must be up to date with main before it merges, and must have a green run. GitHub
+#     cannot enforce either on a private Free repository: branch protection and rulesets answer
+#     "Upgrade to GitHub Pro or make this repository public". So the gate refuses to test a branch
+#     that is behind main, which costs one short Linux job rather than a matrix. And the "ci"
+#     status is what a ruleset would require, once the plan allows one ("require status checks",
+#     strict).
+#   * Nothing re-runs on main unless the code differs from what a branch run tested. A push to
+#     main starts this workflow, and the gate skips every job whose result already exists for the
+#     same tree. For the merge of an up-to-date branch that is all of them. A merge that skipped
+#     its branch run, or that differs from it, is tested here. Documentation-only pushes start
+#     nothing, because the branch run checked them.
+#   * macOS on demand. The osx-arm64 leg is most of a run's cost, and macOS is not an engine
+#     target yet. It runs when a manual run asks for it, and before every release, where
+#     publish.yml calls this workflow with it on.
 #
-# Per run at October 2026 prices, measured from the jobs' durations: about $0.50 with macOS, about
-# $0.14 without. Caches are scoped to the pull request, so its first run downloads the Slang
-# release and the PrismNRI packages afresh — seconds per leg, not minutes.
+# tools/ci/ci-gate.ps1 makes those decisions, and its header lists them. It runs on Linux in
+# seconds, ahead of everything else, and its summary says what it decided and why.
 #
 # The cross-platform matrix is not box-ticking: the first linux-x64 run of this project found a
 # heap-corrupting ownership bug that had been passing green on Windows since the first commit
@@ -38,48 +44,155 @@ name: CI
 # The native payload is NOT committed — runtimes/ is gitignored. Each job fetches it from the
 # release pinned in Directory.Build.props, which also proves the fetch script still works against
 # the current upstream layout.
-
-# Markdown-only changes skip all of this and run docs.yml instead. A full run is four runners each
-# downloading the pinned Slang payload, building, and executing the whole suite, plus a job that
-# installs ClangSharp and regenerates the bindings — none of which a paragraph can affect.
-#
-# paths-ignore only skips when *every* changed file matches, so a commit touching a document and a
-# source file still runs everything. That is the behaviour worth having: the docs here are not inert
-# prose, they carry section numbers that code comments cite, and check-docs.sh verifies those
-# against the source rather than against the documents alone.
-#
-# If these jobs are ever made required status checks, this needs revisiting: a skipped workflow
-# never reports, and a PR waits forever for a check that will not arrive.
 on:
-  pull_request:
-    paths-ignore: ['**.md']
-  # A manual run is a deliberate one, so it is the full matrix unless told otherwise. Run it on a
-  # branch to put macOS in front of a change that might need it.
+  # main only, and only for what a branch run could not have covered; the gate decides. Markdown
+  # and docs/ changes start nothing here: the docs job of the branch run checked them.
+  push:
+    branches: [main]
+    paths-ignore: ['**.md', 'docs/**']
+  # The only way a branch is tested.
   workflow_dispatch:
     inputs:
       macos:
-        description: 'Include the osx-arm64 leg'
+        description: 'Include the osx-arm64 leg (about ten times the cost of a Linux leg)'
         type: boolean
-        default: true
-  # publish.yml calls this before it packs anything, with macOS on: every RID a package ships is
-  # tested by the run that publishes it.
+        default: false
+      force:
+        description: 'Run every requested job even if this tree already passed it'
+        type: boolean
+        default: false
+  # publish.yml calls this before it packs anything, with macOS on: every RID a package ships has
+  # passed on the tree being released.
   workflow_call:
     inputs:
       macos:
         type: boolean
         default: true
+      release:
+        type: boolean
+        default: false
 
 permissions:
   contents: read
 
-# A newer push to the same pull request supersedes the run in flight. Without this, a fixup pushed
-# while the previous commit is still being tested means two full matrices, and when the earlier
-# one is hung (see the Test step's timeout) it means a runner held for nothing.
+# A newer run on the same ref supersedes the one in flight, so a run started again after a fixup
+# does not pay for two matrices.
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
+  gate:
+    name: gate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read          # earlier runs of this workflow, and their jobs
+      pull-requests: read    # the pull requests a commit belongs to
+      statuses: write        # the pending "ci" status of a manual run
+    outputs:
+      legs: ${{ steps.decide.outputs.legs }}
+      count: ${{ steps.decide.outputs.count }}
+      digests: ${{ steps.decide.outputs.digests }}
+      bindings: ${{ steps.decide.outputs.bindings }}
+      docs: ${{ steps.decide.outputs.docs }}
+    steps:
+      # A pull request does not list a run started by hand, so a pending status linking to the run
+      # shows on it at once that one started. The report job replaces it with the outcome.
+      - name: Mark the ci status pending
+        if: github.event_name == 'workflow_dispatch' && github.workflow == 'CI'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >
+          gh api "repos/${{ github.repository }}/statuses/${{ github.sha }}"
+          -f state=pending -f context=ci -f description="CI run in progress"
+          -f target_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          --silent
+
+      - uses: actions/checkout@v7
+
+      - name: Decide
+        id: decide
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GATE_BEFORE: ${{ github.event.before }}
+          GATE_MACOS: ${{ inputs.macos }}
+          GATE_RELEASE: ${{ inputs.release }}
+          GATE_FORCE: ${{ inputs.force }}
+        run: ./tools/ci/ci-gate.ps1
+
+  # The generated bindings are current: the committed dotnet/Native/ is what the generator produces
+  # from the pinned slang.h.
+  #
+  # Vtable *reordering* is a silent ABI break: the code still compiles and calls the wrong function.
+  # Reviewing that diff is the control (docs §4.3), so this fails if the committed bindings do not
+  # match the generator's output for the pinned header. It was its own workflow, regen.yml, and is
+  # a job here so that one manual run covers a branch. The gate runs it only when its inputs
+  # changed: the SlangVersion pin in Directory.Build.props, tools/generate-native.ps1, and
+  # dotnet/Native itself. A Directory.Build.props change to another pin runs it too, which is a
+  # minute spent rather than a check missed.
+  bindings:
+    name: generated bindings are current
+    needs: gate
+    if: needs.gate.outputs.bindings == 'run'
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      # 10.0, not the 11.0 the projects target: ClangSharpPInvokeGenerator 21.1.8.4 is a net10.0
+      # tool, and running it is all this job does. generate-native.ps1 never builds the solution,
+      # so nothing here needs the newer SDK. The image already carries a 10.0 SDK, so this takes
+      # seconds (3 s on 2026-11-07).
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '10.0.x'
+
+      # Pinned, like the Slang release the headers come from. The generator's output is what this
+      # job compares, so its version is part of the input: unpinned, it took ClangSharp 22.1.8 on
+      # 2026-11-07, which writes NativeTypeName("slang::IBlob **") where 21.1.8.4 writes
+      # "IBlob **", and the job reported dotnet/Native out of date for a header nothing had
+      # changed. Move this together with the version tools/generate-native.ps1 says it was
+      # validated with.
+      - name: Install ClangSharp generator
+        run: dotnet tool install --global ClangSharpPInvokeGenerator --version 21.1.8.4
+
+      - name: Regenerate
+        shell: pwsh
+        run: ./tools/generate-native.ps1
+
+      - name: Fail if the committed bindings differ
+        shell: pwsh
+        run: |
+          git add --intent-to-add dotnet/Native
+          $diff = git diff --stat -- dotnet/Native
+          if ($diff) {
+            Write-Host "::error::dotnet/Native is out of date. Run tools/generate-native.ps1 and review the diff."
+            git diff -- dotnet/Native
+            exit 1
+          }
+          Write-Host "generated bindings match the pinned header"
+
+  # Links and § references. Needs the source tree, not just docs/: half the check is that every §
+  # a code comment cites resolves to a real heading in design.md. The numbered sections are cited
+  # from code by bare number, so this is what stops a renumbering from silently orphaning them, and
+  # a change that touches no markdown can break it: a § renumbered in a code comment, or a file
+  # renamed out from under PrismSlang.slnx. It was docs.yml plus a step of the linux-x64 leg, and
+  # is one job here, so a documentation-only branch is still checked by its one manual run while
+  # the test legs skip.
+  docs:
+    name: links and section references
+    needs: gate
+    if: needs.gate.outputs.docs == 'run'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - name: Check documentation
+        run: bash tools/ci/check-docs.sh
+
   test:
     name: test (${{ matrix.rid }})
     # The runner for each RID, in one place so the matrix can be a plain list of RIDs whose length
@@ -104,13 +217,15 @@ jobs:
     # already answered by linux-arm64; what is new is the OS: a third allocator, a third dynamic
     # loader, and the Itanium C++ ABI on a runtime that is not glibc's. No Vulkan there:
     # VulkanTestDevice finds no loader and the validation tests skip with their reason.
+    needs: gate
+    # The legs come from the gate: none when this tree already passed them, and osx-arm64 only
+    # when a manual run or a release asked for it.
+    if: needs.gate.outputs.legs != '[]'
     runs-on: ${{ fromJSON('{"win-x64":"windows-latest","linux-x64":"ubuntu-24.04","linux-arm64":"ubuntu-24.04-arm","osx-arm64":"macos-14"}')[matrix.rid] }}
     strategy:
       fail-fast: false       # a Windows-only or Linux-only failure is the interesting signal
       matrix:
-        # osx-arm64 only when asked for: a manual run (on by default) or a release. On a pull
-        # request `inputs` is empty, so the expression takes the three-leg list.
-        rid: ${{ fromJSON(inputs.macos && '["win-x64","linux-x64","linux-arm64","osx-arm64"]' || '["win-x64","linux-x64","linux-arm64"]') }}
+        rid: ${{ fromJSON(needs.gate.outputs.legs) }}
 
     steps:
       - uses: actions/checkout@v7
@@ -270,14 +385,6 @@ jobs:
         run: |
           grep -o '"api_version": "[^"]*"' obj/vvl/share/vulkan/explicit_layer.d/VkLayer_khronos_validation.json
           echo "VK_ADD_LAYER_PATH=$GITHUB_WORKSPACE/obj/vvl/share/vulkan/explicit_layer.d" >> "$GITHUB_ENV"
-
-      # Also runs in docs.yml, which is what covers a markdown-only change. It runs here too because
-      # two of its three checks are broken by changes that touch no markdown at all: a § renumbered
-      # in a code comment, and a file renamed out from under PrismSlang.slnx. Linux only — it is a
-      # property of the tree, not of the platform.
-      - name: Check documentation and solution references
-        if: matrix.rid == 'linux-x64'
-        run: bash tools/ci/check-docs.sh
 
       - name: Build
         run: dotnet build PrismSlang.slnx -c Release --nologo -warnaserror
@@ -744,7 +851,7 @@ jobs:
   # everything, and the asset that ships is not the asset that was tested.
   #
   # `needs: test` means this only runs when every leg passed, so a missing digest here is a
-  # genuine anomaly rather than a knock-on from a failure that already reported. On a pull request
+  # genuine anomaly rather than a knock-on from a failure that already reported. Without macOS
   # that is three legs, and the comparison loses nothing that matters to it: win-x64 and linux-x64
   # still check "identical within an architecture", and linux-arm64 against both still checks the
   # cross-architecture exception list. What only macOS adds is a second arm64 leg, checked on the
@@ -759,10 +866,15 @@ jobs:
   # So it checks three rules rather than one — the layout everywhere, the module within an
   # architecture, and an exception list across architectures that may neither grow nor silently
   # shrink. A flat "everything matches" would now be permanently red and would report nothing.
+  #
+  # The leg count is in the job's name because the gate reads it back: this comparison covers the
+  # legs of one run, so a tree counts as compared for as many legs as the run that compared it had.
   digests:
-    name: every platform cooks the same asset
-    needs: test
+    name: every platform cooks the same asset (${{ needs.gate.outputs.count }} legs)
+    needs: [gate, test]
+    if: needs.gate.outputs.digests == 'run'
     runs-on: ubuntu-24.04
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7
 
@@ -774,5 +886,38 @@ jobs:
       # The count is the argument, and it is the safeguard: a comparison that finds nothing to
       # compare has to fail, because "all legs agreed" and "no leg reported" are otherwise the same
       # green — and the second is what a renamed artifact actually produces. It is the number of
-      # legs this run had, which is the matrix above.
-      - run: bash tools/ci/compare-digests.sh digests ${{ inputs.macos && 4 || 3 }}
+      # legs this run had, which the gate chose.
+      - run: bash tools/ci/compare-digests.sh digests ${{ needs.gate.outputs.count }}
+
+  # The outcome of a manual run, as the commit status "ci" on the commit it tested. A pull request
+  # lists commit statuses but not runs started by hand, so this is how a branch's result reaches
+  # its pull request, and what a ruleset would require. A job the gate skipped counts as passed:
+  # it was skipped because this tree already passed it, or because it cannot change a result.
+  # Anything else that is not success fails the status, and so does a gate that did not succeed,
+  # whose skipped jobs prove nothing. Not for publish.yml's call, which reports through its own run.
+  report:
+    name: report
+    needs: [gate, bindings, docs, test, digests]
+    if: always() && github.event_name == 'workflow_dispatch' && github.workflow == 'CI'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      statuses: write
+    steps:
+      - name: Post the ci status
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NEEDS: ${{ toJSON(needs) }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          $needs = $env:NEEDS | ConvertFrom-Json
+          $gateOk = $needs.gate.result -eq 'success'
+          $bad = @('bindings', 'docs', 'test', 'digests' | Where-Object { $needs.$_.result -notin 'success', 'skipped' })
+          $state = if ($gateOk -and $bad.Count -eq 0) { 'success' } else { 'failure' }
+          $description = if (-not $gateOk) { "gate: $($needs.gate.result)" }
+                         elseif ($bad.Count) { ($bad | ForEach-Object { "$($_): $($needs.$_.result)" }) -join ', ' }
+                         else { 'every job passed or was already covered' }
+          gh api "repos/${{ github.repository }}/statuses/${{ github.sha }}" -f state=$state -f context=ci -f description="$description" -f target_url=$env:RUN_URL --silent
+          if ($LASTEXITCODE -ne 0) { throw "posting the ci status failed" }
+          "ci -> $state ($description)"

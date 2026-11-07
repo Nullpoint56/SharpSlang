@@ -203,9 +203,10 @@ shader construct that caused it.
 | `linux-arm64` | `ubuntu-24.04-arm` | the only leg exercising ARM64 calling conventions |
 | `osx-arm64` | `macos-14` | the only leg on a non-glibc allocator and loader; on demand and before every release |
 
-Windows and both Linux legs run the full suite on every pull request. The macOS leg runs when a
-run is started by hand, and before every release, because a macOS minute costs ten times a Linux
-one and macOS is not an engine target yet. All four ship in the `PrismSlang` package. The NRI
+Windows and both Linux legs run the full suite when CI is started by hand on a branch, which is
+the only way a branch is tested, and on main only for code that no branch run has already passed.
+The macOS leg runs when a manual run asks for it, and before every release, because a macOS minute
+costs ten times a Linux one and macOS is not an engine target yet. All four ship in the `PrismSlang` package. The NRI
 device tests run on `win-x64` and `linux-x64`; `linux-arm64` skips them because PrismNRI ships no
 library for it, and macOS by decision, since it is not an engine target yet. The projection tests
 that need no device run everywhere. The Vulkan half needs a Khronos validation layer as new as the
