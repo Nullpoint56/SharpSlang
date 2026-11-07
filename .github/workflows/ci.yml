@@ -209,6 +209,68 @@ jobs:
           test -f /usr/share/vulkan/explicit_layer.d/VkLayer_khronos_validation.json \
             || { echo "::error::validation layer manifest missing"; exit 1; }
 
+      # A newer Khronos layer in front of Ubuntu's, on linux-x64, for the NRI device tests.
+      #
+      # Ubuntu 24.04's vulkan-validationlayers is 1.3.275, and LunarG's apt repository stops at
+      # 1.4.313. NRI is built against newer Vulkan headers and chains every structure and extension
+      # the driver offers into vkCreateDevice, and a layer older than those headers reports each one
+      # it does not know as an ERROR. Measured under WSL on the Mesa 25.2.8 lavapipe this runner
+      # installs, the 33 Vulkan rows of NriDeviceTests that create a device, with each layer:
+      #
+      #   1.3.275   all 33 failed, before the projection was looked at, on
+      #             VUID-VkDeviceCreateInfo-pNext-pNext and VUID-VkPhysicalDeviceProperties2-pNext-pNext.
+      #   1.4.313   all 33 again, on VK_EXT_zero_initialize_device_memory (VkStructureType
+      #             1000620000), which that layer predates.
+      #   1.4.363   none failed on device creation.
+      #
+      # PrismNRI's own Linux job takes this layer the same way, for the same reason. The only
+      # current Linux binary is inside LunarG's SDK tarball (366 MB), so the library and its
+      # manifest are taken out of it once per version and cached; the loader stays Ubuntu's.
+      #
+      # VK_ADD_LAYER_PATH puts it ahead of the system layer for every later step, so the Vortice
+      # tests (VulkanValidationTests, VulkanCorpusValidationTests, SlangComputeCorpusTests) are
+      # judged by it on this leg too — one layer per leg, the newer one, which knows more rules.
+      # Measured that way under WSL on Slang 2026.21: the whole suite passed with it in front (740,
+      # 12 skipped, none for the layer), and the validation-layer gate below still counts 5.
+      # linux-arm64 keeps Ubuntu's: the tarball is x86_64 only, and that leg runs no NRI device
+      # test. The version is in the cache key and the fetch step; move them together.
+      - name: Cache the Khronos validation layer
+        if: matrix.rid == 'linux-x64'
+        id: vvl
+        uses: actions/cache@v4
+        with:
+          path: obj/vvl
+          key: vvl-linux-x64-1.4.363.0
+
+      - name: Fetch the Khronos validation layer
+        if: matrix.rid == 'linux-x64' && steps.vvl.outputs.cache-hit != 'true'
+        env:
+          VVL_VERSION: 1.4.363.0
+          # Of vulkansdk-linux-x86_64-1.4.363.0.tar.xz, measured when this was written. A changed
+          # tarball under the same version is a reason to look before trusting it.
+          VVL_SHA256: 197962f5cbf80baf2775a03336a01cee7c8745686c65aaa70d3f751ade4d7e43
+        run: |
+          tmp="$(mktemp -d)"
+          curl -fsSL -o "$tmp/sdk.tar.xz" \
+            "https://sdk.lunarg.com/sdk/download/$VVL_VERSION/linux/vulkansdk-linux-x86_64-$VVL_VERSION.tar.xz"
+          echo "$VVL_SHA256  $tmp/sdk.tar.xz" | sha256sum -c -
+          tar -xJf "$tmp/sdk.tar.xz" -C "$tmp" --wildcards \
+            "*/x86_64/lib/libVkLayer_khronos_validation.so" \
+            "*/x86_64/share/vulkan/explicit_layer.d/VkLayer_khronos_validation.json"
+          # The manifest names its library as ../../../lib/, so the layout is kept.
+          mkdir -p obj/vvl/lib obj/vvl/share/vulkan/explicit_layer.d
+          cp "$tmp/$VVL_VERSION/x86_64/lib/libVkLayer_khronos_validation.so" obj/vvl/lib/
+          cp "$tmp/$VVL_VERSION/x86_64/share/vulkan/explicit_layer.d/VkLayer_khronos_validation.json" \
+            obj/vvl/share/vulkan/explicit_layer.d/
+          strip --strip-unneeded obj/vvl/lib/libVkLayer_khronos_validation.so
+          rm -rf "$tmp"
+
+      - name: Put the Khronos validation layer in front of Ubuntu's
+        if: matrix.rid == 'linux-x64'
+        run: |
+          grep -o '"api_version": "[^"]*"' obj/vvl/share/vulkan/explicit_layer.d/VkLayer_khronos_validation.json
+          echo "VK_ADD_LAYER_PATH=$GITHUB_WORKSPACE/obj/vvl/share/vulkan/explicit_layer.d" >> "$GITHUB_ENV"
+
       # Also runs in docs.yml, which is what covers a markdown-only change. It runs here too because
       # two of its three checks are broken by changes that touch no markdown at all: a § renumbered
       # in a code comment, and a file renamed out from under PrismSlang.slnx. Linux only — it is a
@@ -398,8 +460,8 @@ jobs:
       #
       # What is counted is NONE and D3D12. Hosted Windows has no Vulkan driver, so the tests gated
       # on NRI's Vulkan backend (the 33-case pipeline theory, which xunit reports as one skipped
-      # row, and the two dispatches: 3 skipped in the TRX) skip here. They skip on linux-x64 too,
-      # for a different reason (the next step), so for now only a workstation exercises them.
+      # row, and the two dispatches: 3 skipped in the TRX) skip here; linux-x64 runs them over
+      # lavapipe and counts them (the next step).
       # It does have WARP, which NriTestDevice picks under GITHUB_ACTIONS, and PrismNRI's own
       # win-x64 job runs its D3D12 suite there with the debug layer — so the D3D12 leg, compiled to
       # DXIL with dxc copied beside the compiler from Microsoft.Direct3D.DXC, runs here. On this leg exactly these must pass:
@@ -451,37 +513,41 @@ jobs:
 
       # The same gate for linux-x64, as its own step rather than a per-RID number in the one above:
       # the two legs count different backends, fail for different reasons, and each count is
-      # derived on its own. What is counted here is NONE alone.
+      # derived on its own. What is counted here is NONE and Vulkan, on lavapipe, validated by the
+      # SDK's 1.4.363 layer the steps after the apt install put in front of Ubuntu's.
       #
       # D3D12 does not exist on Linux: its 3 TRX rows (the 33-case theory as one row, and two
-      # facts) skip with NriTestDevice's own "D3D12 is Windows only". Vulkan does, on lavapipe, and
-      # the device tests pass on it — measured under WSL on the Mesa 25.2.8 lavapipe this runner
-      # installs, with the Vulkan SDK's 1.4.363 layer: all 35 Vulkan rows ran, both dispatches read
-      # back what the shaders wrote, every projectable case built its layout (lavapipe now reports
-      # mesh shaders and ray tracing, so none is excused by NriDeviceTests' device limits), and the
-      # one failure was vertex-interface's VUID-StandaloneSpirv-Offset-12509, the workstation's.
-      # But they are not counted, because on this runner they skip: the apt step above installs
-      # Ubuntu's layer, 1.3.275, which is older than the Vulkan headers NRI is built with and
-      # reports NRI's own vkCreateDevice as VUID-VkDeviceCreateInfo-pNext-pNext before anything of
-      # PrismSlang's is involved. NriFact's Vulkan gate creates one bare device first and skips
-      # with that error quoted, so the 3 Vulkan rows are skipped rather than 33 of them failing.
-      # Measured with that exact package (1.3.275.0-1, unpacked under WSL and put on VK_LAYER_PATH).
-      # On this leg exactly these must pass:
+      # facts) skip with NriTestDevice's own "D3D12 is Windows only". On this leg exactly these
+      # must pass:
       #
       #   33  A_pipeline_layout_built_from_the_projection_is_accepted_by_the_none_backend, one
       #       per corpus case, as on win-x64.
       #    1  Projected_vertex_formats_agree_with_nris_own_vulkan_conversion_table, NRI's static
       #       format table in libNRI.so.
       #    1  Every_declared_refusal_and_exclusion_names_a_shader_that_exists, a plain fact.
+      #   33  A_pipeline_built_from_the_projection_passes_nri_and_vulkan_validation, one per corpus
+      #       case: 25 whose pipelines are built and accepted, 6 layouts built with the pipeline out
+      #       of reach (mesh, amplification, ray-tracing, tessellation, geometry, subpass-inputs),
+      #       and the two projection refusals. No layout is excused by NriDeviceTests' device
+      #       limits: Mesa 25.2.8's lavapipe reports mesh shaders and ray tracing.
+      #    2  The Vulkan dispatches: compute-fixed through a descriptor, and a push-constant block
+      #       projected to root constants, both read back.
       #
-      # 35, of 41 rows, with 6 skipped: measured with PRISMNRI_TEST_SOFTWARE=1 (the software device
-      # GITHUB_ACTIONS selects) and the Test step's allocator settings. NONE needs only libNRI.so
-      # and glibc (it dlopens libvulkan.so.1 itself, and only for a Vulkan device), so it does not
-      # depend on what the runner's apt resolves to. Exact rather than a floor: if libNRI.so stops loading, every gated row skips
-      # and the plain fact alone passes, which is 1. A new corpus case adds a row to the NONE
-      # theory; raise it by one then. A newer layer here would let the Vulkan rows run and the
-      # count reach 70 (69 while Slang 2026.14.1's float4x4 vertex input still trips
-      # VUID-StandaloneSpirv-Offset-12509 in vertex-interface); raise it then too.
+      # 70, of 73 rows, with 3 skipped. Measured under WSL on Ubuntu 24.04 with the Mesa 25.2.8
+      # lavapipe this runner installs, the Slang 2026.21 linux-x64 payload, PRISMNRI_TEST_SOFTWARE=1
+      # (the software device GITHUB_ACTIONS selects) and the Test step's allocator settings, with
+      # the layer applied as here — VK_ADD_LAYER_PATH alone, over a system layer — and the loader's
+      # own log (VK_LOADER_DEBUG=layer) and the test host's memory map both showing the 1.4.363
+      # library loaded rather than the system one. No validation message at all, error or warning.
+      #
+      # Exact rather than a floor, because each way this goes quiet is a different count:
+      #   1   libNRI.so stops loading: every gated row skips and the plain fact alone passes.
+      #   35  lavapipe or libvulkan goes missing, or the layer above is not in front: the Vulkan
+      #       rows skip, with NriTestDevice's reason or, for an older layer, NriFact's, which quotes
+      #       the layer's own "unknown VkStructureType" error about NRI's device creation. Measured
+      #       with Ubuntu's 1.3.275 alone: 35 passed, 6 skipped.
+      # A layer that rejects something the projection said fails a test, and the step with it. A
+      # new corpus case adds a row to two theories here; raise it by two then.
       - name: The NRI device tests actually ran (linux-x64)
         if: matrix.rid == 'linux-x64'
         env:
@@ -497,12 +563,12 @@ jobs:
           echo "$counters"
           passed=$(echo "$counters" | sed -n 's/.*[^a-z]passed="\([0-9]*\)".*/\1/p')
 
-          if [ "${passed:-0}" -lt 35 ]; then
-            echo "::error::only ${passed:-0} NRI device test(s) passed on ${{ matrix.rid }}; expected at least 35 (the NONE backend). libNRI.so did not load or the NONE device could not be created, so nothing checks that PrismNRI marshals what the projection emits on Linux; the skip reason is in the output above."
+          if [ "${passed:-0}" -lt 70 ]; then
+            echo "::error::only ${passed:-0} NRI device test(s) passed on ${{ matrix.rid }}; expected at least 70 (35 on the NONE backend, 35 on Vulkan over lavapipe). libNRI.so did not load, lavapipe or libvulkan is missing, or the 1.4.363 validation layer is not in front of Ubuntu's, so something that checks what PrismNRI and Vulkan accept from the projection is switched off; the skip reason is in the output above."
             exit 1
           fi
 
-          echo "::notice::$passed NRI device test(s) ran on ${{ matrix.rid }} (NONE; D3D12 does not exist here, and the Vulkan-backed ones skip because Ubuntu's validation layer rejects NRI's device creation)"
+          echo "::notice::$passed NRI device test(s) ran on ${{ matrix.rid }} (NONE, and Vulkan on lavapipe with the 1.4.363 layer; D3D12 does not exist here)"
 
       # And DxilTests, for dxc itself: every test there is a [DxcFact] or [DxcTheory] and skips
       # when dxc is not loadable, which is the right behaviour on the legs that never stage it and

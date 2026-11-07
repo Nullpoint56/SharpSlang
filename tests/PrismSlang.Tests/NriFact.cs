@@ -10,9 +10,10 @@
 // win-x64, linux-x64 and osx-arm64 payloads. linux-x64 was let in after it was watched working:
 // under WSL (Ubuntu 24.04, lavapipe from Mesa 25.2.8) the NONE and Vulkan tests ran and the
 // dispatches read back what the shaders wrote. The Vulkan half needs a Khronos layer as new as
-// the Vulkan headers NRI is built with: an older one, such as the Ubuntu package the linux-x64
-// runner installs, reports NRI's device creation itself as an error, and the Vulkan gate skips
-// with that measurement rather than let every test fail on it (VulkanCreationRejected).
+// the Vulkan headers NRI is built with: an older one, such as Ubuntu 24.04's own package (which
+// is why ci.yml puts the SDK's in front of it), reports NRI's device creation itself as an
+// error, and the Vulkan gate skips with that measurement rather than let every test fail on it
+// (VulkanCreationRejected).
 // linux-arm64 is a measurement too: the package has no payload for it, so there is no library to
 // load. macOS is a decision: the payload is there, but macOS is not an engine target yet. Both
 // keep running the projection tests that need no device. On Linux the D3D12 gate skips by
@@ -192,9 +193,9 @@ internal static class NriNative
     /// VUID-VkPhysicalDeviceProperties2-pNext-pNext for structures it predates; LunarG's apt
     /// layer, 1.4.313, logs the unknown VkStructureType 1000620000 (that of
     /// VK_EXT_zero_initialize_device_memory, which it predates);
-    /// the SDK's 1.4.363 logs nothing, and the tests run. So this skips on the linux-x64 runner,
-    /// which installs Ubuntu's layer, and the reason quotes the header version the layer itself
-    /// says it validates against. Only device creation is looked at: an error a test provokes
+    /// the SDK's 1.4.363 logs nothing, and the tests run. So this skips wherever Ubuntu's layer is
+    /// the one loaded (ci.yml puts the SDK's in front of it on linux-x64), and the reason quotes
+    /// the header version the layer itself says it validates against. Only device creation is looked at: an error a test provokes
     /// afterwards still fails that test.
     ///
     /// And only that one cause. Every error measured from an old layer names a structure it does
