@@ -19,7 +19,7 @@ own prebuilt release, pinned to a version and fetched by a script.
 
 ## Status
 
-`0.1.0-alpha`, against Slang `v2026.14.1`, on .NET 11.
+`0.1.0-alpha`, against Slang `v2026.21`, on .NET 11.
 
 Alpha because nothing has exercised it but a test suite — thorough, but not a shipping game hitting
 the reflection surface with shaders nobody anticipated. PrismEngine will do that slowly, and 1.0
@@ -237,19 +237,19 @@ the pinned version from the release, and `nuget.config` points the restore at th
 
 A C++ compiler is optional but wanted. Six tests generate a probe, compile it against the pinned
 `slang.h`, and compare struct sizes, field offsets, bitfield packing and every function signature —
-all 278 `DllImport`s and all 231 vtable methods — against what the header actually declares. It is
+all 279 `DllImport`s and all 231 vtable methods — against what the header actually declares. It is
 the only check in the suite that can see a layout error, and the only one that can see a wrong
 parameter list on a vtable slot nothing has ever called. They skip with instructions where no
 compiler is found; CI has one on every runner.
 
-**846 tests** run on every leg, against oracles rather than expected values typed
+**848 tests** run on every leg, against oracles rather than expected values typed
 by hand: the emitted SPIR-V, Slang's own alternate route to each fact, a vk.xml-generated enum
 mirror, the Khronos validation layers building real pipelines on a headless device from a
 **33-shader corpus**, and Slang's own test suite — 31 shaders whose expected reflection the Slang
 team wrote, compared against both `spReflection_ToJson` and this package's projection. It also
 **dispatches 56 shaders** from Slang's `tests/compute` on a real device: buffers, storage images,
 sampled textures and samplers bound at the set and binding index reflection reports, and the
-readback compared with the words Slang's own tests record. `NativeExportTests` resolves all 278 `DllImport` entry points against the
+readback compared with the words Slang's own tests record. `NativeExportTests` resolves all 279 `DllImport` entry points against the
 loaded library.
 
 ## Documentation

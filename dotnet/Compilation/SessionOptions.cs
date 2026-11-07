@@ -31,7 +31,7 @@ public sealed class TargetOptions
     /// (<c>VulkanEnvironment.MaxSpirvVersion</c> in PrismSlang.Vulkan maps that); above it,
     /// <c>vkCreateShaderModule</c> fails with nothing useful to say.
     ///
-    /// Measured against slang-compiler 2026.14.1: the profile is the only knob that moves the
+    /// Measured against slang-compiler 2026.21: the profile is the only knob that moves the
     /// emitted header. Every <c>spirv_1_0</c>..<c>spirv_1_6</c> profile produces exactly the header
     /// version it names; a link-time <c>-capability spirv_1_6</c> is silently ignored. Ignored
     /// unless <see cref="Format"/> is SPIR-V.
@@ -61,7 +61,7 @@ public sealed class TargetOptions
     /// module rather than assuming it — <see cref="SpirvEntryPoint"/> explains why, and
     /// <c>ShaderPackage</c> records it so a pipeline builder never has to guess.
     ///
-    /// Note this must be set here or on the session: measured against slang-compiler 2026.14.1,
+    /// Note this must be set here or on the session: measured against slang-compiler 2026.21,
     /// passing <c>VulkanUseEntryPointName</c> to <c>linkWithOptions</c> has no effect at all.
     /// </remarks>
     public bool UseEntryPointNameInSpirv { get; init; }
@@ -89,7 +89,7 @@ public sealed class TargetOptions
     /// </summary>
     /// <remarks>
     /// <para>
-    /// Measured against slang-compiler 2026.14.1: setting this produces <em>byte-identical</em>
+    /// Measured against slang-compiler 2026.21: setting this produces <em>byte-identical</em>
     /// output and an identical descriptor-set structure, because a <c>ParameterBlock</c> on SPIR-V
     /// introduces a sub-element register space whether the flag is set or not. Kept because it is a
     /// real target flag that other targets honour, and removing it would make the option
@@ -133,8 +133,9 @@ public sealed class TargetOptions
     /// <remarks>
     /// The same reasoning as <see cref="FallbackSpirvVersion"/>: a decision rather than an
     /// inheritance. Left unset, Slang picks a shader model of its own and the emitted container
-    /// moves with the compiler version — measured on 2026.14.1, the two differ by a few dozen
-    /// bytes on the same shader, which is a different shader model, not noise. Shader model 6.5 is
+    /// moves with the compiler version — measured on 2026.14.1, the two differed by a few dozen
+    /// bytes on the same shader, which is a different shader model, not noise, and slangc 2026.21
+    /// builds an unprofiled compute shader as shader model 6.0. Shader model 6.5 is
     /// what this repository's D3D12 device tests compile against: the first model with mesh
     /// shaders and inline ray tracing, which the corpus declares, and accepted by the RTX 4070
     /// SUPER those tests were first measured on.

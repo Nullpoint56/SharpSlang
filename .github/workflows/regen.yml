@@ -39,8 +39,14 @@ jobs:
         with:
           dotnet-version: '10.0.x'
 
+      # Pinned, like the Slang release the headers come from. The generator's output is what this
+      # job compares, so its version is part of the input: unpinned, it took ClangSharp 22.1.8 on
+      # 2026-11-07, which writes NativeTypeName("slang::IBlob **") where 21.1.8.4 writes
+      # "IBlob **", and the job reported dotnet/Native out of date for a header nothing had
+      # changed. Move this together with the version tools/generate-native.ps1 says it was
+      # validated with.
       - name: Install ClangSharp generator
-        run: dotnet tool install --global ClangSharpPInvokeGenerator
+        run: dotnet tool install --global ClangSharpPInvokeGenerator --version 21.1.8.4
 
       - name: Regenerate
         shell: pwsh

@@ -21,6 +21,9 @@ public class FunctionSignatureTests
             float  roughness;
 
             float3 tinted(float3 light) { return albedo * light; }
+
+            [mutating]
+            void clear() { albedo = 0; }
         };
 
         [__AttributeUsage(_AttributeTargets.Function)]
@@ -38,7 +41,6 @@ public class FunctionSignatureTests
         int   overloaded(int a)            { return a; }
         float overloaded(float a, float b) { return a + b; }
 
-        [mutating]
         void neverCalled() { }
 
         float3 takesABuffer(StructuredBuffer<float4> data, uint i) { return data[i].xyz; }
@@ -137,7 +139,11 @@ public class FunctionSignatureTests
         var (global, session, module) = Load();
         using (global) using (session) using (module)
         {
-            Assert.Contains("mutating", Declared(module, "neverCalled").Modifiers ?? []);
+            // On a method, because that is the only place it is legal now: slang-compiler 2026.14.1
+            // accepted `[mutating]` on a free function and reported the modifier, and 2026.20's
+            // receiver conventions refuse it with E30428, "receiver-mode specifier requires an
+            // instance receiver".
+            Assert.Contains("mutating", Declared(module, "clear").Modifiers ?? []);
 
             var attributes = Declared(module, "shade").Attributes;
             Assert.NotNull(attributes);

@@ -27,7 +27,7 @@ public readonly record struct RawCompilerOption(
 /// Only options measured to actually change the generated code get a typed property. Slang accepts
 /// the full <c>CompilerOptionName</c> range here without complaint and ignores most of it, so a
 /// typed property for an option that does nothing would read as a supported feature and silently
-/// not work. Measured against slang-compiler 2026.14.1 by diffing emitted SPIR-V:
+/// not work. Measured against slang-compiler 2026.21 by diffing emitted SPIR-V:
 ///
 /// <list type="bullet">
 /// <item><c>Optimization</c> — works. None 2,052 bytes / default 1,868 / Maximal 1,668 on the

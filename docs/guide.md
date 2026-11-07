@@ -380,6 +380,11 @@ there would be a push-constant range the shader never reads. On DXIL, NRI's D3D1
 root constants at `b<registerIndex>` of `RootRegisterSpace`, which the projection sets to the
 block's space, so the shader needs no change.
 
+**A thread-group size cannot be a specialization constant.** D3D12 has none, and Slang lowers the
+other uses of one to members of a constant buffer at `b0` that the host fills. `numthreads` has no
+such fallback: `[numthreads(kGroupX, 1, 1)]` fails the compile with `E55205`, "specialization
+constants not supported for numthreads". A DXIL build needs a literal size.
+
 **What a DXIL package does not carry.** `BakedEntryPoint.SpirvVersion` is `Unspecified` and
 `WorkgroupSize` is null, because there is no SPIR-V module to read them from; `ToNriShaderDesc`
 does not need either. The thread-group size still comes from reflection on `ProjectedStage`.
@@ -678,7 +683,7 @@ The realistic way to hit it is undramatic: `runtimes/` is gitignored, so bumping
 without re-running `fetch-native.ps1` leaves the previous release staged and everything builds.
 
 ```csharp
-SlangGlobalSession.PinnedBuildTag    // what these bindings expect, e.g. "2026.14.1"
+SlangGlobalSession.PinnedBuildTag    // what these bindings expect, e.g. "2026.21"
 SlangGlobalSession.BuildTag          // what the loaded library reports
 
 // Deliberately running something else:
@@ -843,9 +848,9 @@ recognise the shape if you meet a cousin of one.
 | A spec-constant-sized resource array | `Texture2D t[kCount]` never reflects: on Linux it **ends the process** inside Slang's reflection, on Windows it surfaces as a catchable `SEHException`. Not detectable in advance; also unusable on Vulkan, where `descriptorCount` is fixed before specialization exists. Do not write one. |
 | An `AppendStructuredBuffer` costs two descriptors | Slang emits a separate storage buffer for the count, reported as a binding named `counter` and absent from `Parameters`. Build the descriptor set layout from `DescriptorSets`, and pair counters with `CounterBinding` — with both an append and a consume buffer, the two counters have identical names. |
 | A descriptor with no name | Loose global uniforms (`uniform float4 gTint;` at file scope) become a constant buffer nobody declared, so its range has a null `Name`. It is not anonymous, just undeclared — check `DescriptorRange.IsImplicitGlobalBuffer`, and `ProgramLayout.GlobalConstantBufferSize` for its size. |
-| `GetEntryPointIdentityHash` is not a cache key | It is stable and follows the source, but is **identical across optimization levels** while the emitted code is not — so keying a pipeline cache on it serves optimised code for an unoptimised request with nothing to notice. Use it to answer "same shader"; hash `GetEntryPointCodeBytes` to answer "same code". |
+| `GetEntryPointIdentityHash` is not a code hash | It is stable and follows the source and the compile options, but the options rather than the code: naming the default optimisation level explicitly emits identical SPIR-V under a different hash. So it does not answer "same shader" across option sets, and nothing says it covers the compiler build. Slang 2026.14.1 had the opposite fault, one hash across optimisation levels whose code differed. Hash `GetEntryPointCodeBytes` to answer "same code". |
 | An unbounded array that is not the last binding | `VK_DESCRIPTOR_BINDING_VARIABLE_DESCRIPTOR_COUNT_BIT` is legal only on a set's highest-numbered binding, and Slang does not arrange for that. Check `VulkanBinding.Binding` against the set before reaching for it; `PARTIALLY_BOUND` with a fixed cap is legal anywhere. |
-| The `sample` interpolation modifier | Slang emits `OpDecorate … Sample` without declaring `OpCapability SampleRateShading`, which spirv-val rejects as malformed. No device feature changes it. |
+| The `sample` interpolation modifier | Slang 2026.14.1 emitted `OpDecorate … Sample` without declaring `OpCapability SampleRateShading`, which spirv-val rejects as malformed whatever the device enables. Fixed by 2026.21, which declares the capability, so a device now has to enable `sampleRateShading` for the shader instead. |
 | `ParameterBlocksUseRegisterSpaces` | Byte-for-byte inert on SPIR-V. A `ParameterBlock` takes a space of its own either way. |
 | A threading bug that looks like a bad shader | Sharing a global session across threads sometimes fails as `SLANG_FAIL` on one module instead of crashing. A cooker that logs per-shader failures and continues will blame the file. If a batch reports a failure that passes on its own, suspect the thread pool before the shader. |
 | Uniform offsets are per target, not per shader | The same `ConstantBuffer<T>` lays out differently on SPIR-V and on D3D — std140 over-aligns a `struct` member and rounds its size up where D3D does neither, so a member can sit at byte 32 on Vulkan and byte 24 on D3D from identical source. Reflect against the target you will run on, and treat a baked layout as belonging to that target. Slang's own `buffer-layout` test compares one expected result across five targets by forcing D3D packing on all of them; nothing here does that, and the numbers differ accordingly. |

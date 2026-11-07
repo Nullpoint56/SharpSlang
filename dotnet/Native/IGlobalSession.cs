@@ -119,6 +119,7 @@ public unsafe partial struct IGlobalSession
     }
 
     [VtblIndex(14)]
+    [Obsolete]
     public void addBuiltins([NativeTypeName("const char *")] sbyte* sourcePath, [NativeTypeName("const char *")] sbyte* sourceString)
     {
         ((delegate* unmanaged[Stdcall]<IGlobalSession*, sbyte*, sbyte*, void>)(lpVtbl[14]))((IGlobalSession*)Unsafe.AsPointer(ref this), sourcePath, sourceString);
@@ -239,8 +240,8 @@ public unsafe partial struct IGlobalSession
 
     [VtblIndex(32)]
     [return: NativeTypeName("SlangResult")]
-    public int getDownstreamCompilerVersion(SlangPassThrough passThrough, int* outMajor, int* outMinor)
+    public int getDownstreamCompilerPath(SlangPassThrough passThrough, ISlangBlob** outPath)
     {
-        return ((delegate* unmanaged[Stdcall]<IGlobalSession*, SlangPassThrough, int*, int*, int>)(lpVtbl[32]))((IGlobalSession*)Unsafe.AsPointer(ref this), passThrough, outMajor, outMinor);
+        return ((delegate* unmanaged[Stdcall]<IGlobalSession*, SlangPassThrough, ISlangBlob**, int>)(lpVtbl[32]))((IGlobalSession*)Unsafe.AsPointer(ref this), passThrough, outPath);
     }
 }

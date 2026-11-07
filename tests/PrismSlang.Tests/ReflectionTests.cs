@@ -184,7 +184,7 @@ public class ReflectionTests
         // name as proof of the opposite of what this measures. A test name is documentation; this
         // one was the wrong kind.
         //
-        // What is true, against slang-compiler 2026.14.1: on SPIR-V a ParameterBlock<T> introduces
+        // What is true, against slang-compiler 2026.21: on SPIR-V a ParameterBlock<T> introduces
         // a sub-element register space with or without
         // SLANG_TARGET_FLAG_PARAMETER_BLOCKS_USE_REGISTER_SPACES, and the flag changes nothing.
         // OptionEffectTests asserts that inertness byte-for-byte.

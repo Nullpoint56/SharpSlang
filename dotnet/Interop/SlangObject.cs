@@ -81,6 +81,10 @@ public abstract unsafe class SlangObject : IDisposable
     //     session, after LoadModule      1      <- IModule does NOT retain ISession
     //     session, after Link            1      <- nor does the linked program
     //
+    // The same on 2026.21, read as deltas with the reference each wrapper now takes on its owner
+    // subtracted: Slang adds one to the global session for CreateSession and none to the session
+    // for LoadModule or Link.
+    //
     // So `session.Dispose()` while a module was still alive dropped the last reference and
     // destroyed it, leaving every module and program pointing into freed memory.
     //

@@ -93,11 +93,6 @@ public sealed class NriDeviceTests(Xunit.Abstractions.ITestOutputHelper output)
         ["geometry"] =
             "a geometry stage with no vertex stage, for the same reason as `tessellation`: the "
             + "supplied vertex stage would have to match the geometry shader's input primitive.",
-        ["interpolation-modifiers"] =
-            "Slang emits `OpDecorate … Sample` without declaring `OpCapability SampleRateShading`, "
-            + "which spirv-val rejects as invalid SPIR-V regardless of any device feature. Not a "
-            + "projection question; VulkanCorpusValidationTests asserts it directly so the day it "
-            + "is fixed upstream is a red test there. The layout is still built.",
         ["subpass-inputs"] =
             "an input attachment is read through a render pass or Vulkan 1.4's "
             + "dynamicRenderingLocalRead, and NRI renders with plain dynamic rendering. A property "
@@ -700,10 +695,11 @@ public sealed class NriDeviceTests(Xunit.Abstractions.ITestOutputHelper output)
     /// <see cref="LayoutUnbuildable"/>.
     /// </summary>
     /// <remarks>
-    /// Shorter than the Vulkan list by two, and both are measured rather than assumed:
-    /// <c>interpolation-modifiers</c> is out on Vulkan because Slang's SPIR-V forgets a capability,
-    /// which is not a problem DXIL has, and it builds here; <c>subpass-inputs</c> never reaches a
-    /// device because dxc refuses <c>SubpassInput</c>, so it is in CannotCompile instead.
+    /// Shorter than the Vulkan list by one, and measured rather than assumed:
+    /// <c>subpass-inputs</c> never reaches a device because dxc refuses <c>SubpassInput</c>, so it
+    /// is in CannotCompile instead. <c>interpolation-modifiers</c> used to be the second: on
+    /// slang-compiler 2026.14.1 it was out on Vulkan because Slang's SPIR-V forgot a capability, a
+    /// problem DXIL never had. 2026.21 declares it, and the pipeline is built on both backends now.
     /// </remarks>
     private static readonly Dictionary<string, string> D3D12PipelineOutOfReach = new(StringComparer.Ordinal)
     {

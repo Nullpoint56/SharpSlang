@@ -14,7 +14,8 @@ public class DiagnosticPolicyTests
 {
     /// <summary>
     /// Verbatim from slang-compiler 2026.14.1 with slang-glslang deleted from the output directory,
-    /// emitted from getEntryPointCode on a SLANG_OK result.
+    /// emitted from getEntryPointCode on a SLANG_OK result; slangc 2026.21 without slang-glslang
+    /// prints the same two lines.
     /// </summary>
     private const string MissingSpirvOpt = """
         error[E00100]: failed to load downstream compiler 'spirv-opt'

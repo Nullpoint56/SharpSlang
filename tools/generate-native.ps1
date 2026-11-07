@@ -4,9 +4,9 @@
 
 .DESCRIPTION
   Runs ClangSharpPInvokeGenerator over slang.h + slang-deprecated.h and applies the post-processing
-  that ClangSharp cannot do itself. Validated end to end against Slang master / v2026.14.1 with
-  ClangSharp 21.1.8.4: 126 files, ~5,000 lines, 280 DllImports, 383 vtable call sites, 0 errors,
-  0 warnings on net10.0.
+  that ClangSharp cannot do itself. Validated end to end against Slang v2026.21 with
+  ClangSharp 21.1.8.4: 129 files, ~5,100 lines, 279 DllImports, 383 vtable call sites, 0 errors,
+  0 warnings on net11.0.
 
   See docs/design.md §4.3 for why each workaround below exists. The short version:
 
@@ -24,7 +24,7 @@
   Do not point this script at those directories.
 
 .PARAMETER SlangVersion
-  Slang release tag to fetch headers from, e.g. "v2026.14.1". Must match the pinned native payload
+  Slang release tag to fetch headers from, e.g. "v2026.21". Must match the pinned native payload
   fetched by fetch-native.ps1 — Slang's ABI is explicitly not stable across versions.
 
 .PARAMETER Output

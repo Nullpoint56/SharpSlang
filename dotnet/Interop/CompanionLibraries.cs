@@ -31,16 +31,17 @@
 // one — so without this reference the next global session would search again, and fail again.
 //
 // Windows only, and on evidence rather than by default. The Linux and macOS payloads already tell
-// their loaders to look beside the compiler, read from the binaries' own dynamic-linking records:
+// their loaders to look beside the compiler, read from the binaries' own dynamic-linking records,
+// and re-read unchanged from the 2026.21 linux-x64 and osx-arm64 archives:
 //
 //   * linux-x64 and linux-arm64: libslang-compiler.so carries DT_RUNPATH "$ORIGIN/../lib:$ORIGIN"
 //     and no DT_RPATH, and glibc's dlopen searches the calling object's DT_RUNPATH for a bare
-//     name, so Slang's own dlopen of libslang-glslang-2026.14.1.so resolves in the compiler's
+//     name, so Slang's own dlopen of libslang-glslang-2026.21.so resolves in the compiler's
 //     directory whatever the executable and the working directory are. Measured on linux-x64
 //     under WSL: `dotnet PrismSlang.Prober.dll` from another directory, with no preload, loaded
 //     libslang-glslang from beside the compiler and optimised 2,048 bytes of SPIR-V to 1,664.
 //   * osx-arm64: libslang-compiler.dylib carries LC_RPATH "@loader_path/../lib" and
-//     "@loader_path", its install name is @rpath/libslang-compiler.0.2026.14.1.dylib, and the only
+//     "@loader_path", its install name is @rpath/libslang-compiler.0.2026.21.dylib, and the only
 //     name it holds for glslang is the leaf "slang-glslang-". dyld treats a leaf name passed to
 //     dlopen as @rpath/<name>, searched through the LC_RPATHs of the image that called it, which
 //     here is the compiler's own directory. That one is read from dyld's behaviour, not measured:
@@ -99,7 +100,7 @@ internal static unsafe class CompanionLibraries
             if (compilerDirectory is not null)
             {
                 // Globbed rather than named: Windows names them without a version today, and the
-                // Unix payloads show the form a versioned name takes (libslang-glslang-2026.14.1).
+                // Unix payloads show the form a versioned name takes (libslang-glslang-2026.21).
                 // slang-glsl-module is only there with fetch-native's Glsl profile. Slang loads it
                 // by name once GLSL input is enabled, measured, though a GLSL compute shader came
                 // out as the same 720 bytes of SPIR-V with and without it.

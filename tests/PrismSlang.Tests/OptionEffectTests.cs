@@ -100,7 +100,7 @@ public class OptionEffectTests
     {
         // Listed as inert rather than tested as working, and asserted here so that a future Slang
         // making it work fails this test instead of quietly agreeing with a doc comment that was
-        // already wrong. Measured against 2026.14.1: byte-identical output, identical descriptor
+        // already wrong. Measured against 2026.21: byte-identical output, identical descriptor
         // sets — a ParameterBlock takes a register space of its own either way.
         var (packedCode, packed) = WithTarget(new TargetOptions());
         var (spacedCode, spaced) = WithTarget(new TargetOptions

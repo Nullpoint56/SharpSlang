@@ -1,6 +1,6 @@
 // Does every function we say exists actually exist?
 //
-// L0 declares 278 DllImports against slang-compiler. A DllImport is a promise checked at the moment
+// L0 declares 279 DllImports against slang-compiler. A DllImport is a promise checked at the moment
 // of the first call and not before, so an export Slang renames or drops is not a build error, not a
 // startup error, and not a test failure until something happens to call it — at which point it is
 // an EntryPointNotFoundException from deep inside a cook, naming a function nobody recognises.

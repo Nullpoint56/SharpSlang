@@ -16,7 +16,7 @@
   -->
 
   <PropertyGroup>
-    <SlangVersion>v2026.14.1</SlangVersion>
+    <SlangVersion>v2026.21</SlangVersion>
 
     <!--
       The pinned PrismNRI release. Its GitHub release tag is `v` + this value, and the three
@@ -94,7 +94,7 @@
 
       1.9.2609.5 was the newest non-prerelease version on 2026-10-14 (1.10.2605.37-preview is newer
       by date and marked preview); it is the same build as the v1.9.2609 GitHub release, and the
-      DLLs report file version 1.9.2609.5. Measured with it: Slang 2026.14.1 reports dxc available,
+      DLLs report file version 1.9.2609.5. Measured with it: Slang 2026.21 reports dxc available,
       compiles the corpus to DXIL, and a compute shader dispatched on D3D12 through the NRI
       projection reads back correctly.
 

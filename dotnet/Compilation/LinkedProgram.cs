@@ -173,7 +173,8 @@ public sealed unsafe class LinkedProgram : SlangObject<IComponentType>
     /// <remarks>
     /// Not defensive tidiness, and load-bearing on every platform for two different reasons.
     /// Handed an argument list that does not match the generic's parameters,
-    /// <c>spReflection_specializeGeneric</c> behaves three ways on 2026.14.1:
+    /// <c>spReflection_specializeGeneric</c> behaves three ways on 2026.14.1, and the same on 2026.21
+    /// where re-measured, which is win-x64 and linux-x64 so far:
     /// <list type="bullet">
     /// <item>win-x64 — <c>0xC0000005</c>, which the CLR does not convert into anything catchable.</item>
     /// <item>linux-x64 and linux-arm64 — an access violation, both architectures.</item>
@@ -468,23 +469,24 @@ public sealed unsafe class LinkedProgram : SlangObject<IComponentType>
     }
 
     /// <summary>
-    /// Slang's identity hash for one entry point — a key for "is this the same shader", and
-    /// <b>not</b> a key for "is this the same compiled code".
+    /// Slang's identity hash for one entry point: the source and the options it was compiled
+    /// with, which is <b>not</b> a key for "is this the same compiled code".
     /// </summary>
     /// <remarks>
     /// <para>
-    /// This is <c>getEntryPointHash</c>, and it was left unbound until now because the obvious use
-    /// for it is the wrong one. Measured on 2026.14.1: the hash is stable across runs and does
-    /// change when the source changes, but it is <b>identical across optimization levels</b> while
-    /// the emitted SPIR-V is not — <c>None</c> and <c>Maximal</c> produce different code and the
-    /// same hash. So it is sound as a shader-identity key and unsound as a pipeline-cache key, and
-    /// a caller who reaches for it expecting the latter gets stale code with no error.
+    /// This is <c>getEntryPointHash</c>, and it was left unbound for a long time because the obvious
+    /// use for it was the wrong one. Measured on 2026.14.1, the hash was stable across runs and
+    /// changed with the source, but was <b>identical across optimization levels</b> while the
+    /// emitted SPIR-V was not, so a pipeline cache keyed on it served stale code with no error.
     /// </para>
     /// <para>
-    /// Bound rather than withheld, because withholding it did not stop anyone reaching for
-    /// <c>getEntryPointHash</c> — it only stopped them finding the sentence above. The measurement
-    /// is pinned by <c>The_identity_hash_is_deaf_to_the_optimisation_level</c>, so the day upstream changes it is a
-    /// failing test rather than a silent change of meaning.
+    /// Measured on 2026.21, it follows the options too: every link-time and target option tried
+    /// moved it, the optimisation level included. And it follows the options rather than the code.
+    /// Naming the default optimisation level explicitly, <c>High</c> against <c>Maximal</c>, and a
+    /// link-time <c>DebugInformation</c> each emit byte-identical SPIR-V under a different hash. So
+    /// it no longer answers "same shader" across option sets, and as a cache key it errs towards a
+    /// miss; nothing measured says it covers the compiler build. Pinned both ways by
+    /// <c>LinkOptionsTests</c>, so the next change of meaning is a failing test.
     /// </para>
     /// <para>To key a pipeline cache, hash the bytes from <see cref="GetEntryPointCodeBytes"/>.</para>
     /// </remarks>

@@ -72,12 +72,6 @@ public sealed unsafe class VulkanCorpusValidationTests(Xunit.Abstractions.ITestO
         ["geometry"] =
             "a geometry stage with no vertex stage, for the same reason as `tessellation`: the "
             + "supplied vertex stage would have to match the geometry shader's input primitive.",
-        ["interpolation-modifiers"] =
-            "Slang emits `OpDecorate … Sample` without declaring `OpCapability SampleRateShading`, "
-            + "which spirv-val rejects as invalid SPIR-V regardless of any device feature. Not a "
-            + "projection question, and asserted directly by "
-            + "`The_sample_interpolation_modifier_emits_a_module_spirv_val_rejects` below so the "
-            + "day it is fixed upstream is a failing test rather than a silence.",
     };
 
     public static TheoryData<string> Cases()
@@ -104,16 +98,19 @@ public sealed unsafe class VulkanCorpusValidationTests(Xunit.Abstractions.ITestO
     }
 
     [NativeFact]
-    public void The_sample_interpolation_modifier_emits_a_module_spirv_val_rejects()
+    public void The_sample_interpolation_modifier_declares_SampleRateShading()
     {
-        // Slang's `sample` interpolation modifier becomes `OpDecorate … Sample`, and the module
-        // does not declare OpCapability SampleRateShading (51) alongside it. spirv-val rejects
-        // that as malformed — not as unsupported: it is a property of the module, so no device
-        // feature and no enabled extension changes the answer. Found by the corpus driver on its
-        // first complete run, and the third thing in this project the validation layers have said
-        // about Slang's own output rather than about PrismSlang's reading of it.
+        // Slang's `sample` interpolation modifier becomes `OpDecorate … Sample`, and on
+        // slang-compiler 2026.14.1 the module did not declare OpCapability SampleRateShading (35)
+        // alongside it. spirv-val rejected that as malformed — not as unsupported: it was a
+        // property of the module, so no device feature and no enabled extension changed the
+        // answer. Found by the corpus driver on its first complete run, and the third thing in this
+        // project the validation layers said about Slang's own output rather than about PrismSlang's
+        // reading of it.
         //
-        // Recorded rather than reported upstream, and asserted here so a fix arrives as a red test.
+        // Recorded rather than reported upstream, and pinned the other way round until 2026.21,
+        // which declares the capability. The case is now in the corpus theory above like any other,
+        // and this keeps the module-level fact, which does not depend on which layers are installed.
         var shaderCase = ShaderCorpus.Case("interpolation-modifiers");
 
         using var global = SlangGlobalSession.Create();
@@ -134,19 +131,47 @@ public sealed unsafe class VulkanCorpusValidationTests(Xunit.Abstractions.ITestO
                 var code = program.GetEntryPointCodeBytes(i);
                 if (!Decorations(code).Contains(SampleDecoration)) continue;
 
-                Assert.DoesNotContain(SampleRateShadingCapability, Capabilities(code));
+                Assert.Contains(SampleRateShadingCapability, Capabilities(code));
                 return;
             }
 
             Assert.Fail(
                 "no stage of interpolation-modifiers carries the Sample decoration any more. "
-                + "Either the shader changed or Slang stopped emitting it; if the capability is "
-                + "now declared as well, remove this test and the OutOfReach entry above.");
+                + "Either the shader changed or Slang stopped emitting it, and this no longer tests "
+                + "what it is named for.");
         }
         finally
         {
             foreach (var e in entryPoints) e.Dispose();
         }
+    }
+
+    [NativeFact]
+    public void A_matrix_vertex_input_carries_no_member_Offset()
+    {
+        // VUID-StandaloneSpirv-Offset-12509: "the Input interface variable must not have Offset on
+        // any member decoration". slang-compiler 2026.14.1 broke it on vertex-interface's float4x4
+        // input, wrapping the matrix in a _MatrixStorage struct and decorating its member Offset 0;
+        // 2026.21 does not, and the SDK's spirv-val passes its module where it refuses 2026.14.1's.
+        // Measured with Vulkan SDK 1.4.363.0, whose layers check the rule, and the check below
+        // finds the struct in the module slangc 2026.14.1 emits for this shader, row- and
+        // column-major alike, and nothing in 2026.21's.
+        //
+        // Pinned here as well as left to the corpus theory, because the theory only sees it where
+        // the installed layers know the rule, and Ubuntu's packaged layers, which CI uses, predate
+        // it. So this is the check that holds on every leg. Recorded rather than reported upstream.
+        var shaderCase = ShaderCorpus.Case("vertex-interface");
+
+        using var global = SlangGlobalSession.Create();
+        using var session = global.CreateSession(new SessionOptions
+        {
+            Targets = [new TargetOptions { UseEntryPointNameInSpirv = true }],
+        });
+        using var module = session.LoadModuleFromSource("vi", "vi.slang", shaderCase.Source);
+        using var entryPoint = module.FindEntryPoint(Assert.Single(shaderCase.EntryPoints));
+        using var program = session.Link(module, entryPoint);
+
+        Assert.Empty(SpirvDecorations.InputStructsWithMemberOffsets(program.GetEntryPointCodeBytes(0)));
     }
 
     /// <summary><c>Capability::SampleRateShading</c>.</summary>

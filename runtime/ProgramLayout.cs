@@ -157,7 +157,7 @@ public sealed record ShaderParameter(
 /// count and must not reach <c>VkDescriptorSetLayoutBinding::descriptorCount</c>; it is normalised
 /// to 0 here with the flag set, because the real cap is a host decision made with
 /// <c>VK_DESCRIPTOR_BINDING_VARIABLE_DESCRIPTOR_COUNT_BIT</c> and the device's
-/// <c>maxPerStageDescriptor*</c> limits. Measured against slang-compiler 2026.14.1.
+/// <c>maxPerStageDescriptor*</c> limits. Measured against slang-compiler 2026.21.
 /// </remarks>
 /// <param name="CounterBinding">
 /// For an <c>AppendStructuredBuffer</c> or <c>ConsumeStructuredBuffer</c>, the binding index within
@@ -247,7 +247,7 @@ public sealed record DescriptorSet(uint SpaceOffset, IReadOnlyList<DescriptorRan
 /// <para>
 /// Both kinds of container qualify, which is worth knowing before using it as a
 /// <c>ParameterBlock</c> detector: a <c>ConstantBuffer&lt;T&gt;</c> holding nothing but values is
-/// reported here alongside the <c>ParameterBlock</c>s. Measured on 2026.14.1.
+/// reported here alongside the <c>ParameterBlock</c>s. Measured on 2026.21.
 /// </para>
 /// <para>
 /// <strong>The set index is not in this view.</strong> Slang has a
@@ -438,7 +438,7 @@ public sealed record SpecializationConstant(
 /// There is deliberately no <c>Value</c> member. Slang's program-level specialisation API is
 /// type-only: a value generic such as <c>struct Buffer&lt;let N : int&gt;</c> produces zero
 /// specialisation parameters, and so does a link-time constant
-/// (<c>extern static const int kCount;</c>). Measured against slang-compiler 2026.14.1.
+/// (<c>extern static const int kCount;</c>). Measured against slang-compiler 2026.21.
 ///
 /// Value parameters are real, but they live on the generic declaration rather than on the program,
 /// so they are surfaced as <see cref="GenericParameter"/> on <see cref="DeclarationNode"/> instead.
@@ -499,7 +499,7 @@ public sealed record SpecializationParameter(
 /// There is deliberately no <c>Interface</c> member, and this is a genuine gap in Slang's
 /// declaration reflection rather than a modelling choice here: an <c>interface</c> declaration
 /// comes back as <see cref="Unsupported"/>, with its name intact but its nature unreported.
-/// Verified against slang-compiler 2026.14.1.
+/// Verified against slang-compiler 2026.21.
 ///
 /// So to find the interfaces a module offers, take the <see cref="Unsupported"/> nodes as
 /// candidates, resolve each by name with <c>FindType</c>, and confirm with

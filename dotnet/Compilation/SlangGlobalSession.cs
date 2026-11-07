@@ -189,11 +189,11 @@ public sealed unsafe class SlangGlobalSession : SlangObject<IGlobalSession>
         }
     }
 
-    /// <summary>The Slang build this binding is talking to, e.g. <c>2026.14.1</c>.</summary>
+    /// <summary>The Slang build this binding is talking to, e.g. <c>2026.21</c>.</summary>
     public static string BuildTag => Utf8.Read(SlangApi.spGetBuildTagString()) ?? "unknown";
 
     /// <summary>
-    /// The Slang release these bindings were generated from, e.g. <c>2026.14.1</c> — the pin in
+    /// The Slang release these bindings were generated from, e.g. <c>2026.21</c> — the pin in
     /// <c>Directory.Build.props</c>, baked in at build time.
     /// </summary>
     public static string PinnedBuildTag { get; } =

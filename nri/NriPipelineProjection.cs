@@ -59,7 +59,7 @@ public sealed record NriProjectionOptions
     /// <c>[vk::push_constant]</c> and reports the block as a push-constant buffer, which the
     /// projection turns into root constants on its own. On a DXIL target Slang drops the attribute
     /// and lays the block out as an ordinary constant buffer at a <c>b</c> register, and reflection
-    /// keeps no trace of the attribute on either target (measured on 2026.14.1: the block arrives
+    /// keeps no trace of the attribute on either target (measured on 2026.21: the block arrives
     /// with no attributes at all). So on D3D12 the intent has to come from the host, and this is
     /// where it says it.
     /// </para>

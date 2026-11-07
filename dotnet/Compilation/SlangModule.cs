@@ -51,7 +51,7 @@ public sealed unsafe class SlangModule : SlangObject<IModule>
     /// </summary>
     /// <remarks>
     /// <see cref="Name"/> is what the caller passed; this is what the compiler recorded. Measured
-    /// on 2026.14.1 they are the same even when the file is called something else — a module loaded
+    /// on 2026.21 they are the same even when the file is called something else — a module loaded
     /// from <c>mslib.slang</c> under the name <c>loadedAs</c> reports <c>loadedAs</c>. Bound
     /// anyway, because it is the compiler's answer rather than ours, and an <c>import</c> in
     /// another module has to match this one.
@@ -113,7 +113,7 @@ public sealed unsafe class SlangModule : SlangObject<IModule>
     /// This is what makes a staleness check honest. Hashing only the file a shader was named by
     /// leaves a bake claiming to be current after the module it imports has changed underneath it,
     /// and the symptom is a shader that behaves like the version before last. Verified against
-    /// slang-compiler 2026.14.1: a module that imports one <c>.slang</c> and includes one
+    /// slang-compiler 2026.21: a module that imports one <c>.slang</c> and includes one
     /// <c>.hlsli</c> reports all three paths.
     ///
     /// Paths are as Slang resolved them, so they are absolute for anything found through a search

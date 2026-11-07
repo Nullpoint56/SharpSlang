@@ -85,9 +85,9 @@ if (-not (Test-Path (Join-Path $staged "bin"))) {
 #
 # Layout differs per platform in three ways, all discovered by actually looking in the archives:
 #   * Windows keeps shared libraries in bin/; Linux and macOS keep them in lib/.
-#   * Unix libraries carry versioned sonames (libslang-compiler.so.0.2026.14.1) with a plain-named
+#   * Unix libraries carry versioned sonames (libslang-compiler.so.0.2026.21) with a plain-named
 #     symlink beside them, and glslang embeds the version mid-name
-#     (libslang-glslang-2026.14.1.so). So match by glob, not by exact filename.
+#     (libslang-glslang-2026.21.so). So match by glob, not by exact filename.
 #   * Expand-Archive on Windows cannot create symlinks: it writes them as ~32-byte text stubs.
 #     Staging a cross-RID payload from Windows therefore has to copy the real versioned file and
 #     synthesise the plain name as a real copy.

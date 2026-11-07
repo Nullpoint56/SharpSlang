@@ -243,6 +243,12 @@ namespace PrismSlang.Interop
 }
 namespace PrismSlang.Native
 {
+    public enum BitfieldPackingRules
+    {
+        Default = 0,
+        MSVC = 1,
+        LegacyMSBFirstMSVC = 2,
+    }
     public struct BufferReflection { }
     public enum BuiltinModuleName
     {
@@ -425,12 +431,17 @@ namespace PrismSlang.Native
         CoverageManifestOutput = 150,
         TraceCoverageCounterByteWidth = 151,
         TraceCoverageBoolean = 152,
-        CompilerVersion = 153,
         SPIRVUnifiedDescriptorHeapStride = 154,
         WarningLevel = 155,
         SeparateDebugInfoOutput = 156,
         DebugInfoIncludeSource = 157,
-        CountOf = 158,
+        TraceCoverageBindlessIndex = 158,
+        GetCompilerPath = 159,
+        BitfieldPackingRules = 160,
+        DisableNotes = 161,
+        DiagnosticFormat = 162,
+        EnableExtendedHLSLBackwardsCompatibility = 163,
+        CountOf = 164,
     }
     public struct CompilerOptionValue
     {
@@ -784,6 +795,7 @@ namespace PrismSlang.Native
         public uint AddRef() { }
         public unsafe int QueryInterface(System.Guid* uuid, void** outObject) { }
         public uint Release() { }
+        [System.Obsolete]
         public unsafe void addBuiltins(sbyte* sourcePath, sbyte* sourceString) { }
         public uint addRef() { }
         public int checkCompileTargetSupport(PrismSlang.Native.SlangCompileTarget target) { }
@@ -799,8 +811,8 @@ namespace PrismSlang.Native
         public unsafe void getCompilerElapsedTime(double* outTotalTime, double* outDownstreamTime) { }
         public PrismSlang.Native.SlangPassThrough getDefaultDownstreamCompiler(PrismSlang.Native.SlangSourceLanguage sourceLanguage) { }
         public PrismSlang.Native.SlangPassThrough getDownstreamCompilerForTransition(PrismSlang.Native.SlangCompileTarget source, PrismSlang.Native.SlangCompileTarget target) { }
+        public unsafe int getDownstreamCompilerPath(PrismSlang.Native.SlangPassThrough passThrough, PrismSlang.Native.ISlangBlob** outPath) { }
         public unsafe void getDownstreamCompilerPrelude(PrismSlang.Native.SlangPassThrough passThrough, PrismSlang.Native.ISlangBlob** outPrelude) { }
-        public unsafe int getDownstreamCompilerVersion(PrismSlang.Native.SlangPassThrough passThrough, int* outMajor, int* outMinor) { }
         public unsafe void getLanguagePrelude(PrismSlang.Native.SlangSourceLanguage sourceLanguage, PrismSlang.Native.ISlangBlob** outPrelude) { }
         public unsafe int getSessionDescDigest(PrismSlang.Native.SessionDesc* sessionDesc, PrismSlang.Native.ISlangBlob** outBlob) { }
         public unsafe PrismSlang.Native.ISlangSharedLibraryLoader* getSharedLibraryLoader() { }
@@ -1219,6 +1231,7 @@ namespace PrismSlang.Native
         public const uint kDefaultTargetFlags = 1024u;
         public const uint kInvalidCoverageCounterIndex = 4294967295u;
         public const int kSessionFlags_None = 0;
+        public const uint kUnboundedSyntheticResourceArraySize = 4294967295u;
         public static unsafe sbyte* getLastInternalErrorMessage() { }
         public static void shutdown() { }
         public static unsafe PrismSlang.Native.ISlangBlob* slang_createBlob(void* data, nuint size) { }
@@ -1348,6 +1361,7 @@ namespace PrismSlang.Native
         public static unsafe uint spReflectionParameter_GetBindingSpace(PrismSlang.Native.SlangReflectionVariableLayout* parameter) { }
         public static unsafe PrismSlang.Native.SlangParameterCategory spReflectionTypeLayout_GetCategoryByIndex(PrismSlang.Native.SlangReflectionTypeLayout* type, uint index) { }
         public static unsafe uint spReflectionTypeLayout_GetCategoryCount(PrismSlang.Native.SlangReflectionTypeLayout* type) { }
+        public static unsafe PrismSlang.Native.SlangReflectionVariableLayout* spReflectionTypeLayout_GetContentVarLayout(PrismSlang.Native.SlangReflectionTypeLayout* type) { }
         public static unsafe System.UIntPtr spReflectionTypeLayout_GetElementStride(PrismSlang.Native.SlangReflectionTypeLayout* type, PrismSlang.Native.SlangParameterCategory category) { }
         public static unsafe PrismSlang.Native.SlangReflectionTypeLayout* spReflectionTypeLayout_GetElementTypeLayout(PrismSlang.Native.SlangReflectionTypeLayout* type) { }
         public static unsafe PrismSlang.Native.SlangReflectionVariableLayout* spReflectionTypeLayout_GetElementVarLayout(PrismSlang.Native.SlangReflectionTypeLayout* type) { }
@@ -1604,6 +1618,11 @@ namespace PrismSlang.Native
         SLANG_DIAGNOSTIC_COLOR_ALWAYS = 1,
         SLANG_DIAGNOSTIC_COLOR_NEVER = 2,
     }
+    public enum SlangDiagnosticFormat
+    {
+        SLANG_DIAGNOSTIC_FORMAT_DEFAULT = 0,
+        SLANG_DIAGNOSTIC_FORMAT_VISUAL_STUDIO = 1,
+    }
     public enum SlangEmitCPUMethod
     {
         SLANG_EMIT_CPU_DEFAULT = 0,
@@ -1677,11 +1696,15 @@ namespace PrismSlang.Native
     {
         SLANG_LANGUAGE_VERSION_UNKNOWN = 0,
         SLANG_LANGUAGE_VERSION_LEGACY = 2018,
+        SLANG_LANGUAGE_VERSION_202A = 2025,
         SLANG_LANGUAGE_VERSION_2025 = 2025,
+        SLANG_LANGUAGE_VERSION_202B = 2026,
         SLANG_LANGUAGE_VERSION_2026 = 2026,
+        SLANG_LANGUAGE_VERSION_202C = 2027,
         SLANG_LANGAUGE_VERSION_DEFAULT = 2018,
         SLANG_LANGUAGE_VERSION_DEFAULT = 2018,
         SLANG_LANGUAGE_VERSION_LATEST = 2026,
+        SLANG_LANGUAGE_VERSION_NEXT = 2027,
     }
     public enum SlangLayoutRules : uint
     {
@@ -1885,6 +1908,7 @@ namespace PrismSlang.Native
         public uint arraySize;
         public int binding;
         public PrismSlang.Native.BindingType bindingType;
+        public int bindlessIndex;
         public unsafe sbyte* debugName;
         public int entryPointIndex;
         public uint id;
