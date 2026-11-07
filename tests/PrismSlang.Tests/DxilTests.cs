@@ -20,12 +20,12 @@
 // tests: an entry that stops being true is a failing test, so none of them can quietly grow to
 // excuse a regression or outlive a fix.
 
-using PrismNRI.Native;
 using PrismSlang.Baking;
 using PrismSlang.Interop;
 using PrismSlang.NRI;
 using PrismSlang.Native;
 using PrismSlang.Reflection;
+using SharpNRI.Native;
 
 namespace PrismSlang.Tests;
 

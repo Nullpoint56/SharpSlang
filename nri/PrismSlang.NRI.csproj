@@ -12,13 +12,13 @@
     spelling: DescriptorType per binding kind, StageBits per stage, Format per leaf type, and the
     array flags NRI wants where Vulkan wants a count.
 
-    It references PrismNRI.Descs and nothing else of PrismNRI. That package is NRI's vocabulary as
+    It references SharpNRI.Descs and nothing else of SharpNRI. That package is NRI's vocabulary as
     plain .NET types — the descriptor structs and enums, generated from the pinned NRI headers —
     with no native dependency, which is precisely what a projection needs: it constructs an
     NriPipelineLayoutDesc without a device or NRI.dll in hand, and the host hands that desc to a
-    PrismNRI device it created itself. So a cooker can project at bake time on a machine with no
+    SharpNRI device it created itself. So a cooker can project at bake time on a machine with no
     GPU driver, and a game that reads baked packages carries no NRI binary it did not ask for.
-    AssemblySplitTests measures that: the reader-only consumer's output holds PrismNRI.Descs.dll
+    AssemblySplitTests measures that: the reader-only consumer's output holds SharpNRI.Descs.dll
     and no NRI.dll.
 
     What it deliberately does NOT emit — renderer policy, not compiler output:
@@ -39,7 +39,7 @@
     <PackageId>PrismSlang.NRI</PackageId>
     <Version>0.1.0-alpha</Version>
     <Authors>szombathy-tamas</Authors>
-    <Description>NRI (NVIDIA Render Interface) projection for PrismSlang reflection: a PrismNRI pipeline layout desc, root constants, vertex attributes and shader descs from a Slang shader. References PrismNRI.Descs only, so no NRI binary comes with it. Alpha: built for the PrismEngine renderer and not yet load-tested by a shipping game.</Description>
+    <Description>NRI (NVIDIA Render Interface) projection for PrismSlang reflection: a SharpNRI pipeline layout desc, root constants, vertex attributes and shader descs from a Slang shader. References SharpNRI.Descs only, so no NRI binary comes with it. Alpha: built for the PrismEngine renderer and not yet load-tested by a shipping game.</Description>
     <PackageTags>slang;nri;vulkan;d3d12;spirv;shader;reflection;descriptor-set</PackageTags>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <RepositoryType>git</RepositoryType>
@@ -50,40 +50,18 @@
     is arithmetic over managed data and never touches the compiler, so referencing the compiler
     would drag a 36 MB per-RID payload behind a small assembly for every consumer.
 
-    PrismNRI.Descs at the version pinned in Directory.Build.props, as an exact range. A bare
-    Version="x" is a floor to NuGet — any newer PrismNRI.Descs a consumer restores alongside wins —
+    SharpNRI.Descs at the version pinned in Directory.Build.props, as an exact range. A bare
+    Version="x" is a floor to NuGet — any newer SharpNRI.Descs a consumer restores alongside wins —
     and the descs are generated from one NRI header revision, so a floor would let the projection
     be compiled against one NRI's vocabulary and run against another's. The brackets make the pin
-    mean what the props comment says. NRI itself is not pinned here, because nothing here loads it:
-    PrismNRI.Descs carries that pin and stamps it into its assembly as NriVersion, and
-    NriProjectionTests pins the stamped value to the revision whose Vulkan backend this
-    projection's rules were measured against. The package comes from the folder feed
-    tools/fetch-nri.ps1 fills; see nuget.config.
-
-    Or, beside a PrismNRI checkout, the checkout's PrismNRI.Descs project instead: PrismNriSource
-    in Directory.Build.props decides, and every build says which it took. The package is what CI
-    builds, and the only thing this packs against; see the target below.
+    mean what the props comment says, and pack writes them into the nuspec as [x]. NRI itself is
+    not pinned here, because nothing here loads it: SharpNRI.Descs carries that pin as
+    NriHeaders.Version, and NriProjectionTests pins it to the revision whose Vulkan backend this
+    projection's rules were measured against.
   -->
   <ItemGroup>
     <ProjectReference Include="..\runtime\PrismSlang.Runtime.csproj" />
+    <PackageReference Include="SharpNRI.Descs" Version="[$(SharpNriDescsPackageVersion)]" />
   </ItemGroup>
-
-  <ItemGroup Condition="'$(PrismNriSource)' == 'package'">
-    <PackageReference Include="PrismNRI.Descs" Version="[$(PrismNriVersion)]" />
-  </ItemGroup>
-
-  <ItemGroup Condition="'$(PrismNriSource)' == 'project'">
-    <ProjectReference Include="$(PrismNriRootFull)descs\PrismNRI.Descs.csproj" />
-  </ItemGroup>
-
-  <!--
-    Packed against the release only. In project mode the reference above is a ProjectReference, and
-    pack would write it into the nuspec as a dependency on whatever version the checkout's
-    PrismNRI.Descs carries — 0.4.0-alpha when this was written, which no release has — and as a
-    floor where the package reference is an exact range. So pack stops before the nuspec is written.
-  -->
-  <Target Name="PackOnlyAgainstThePrismNriRelease" BeforeTargets="GenerateNuspec" Condition="'$(PrismNriSource)' == 'project'">
-    <Error Text="PrismSlang.NRI is being packed against the PrismNRI checkout at $(PrismNriRootFull), which would make the package depend on that checkout's unreleased PrismNRI.Descs. Pack against the $(PrismNriVersion) release with -p:PrismNriSource=package." />
-  </Target>
 
 </Project>

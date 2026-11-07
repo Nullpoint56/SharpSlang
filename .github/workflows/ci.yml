@@ -266,27 +266,6 @@ jobs:
         shell: pwsh
         run: ./tools/fetch-native.ps1 -Rid ${{ matrix.rid }} -Profile Spirv
 
-      # Keyed on the pin like the caches above, so a PrismNRI bump misses and refetches. Not keyed
-      # on the RID: the packages are the same bytes on every leg, with every RID's native inside.
-      # fetch-nri.ps1 skips packages already present, so a hit means the step below makes no API
-      # call and never needs the token.
-      - name: Cache the PrismNRI packages
-        uses: actions/cache@v6
-        with:
-          path: nupkg-feed/*.nupkg
-          key: prismnri-${{ hashFiles('Directory.Build.props') }}
-
-      # Into the folder feed nuget.config names, nupkg-feed/. PrismNRI is a private repository, so
-      # a fine-grained PAT with read access to its contents (Contents: read) is stored on THIS
-      # repository as the secret PRISMNRI_READ_TOKEN. The job's own GITHUB_TOKEN cannot stand in:
-      # it is scoped to the repository the workflow runs in, and another repository's release
-      # assets are outside that scope whatever `permissions:` says.
-      - name: Fetch the PrismNRI packages
-        shell: pwsh
-        env:
-          PRISMNRI_TOKEN: ${{ secrets.PRISMNRI_READ_TOKEN }}
-        run: ./tools/fetch-nri.ps1
-
       - name: Payload carries the SPIR-V optimiser
         shell: pwsh
         run: |
@@ -330,15 +309,20 @@ jobs:
       # 1.4.313. NRI is built against newer Vulkan headers and chains every structure and extension
       # the driver offers into vkCreateDevice, and a layer older than those headers reports each one
       # it does not know as an ERROR. Measured under WSL on the Mesa 25.2.8 lavapipe this runner
-      # installs, the 33 Vulkan rows of NriDeviceTests that create a device, with each layer:
+      # installs, NRI's own Vulkan device creation, with each layer:
       #
-      #   1.3.275   all 33 failed, before the projection was looked at, on
+      #   1.3.275   rejected, before the projection is looked at, on
       #             VUID-VkDeviceCreateInfo-pNext-pNext and VUID-VkPhysicalDeviceProperties2-pNext-pNext.
-      #   1.4.313   all 33 again, on VK_EXT_zero_initialize_device_memory (VkStructureType
+      #   1.4.313   rejected, on VK_EXT_zero_initialize_device_memory (VkStructureType
       #             1000620000), which that layer predates.
-      #   1.4.363   none failed on device creation.
+      #   1.4.363   accepted.
       #
-      # PrismNRI's own Linux job takes this layer the same way, for the same reason. The only
+      # With PrismNRI 0.3.0-alpha that made all 33 Vulkan rows that create a device fail. With
+      # SharpNRI 191.0.0-beta.4 they skip instead: SharpNRI.Testing recognises the old layer and
+      # gives that as the reason, so with either older layer the Vulkan rows are switched off, not
+      # red, and the gate below is what notices.
+      #
+      # SharpNRI's own Linux job takes this layer the same way, for the same reason. The only
       # current Linux binary is inside LunarG's SDK tarball (366 MB), so the library and its
       # manifest are taken out of it once per version and cached; the loader stays Ubuntu's.
       #
@@ -556,24 +540,24 @@ jobs:
 
       # The same gate again, for NriDeviceTests, and for the same reason: every test in it skips
       # rather than fails when NRI.dll does not load or a backend is missing, and a skipped test is
-      # green. A PrismNRI package that restores without its native payload would otherwise turn
+      # green. A SharpNRI package that restores without its native payload would otherwise turn
       # the whole class off on a run that reports success.
       #
       # This step counts win-x64 and the next one linux-x64, the two legs the NRI device tests run
       # on (tests/PrismSlang.Tests/NriFact.cs). On linux-arm64 every one of them skips because the
-      # PrismNRI package has no payload for it, and on osx-arm64 by decision, since macOS is not an
+      # SharpNRI package has no payload for it, and on osx-arm64 by decision, since macOS is not an
       # engine target yet; each says so in its skip reason.
       #
       # What is counted is NONE and D3D12. Hosted Windows has no Vulkan driver, so the tests gated
       # on NRI's Vulkan backend (the 33-case pipeline theory, which xunit reports as one skipped
       # row, and the two dispatches: 3 skipped in the TRX) skip here; linux-x64 runs them over
       # lavapipe and counts them (the next step).
-      # It does have WARP, which NriTestDevice picks under GITHUB_ACTIONS, and PrismNRI's own
+      # It does have WARP, which NriTestDevice picks under GITHUB_ACTIONS, and SharpNRI's own
       # win-x64 job runs its D3D12 suite there with the debug layer — so the D3D12 leg, compiled to
       # DXIL with dxc copied beside the compiler from Microsoft.Direct3D.DXC, runs here. On this leg exactly these must pass:
       #
       #   33  A_pipeline_layout_built_from_the_projection_is_accepted_by_the_none_backend, one
-      #       per corpus case: 31 layouts created through PrismNRI's marshalling, and the two
+      #       per corpus case: 31 layouts created through SharpNRI's marshalling, and the two
       #       projection refusals (descriptor-kinds, wide-vertex-inputs) asserted by name.
       #    1  Projected_vertex_formats_agree_with_nris_own_vulkan_conversion_table, a NONE fact
       #       because nriConvertNRIFormatToVK is a static table in NRI.dll and needs no device.
@@ -586,11 +570,16 @@ jobs:
       #    2  The D3D12 dispatches: compute-fixed through a descriptor, and a constant buffer
       #       promoted to root constants by RootConstantParameters, both read back.
       #
-      # 70. Measured with PRISMNRI_TEST_SOFTWARE=1 on a workstation, which makes NriTestDevice pick
-      # WARP ("Microsoft Basic Render Driver") for D3D12 the way the runner does: every D3D12 row
+      # 70. Measured with PrismNRI 0.3.0-alpha and PRISMNRI_TEST_SOFTWARE=1 (SHARPNRI_TEST_SOFTWARE
+      # since the rename) on a workstation, which makes NriTestDevice pick WARP ("Microsoft Basic
+      # Render Driver") for D3D12 the way the runner does: every D3D12 row
       # passed, with outcomes identical to the RTX 4070 SUPER case for case — WARP reports mesh
       # shaders and a ray tracing tier, so even the mesh, amplification and ray-tracing layouts
-      # are built on it — and the same messages, error for error and warning for warning.
+      # are built on it — and the same messages, error for error and warning for warning. Measured
+      # again with SharpNRI 191.0.0-beta.4 the way the runner is: SHARPNRI_TEST_SOFTWARE=1,
+      # GITHUB_ACTIONS=true and the Vulkan loader given no driver (VK_DRIVER_FILES at a file that
+      # does not exist), so WARP for D3D12 and no Vulkan: 70 passed, 3 skipped ("no adapter
+      # supports VK"), no error.
       #
       # The threshold is that exact count rather than a looser floor: if NRI.dll stops loading, 67
       # of the 68 skip and the plain fact alone passes; if the D3D12 device or dxc goes missing, the
@@ -606,7 +595,7 @@ jobs:
           passed=$(echo "$counts" | tail -1 | sed -n 's/.*passed=\([0-9]*\).*/\1/p')
 
           if [ "${passed:-0}" -lt 70 ]; then
-            echo "::error::only ${passed:-0} NRI device test(s) passed on ${{ matrix.rid }}; expected at least 70 (35 on the NONE backend, 35 on D3D12 over WARP). NRI.dll did not load, the NONE or D3D12 device could not be created, or dxc was not staged, so something that checks what PrismNRI and D3D12 accept from the projection is switched off; the skip reason is in the output above."
+            echo "::error::only ${passed:-0} NRI device test(s) passed on ${{ matrix.rid }}; expected at least 70 (35 on the NONE backend, 35 on D3D12 over WARP). NRI.dll did not load, the NONE or D3D12 device could not be created, or dxc was not staged, so something that checks what SharpNRI and D3D12 accept from the projection is switched off; the skip reason is in the output above."
             exit 1
           fi
 
@@ -635,18 +624,20 @@ jobs:
       #       projected to root constants, both read back.
       #
       # 70, of 73 rows, with 3 skipped. Measured under WSL on Ubuntu 24.04 with the Mesa 25.2.8
-      # lavapipe this runner installs, the Slang 2026.21 linux-x64 payload, PRISMNRI_TEST_SOFTWARE=1
-      # (the software device GITHUB_ACTIONS selects) and the Test step's allocator settings, with
-      # the layer applied as here — VK_ADD_LAYER_PATH alone, over a system layer — and the loader's
-      # own log (VK_LOADER_DEBUG=layer) and the test host's memory map both showing the 1.4.363
-      # library loaded rather than the system one. No validation message at all, error or warning.
+      # lavapipe this runner installs, the Slang 2026.21 linux-x64 payload, PrismNRI 0.3.0-alpha,
+      # PRISMNRI_TEST_SOFTWARE=1 (the software device GITHUB_ACTIONS selects) and the Test step's
+      # allocator settings, with the layer applied as here — VK_ADD_LAYER_PATH alone, over a system
+      # layer — and the loader's own log (VK_LOADER_DEBUG=layer) and the test host's memory map both
+      # showing the 1.4.363 library loaded rather than the system one. No validation message at
+      # all, error or warning. Measured again the same way with SharpNRI 191.0.0-beta.4 and
+      # SHARPNRI_TEST_SOFTWARE=1: 70 passed, 3 skipped, and the whole suite 740 passed, 12 skipped.
       #
       # Exact rather than a floor, because each way this goes quiet is a different count:
       #   1   libNRI.so stops loading: every gated row skips and the plain fact alone passes.
       #   35  lavapipe or libvulkan goes missing, or the layer above is not in front: the Vulkan
-      #       rows skip, with NriTestDevice's reason or, for an older layer, NriFact's, which quotes
-      #       the layer's own "unknown VkStructureType" error about NRI's device creation. Measured
-      #       with Ubuntu's 1.3.275 alone: 35 passed, 6 skipped.
+      #       rows skip with NriTestDevice's reason, which for an older layer quotes the layer's
+      #       first error about NRI's device creation. Measured with SharpNRI 191.0.0-beta.4 and
+      #       Ubuntu's 1.3.275 alone, and with LunarG's 1.4.313 alone: 35 passed, 6 skipped.
       # A layer that rejects something the projection said fails a test, and the step with it. A
       # new corpus case adds a row to two theories here; raise it by two then.
       - name: The NRI device tests actually ran (linux-x64)
@@ -658,7 +649,7 @@ jobs:
           passed=$(echo "$counts" | tail -1 | sed -n 's/.*passed=\([0-9]*\).*/\1/p')
 
           if [ "${passed:-0}" -lt 70 ]; then
-            echo "::error::only ${passed:-0} NRI device test(s) passed on ${{ matrix.rid }}; expected at least 70 (35 on the NONE backend, 35 on Vulkan over lavapipe). libNRI.so did not load, lavapipe or libvulkan is missing, or the 1.4.363 validation layer is not in front of Ubuntu's, so something that checks what PrismNRI and Vulkan accept from the projection is switched off; the skip reason is in the output above."
+            echo "::error::only ${passed:-0} NRI device test(s) passed on ${{ matrix.rid }}; expected at least 70 (35 on the NONE backend, 35 on Vulkan over lavapipe). libNRI.so did not load, lavapipe or libvulkan is missing, or the 1.4.363 validation layer is not in front of Ubuntu's, so something that checks what SharpNRI and Vulkan accept from the projection is switched off; the skip reason is in the output above."
             exit 1
           fi
 

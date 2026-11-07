@@ -7,7 +7,6 @@
     <File Path="NativeReaderEnums.props" />
     <File Path=".gitignore" />
     <File Path="nuget.config" />
-    <File Path="nupkg-feed/README.md" />
   </Folder>
   <Folder Name="/docs/">
     <File Path="docs/guide.md" />
@@ -15,7 +14,6 @@
   </Folder>
   <Folder Name="/tools/">
     <File Path="tools/fetch-native.ps1" />
-    <File Path="tools/fetch-nri.ps1" />
     <File Path="tools/generate-native.ps1" />
   </Folder>
   <Folder Name="/tools/ci/">

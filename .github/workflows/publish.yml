@@ -2,11 +2,11 @@ name: Publish
 
 # Publishes every package on a version tag (e.g. `v0.1.0`), or on manual dispatch: to GitHub
 # Packages, where consumers restore from, and — on a tag — as a GitHub release carrying the same
-# .nupkg files, the way PrismNRI publishes. The release is the durable, browsable record and the
-# one place a consumer without feed access (tools/fetch-nri.ps1 is the same idea, pointed the other
-# way) can download the packages from. The tag has to equal `v` + <Version> in the five csproj
-# files, checked first, so that the version a package carries, the tag, the release name and the
-# README's "Status" line cannot disagree; manual runs have no tag and build whatever <Version> says.
+# .nupkg files. The release is the durable, browsable record and the one place a consumer without
+# feed access can download the packages from. The tag has to equal `v` + <Version> in the five
+# csproj files, checked first, so that the version a package carries, the tag, the release name and
+# the README's "Status" line cannot disagree; manual runs have no tag and build whatever <Version>
+# says.
 #
 # Five packages, deliberately:
 #   PrismSlang             Slang-neutral. Compilation and reflection.
@@ -14,7 +14,7 @@ name: Publish
 #   PrismSlang.Vulkan      The Vulkan reading of a reflection snapshot. Opt-in, so a D3D12 or Metal
 #                          consumer never pulls Vulkan concepts in.
 #   PrismSlang.NRI         The NRI (NVIDIA Render Interface) reading of a reflection snapshot, onto
-#                          PrismNRI's descs. Opt-in like the Vulkan one.
+#                          SharpNRI's descs. Opt-in like the Vulkan one.
 #   PrismSlang.Native.Dxc  Copies Microsoft's dxc into the app's output, where PrismSlang loads it
 #                          for Slang, so Slang can emit DXIL. No binary of its own: a dependency on
 #                          Microsoft.Direct3D.DXC and a targets file that copies from it. Opt-in,
@@ -60,7 +60,7 @@ jobs:
   # tested, in a job of its own on the cheapest runner, so a tag pushed against the wrong <Version>
   # fails in seconds with both values named — rather than after the full test matrix, or worse,
   # publishing packages whose assembly version disagrees with the release they sit on. The same
-  # check PrismNRI's release workflow makes. A manual run has no tag, and the step is skipped
+  # check SharpNRI's release workflow makes. A manual run has no tag, and the step is skipped
   # rather than the job, so the jobs that need this one still run.
   version:
     name: tag equals v<Version>
@@ -135,17 +135,6 @@ jobs:
           foreach ($rid in @('win-x64', 'linux-x64', 'linux-arm64', 'osx-arm64')) {
             ./tools/fetch-native.ps1 -Rid $rid -Profile Spirv
           }
-
-      # Into the folder feed nuget.config names, nupkg-feed/, for PrismSlang.NRI and the tests.
-      # PrismNRI is a private repository, so a fine-grained PAT with read access to its contents
-      # (Contents: read) is stored on THIS repository as the secret PRISMNRI_READ_TOKEN. The job's
-      # own GITHUB_TOKEN cannot stand in: it is scoped to the repository the workflow runs in, and
-      # another repository's release assets are outside that scope whatever `permissions:` says.
-      - name: Fetch the PrismNRI packages
-        shell: pwsh
-        env:
-          PRISMNRI_TOKEN: ${{ secrets.PRISMNRI_READ_TOKEN }}
-        run: ./tools/fetch-nri.ps1
 
       - name: Resolve version
         id: version

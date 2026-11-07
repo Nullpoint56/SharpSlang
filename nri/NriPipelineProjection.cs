@@ -1,19 +1,19 @@
 // The NRI-shaped result of projecting a reflection snapshot.
 //
-// The centrepiece is a PrismNRI NriPipelineLayoutDesc the host can hand straight to
+// The centrepiece is a SharpNRI NriPipelineLayoutDesc the host can hand straight to
 // NriDevice.CreatePipelineLayout. Around it are the things the desc cannot carry and a renderer
 // needs anyway: the name each descriptor range came from, which set index and range index to
 // pass to NriDescriptorPool.AllocateDescriptorSet and NriDescriptorSet.Update for it, the vertex
 // attributes and colour outputs for a graphics pipeline, and the stages for picking shaders.
 //
-// Named Projected* rather than Nri*, on purpose. PrismNRI already has an NriDescriptorSet (the
+// Named Projected* rather than Nri*, on purpose. SharpNRI already has an NriDescriptorSet (the
 // allocated object) and an NriDescriptorSetDesc (the desc), and a consumer with both namespaces
 // open should never have to disambiguate the description of a set from the set.
 
-using PrismNRI;
-using PrismNRI.Native;
 using PrismSlang.Native;
 using PrismSlang.Reflection;
+using SharpNRI;
+using SharpNRI.Native;
 
 namespace PrismSlang.NRI;
 

@@ -1,30 +1,31 @@
 // Gates for tests that need NRI itself, not only its descs.
 //
 // NriProjectionTests needs nothing but the compiler: the projection is arithmetic over managed
-// data onto PrismNRI.Descs, which has no native library. NriDeviceTests hands the result to a real
+// data onto SharpNRI.Descs, which has no native library. NriDeviceTests hands the result to a real
 // NRI device, which needs NRI's library (NRI.dll, libNRI.so) to load and a backend to exist, and
 // on a machine with neither it must skip with a reason that says what to do — not fail with a
 // DllNotFoundException that reads like a broken build.
 //
-// win-x64 and linux-x64, and every other platform skips with its own reason. PrismNRI ships
-// win-x64, linux-x64 and osx-arm64 payloads. linux-x64 was let in after it was watched working:
+// win-x64 and linux-x64, and every other platform skips with its own reason. The SharpNRI package
+// carries win-x64 and linux-x64 libraries, and SharpNRI attaches osx-arm64's to its GitHub release
+// rather than the package. linux-x64 was let in after it was watched working:
 // under WSL (Ubuntu 24.04, lavapipe from Mesa 25.2.8) the NONE and Vulkan tests ran and the
 // dispatches read back what the shaders wrote. The Vulkan half needs a Khronos layer as new as
 // the Vulkan headers NRI is built with: an older one, such as Ubuntu 24.04's own package (which
 // is why ci.yml puts the SDK's in front of it), reports NRI's device creation itself as an
-// error, and the Vulkan gate skips with that measurement rather than let every test fail on it
-// (VulkanCreationRejected).
+// error, and the Vulkan gate skips with SharpNRI.Testing's reason rather than let every test
+// fail on it (NriNative.Unavailable).
 // linux-arm64 is a measurement too: the package has no payload for it, so there is no library to
-// load. macOS is a decision: the payload is there, but macOS is not an engine target yet. Both
+// load. macOS is a decision first: it is not an engine target yet, and the package has no payload
+// for it either. Both
 // keep running the projection tests that need no device. On Linux the D3D12 gate skips by
 // absence: NriTestDevice reports "D3D12 is Windows only".
 //
 // And gates for dxc, which the DXIL tests need whether or not a device is involved. Those are
 // measurements, not decisions: dxc is either beside slang-compiler or it is not.
 
-using System.Text.RegularExpressions;
-using PrismNRI.Native;
-using PrismNRI.Testing;
+using SharpNRI.Native;
+using SharpNRI.Testing;
 using Architecture = System.Runtime.InteropServices.Architecture; // not NRI's GPU architecture enum
 using RuntimeInformation = System.Runtime.InteropServices.RuntimeInformation;
 
@@ -149,15 +150,16 @@ internal static class DxcNative
 internal static class NriNative
 {
     internal const string NotOnMacOS =
-        "NRI device tests do not run on macOS, by decision: PrismNRI ships an osx-arm64 payload, "
-        + "but macOS is not an engine target yet. The projection tests run everywhere.";
+        "NRI device tests do not run on macOS, by decision: macOS is not an engine target yet, and "
+        + "the SharpNRI package carries no osx-arm64 native library (SharpNRI attaches one to its "
+        + "GitHub release instead). The projection tests run everywhere.";
 
     internal const string NoLinuxArm64Payload =
-        "NRI device tests do not run on linux-arm64: the PrismNRI package carries no linux-arm64 "
+        "NRI device tests do not run on linux-arm64: the SharpNRI package carries no linux-arm64 "
         + "native library, so there is no libNRI.so to load. The projection tests run everywhere.";
 
     internal const string NotLoadable =
-        "NRI is not loadable. Run: pwsh tools/fetch-nri.ps1, then restore; the PrismNRI package "
+        "NRI is not loadable. Restore the test project: the SharpNRI package from nuget.org "
         + "carries NRI.dll for win-x64 and libNRI.so for linux-x64.";
 
     /// <summary>Why a test on this backend cannot run here, or null if it can.</summary>
@@ -165,63 +167,25 @@ internal static class NriNative
     /// The compiler first, because every device test compiles a corpus shader before it talks to
     /// a device, and the Slang skip reason is the one a fresh clone needs to see. Then the
     /// platform, then the library, then the backend — each probe only meaningful once the
-    /// previous one passed, and each with its own reason — and on Vulkan, last, whether the
-    /// validation layer accepts NRI's own device creation.
+    /// previous one passed, and each with its own reason.
+    ///
+    /// The backend probe is SharpNRI.Testing's, and on Vulkan it also answers whether the Khronos
+    /// layer accepts NRI's own device creation. A layer older than the Vulkan headers NRI is built
+    /// with reports the structures NRI chains into vkCreateDevice as unknown, an ERROR on every
+    /// device, and NriTestDevice.Unavailable returns that as the reason, quoting the layer's first
+    /// error. This file had its own probe for it until SharpNRI.Testing did: measured under WSL on
+    /// lavapipe (Mesa 25.2.8) with SharpNRI 191.0.0-beta.4, Ubuntu 24.04's layer 1.3.275 and
+    /// LunarG's apt layer 1.4.313 both skip the Vulkan rows with SharpNRI.Testing's reason, and
+    /// the Vulkan SDK's 1.4.363 runs them. Only device creation is looked at: an error a test
+    /// provokes afterwards still fails that test.
     /// </remarks>
     internal static string? Unavailable(GraphicsAPI api)
     {
         if (!SlangNative.Available) return SlangNative.SkipReason;
         if (Unsupported is { } platform) return platform;
         if (!Loadable.Value) return NotLoadable;
-        if (NriTestDevice.Unavailable(api) is { } backend) return backend;
-        return api == GraphicsAPI.VK ? VulkanCreationRejected.Value : null;
+        return NriTestDevice.Unavailable(api);
     }
-
-    /// <summary>
-    /// Why the Khronos layer rejects a bare NRI Vulkan device, or null if it accepts one.
-    /// </summary>
-    /// <remarks>
-    /// By trying, as VulkanTestDevice probes its layer: one validated device, created and
-    /// disposed, and any ERROR it logged. Nothing of PrismSlang's is involved yet, so an error
-    /// here is about the layer and NRI, never the projection — and without this every Vulkan
-    /// test fails on it, each before it has asked its question. A layer older than the Vulkan
-    /// headers NRI is built with does this, because NRI chains every structure and extension the
-    /// driver offers into vkCreateDevice and the layer reports each one it does not know.
-    ///
-    /// Measured under WSL on lavapipe (Mesa 25.2.8) with PrismNRI 0.3.0-alpha: Ubuntu 24.04's
-    /// layer, 1.3.275, logs VUID-VkDeviceCreateInfo-pNext-pNext and
-    /// VUID-VkPhysicalDeviceProperties2-pNext-pNext for structures it predates; LunarG's apt
-    /// layer, 1.4.313, logs the unknown VkStructureType 1000620000 (that of
-    /// VK_EXT_zero_initialize_device_memory, which it predates);
-    /// the SDK's 1.4.363 logs nothing, and the tests run. So this skips wherever Ubuntu's layer is
-    /// the one loaded (ci.yml puts the SDK's in front of it on linux-x64), and the reason quotes
-    /// the header version the layer itself says it validates against. Only device creation is looked at: an error a test provokes
-    /// afterwards still fails that test.
-    ///
-    /// And only that one cause. Every error measured from an old layer names a structure it does
-    /// not know ("unknown VkStructureType"), so the skip requires every creation error to say so.
-    /// Any other error at device creation is a real one, NRI's or the driver's, and returning null
-    /// lets the Vulkan tests run and fail on it with the message in front of whoever runs them. A
-    /// skip that fired on any error would turn exactly that regression into a quiet skipped row on
-    /// a workstation, where nothing counts skips.
-    /// </remarks>
-    private static readonly Lazy<string?> VulkanCreationRejected = new(() =>
-    {
-        using var fixture = NriTestDevice.Create(GraphicsAPI.VK);
-        var errors = fixture.Errors.Select(e => (e.ToString() ?? "").ReplaceLineEndings(" ")).ToList();
-        if (errors.Count == 0) return null;
-        if (!errors.All(e => e.Contains("unknown VkStructureType", StringComparison.Ordinal))) return null;
-
-        var text = errors[0];
-        var header = Regex.Match(text, @"version \d+ of the Vulkan header");
-        return "the Khronos validation layer rejects NRI's own Vulkan device creation, before any "
-             + "projection is involved"
-             + (header.Success ? $" (the layer validates against {header.Value})" : "")
-             + ", so every Vulkan test would fail on it. It is older than the Vulkan headers NRI "
-             + "is built with: 1.3.275 (Ubuntu 24.04) and 1.4.313 (LunarG's apt) do this, the "
-             + "Vulkan SDK's 1.4.363 does not. The first error: "
-             + (text.Length > 400 ? text[..400] + "…" : text);
-    });
 
     /// <summary>Why this platform runs no device test, or null for win-x64 and linux-x64.</summary>
     /// <remarks>
@@ -237,7 +201,7 @@ internal static class NriNative
             if (arch == Architecture.X64 && (OperatingSystem.IsWindows() || OperatingSystem.IsLinux())) return null;
             if (OperatingSystem.IsLinux() && arch == Architecture.Arm64) return NoLinuxArm64Payload;
             return $"NRI device tests run on win-x64 and linux-x64; this process is "
-                 + $"{RuntimeInformation.RuntimeIdentifier}, for which the PrismNRI package carries "
+                 + $"{RuntimeInformation.RuntimeIdentifier}, for which the SharpNRI package carries "
                  + "no native library. The projection tests run everywhere.";
         }
     }
@@ -247,7 +211,7 @@ internal static class NriNative
         try
         {
             // Cheapest call that proves NRI.dll resolved: a format-table lookup, no device.
-            return !string.IsNullOrEmpty(PrismNRI.Nri.GetFormatName(Format.R8_UNORM));
+            return !string.IsNullOrEmpty(SharpNRI.Nri.GetFormatName(Format.R8_UNORM));
         }
         catch (DllNotFoundException) { return false; }
         catch (EntryPointNotFoundException) { return false; }

@@ -10,7 +10,7 @@
 //
 // Four questions, cheapest first:
 //
-//   1. Does PrismNRI marshal every desc the projection emits? The NONE backend validates nothing
+//   1. Does SharpNRI marshal every desc the projection emits? The NONE backend validates nothing
 //      and allocates nothing, so what it answers is purely the managed side — array pins, counts,
 //      the tree of native structs — and it answers it on the win-x64 and linux-x64 CI legs.
 //   2. Does a validated Vulkan device accept the layout and the pipelines built from it, for the
@@ -31,14 +31,14 @@
 // A case that cannot be built states why, in a dictionary below, and the dictionaries are checked:
 // a stale entry is a failing test, so they cannot quietly grow to excuse a regression.
 
-using PrismNRI;
-using PrismNRI.Native;
-using PrismNRI.Testing;
 using PrismSlang.Baking;
 using PrismSlang.NRI;
 using PrismSlang.Reflection;
 using PrismSlang.Spirv;
 using PrismSlang.Vulkan;
+using SharpNRI;
+using SharpNRI.Native;
+using SharpNRI.Testing;
 
 namespace PrismSlang.Tests;
 
@@ -148,7 +148,7 @@ public sealed class NriDeviceTests(Xunit.Abstractions.ITestOutputHelper output)
     public void A_pipeline_layout_built_from_the_projection_is_accepted_by_the_none_backend(string caseName)
     {
         // NONE accepts anything, so this is not a question about the layout's legality — test 2 is.
-        // It is the question that comes before it: PrismNRI turns the managed desc into a tree of
+        // It is the question that comes before it: SharpNRI turns the managed desc into a tree of
         // native arrays (one pinned ranges array per set, fixed root constants, counts read off the
         // arrays), and this asks that every shape the projection emits survives that — empty sets,
         // a set per parameter block, a gap in register space, a root constant block with no sets.
@@ -260,7 +260,7 @@ public sealed class NriDeviceTests(Xunit.Abstractions.ITestOutputHelper output)
     /// projectable case builds its layout there too, 25 with pipelines on Slang 2026.21.
     ///
     /// The D3D12 theory asks the same of its device. Measured on the RTX's D3D12 device and on
-    /// WARP (PRISMNRI_TEST_SOFTWARE=1, what hosted Windows runs): neither trips any condition —
+    /// WARP (SHARPNRI_TEST_SOFTWARE=1, what hosted Windows runs): neither trips any condition —
     /// WARP reports mesh shaders and a ray tracing tier — so on both, the mesh, amplification and
     /// ray-tracing layouts are built, and the two devices' outcomes match case for case.
     /// </remarks>
@@ -593,9 +593,9 @@ public sealed class NriDeviceTests(Xunit.Abstractions.ITestOutputHelper output)
     /// </summary>
     /// <remarks>
     /// Not <c>NriFence.Wait</c>. NRI's wait gives up after its own five-second timeout, and
-    /// PrismNRI reports that as an exception — but the reason it exists is lavapipe JIT-compiling
+    /// SharpNRI reports that as an exception — but the reason it exists is lavapipe JIT-compiling
     /// shaders while it executes the command buffer, which on a cold cache and a loaded runner
-    /// passes five seconds. PrismNRI's GpuWork.Wait polls for the same reason, with the same cap.
+    /// passes five seconds. SharpNRI's GpuWork.Wait polls for the same reason, with the same cap.
     /// </remarks>
     private static void WaitFor(NriFence fence, ulong value)
     {
@@ -682,7 +682,7 @@ public sealed class NriDeviceTests(Xunit.Abstractions.ITestOutputHelper output)
             }
 
             compared++;
-            var converted = PrismNRI.Nri.ConvertNRIFormatToVK(format);
+            var converted = SharpNRI.Nri.ConvertNRIFormatToVK(format);
             if (converted != (uint)expected)
                 mismatches.Add($"  {shader}: {kind} '{name}' — NRI {format} converts to VkFormat {converted}, "
                              + $"the Vulkan projection chose {expected} ({(uint)expected})");
@@ -865,7 +865,7 @@ public sealed class NriDeviceTests(Xunit.Abstractions.ITestOutputHelper output)
         catch (Exception e) when (D3D12ProjectionDefects.ContainsKey(caseName))
         {
             // How a refusal arrives depends on where it happens: CreatePipelineLayout returns
-            // INVALID_ARGUMENT and PrismNRI throws NriException; a refused pipeline state reaches
+            // INVALID_ARGUMENT and SharpNRI throws NriException; a refused pipeline state reaches
             // managed code as an SEHException, because with the debug layer on D3D12 raises its
             // error as a structured exception once the message is recorded. Either way the
             // message record has the words, and only these cases are allowed to throw.
