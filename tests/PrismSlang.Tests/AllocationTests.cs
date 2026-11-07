@@ -12,12 +12,13 @@
 // are loops now. This pins both halves — zero where it must be, and the order of magnitude of
 // the load-time work so a regression there is at least visible.
 //
-// The lookups live in a frame, and the last test measures the frame. PrismNRI 0.3.0 made its own
-// per-frame path allocation-free — NriDescriptorSet became a struct, and sets are allocated into
-// storage the caller owns — and measures it on NRI's NONE backend. Two allocation-free halves do
-// not make an allocation-free frame by themselves: the code between them, walking the projection's
-// lists and reading its records, can allocate where neither half does. So the frame an engine
-// would write, every index it hands NRI taken from a projection, is measured whole.
+// The lookups live in a frame, and the last test measures the frame. SharpNRI's per-frame path is
+// allocation-free — from PrismNRI 0.3.0, as it was called then, NriDescriptorSet is a struct and
+// sets are allocated into storage the caller owns — and it measures that on NRI's NONE backend.
+// Two allocation-free halves do not make an allocation-free frame by themselves: the code between
+// them, walking the projection's lists and reading its records, can allocate where neither half
+// does. So the frame an engine would write, every index it hands NRI taken from a projection, is
+// measured whole.
 //
 // GC.GetAllocatedBytesForCurrentThread is the instrument: exact, per thread, and unaffected by
 // collections. The suite runs serially (AssemblyInfo), so nothing else allocates on this thread
@@ -25,12 +26,12 @@
 // call's one-time work are not counted.
 
 using System.Runtime.CompilerServices;
-using PrismNRI;
-using PrismNRI.Native;
-using PrismNRI.Testing;
 using PrismSlang.NRI;
 using PrismSlang.Reflection;
 using PrismSlang.Vulkan;
+using SharpNRI;
+using SharpNRI.Native;
+using SharpNRI.Testing;
 
 namespace PrismSlang.Tests;
 
@@ -153,20 +154,20 @@ public class AllocationTests
     private readonly record struct Step(float Dt, uint Count);
 
     /// <summary>
-    /// Frames measured after the warm-up frame; PrismNRI measures its own frame over as many.
+    /// Frames measured after the warm-up frame; SharpNRI measures its own frame over as many.
     /// </summary>
     private const int Frames = 300;
 
     [NriNoneFact]
     public void A_whole_frame_bound_through_the_nri_projection_allocates_nothing()
     {
-        // PrismNRI measures its own frame at zero on NONE, and the test above measures the
+        // SharpNRI measures its own frame at zero on NONE, and the test above measures the
         // projection's lookups at zero one at a time. Neither is the frame a renderer writes, in
         // which every index NRI is handed comes off the projection: sets allocated and bound by
         // SetIndex, ranges written by RangeIndex, root constants by Index, the group count from
         // ThreadGroupSize, and ranges looked up by name along the way. This is that frame.
         //
-        // NONE does nothing per call, so whatever allocates is managed code: PrismNRI's,
+        // NONE does nothing per call, so whatever allocates is managed code: SharpNRI's,
         // PrismSlang's, or this frame's use of them. It validates nothing either (NRI never wraps
         // NONE in its validation layer), so this says nothing about whether the stream is legal —
         // NriDeviceTests asks Vulkan and D3D12 that — only what it costs the heap.
@@ -183,7 +184,7 @@ public class AllocationTests
         using var fixture = NriTestDevice.Create(GraphicsAPI.NONE);
         using var frame = new ProjectedFrame(fixture.Device, projection, package.EntryPoints[0].ToNriShaderDesc());
 
-        // One warm-up frame, as PrismNRI's own measurement has: the JIT, static constructors and
+        // One warm-up frame, as SharpNRI's own measurement has: the JIT, static constructors and
         // first calls allocate once, and that is not what is being measured.
         frame.Run();
         frame.ClearMeter();
@@ -209,13 +210,13 @@ public class AllocationTests
         //
         // Watched failing before it was trusted to pass. Three faults were planted one at a time and
         // reverted, and each failure message named the part of the frame the fault was in. The
-        // array-returning AllocateDescriptorSets(layout, setIndex), which PrismNRI documents as
+        // array-returning AllocateDescriptorSets(layout, setIndex), which SharpNRI documents as
         // allocating, in place of the span overload: 24,000 bytes, 80 per frame, a one-element
         // NriDescriptorSet[] for each of the two sets. The one-command-buffer Submit(cmd, fence,
         // value) in place of Submit over spans: 14,400 bytes, 48 per frame, the one-element array
-        // its signal span was built from — against the 0.3.0-alpha release. This test found that,
-        // PrismNRI changed the overload to a span over a local (2b4ccf4), and against that PrismNRI
-        // checkout the same planted fault measures 0, so it now fails only in package mode. A
+        // its signal span was built from — against the PrismNRI 0.3.0-alpha release. This test
+        // found that, PrismNRI changed the overload to a span over a local (2b4ccf4), and against
+        // SharpNRI 191.0.0-beta.4 the same planted fault measures 0, so it no longer fails. A
         // foreach over DescriptorSets and each set's Ranges in
         // place of the indexed loops: 36,000 bytes, 120 per frame, three boxed List<T> enumerators.
         Assert.True(bytes == 0,
@@ -411,7 +412,7 @@ public class AllocationTests
         private static readonly string[] Suspects =
         [
             "resetting and beginning: NriCommandAllocator.Reset, NriDescriptorPool.Reset and Begin "
-                + "are PrismNRI's calls alone, and its own AllocationTests measures them at zero",
+                + "are SharpNRI's calls alone, and its own AllocationTests measures them at zero",
             "allocating the sets: per frame that is AllocateDescriptorSets into a span the caller "
                 + "owns; the overload that returns an array allocates the array on every call",
             "the lookups by name: NriPipelineProjection.Range, which "
@@ -419,14 +420,15 @@ public class AllocationTests
             "writing the ranges: a foreach over DescriptorSets or Ranges takes its enumerator "
                 + "through IReadOnlyList and boxes it; index them",
             "binding: Barrier, SetPipelineLayout, SetDescriptorSet, SetPipeline and both "
-                + "SetRootConstants overloads are in PrismNRI's own measured frame (the last two from "
+                + "SetRootConstants overloads are in SharpNRI's own measured frame (the last two from "
                 + "PrismNRI 3eceaf1, after this test measured them first); the root constants go in "
                 + "as a struct by reference",
-            "the dispatch: Dispatch and End are in PrismNRI's measured frame, so first the group "
+            "the dispatch: Dispatch and End are in SharpNRI's measured frame, so first the group "
                 + "count read from ProjectedStage.ThreadGroupSize",
             "submitting and waiting: the one-command-buffer Submit(cmd, fence, value) built its "
                 + "signal from an array up to PrismNRI 0.3.0-alpha (48 bytes a call); Submit over "
-                + "spans never did, and from PrismNRI 2b4ccf4 neither does the one-buffer form",
+                + "spans never did, and from PrismNRI 2b4ccf4 neither does the one-buffer form "
+                + "(measured 0 against SharpNRI 191.0.0-beta.4)",
         ];
 
         private readonly long[] _bytes = new long[Suspects.Length];

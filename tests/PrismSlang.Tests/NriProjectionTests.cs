@@ -9,12 +9,12 @@
 // drifting. Neither test needs NRI's native library; NriDeviceTests is where a device judges.
 
 using System.Reflection;
-using PrismNRI;
-using PrismNRI.Native;
 using PrismSlang.Native;
 using PrismSlang.NRI;
 using PrismSlang.Reflection;
 using PrismSlang.Vulkan;
+using SharpNRI;
+using SharpNRI.Native;
 
 namespace PrismSlang.Tests;
 
@@ -500,35 +500,54 @@ public class NriProjectionTests
     /// space with gaps filled, a range without <c>ARRAY</c> is consecutive bindings, push-constant
     /// offsets accumulate in array order, binding offsets are added to every range — was read out
     /// of this revision's Vulkan backend, and the comments cite its line numbers. PrismSlang does
-    /// not pin NRI itself because nothing here loads it; PrismNRI.Descs does, and stamps the pin
-    /// into its assembly. This pins the stamp, so a PrismNRI bump that moves NRI fails here with
-    /// the rules to re-measure named, instead of passing on tests that never ask a device.
+    /// not pin NRI itself because nothing here loads it; SharpNRI.Descs does. This pins what it
+    /// says, so a SharpNRI bump that moves NRI fails here with the rules to re-measure named,
+    /// instead of passing on tests that never ask a device.
+    ///
+    /// Re-read for v191 against v190 (NRI's tags, Source/VK/PipelineLayoutVK.hpp): the four rules
+    /// are unchanged, two lines further down. What moved is stage resolution — a range or root
+    /// constant whose stages are ALL or ALL_SHADERS now takes PipelineLayoutDesc.shaderStages,
+    /// which this projection sets and never relies on — and DescriptorSetDesc.flags is gone, with
+    /// update-after-bind derived from the ranges; the projection never set either.
     /// </remarks>
-    private const string MeasuredNriVersion = "190";
+    private const int MeasuredNriVersion = 191;
 
     [Fact]
     public void The_descs_package_was_generated_from_the_nri_revision_the_projection_was_measured_against()
     {
+        // Three readings, because they can disagree. NriHeaders.Version and Nri.NriVersion are
+        // consts, compiled into this assembly from the SharpNRI.Descs and SharpNRI this project was
+        // built against; the AssemblyMetadata stamp is read from the SharpNRI.Descs that loaded.
         var stamped = typeof(NriPipelineLayoutDesc).Assembly
             .GetCustomAttributes<System.Reflection.AssemblyMetadataAttribute>()
             .FirstOrDefault(a => a.Key == "NriVersion")?.Value;
 
         Assert.True(stamped is not null,
-            "PrismNRI.Descs no longer stamps NriVersion into its assembly metadata, so nothing says " +
-            "which NRI its descs describe. Restore the stamp in PrismNRI before trusting this projection.");
+            "SharpNRI.Descs no longer stamps NriVersion into its assembly metadata, so nothing says " +
+            "which NRI the loaded descs describe. Restore the stamp in SharpNRI before trusting this projection.");
 
-        Assert.True(stamped == MeasuredNriVersion,
-            $"PrismNRI.Descs was generated from NRI {stamped}; the projection's rules were measured " +
-            $"against NRI {MeasuredNriVersion}'s Vulkan backend (PipelineLayoutVK.hpp). Re-read the " +
-            $"set placement, the ARRAY reading of descriptorNum, the push-constant offset " +
-            $"accumulation and the binding-offset addition in the new revision, re-run " +
-            $"NriDeviceTests, and update MeasuredNriVersion.");
+        var readings = new[]
+        {
+            ("SharpNRI.Descs' NriHeaders.Version", NriHeaders.Version.ToString(System.Globalization.CultureInfo.InvariantCulture)),
+            ("SharpNRI's Nri.NriVersion", Nri.NriVersion.ToString(System.Globalization.CultureInfo.InvariantCulture)),
+            ("the loaded SharpNRI.Descs' NriVersion stamp", stamped!),
+        };
+
+        var expected = MeasuredNriVersion.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        foreach (var (what, value) in readings)
+        {
+            Assert.True(value == expected,
+                $"{what} is NRI {value}; the projection's rules were measured against NRI " +
+                $"{MeasuredNriVersion}'s Vulkan backend (PipelineLayoutVK.hpp). Re-read the set " +
+                $"placement, the ARRAY reading of descriptorNum, the push-constant offset " +
+                $"accumulation and the binding-offset addition in the new revision, re-run " +
+                $"NriDeviceTests, and update MeasuredNriVersion.");
+        }
     }
-
     [Fact]
     public void Core_and_vulkan_packages_do_not_reference_the_nri_package()
     {
-        // The whole point of the split, in both directions: the NRI package depends on PrismNRI's
+        // The whole point of the split, in both directions: the NRI package depends on SharpNRI's
         // descs, and nothing a Vulkan-only consumer takes may.
         foreach (var assembly in new[] { typeof(ProgramLayout).Assembly, typeof(VulkanPipelineLayout).Assembly })
         {
@@ -538,8 +557,8 @@ public class NriProjectionTests
 
         // And the NRI package depends on the descs, not on the binding with the native library.
         var nri = typeof(NriPipelineProjection).Assembly.GetReferencedAssemblies().Select(a => a.Name).ToList();
-        Assert.Contains("PrismNRI.Descs", nri);
-        Assert.DoesNotContain("PrismNRI", nri);
+        Assert.Contains("SharpNRI.Descs", nri);
+        Assert.DoesNotContain("SharpNRI", nri);
     }
 
     // ---------------------------------------------------------------- the two projections agree

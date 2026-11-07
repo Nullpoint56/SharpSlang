@@ -20,7 +20,7 @@ public class AssemblySplitTests
 {
     /// <summary>The native files that must never reach a consumer of the reader assembly.</summary>
     /// <remarks>
-    /// <c>NRI</c> is here because PrismSlang.NRI references PrismNRI.Descs and not PrismNRI, and
+    /// <c>NRI</c> is here because PrismSlang.NRI references SharpNRI.Descs and not SharpNRI, and
     /// that is the whole reason the Descs package exists: a projection must not drag NRI.dll into
     /// a process that only wanted a desc. One wrong ProjectReference and it would.
     /// </remarks>
@@ -77,8 +77,8 @@ public class AssemblySplitTests
     public void The_consumer_closure_is_the_reader_assemblies_and_nothing_else()
     {
         // Stated positively so the test says what the deliverable is, not only what it excludes.
-        // PrismNRI.Descs is NRI's vocabulary as plain types and is the one dependency the NRI
-        // projection brings; PrismNRI.dll, which would bring NRI.dll with it, is the one it must
+        // SharpNRI.Descs is NRI's vocabulary as plain types and is the one dependency the NRI
+        // projection brings; SharpNRI.dll, which would bring NRI.dll with it, is the one it must
         // not.
         var assemblies = Directory
             .EnumerateFiles(ConsumerOutput, "*.dll", SearchOption.TopDirectoryOnly)
@@ -88,11 +88,11 @@ public class AssemblySplitTests
 
         Assert.Equal(
             [
-                "PrismNRI.Descs.dll",
                 "PrismSlang.NRI.dll",
                 "PrismSlang.Runtime.Consumer.dll",
                 "PrismSlang.Runtime.dll",
                 "PrismSlang.Vulkan.dll",
+                "SharpNRI.Descs.dll",
             ],
             assemblies);
     }

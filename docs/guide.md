@@ -255,10 +255,10 @@ NriPipelineProjection nri = layout.ToNri(new NriProjectionOptions { UnboundedArr
 using var pipelineLayout = device.CreatePipelineLayout(nri.Layout);
 ```
 
-`nri.Layout` is a PrismNRI `NriPipelineLayoutDesc`, filled in from the same reading of the snapshot
+`nri.Layout` is a SharpNRI `NriPipelineLayoutDesc`, filled in from the same reading of the snapshot
 as the Vulkan projection: one `NriDescriptorSetDesc` per register space the shader uses, one
 `DescriptorRangeDesc` per binding, one `RootConstantDesc` per push-constant block, and
-`ShaderStages` set to every stage the program has. `PrismSlang.NRI` references `PrismNRI.Descs`
+`ShaderStages` set to every stage the program has. `PrismSlang.NRI` references `SharpNRI.Descs`
 only — the descs as plain types, no `NRI.dll` — so this runs wherever `PrismSlang.Runtime` does.
 
 What NRI's API is indexed by, and the desc cannot carry, is on the projection beside it:
@@ -279,7 +279,7 @@ var shader = package.EntryPoints[0].ToNriShaderDesc(); // stage, bytes, ModuleEn
 
 **Per frame, keep the integers and your own storage.** Look names up once, at load, and keep the
 set and range indices. Every frame, reset the pool and allocate each projected set into an array you
-own with PrismNRI's span overload; `NriDescriptorSet` is a struct, so the array holds the sets
+own with SharpNRI's span overload; `NriDescriptorSet` is a struct, so the array holds the sets
 themselves and none of this allocates:
 
 ```csharp
@@ -819,17 +819,16 @@ on the projected records.
 The same holds on Vulkan and on D3D12. The NRI projection is one object whichever backend consumes
 it, and the DXIL build differs only in what was baked.
 
-**A whole frame, measured.** PrismNRI measures its own per-frame calls at zero on NRI's NONE
+**A whole frame, measured.** SharpNRI measures its own per-frame calls at zero on NRI's NONE
 backend, and the lookups above are zero one at a time, but the frame an engine writes is the two
 together, and `AllocationTests` measures that as well: a compute frame driven purely through an
 `NriPipelineProjection`, with the sets allocated into an array it owns by the span overload and
 bound by `SetIndex`, every range written by `RangeIndex`, three ranges found by name, root constants
 set by `Index` from a struct, the group count read from `ThreadGroupSize`, then submit and wait. It
-allocates 0 bytes over 300 frames after one warm-up frame, `SetPipeline` and `SetRootConstants`
-included, which PrismNRI's measured frames do not call. Planted in it, the array-returning
-`AllocateDescriptorSets` cost 40 bytes per set per frame, the one-buffer
-`queue.Submit(cmd, fence, value)` 48 per call, and a `foreach` over `DescriptorSets` and `Ranges` 40
-per enumerator it boxed. It runs where the NRI device tests do, on win-x64.
+allocates 0 bytes over 300 frames after one warm-up frame. Planted in it, the array-returning
+`AllocateDescriptorSets` cost 40 bytes per set per frame and a `foreach` over `DescriptorSets` and
+`Ranges` 40 per enumerator it boxed; the one-buffer `queue.Submit(cmd, fence, value)` costs nothing,
+like the span form. It runs where the NRI device tests do, on win-x64 and linux-x64.
 
 ## Traps worth knowing
 

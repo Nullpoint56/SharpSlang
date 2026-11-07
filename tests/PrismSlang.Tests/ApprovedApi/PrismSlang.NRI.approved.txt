@@ -5,7 +5,7 @@ namespace PrismSlang.NRI
         public NriPipelineProjection() { }
         public required System.Collections.Generic.IReadOnlyList<PrismSlang.NRI.ProjectedDescriptorSet> DescriptorSets { get; init; }
         public System.Collections.Generic.IReadOnlyList<PrismSlang.NRI.ProjectedFragmentOutput> FragmentOutputs { get; init; }
-        public required PrismNRI.NriPipelineLayoutDesc Layout { get; init; }
+        public required SharpNRI.NriPipelineLayoutDesc Layout { get; init; }
         public required System.Collections.Generic.IReadOnlyList<PrismSlang.NRI.ProjectedRootConstants> RootConstants { get; init; }
         public System.Collections.Generic.IReadOnlyList<PrismSlang.NRI.ProjectedStage> Stages { get; init; }
         public required System.Collections.Generic.IReadOnlyList<PrismSlang.NRI.ProjectedVertexAttribute> VertexAttributes { get; init; }
@@ -18,24 +18,24 @@ namespace PrismSlang.NRI
     }
     public static class NriProjection
     {
-        public static PrismNRI.Native.DescriptorType ToDescriptorType(PrismSlang.Native.SlangBindingType binding) { }
+        public static SharpNRI.Native.DescriptorType ToDescriptorType(PrismSlang.Native.SlangBindingType binding) { }
         public static PrismSlang.NRI.NriPipelineProjection ToNri(this PrismSlang.Reflection.ProgramLayout layout, PrismSlang.NRI.NriProjectionOptions? options = null) { }
-        public static PrismNRI.NriShaderDesc ToNriShaderDesc(this PrismSlang.Baking.BakedEntryPoint entryPoint) { }
-        public static PrismNRI.Native.StageBits ToStage(PrismSlang.Native.SlangStage stage) { }
-        public static PrismNRI.Native.Format ToVertexFormat(PrismSlang.Reflection.TypeLayout type) { }
+        public static SharpNRI.NriShaderDesc ToNriShaderDesc(this PrismSlang.Baking.BakedEntryPoint entryPoint) { }
+        public static SharpNRI.Native.StageBits ToStage(PrismSlang.Native.SlangStage stage) { }
+        public static SharpNRI.Native.Format ToVertexFormat(PrismSlang.Reflection.TypeLayout type) { }
     }
     public sealed class NriProjectionOptions : System.IEquatable<PrismSlang.NRI.NriProjectionOptions>
     {
         public NriProjectionOptions() { }
         public System.Collections.Generic.IReadOnlyList<string> RootConstantParameters { get; init; }
         public uint? UnboundedArrayCap { get; init; }
-        public PrismNRI.Native.VKBindingOffsets VkBindingOffsets { get; init; }
+        public SharpNRI.Native.VKBindingOffsets VkBindingOffsets { get; init; }
     }
     public sealed class ProjectedDescriptorRange : System.IEquatable<PrismSlang.NRI.ProjectedDescriptorRange>
     {
-        public ProjectedDescriptorRange(uint RangeIndex, PrismNRI.Native.DescriptorRangeDesc Desc, string? Name = null, bool IsUnbounded = false, uint? InputAttachmentIndex = default, PrismSlang.Native.SlangImageFormat ImageFormat = 0, uint? CounterRangeIndex = default) { }
+        public ProjectedDescriptorRange(uint RangeIndex, SharpNRI.Native.DescriptorRangeDesc Desc, string? Name = null, bool IsUnbounded = false, uint? InputAttachmentIndex = default, PrismSlang.Native.SlangImageFormat ImageFormat = 0, uint? CounterRangeIndex = default) { }
         public uint? CounterRangeIndex { get; init; }
-        public PrismNRI.Native.DescriptorRangeDesc Desc { get; init; }
+        public SharpNRI.Native.DescriptorRangeDesc Desc { get; init; }
         public PrismSlang.Native.SlangImageFormat ImageFormat { get; init; }
         public uint? InputAttachmentIndex { get; init; }
         public bool IsUnbounded { get; init; }
@@ -52,30 +52,30 @@ namespace PrismSlang.NRI
     }
     public sealed class ProjectedFragmentOutput : System.IEquatable<PrismSlang.NRI.ProjectedFragmentOutput>
     {
-        public ProjectedFragmentOutput(uint Location, PrismNRI.Native.Format Format, string Name, string? Semantic = null) { }
-        public PrismNRI.Native.Format Format { get; init; }
+        public ProjectedFragmentOutput(uint Location, SharpNRI.Native.Format Format, string Name, string? Semantic = null) { }
+        public SharpNRI.Native.Format Format { get; init; }
         public uint Location { get; init; }
         public string Name { get; init; }
         public string? Semantic { get; init; }
     }
     public sealed class ProjectedRootConstants : System.IEquatable<PrismSlang.NRI.ProjectedRootConstants>
     {
-        public ProjectedRootConstants(uint Index, PrismNRI.Native.RootConstantDesc Desc, string Name) { }
-        public PrismNRI.Native.RootConstantDesc Desc { get; init; }
+        public ProjectedRootConstants(uint Index, SharpNRI.Native.RootConstantDesc Desc, string Name) { }
+        public SharpNRI.Native.RootConstantDesc Desc { get; init; }
         public uint Index { get; init; }
         public string Name { get; init; }
     }
     public sealed class ProjectedStage : System.IEquatable<PrismSlang.NRI.ProjectedStage>
     {
-        public ProjectedStage(string Name, PrismNRI.Native.StageBits Stage, PrismSlang.Reflection.ThreadGroupSize? ThreadGroupSize = default) { }
+        public ProjectedStage(string Name, SharpNRI.Native.StageBits Stage, PrismSlang.Reflection.ThreadGroupSize? ThreadGroupSize = default) { }
         public string Name { get; init; }
-        public PrismNRI.Native.StageBits Stage { get; init; }
+        public SharpNRI.Native.StageBits Stage { get; init; }
         public PrismSlang.Reflection.ThreadGroupSize? ThreadGroupSize { get; init; }
     }
     public sealed class ProjectedVertexAttribute : System.IEquatable<PrismSlang.NRI.ProjectedVertexAttribute>
     {
-        public ProjectedVertexAttribute(string Name, PrismNRI.NriVertexAttributeDesc Desc) { }
-        public PrismNRI.NriVertexAttributeDesc Desc { get; init; }
+        public ProjectedVertexAttribute(string Name, SharpNRI.NriVertexAttributeDesc Desc) { }
+        public SharpNRI.NriVertexAttributeDesc Desc { get; init; }
         public string Name { get; init; }
     }
 }

@@ -1,16 +1,17 @@
 // The projection itself: a neutral ProgramLayout read as NRI pipeline requirements.
 //
 // Everything here is a mechanical consequence of NRI's desc vocabulary plus what Slang reported,
-// with one authority behind it: NRI's own Vulkan backend (nri/Source/VK/PipelineLayoutVK.hpp in
-// the PrismNRI checkout), which is what turns the desc into the VkPipelineLayout the SPIR-V is
-// bound against. Each rule below names the line of that backend it answers to. Where a mapping is
-// genuinely ambiguous the code says so rather than guessing quietly, as PrismSlang.Vulkan does.
+// with one authority behind it: NRI's own Vulkan backend (Source/VK/PipelineLayoutVK.hpp at NRI's
+// v191 tag, the revision SharpNRI.Descs is generated from), which is what turns the desc into the
+// VkPipelineLayout the SPIR-V is bound against. Each rule below names the line of that backend it
+// answers to. Where a mapping is genuinely ambiguous the code says so rather than guessing quietly,
+// as PrismSlang.Vulkan does.
 
-using PrismNRI;
-using PrismNRI.Native;
 using PrismSlang.Baking;
 using PrismSlang.Native;
 using PrismSlang.Reflection;
+using SharpNRI;
+using SharpNRI.Native;
 
 namespace PrismSlang.NRI;
 
@@ -18,7 +19,7 @@ namespace PrismSlang.NRI;
 public static class NriProjection
 {
     /// <summary>
-    /// Projects a reflection snapshot into a PrismNRI pipeline layout desc, root constants,
+    /// Projects a reflection snapshot into a SharpNRI pipeline layout desc, root constants,
     /// vertex attributes and fragment outputs.
     /// </summary>
     /// <exception cref="NotSupportedException">
@@ -34,8 +35,8 @@ public static class NriProjection
         options ??= new NriProjectionOptions();
 
         // Refused before anything is projected, because nothing projected would be right. The
-        // backend adds the offsets to every baseRegisterIndex (PipelineLayoutVK.hpp line 116 and
-        // 349) on the assumption the shader compiler was told the same shifts; Slang was not.
+        // backend adds the offsets to every baseRegisterIndex (PipelineLayoutVK.hpp line 118 and
+        // 351) on the assumption the shader compiler was told the same shifts; Slang was not.
         if (options.VkBindingOffsets is not { sRegister: 0, tRegister: 0, bRegister: 0, uRegister: 0 })
         {
             var o = options.VkBindingOffsets;
@@ -65,12 +66,21 @@ public static class NriProjection
                 // samplers, and this projection emits neither — Slang has no construct that maps
                 // to a root descriptor, and a sampler in Slang is a descriptor like any other. The
                 // Vulkan backend reserves a set index for the root space only when something is
-                // in it (PipelineLayoutVK.hpp line 143), so an unused 0 costs nothing.
+                // in it (PipelineLayoutVK.hpp line 145), so an unused 0 costs nothing.
                 RootRegisterSpace = promoted.Count > 0 ? promoted[0].Space : 0,
                 RootConstants = rootConstants.Select(r => r.Desc).ToArray(),
                 DescriptorSets = sets
                     .Select(s => new NriDescriptorSetDesc(s.RegisterSpace, s.Ranges.Select(r => r.Desc).ToArray()))
                     .ToArray(),
+                // Every stage the program runs as, never left at ALL. NRI v191's header says that
+                // for descriptor and root visibility "ALL" and "ALL_SHADERS" resolve to this field
+                // (NRIDescs.h, StageBits), and its validation refuses a range whose stages are not
+                // within it and a pipeline shader whose stage it does not enable
+                // (DeviceVal.hpp lines 568 and 774); on D3D12 it also decides which stages the
+                // root signature denies root access (PipelineLayoutD3D12.hpp lines 25 to 59). The
+                // ranges and root constants below carry explicit stages, so nothing resolves
+                // through it, but the program's union is the one mask that satisfies all three
+                // and denies D3D12 nothing the program reads.
                 ShaderStages = allStages,
             },
             DescriptorSets = sets,
@@ -82,7 +92,7 @@ public static class NriProjection
     }
 
     /// <summary>
-    /// A baked entry point as the shader desc a PrismNRI pipeline wants: the stage, the bytes, and
+    /// A baked entry point as the shader desc a SharpNRI pipeline wants: the stage, the bytes, and
     /// the entry-point name the module actually declares.
     /// </summary>
     /// <remarks>
@@ -189,7 +199,7 @@ public static class NriProjection
     /// <remarks>
     /// The flag is not decoration. NRI's Vulkan backend reads a range without <c>ARRAY</c> as
     /// <c>descriptorNum</c> consecutive bindings of one descriptor each, from
-    /// <c>baseRegisterIndex</c> upward (PipelineLayoutVK.hpp lines 357 to 365: <c>descriptorNum
+    /// <c>baseRegisterIndex</c> upward (PipelineLayoutVK.hpp lines 359 to 367: <c>descriptorNum
     /// = range.descriptorNum</c> only when <c>isArray</c> is false, and a binding per
     /// <c>j</c>) — the D3D register-range reading. Slang's SPIR-V declares <c>Texture2D t[4]</c>
     /// as one binding with a descriptor count of 4, and only with the flag does NRI build that.
@@ -361,7 +371,7 @@ public static class NriProjection
     /// </summary>
     /// <remarks>
     /// NRI's Vulkan backend lays root constants out as one push-constant range each, at byte
-    /// offsets that accumulate in array order (PipelineLayoutVK.hpp lines 122 to 132). That is a
+    /// offsets that accumulate in array order (PipelineLayoutVK.hpp lines 124 to 134). That is a
     /// real layout, and it is still not one this projection can use for a second block: Slang
     /// reports a push-constant block's offset as a buffer index, not a byte offset, and the
     /// SPIR-V for two blocks is two push-constant blocks each starting at byte 0, which Vulkan

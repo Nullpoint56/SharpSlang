@@ -7,7 +7,6 @@
     <File Path="NativeReaderEnums.props" />
     <File Path=".gitignore" />
     <File Path="nuget.config" />
-    <File Path="nupkg-feed/README.md" />
   </Folder>
   <Folder Name="/docs/">
     <File Path="docs/guide.md" />
@@ -15,12 +14,13 @@
   </Folder>
   <Folder Name="/tools/">
     <File Path="tools/fetch-native.ps1" />
-    <File Path="tools/fetch-nri.ps1" />
     <File Path="tools/generate-native.ps1" />
   </Folder>
   <Folder Name="/tools/ci/">
     <File Path="tools/ci/check-docs.sh" />
+    <File Path="tools/ci/ci-gate.ps1" />
     <File Path="tools/ci/compare-digests.sh" />
+    <File Path="tools/ci/count-tests.ps1" />
     <File Path="tools/ci/cross-arch-differences.txt" />
     <File Path="tools/ci/spirv-worddiff.py" />
     <File Path="tools/ci/macos-backtrace.sh" />
@@ -28,9 +28,7 @@
   </Folder>
   <Folder Name="/.github/">
     <File Path=".github/workflows/ci.yml" />
-    <File Path=".github/workflows/docs.yml" />
     <File Path=".github/workflows/publish.yml" />
-    <File Path=".github/workflows/regen.yml" />
   </Folder>
   <!-- Files, not a project: it restores from the packages publish.yml packs, which do not exist
        until a release is being made, so as a project it would fail every restore of the solution. -->

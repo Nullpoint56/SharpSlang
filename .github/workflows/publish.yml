@@ -2,11 +2,11 @@ name: Publish
 
 # Publishes every package on a version tag (e.g. `v0.1.0`), or on manual dispatch: to GitHub
 # Packages, where consumers restore from, and — on a tag — as a GitHub release carrying the same
-# .nupkg files, the way PrismNRI publishes. The release is the durable, browsable record and the
-# one place a consumer without feed access (tools/fetch-nri.ps1 is the same idea, pointed the other
-# way) can download the packages from. The tag has to equal `v` + <Version> in the five csproj
-# files, checked first, so that the version a package carries, the tag, the release name and the
-# README's "Status" line cannot disagree; manual runs have no tag and build whatever <Version> says.
+# .nupkg files. The release is the durable, browsable record and the one place a consumer without
+# feed access can download the packages from. The tag has to equal `v` + <Version> in the five
+# csproj files, checked first, so that the version a package carries, the tag, the release name and
+# the README's "Status" line cannot disagree; manual runs have no tag and build whatever <Version>
+# says.
 #
 # Five packages, deliberately:
 #   PrismSlang             Slang-neutral. Compilation and reflection.
@@ -14,7 +14,7 @@ name: Publish
 #   PrismSlang.Vulkan      The Vulkan reading of a reflection snapshot. Opt-in, so a D3D12 or Metal
 #                          consumer never pulls Vulkan concepts in.
 #   PrismSlang.NRI         The NRI (NVIDIA Render Interface) reading of a reflection snapshot, onto
-#                          PrismNRI's descs. Opt-in like the Vulkan one.
+#                          SharpNRI's descs. Opt-in like the Vulkan one.
 #   PrismSlang.Native.Dxc  Copies Microsoft's dxc into the app's output, where PrismSlang loads it
 #                          for Slang, so Slang can emit DXIL. No binary of its own: a dependency on
 #                          Microsoft.Direct3D.DXC and a targets file that copies from it. Opt-in,
@@ -60,13 +60,13 @@ jobs:
   # tested, in a job of its own on the cheapest runner, so a tag pushed against the wrong <Version>
   # fails in seconds with both values named — rather than after the full test matrix, or worse,
   # publishing packages whose assembly version disagrees with the release they sit on. The same
-  # check PrismNRI's release workflow makes. A manual run has no tag, and the step is skipped
+  # check SharpNRI's release workflow makes. A manual run has no tag, and the step is skipped
   # rather than the job, so the jobs that need this one still run.
   version:
     name: tag equals v<Version>
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Tag equals v<Version>
         if: github.ref_type == 'tag'
@@ -87,25 +87,38 @@ jobs:
           if ($env:RELEASE_TAG -cne "v$version") { throw "tag '$env:RELEASE_TAG' is not 'v$version' (<Version> in the csproj files)" }
           if ((Get-Content README.md -Raw) -notmatch [regex]::Escape("``$version``")) { throw "README.md's Status line does not say ``$version``" }
 
-  # The full test matrix, macOS included, before anything is packed. On a pull request the
-  # osx-arm64 leg only runs when asked for (ci.yml explains the cost), so this is where every RID a
-  # package ships is guaranteed to have been tested — by the run that publishes it. The same
-  # workflow CI runs, called rather than copied, so the two cannot drift.
+  # The full test matrix, macOS included, before anything is packed. A branch run includes the
+  # osx-arm64 leg only when asked for (ci.yml explains the cost), so this is where every RID a
+  # package ships is guaranteed to have passed on the tree being released. The same workflow CI
+  # runs, called rather than copied, so the two cannot drift.
+  #
+  # ci.yml's gate skips the legs this tree already passed, all of them only when the digests
+  # comparison covered as many legs as a release asks for. macOS normally has not run on the tree
+  # being released, so a release normally runs every leg. The gate reads earlier runs and the pull
+  # requests a commit belongs to, and a called workflow gets no permission its caller's job does
+  # not grant, hence the block below. statuses is there because the gate job declares it; it posts
+  # nothing on a release.
   test:
     needs: version
     uses: ./.github/workflows/ci.yml
+    permissions:
+      contents: read
+      actions: read
+      pull-requests: read
+      statuses: write
     with:
       macos: true
+      release: true
     secrets: inherit
 
   publish:
     needs: [version, test]
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # The preview quality is there because .NET 11 has no GA release yet; drop it when it does.
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: '11.0.x'
           dotnet-quality: preview
@@ -122,17 +135,6 @@ jobs:
           foreach ($rid in @('win-x64', 'linux-x64', 'linux-arm64', 'osx-arm64')) {
             ./tools/fetch-native.ps1 -Rid $rid -Profile Spirv
           }
-
-      # Into the folder feed nuget.config names, nupkg-feed/, for PrismSlang.NRI and the tests.
-      # PrismNRI is a private repository, so a fine-grained PAT with read access to its contents
-      # (Contents: read) is stored on THIS repository as the secret PRISMNRI_READ_TOKEN. The job's
-      # own GITHUB_TOKEN cannot stand in: it is scoped to the repository the workflow runs in, and
-      # another repository's release assets are outside that scope whatever `permissions:` says.
-      - name: Fetch the PrismNRI packages
-        shell: pwsh
-        env:
-          PRISMNRI_TOKEN: ${{ secrets.PRISMNRI_READ_TOKEN }}
-        run: ./tools/fetch-nri.ps1
 
       - name: Resolve version
         id: version
@@ -342,7 +344,7 @@ jobs:
               --skip-duplicate
           }
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: packages
           path: artifacts/*.nupkg
@@ -352,7 +354,7 @@ jobs:
       # the notes are GitHub's, generated from the merged pull requests since the previous tag,
       # which is where the measured facts of each change already are. fail_on_unmatched_files, so
       # a pack that produced nothing cannot publish an empty release.
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         if: github.ref_type == 'tag'
         with:
           tag_name: ${{ github.ref_name }}

@@ -5,7 +5,7 @@
 // environment, and walk a uniform offset. If any of it needed the compiler this would not compile,
 // and if the compiler still came along for the ride the payload would be in bin/ — which is the
 // other half of the test, asserted from PrismSlang.Tests. The NRI projection adds a second
-// payload that must not come along: NRI.dll, which PrismNRI.Descs does not carry and PrismNRI does.
+// payload that must not come along: NRI.dll, which SharpNRI.Descs does not carry and SharpNRI does.
 
 using PrismSlang.Baking;
 using PrismSlang.Native;
@@ -44,7 +44,7 @@ foreach (var set in layout.DescriptorSets)
     foreach (var binding in set.Bindings)
         Console.WriteLine($"    set {set.Set} binding {binding.Binding} {binding.DescriptorType} '{binding.Name}'");
 
-// The same snapshot read for NRI: a PrismNRI pipeline layout desc, built with no device and no
+// The same snapshot read for NRI: a SharpNRI pipeline layout desc, built with no device and no
 // NRI binary in this process. A renderer hands nri.Layout to NriDevice.CreatePipelineLayout and
 // binds each descriptor by the set and range index the projection reports.
 var nri = package.Layout.ToNri(new NriProjectionOptions { UnboundedArrayCap = 64 });
