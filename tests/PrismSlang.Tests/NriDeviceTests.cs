@@ -257,7 +257,7 @@ public sealed class NriDeviceTests(Xunit.Abstractions.ITestOutputHelper output)
     /// lavapipe, which had no ray tracing and no mesh shaders — but Mesa 25.2.8's lavapipe (Ubuntu
     /// 24.04's updates, which the linux-x64 runner's apt step resolves to) reports both, and
     /// measured under WSL with the SDK's 1.4.363 layer it trips none of them either: every
-    /// projectable case builds its layout there too, 24 with pipelines.
+    /// projectable case builds its layout there too, 25 with pipelines on Slang 2026.21.
     ///
     /// The D3D12 theory asks the same of its device. Measured on the RTX's D3D12 device and on
     /// WARP (PRISMNRI_TEST_SOFTWARE=1, what hosted Windows runs): neither trips any condition —
