@@ -87,15 +87,28 @@ jobs:
           if ($env:RELEASE_TAG -cne "v$version") { throw "tag '$env:RELEASE_TAG' is not 'v$version' (<Version> in the csproj files)" }
           if ((Get-Content README.md -Raw) -notmatch [regex]::Escape("``$version``")) { throw "README.md's Status line does not say ``$version``" }
 
-  # The full test matrix, macOS included, before anything is packed. On a pull request the
-  # osx-arm64 leg only runs when asked for (ci.yml explains the cost), so this is where every RID a
-  # package ships is guaranteed to have been tested — by the run that publishes it. The same
-  # workflow CI runs, called rather than copied, so the two cannot drift.
+  # The full test matrix, macOS included, before anything is packed. A branch run includes the
+  # osx-arm64 leg only when asked for (ci.yml explains the cost), so this is where every RID a
+  # package ships is guaranteed to have passed on the tree being released. The same workflow CI
+  # runs, called rather than copied, so the two cannot drift.
+  #
+  # ci.yml's gate skips the legs this tree already passed, all of them only when the digests
+  # comparison covered as many legs as a release asks for. macOS normally has not run on the tree
+  # being released, so a release normally runs every leg. The gate reads earlier runs and the pull
+  # requests a commit belongs to, and a called workflow gets no permission its caller's job does
+  # not grant, hence the block below. statuses is there because the gate job declares it; it posts
+  # nothing on a release.
   test:
     needs: version
     uses: ./.github/workflows/ci.yml
+    permissions:
+      contents: read
+      actions: read
+      pull-requests: read
+      statuses: write
     with:
       macos: true
+      release: true
     secrets: inherit
 
   publish:
