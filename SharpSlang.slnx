@@ -17,6 +17,7 @@
   <Folder Name="/docs/">
     <File Path="docs/guide.md" />
     <File Path="docs/upstream.md" />
+    <File Path="docs/nuget/README.md" />
   </Folder>
   <Folder Name="/docs/releases/">
     <File Path="docs/releases/README.md" />
@@ -72,13 +73,6 @@
   <Folder Name="/.github/">
     <File Path=".github/workflows/ci.yml" />
     <File Path=".github/workflows/publish.yml" />
-  </Folder>
-  <!-- Files, not a project: it restores from the packages publish.yml packs, which do not exist
-       until a release is being made, so as a project it would fail every restore of the solution. -->
-  <Folder Name="/tests/SharpSlang.PackageConsumer/">
-    <File Path="tests/SharpSlang.PackageConsumer/SharpSlang.PackageConsumer.csproj" />
-    <File Path="tests/SharpSlang.PackageConsumer/Program.cs" />
-    <File Path="tests/SharpSlang.PackageConsumer/nuget.config" />
   </Folder>
   <Project Path="descs/SharpSlang.Descs.csproj" />
   <Project Path="pipeline/SharpSlang.Pipeline.csproj" />

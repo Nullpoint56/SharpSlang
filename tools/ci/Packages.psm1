@@ -63,6 +63,8 @@ function Get-Pins($Spec, [string]$Root, [hashtable]$Overrides = @{}) {
         if ($value) { $pins[$token] = $value }
     }
     foreach ($k in $Overrides.Keys) { if (-not $pins.ContainsKey($k) -and $Overrides[$k]) { $pins[$k] = $Overrides[$k] } }
+    # The Slang release as its build tag, its libraries and its module folder spell it: 2026.21
+    if ($pins.ContainsKey('Slang') -and -not $pins.ContainsKey('SlangNumeric')) { $pins['SlangNumeric'] = $pins['Slang'].TrimStart('v') }
     $pins
 }
 
@@ -114,6 +116,30 @@ function Read-Nupkg([string]$Path) {
     }
 }
 
+# The Source Link map (its JSON text) of a portable PDB inside a .nupkg, or $null: the custom debug
+# information of kind CC110556-A091-4D38-9FEC-25AB9A351A6A (the Portable PDB format's Source Link)
+function Get-SourceLink([string]$Package, [string]$Entry) {
+    $sourceLinkKind = [guid]'CC110556-A091-4D38-9FEC-25AB9A351A6A'
+    $zip = [System.IO.Compression.ZipFile]::OpenRead((Resolve-Path $Package).Path)
+    try {
+        $memory = [System.IO.MemoryStream]::new()
+        $s = $zip.GetEntry($Entry).Open(); try { $s.CopyTo($memory) } finally { $s.Dispose() }
+        $memory.Position = 0
+        try { $provider = [System.Reflection.Metadata.MetadataReaderProvider]::FromPortablePdbStream($memory) } catch { return $null }
+        try {
+            $reader = $provider.GetMetadataReader()
+            foreach ($h in $reader.CustomDebugInformation) {
+                $info = $reader.GetCustomDebugInformation($h)
+                if ($reader.GetGuid($info.Kind) -eq $sourceLinkKind) {
+                    return ([System.Text.Encoding]::UTF8.GetString($reader.GetBlobBytes($info.Value)) -replace '\s+', ' ')
+                }
+            }
+        } catch [System.BadImageFormatException] { return $null }
+        finally { $provider.Dispose() }
+    } finally { $zip.Dispose() }
+    $null
+}
+
 # Every dependency of a nuspec as @{ Id; Version; Group }, across its groups
 function Get-NuspecDependencies($Nuspec) {
     $deps = $Nuspec.package.metadata.SelectNodes("//*[local-name()='dependency']")
@@ -134,4 +160,4 @@ function Get-PackedPackages([string]$Folder) {
     $found
 }
 
-Export-ModuleMember -Function Get-RepoRoot, ConvertTo-Map,Import-PackageSpec, Get-MSBuildProperty, Get-Pins, Expand-Template, Get-PackageVersion, Read-Nupkg, Get-NuspecDependencies, Get-PackedPackages
+Export-ModuleMember -Function Get-RepoRoot, ConvertTo-Map,Import-PackageSpec, Get-MSBuildProperty, Get-Pins, Expand-Template, Get-PackageVersion, Read-Nupkg, Get-SourceLink, Get-NuspecDependencies, Get-PackedPackages

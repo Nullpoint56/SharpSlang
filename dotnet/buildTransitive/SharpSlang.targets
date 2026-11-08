@@ -1,6 +1,13 @@
 <Project>
 
   <!--
+    SharpSlang: the restore guard for its Descs (SHARPSLANG005), Slang's standard modules beside the
+    compiler, and the notices beside the application.
+
+      SharpSlangCopyLicenses   false copies no notices (the application handles them itself)
+  -->
+
+  <!--
     SharpSlang depends on exactly one SharpSlang.Descs (SharpSlangDescsDependency, SharpSlang.props,
     written at pack time). A direct reference to another version wins the restore with only the
     warning NU1608, and SlangGlobalSession.Create would then refuse it at run time: fail the build
@@ -17,5 +24,50 @@
     <Error Code="SHARPSLANG005"
            Text="SharpSlang $(SharpSlangPackedVersion) depends on SharpSlang.Descs $(SharpSlangDescsDependency) exactly, and this project restores SharpSlang.Descs $(_SharpSlangDescsResolved) (NU1608). SlangGlobalSession.Create would refuse it: reference SharpSlang.Descs $(SharpSlangDescsDependency), or drop the direct reference." />
   </Target>
+
+  <!--
+    Slang's standard modules, beside slang-compiler. Slang imports slang.neural, slang.numerics,
+    slang.functional and experimental.workgraph from slang-standard-module-<version>/ in the
+    directory of the library it runs from, folders kept (AGENTS.md#native-packages). NuGet copies
+    everything under runtimes/<rid>/native/ flat into a RID-specific output, which put the 30 files
+    beside the application and made every such import fail, so the package carries the folder in
+    standard-modules/<rid>/ and these items put it where the compiler lands:
+
+      RID-specific build, run, publish, Native AOT    beside the application, where NuGet copies
+                                                      the libraries
+      portable                                        runtimes/<rid>/native/ for every packed RID
+  -->
+  <PropertyGroup>
+    <_SharpSlangPackageRoot>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)..\'))</_SharpSlangPackageRoot>
+  </PropertyGroup>
+  <ItemGroup Condition="'$(RuntimeIdentifier)' != ''">
+    <None Include="$(_SharpSlangPackageRoot)standard-modules\$(RuntimeIdentifier)\**\*"
+          Link="%(RecursiveDir)%(Filename)%(Extension)"
+          CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" ExcludeFromSingleFile="true" Visible="false" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(RuntimeIdentifier)' == ''">
+    <None Include="$(_SharpSlangPackageRoot)standard-modules\**\*"
+          Link="runtimes\$([System.Text.RegularExpressions.Regex]::Replace('%(RecursiveDir)', '^([^\\/]+)[\\/]', '$1\native\'))%(Filename)%(Extension)"
+          CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" ExcludeFromSingleFile="true" Visible="false" />
+  </ItemGroup>
+
+  <!--
+    The notices of what the application now ships: Slang's licence, the licences its LICENSE names
+    (LICENSES/), the notices of what it links statically (third-party-notices/), and SharpSlang's
+    own, from licenses/<rid>/ in the package to licenses/SharpSlang/<rid>/ beside the application,
+    folders kept. A RID-specific build or publish gets its RID's, a portable one every packed RID's.
+
+      SharpSlangCopyLicenses   false copies none (the application handles the notices itself)
+  -->
+  <ItemGroup Condition="'$(SharpSlangCopyLicenses)' != 'false' and '$(RuntimeIdentifier)' != ''">
+    <None Include="$(_SharpSlangPackageRoot)licenses\$(RuntimeIdentifier)\**\*"
+          Link="licenses\SharpSlang\$(RuntimeIdentifier)\%(RecursiveDir)%(Filename)%(Extension)"
+          CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" ExcludeFromSingleFile="true" Visible="false" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(SharpSlangCopyLicenses)' != 'false' and '$(RuntimeIdentifier)' == ''">
+    <None Include="$(_SharpSlangPackageRoot)licenses\**\*"
+          Link="licenses\SharpSlang\%(RecursiveDir)%(Filename)%(Extension)"
+          CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" ExcludeFromSingleFile="true" Visible="false" />
+  </ItemGroup>
 
 </Project>

@@ -56,6 +56,7 @@ public sealed unsafe class SlangSession : SlangObject<ISession>
         // cleanup is a single free; each target points at its own slot.
         var targetOptions = (CompilerOptionEntry*)NativeMemory.AllocZeroed(
             (nuint)options.Targets.Count, (nuint)sizeof(CompilerOptionEntry));
+        var sessionOptions = stackalloc CompilerOptionEntry[1];
 
         var owned = new List<nint>();
         sbyte* Own(string? s)
@@ -133,6 +134,18 @@ public sealed unsafe class SlangSession : SlangObject<ISession>
             sessionDesc.fileSystem = options.FileSystem is { } vfs ? vfs.Handle : null;
             sessionDesc.allowGLSLSyntax = options.AllowGlslSyntax ? (byte)1 : (byte)0;
             sessionDesc.skipSPIRVValidation = options.SkipSpirvValidation ? (byte)1 : (byte)0;
+
+            // Session-level, because Slang checks it in the session's option set when an import
+            // resolves to a module declared [ExperimentalModule] (slang-session.cpp:1747)
+            if (options.ExperimentalFeatures)
+            {
+                sessionOptions[0].name = CompilerOptionName.ExperimentalFeature;
+                sessionOptions[0].value = Defaults.CompilerOptionValue();
+                sessionOptions[0].value.kind = CompilerOptionValueKind.Int;
+                sessionOptions[0].value.intValue0 = 1;
+                sessionDesc.compilerOptionEntries = sessionOptions;
+                sessionDesc.compilerOptionEntryCount = 1;
+            }
 
             ISession* p = null;
             var hr = global.Handle->createSession(&sessionDesc, &p);

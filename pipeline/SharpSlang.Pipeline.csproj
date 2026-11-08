@@ -32,13 +32,12 @@
     <Nullable>enable</Nullable>
     <RootNamespace>SharpSlang</RootNamespace>
 
+    <!-- Trimming and Native AOT: declared, so the trim, AOT and single-file analyzers run in every build (errors under -warnaserror), and tools/consume publishes it with Native AOT (AGENTS.md#native-packages) -->
+    <IsAotCompatible>true</IsAotCompatible>
     <PackageId>SharpSlang.Pipeline</PackageId>
     <Version>$(SharpSlangPipelineVersion)</Version>
-    <Authors>szombathy-tamas</Authors>
-    <Description>Reads what SharpSlang baked: shader package container, reflection snapshot, and SPIR-V module header. No native dependency — reference this from a shipped game and leave the compiler and its per-platform payload in the asset pipeline. Alpha: not yet load-tested by a shipping game.</Description>
+    <Description>Reads what SharpSlang baked: shader package container, reflection snapshot, and SPIR-V module header. No native dependency: reference this from the application that loads baked packages, and leave the compiler and its per-platform payload in the asset pipeline.</Description>
     <PackageTags>slang;shader;spirv;reflection;shader-package</PackageTags>
-    <PackageLicenseExpression>MIT</PackageLicenseExpression>
-    <RepositoryType>git</RepositoryType>
   </PropertyGroup>
 
   <ItemGroup>

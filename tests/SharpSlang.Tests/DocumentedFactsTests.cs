@@ -145,7 +145,7 @@ public class DocumentedFactsTests
         Assert.True(match.Success, "Directory.Build.props does not pin DxcPackageVersion");
         var pinned = match.Groups[1].Value.Trim();
 
-        Documents("dxc/build/SharpSlang.Dxc.targets", $">{pinned}<",
+        Documents("dxc/buildTransitive/SharpSlang.Dxc.targets", $">{pinned}<",
             $"the pin is Microsoft.Direct3D.DXC {pinned}, and the targets file must copy from that version's folder");
     }
 

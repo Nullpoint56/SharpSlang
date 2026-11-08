@@ -15,8 +15,6 @@
 
     -p:SharpSlangConsumeDxcOverride=<version> adds an explicit Microsoft.Direct3D.DXC reference of
     another version, which the dxc package must refuse at build time.
-
-    Based on tests/SharpSlang.PackageConsumer (publish.yml's portable check), which it replaces.
   -->
 
   <PropertyGroup>

@@ -823,30 +823,32 @@ public sealed record ProgramLayout
     public SpecializationConstant? SpecializationConstant(string name) =>
         SpecializationConstants.FirstOrDefault(c => string.Equals(c.Name, name, StringComparison.Ordinal));
 
-    private static readonly JsonSerializerOptions JsonOptions = new()
-    {
-        WriteIndented = true,
-
-        // Pinned, because this string is written into the shader package and a package is a build
-        // artifact. WriteIndented newlines default to Environment.NewLine, so the same shader baked
-        // on Windows and on Linux produced packages differing by one byte per line — 214 of them on
-        // an ordinary layout. Nothing was wrong with either package and both loaded fine; what
-        // broke was equality. A content-addressed asset cache misses across build machines, an
-        // incremental cook redoes everything when the runner changes, and a reproducible-build
-        // check fails for a reason nobody would look for.
-        //
-        // Found by digesting the corpus on two platforms and diffing: all 28 SPIR-V modules were
-        // byte-identical and all 28 layouts differed.
-        NewLine = "\n",
-        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-        Converters = { new JsonStringEnumConverter() },
-    };
-
     /// <summary>Serializes for offline baking. Round-trips through <see cref="FromJson"/>.</summary>
-    public string ToJson() => JsonSerializer.Serialize(this, JsonOptions);
+    public string ToJson() => JsonSerializer.Serialize(this, ProgramLayoutJson.Default.ProgramLayout);
 
     /// <summary>Reads a baked layout back.</summary>
     public static ProgramLayout FromJson(string json) =>
-        JsonSerializer.Deserialize<ProgramLayout>(json, JsonOptions)
+        JsonSerializer.Deserialize(json, ProgramLayoutJson.Default.ProgramLayout)
         ?? throw new ArgumentException("not a serialized ProgramLayout", nameof(json));
 }
+
+/// <summary>
+/// The layout's JSON, generated at compile time: no reflection, so the reader trims and runs under
+/// Native AOT (the reflection-based serializer it replaced was the publish's IL2104 and IL3053).
+/// </summary>
+/// <remarks>
+/// NewLine is pinned, because this string is written into the shader package and a package is a
+/// build artifact. WriteIndented newlines default to Environment.NewLine, so the same shader baked
+/// on Windows and on Linux produced packages differing by one byte per line — 214 of them on an
+/// ordinary layout. Nothing was wrong with either package and both loaded fine; what broke was
+/// equality: a content-addressed asset cache misses across build machines. Found by digesting the
+/// corpus on two platforms and diffing: all 28 SPIR-V modules were byte-identical and all 28
+/// layouts differed.
+/// </remarks>
+[JsonSourceGenerationOptions(
+    WriteIndented = true,
+    NewLine = "\n",
+    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+    UseStringEnumConverter = true)]
+[JsonSerializable(typeof(ProgramLayout))]
+internal sealed partial class ProgramLayoutJson : JsonSerializerContext;

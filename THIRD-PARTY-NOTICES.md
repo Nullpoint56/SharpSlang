@@ -1,6 +1,6 @@
 # Third-party notices
 
-SharpSlang's own source is MIT — see [LICENSE](LICENSE). One of the five packages redistributes
+SharpSlang's own source is MIT — see [LICENSE](LICENSE). One of the six packages redistributes
 binaries it did not write, and this file says which, under what terms, and where the licence texts
 are. A second one depends on a Microsoft package that carries binaries, and this file says why that
 is a dependency rather than a redistribution.
@@ -9,17 +9,20 @@ is a dependency rather than a redistribution.
 
 | Package | Bundles |
 |---|---|
+| `SharpSlang.Descs` | nothing. MIT only. |
 | `SharpSlang.Pipeline` | nothing. MIT only. |
+| `SharpSlang.Pipeline.Bake` | nothing. MIT only. |
 | `SharpSlang.Pipeline.NRI` | nothing. MIT only. It references the `SharpNRI.Descs` package (MIT) for NRI's descriptor types and redistributes no NRI binary. |
 | **`SharpSlang`** | binaries from the [Slang](https://github.com/shader-slang/slang) project, one set per runtime identifier |
 | `SharpSlang.Dxc` | nothing. MIT only. It depends on Microsoft's `Microsoft.Direct3D.DXC` package and copies `dxcompiler.dll` and `dxil.dll` out of it into the application's output; see below. Opt-in: nothing else depends on it. |
 
-Under `runtimes/<rid>/native/` in the `SharpSlang` package, taken unmodified from Slang's own
-prebuilt release for that platform:
+In the `SharpSlang` package, taken unmodified from Slang's own prebuilt release for that platform:
 
-- `slang-compiler` — the compiler itself
-- `slang-glslang` — Slang's glslang/SPIRV-Tools bundle, which is where `spirv-opt` lives
-- `slang-standard-module-<version>` — the precompiled standard library
+- `runtimes/<rid>/native/slang-compiler` — the compiler itself
+- `runtimes/<rid>/native/slang-glslang` — Slang's glslang/SPIRV-Tools bundle, which is where `spirv-opt` lives
+- `standard-modules/<rid>/slang-standard-module-<version>/` — Slang's standard modules (`slang.neural`,
+  `slang.numerics`, `slang.functional`, `experimental.workgraph`), which the package's build targets
+  copy beside the compiler
 
 The version is pinned in `Directory.Build.props` and staged by `tools/fetch-native.ps1`, which
 downloads the release archive from `shader-slang/slang` and copies these files without altering
@@ -41,10 +44,12 @@ cmark, glslang, lz4, miniz, SPIRV-Tools and unordered_dense (and mimalloc, on Wi
 their notices in a binary redistribution. Slang's release carries them in `third-party-notices/`;
 they are staged as `runtimes/<rid>/third-party-notices/<name>.txt`.
 
-All three are staged alongside the payload and ship inside the `SharpSlang` package, at
-`runtimes/<rid>/LICENSE.txt`, `runtimes/<rid>/LICENSES/` and `runtimes/<rid>/third-party-notices/`. They sit outside `native/`, so NuGet
-does not copy them into a consumer's output directory — they travel with the package rather than
-with the build. The publish workflow refuses to push a package where any RID is missing them.
+All three ship inside the `SharpSlang` package at `licenses/<rid>/Slang/` (`LICENSE.txt`, `LICENSES/`,
+`third-party-notices/`), with this file and SharpSlang's `LICENSE` at `licenses/<rid>/SharpSlang/`. The
+package's build targets copy them beside the application, to `licenses/SharpSlang/<rid>/`: a
+RID-specific build or publish gets its RID's, a portable build every packed RID's. An application that
+handles the notices itself sets `SharpSlangCopyLicenses=false`. `tools/ci/check-packages.ps1` fails a
+pack where any RID is missing them.
 
 Upstream: <https://github.com/shader-slang/slang> — the release matching the pinned version carries
 the same texts.
@@ -54,7 +59,7 @@ the same texts.
 `SharpSlang.Dxc` redistributes nothing. It is a package with no binary in it: a dependency
 on Microsoft's own [`Microsoft.Direct3D.DXC`](https://www.nuget.org/packages/Microsoft.Direct3D.DXC)
 package from nuget.org, pinned exactly to the version in `Directory.Build.props`
-(`DxcPackageVersion`), and a `build/SharpSlang.Dxc.targets` that copies two files out of
+(`DxcPackageVersion`), and a `buildTransitive/net11.0/SharpSlang.Dxc.targets` that copies two files out of
 that package's `build/native/bin/x64/` into the root of the consumer's output — beside
 `slang-compiler.dll` when the output is flat, one `runtimes/win-x64/native/` away from it in a
 portable build:
@@ -83,9 +88,9 @@ DXIL, and SharpSlang only copies it into the output and loads it from there befo
 it by name. `SlangGlobalSession.CreateSession` refuses a DXIL target when dxc is not loadable,
 naming the package.
 
-The publish workflow refuses to push a `SharpSlang.Dxc` package that carries anything
-under `runtimes/`, that lacks the targets file, or whose dependency on `Microsoft.Direct3D.DXC` is
-not the pinned version.
+The package check refuses a `SharpSlang.Dxc` package that carries a binary or anything under
+`runtimes/`, that lacks the targets file, or whose dependency on `Microsoft.Direct3D.DXC` is not the
+pinned version; and the targets fail a build that restored another version (`SHARPSLANG011`).
 
 ## If you build from source
 

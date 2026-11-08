@@ -25,13 +25,12 @@
     <Nullable>enable</Nullable>
     <RootNamespace>SharpSlang</RootNamespace>
 
+    <!-- Trimming and Native AOT: declared, so the trim, AOT and single-file analyzers run in every build (errors under -warnaserror), and tools/consume publishes it with Native AOT (AGENTS.md#native-packages) -->
+    <IsAotCompatible>true</IsAotCompatible>
     <PackageId>SharpSlang.Pipeline.Bake</PackageId>
     <Version>$(SharpSlangVersion)</Version>
-    <Authors>szombathy-tamas</Authors>
-    <Description>The SharpSlang shader cooker: walks a linked program's reflection into SharpSlang.Pipeline's snapshot and bakes code and layout into a ShaderPackage. Uses SharpSlang's public API; reference it from the asset pipeline, and SharpSlang.Pipeline alone from the game. Alpha: not yet load-tested by a shipping game.</Description>
+    <Description>The SharpSlang shader cooker: walks a linked program's reflection into SharpSlang.Pipeline's snapshot and bakes code and layout into a ShaderPackage. Uses SharpSlang's public API; reference it from the asset pipeline, and SharpSlang.Pipeline alone from the application that loads the packages.</Description>
     <PackageTags>slang;shader;spirv;reflection;shader-package;cooker</PackageTags>
-    <PackageLicenseExpression>MIT</PackageLicenseExpression>
-    <RepositoryType>git</RepositoryType>
   </PropertyGroup>
 
   <!-- Both exact in the nuspec (Directory.Build.targets): the binding it reads, the reader it writes for. -->

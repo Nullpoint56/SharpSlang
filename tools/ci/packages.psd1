@@ -67,22 +67,32 @@
                 'buildTransitive/SharpSlang.props', 'buildTransitive/SharpSlang.targets'
                 'README.md', 'THIRD-PARTY-NOTICES.md'
             )
-            # The compiler, the SPIR-V optimiser (slang-glslang carries spirv-opt) and Slang's
-            # licence texts, for every RID: publish.yml's check, with the licences moved out of
-            # runtimes/ to licenses/<rid>/ (NuGet copies runtimes/<rid>/native/ flat, and ignores
-            # the rest of runtimes/<rid>/).
+            # For every RID: the compiler and the SPIR-V optimiser (slang-glslang carries
+            # spirv-opt) under runtimes/<rid>/native/, nothing in a subfolder there (NuGet copies
+            # it flat); the standard modules in standard-modules/<rid>/, folders kept, which the
+            # buildTransitive targets put beside the compiler; Slang's licence texts and
+            # SharpSlang's own in licenses/<rid>/, which they copy beside the application
+            # (AGENTS.md#native-packages).
             PerRid = @(
                 'runtimes/{rid}/native/{lib}slang-compiler{ext}'
                 'runtimes/{rid}/native/{lib}slang-glslang*{ext}'
+                'standard-modules/{rid}/slang-standard-module-{SlangNumeric}/slang/neural.slang-module'
+                'standard-modules/{rid}/slang-standard-module-{SlangNumeric}/slang/numerics.slang-module'
+                'standard-modules/{rid}/slang-standard-module-{SlangNumeric}/slang/functional.slang-module'
+                'standard-modules/{rid}/slang-standard-module-{SlangNumeric}/experimental/workgraph.slang-module'
                 'licenses/{rid}/Slang/LICENSE.txt'
                 'licenses/{rid}/Slang/LICENSES/Apache-2.0.txt'
+                'licenses/{rid}/Slang/third-party-notices/glslang-LICENSE.txt'
+                'licenses/{rid}/SharpSlang/LICENSE.txt'
+                'licenses/{rid}/SharpSlang/THIRD-PARTY-NOTICES.md'
             )
-            Forbidden = @('^runtimes/[^/]+/(?!native/)')
+            Forbidden = @('^runtimes/[^/]+/(?!native/)', '^runtimes/.*(LICENSE|NOTICE|COPYING)', '^standard-modules/[^/]+/(?!slang-standard-module-)')
             # The binding names no pipeline package (AGENTS.md#layers)
             Dependencies = @{ 'SharpSlang.Descs' = '[{DescsVersion}]' }
             Props = @{ 'buildTransitive/SharpSlang.props' = @{ SharpSlangPackedVersion = '{Version}'; SharpSlangDescsDependency = '{DescsVersion}' } }
-            # SHARPSLANG005: the restored Descs held to the one SharpSlang depends on
-            Contains = @{ 'buildTransitive/SharpSlang.targets' = @('SHARPSLANG005') }
+            # SHARPSLANG005: the restored Descs held to the one SharpSlang depends on; the copies
+            # of the standard modules and the notices, and the notices' opt-out
+            Contains = @{ 'buildTransitive/SharpSlang.targets' = @('SHARPSLANG005', 'standard-modules\', 'SharpSlangCopyLicenses') }
             Description = 'Native'
             Assemblies = $true
         }
@@ -106,14 +116,14 @@
             # Targets only: Microsoft's own package at the pinned version, and the targets that
             # copy dxcompiler.dll and dxil.dll out of it. Redistributes no binary (Microsoft's
             # terms forbid a stand-alone offering; THIRD-PARTY-NOTICES.md).
-            # The targets' source is dxc/build/SharpSlang.Dxc.targets, packed today as
-            # build/SharpSlang.Dxc.targets; a targets-only package carries them under
-            # buildTransitive/<tfm>/ with lib/<tfm>/_._.
+            # A targets-only package: the targets under buildTransitive/<tfm>/ with lib/<tfm>/_._,
+            # nothing under build/. SHARPSLANG011 fails a restore of another Microsoft.Direct3D.DXC,
+            # read from project.assets.json.
             Id = 'SharpSlang.Dxc'; Project = 'dxc/SharpSlang.Dxc.csproj'; Version = 'Version'
             Files = @('buildTransitive/net11.0/SharpSlang.Dxc.targets', 'lib/net11.0/_._', 'README.md', 'THIRD-PARTY-NOTICES.md')
-            Forbidden = @('^runtimes/', '\.(dll|so|dylib)$', '^licenses/')
+            Forbidden = @('^runtimes/', '\.(dll|so|dylib)$', '^licenses/', '^build/')
             Dependencies = @{ 'Microsoft.Direct3D.DXC' = '[{Dxc}]' }
-            Contains = @{ 'buildTransitive/net11.0/SharpSlang.Dxc.targets' = @('>{Dxc}<'); 'build/SharpSlang.Dxc.targets' = @('>{Dxc}<') }
+            Contains = @{ 'buildTransitive/net11.0/SharpSlang.Dxc.targets' = @('>{Dxc}<', 'SHARPSLANG011', 'project.assets.json') }
             Commit = $false
             Assemblies = $false
         }
@@ -137,20 +147,23 @@
     )
 
     # tools/consume (consume.ps1): what each kind of run references (Optional: when packed), the
-    # namespaces its Program.cs names, and its mode define. core runs portable, `run -r`,
-    # `publish -r` and Native AOT; reader and dxc are the optional packages alone.
+    # namespaces its Program.cs names, and its mode define. core, the cooker (the binding, dxc, the
+    # baker and the NRI projection stored at bake time), runs portable, `run -r`, `publish -r` and
+    # Native AOT; reader, nri and dxc are the optional packages alone.
     Consume = @{
         Runs = @{
-            core   = @{ Packages = @('SharpSlang', 'SharpSlang.Dxc', 'SharpSlang.Pipeline.Bake')
-                        Usings = @('SharpSlang', 'SharpSlang.Native', 'SharpSlang.Baking'); Defines = @('CONSUME_CORE', 'CONSUME_BAKE') }
+            core   = @{ Packages = @('SharpSlang', 'SharpSlang.Dxc', 'SharpSlang.Pipeline.Bake', 'SharpSlang.Pipeline.NRI')
+                        Usings = @('SharpSlang', 'SharpSlang.Native', 'SharpSlang.Baking', 'SharpSlang.Pipeline.NRI'); Defines = @('CONSUME_CORE', 'CONSUME_BAKE', 'CONSUME_NRI') }
             reader = @{ Packages = @('SharpSlang.Pipeline'); Usings = @('SharpSlang.Baking'); Defines = @('CONSUME_READER') }
+            nri    = @{ Packages = @('SharpSlang.Pipeline.NRI'); Usings = @('SharpSlang.Baking', 'SharpSlang.Pipeline.NRI'); Defines = @('CONSUME_READER', 'CONSUME_NRI') }
             dxc    = @{ Packages = @('SharpSlang.Dxc'); Usings = @(); Defines = @('CONSUME_DXC') }
         }
-        Binding      = 'SharpSlang'                      # the assembly that must declare IsAotCompatible
+        Binding      = 'SharpSlang'                      # the assembly whose packed layout the runs check
+        CopyLicenses = 'SharpSlangCopyLicenses'          # the notices' opt-out property
         Compiler     = 'slang-compiler'                  # the native library the reader's output must not hold
         DxcFiles     = @('dxcompiler.dll', 'dxil.dll')   # what the dxc package copies on win-x64
         DxcPackage   = 'Microsoft.Direct3D.DXC'
         DxcPin       = 'Dxc'
-        ErrorCode    = 'SHARPSLANG\d{3}'                 # the build-time error codes (Directory.Build.targets)
+        ErrorCode    = 'SHARPSLANG011'                   # a restored vendor runtime of another version (SharpSlang.Dxc.targets)
     }
 }

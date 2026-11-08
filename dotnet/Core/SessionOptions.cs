@@ -210,4 +210,16 @@ public sealed class SessionOptions
     /// good — a validation failure is usually a real bug in the shader or in Slang.
     /// </summary>
     public bool SkipSpirvValidation { get; init; }
+
+    /// <summary>
+    /// Slang's <c>-experimental-feature</c> (<c>CompilerOptionName.ExperimentalFeature</c>), set on
+    /// the session. Every standard module Slang ships (<c>slang.neural</c>, <c>slang.numerics</c>,
+    /// <c>slang.functional</c>, <c>experimental.workgraph</c>) is declared experimental, and Slang
+    /// refuses to import one without it (E00104).
+    /// </summary>
+    /// <remarks>
+    /// A session option and not a target one: Slang reads it from the session's option set when an
+    /// import resolves. See AGENTS.md#native-packages for where the modules are found.
+    /// </remarks>
+    public bool ExperimentalFeatures { get; init; }
 }

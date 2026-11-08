@@ -12,6 +12,7 @@
 
 using System.ComponentModel;
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using SharpSlang.Native;
@@ -120,6 +121,8 @@ internal static class SlangVersionCheck
         return plus < 0 ? informational : informational[..plus];
     }
 
+    // Empty in a single-file or Native AOT application, which the message then says
+    [UnconditionalSuppressMessage("SingleFile", "IL3000", Justification = "An empty Location is reported as loaded from memory")]
     private static string DescsPath()
     {
         var location = typeof(SlangStage).Assembly.Location;

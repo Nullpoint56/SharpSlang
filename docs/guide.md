@@ -55,7 +55,7 @@ loads them. The runtime half has no native dependency, so a shipped build carrie
 
 | Package | What it holds | Native content |
 |---|---|---|
-| `SharpSlang` | the binding: compilation, and Slang's reflection objects one for one | `slang-compiler` and `slang-glslang` per RID |
+| `SharpSlang` | the binding: compilation, and Slang's reflection objects one for one | `slang-compiler` and `slang-glslang` per RID, and Slang's standard modules |
 | `SharpSlang.Descs` | Slang's enums, descriptor structs, COM interface layouts and IIDs (`SharpSlang.Native`), generated from `slang.h`, and `SpirvVersion` | none |
 | `SharpSlang.Dxc` | targets that copy Microsoft's dxc into the output (DXIL) | none; depends on `Microsoft.Direct3D.DXC` |
 | `SharpSlang.Pipeline` | the reader: `ShaderPackage`, `ProgramLayout`, `SpirvModule` | none |
@@ -72,6 +72,19 @@ not stable between releases. Within one Slang version the second number moves on
 change of the binding and the third on a fix; `-beta` while the API may still change. The packages
 depend on each other at exact versions. `SharpSlang.Descs` and `SharpSlang.Pipeline` move only
 when they change, so a release of the binding alone can leave them at an earlier version.
+
+**What lands beside your application.** `SharpSlang`'s build targets copy, with the compiler:
+
+- Slang's standard modules, the `slang-standard-module-<version>/` folder Slang looks for beside
+  the library it runs from: beside the application in a RID-specific build, `dotnet run -r`,
+  `dotnet publish -r` and Native AOT, and under `runtimes/<rid>/native/` in a portable build;
+- the notices of what the application now ships, Slang's licence, the licences it names, the
+  notices of what it links statically, and SharpSlang's own, in `licenses/SharpSlang/<rid>/`: the
+  build's RID, or every packed RID in a portable build. Set `SharpSlangCopyLicenses` to `false`
+  when the application gathers its notices itself.
+
+`SharpSlang`, `SharpSlang.Descs` and the three pipeline packages declare trimming and Native AOT
+compatibility (`IsAotCompatible`); a Native AOT publish of a cooker built on them warns nothing.
 
 **Keep `SharpSlang.Descs` at the version `SharpSlang` depends on.** A direct reference to another
 version wins NuGet's restore with only the warning NU1608; SharpSlang's build targets turn that
@@ -97,13 +110,15 @@ the engine's output, beside its own assemblies.
 **DXIL takes the targets by hand.** A package's `build/` files do not flow through a project
 reference, so referencing `dxc/SharpSlang.Dxc.csproj` would copy no dxc. The cooker does
 what the package does: reference Microsoft's package at SharpSlang's `DxcPackageVersion` and import
-the targets file, as `tests/SharpSlang.Tests/SharpSlang.Tests.csproj` does.
+the targets file, as `tests/SharpSlang.Tests/SharpSlang.Tests.csproj` does. The targets read the
+restored version, so without the reference the build fails with `SHARPSLANG010`, and at another
+version with `SHARPSLANG011`.
 
 ```xml
 <ItemGroup>
   <PackageReference Include="Microsoft.Direct3D.DXC" Version="[1.9.2609.5]" PrivateAssets="all" />
 </ItemGroup>
-<Import Project="..\SharpSlang\dxc\build\SharpSlang.Dxc.targets" />
+<Import Project="..\SharpSlang\dxc\buildTransitive\SharpSlang.Dxc.targets" />
 ```
 
 **Both solutions build into SharpSlang's `obj/` and `bin/`.** The engine builds SharpSlang's
@@ -181,6 +196,24 @@ using var program = specialized.Link();
 
 Link a composite once. Linked a second time, Slang hands back the first link's code and ignores the
 second link's options; compose afresh for each variant, as `session.Link` does.
+
+**One path per module.** Loading a second module from source under a path the session already
+loaded one from fails with Slang's own assertion text ("The key already exists in Dictionary.")
+and no diagnostic code. Give each module from source its own path.
+
+**Slang's standard modules.** `import slang.neural`, `slang.numerics`, `slang.functional` and
+`experimental.workgraph` resolve to the `slang-standard-module-<version>/` folder beside the
+compiler, which the package puts there in every kind of output. Slang declares each of them
+experimental and refuses the import (`E00104`, "is an experimental module") unless the session asks
+for experimental features:
+
+```csharp
+using var session = global.CreateSession(new SessionOptions { ExperimentalFeatures = true });
+using var module = session.LoadModuleFromSource("net", "net.slang", "import slang.neural; ...");
+```
+
+An `E00001` "cannot open file 'slang/neural.slang'" instead means the folder is not beside the
+compiler the process loaded.
 
 ## Reflecting
 
@@ -392,7 +425,10 @@ inline ray tracing.
 **dxc has to be there.** Slang emits DXIL by handing HLSL to dxc, and ships none. Reference
 `SharpSlang.Dxc`, which stages `dxcompiler.dll` and `dxil.dll` in the application's output
 for `win-x64`; `CreateSession` refuses a DXIL target without it, naming the package, so the failure
-is at session creation rather than inside the first compile.
+is at session creation rather than inside the first compile. It copies from exactly the
+`Microsoft.Direct3D.DXC` version it depends on: a project that restores another one, through a
+direct reference of its own, fails the build with `SHARPSLANG011` naming both versions, whatever the
+package cache already holds. Drop the direct reference or match the version.
 
 **Registers are per class.** A DXIL layout reports `b0`, `t0`, `s0` and `u0` as four bindings at
 index 0 in the categories `CONSTANT_BUFFER`, `SHADER_RESOURCE`, `SAMPLER_STATE` and
@@ -946,6 +982,9 @@ The section column says where the guide covers it.
 | `InvalidOperationException` from `Dispose` | Something created from the object is still alive: a module of a session, an entry point of a module, a code blob of a program, a session still using a `SlangFileSystem`. Dispose it first; `using` declarations in creation order do it. | [Lifetime](#lifetime) |
 | A DXIL build compiles for an older shader model than expected, or a mesh or ray-tracing stage fails for DXIL | No `Profile` named: SharpSlang sets none, and Slang picks (6.0 for a compute shader). Name `sm_6_5`. | [Targeting D3D12](#targeting-d3d12) |
 | `ReadNriProjection` says to rebake | The package was projected against another `SharpNRI.Descs`, whose values the section stores. Rebake with this one. | [Projecting to NRI](#projecting-to-nri) |
+| `import slang.neural` fails with `E00104` "is an experimental module" | Slang declares every standard module experimental. Set `SessionOptions.ExperimentalFeatures`. `E00001` "cannot open file" instead means the module folder is not beside the loaded compiler. | [Compiling](#compiling) |
+| A second module from source fails with "assert failure: ... The key already exists in Dictionary." | Its path is one the session already loaded a module from. Give each module its own path. | [Compiling](#compiling) |
+| Build error `SHARPSLANG011` | The project restores another `Microsoft.Direct3D.DXC` than `SharpSlang.Dxc` copies from, usually through a direct reference of its own. Drop it or match the version. | [Targeting D3D12](#targeting-d3d12) |
 | `SlangVersionMismatchException` after a version bump | The previous release is still staged in `runtimes/` (git-ignored). Fetch the pinned payload again. | [The payload has to be the pinned one](#the-payload-has-to-be-the-pinned-one) |
 | `SlangVersionMismatchException` naming `SharpSlang.Descs`, or build error `SHARPSLANG005` | A direct `SharpSlang.Descs` reference at another version than `SharpSlang` depends on; NuGet only warns (NU1608). Drop the reference or match the version. | [The two halves](#the-two-halves) |
 | The same shader cooked on x64 and on ARM64 hashes differently | x64 and ARM64 emit byte-identical SPIR-V within an architecture and differ on shaders using `SV_VertexID`: Slang creates the two builtins it lowers to in the opposite order, so the modules are equivalent and never compare equal. Windows and Linux agree exactly. Cook on one architecture, or content-address per architecture. | [Baking and loading](#baking-and-loading) |

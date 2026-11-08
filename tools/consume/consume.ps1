@@ -12,21 +12,27 @@
     silent failure nor a skip; the summary lists them. The exit code is 1 when any check FAILs.
 
       core, portable     the loaded slang-compiler is the one under runtimes/<rid>/native/ of the
-                         output; SPIR-V with the optimiser required; signed DXIL on win-x64; a baked
-                         package written for the reader run; started as the apphost and as
-                         `dotnet <dll>`, from another directory
-      core, run -r       the same through `dotnet run -r <rid>` (flat payload)
-      core, publish -r   the same from a RID-specific publish directory, and its licence layout:
-                         licenses/ beside the application, no licence text flat beside it, nothing
-                         of a native/ subfolder flattened into it
-      core, AOT          the same from a Native AOT publish; the binding declares IsAotCompatible
+                         output; SPIR-V with the optimiser required; Slang's standard modules found
+                         and imported from beside the loaded compiler; signed DXIL on win-x64; a
+                         baked package with its NRI projection written for the reader runs; started
+                         as the apphost and as `dotnet <dll>`, from another directory; the layout:
+                         every packed RID's licences under licenses/<binding>/<rid>/ and standard
+                         modules under runtimes/<rid>/native/, nothing of them flat beside it
+      core, run -r       the same through `dotnet run -r <rid>`, flat: the run's RID's licences
+                         and the module folder beside the application
+      licences off       a RID-specific build with <binding>CopyLicenses=false: no licenses/
+      core, publish -r   the same from a RID-specific publish directory
+      core, AOT          the same from a Native AOT publish, which warns nothing (IL2xxx, IL3xxx);
+                         every assembly of ours restored declares IsAotCompatible
       dxc alone          the dxc package with nothing else of ours: dxcompiler.dll and dxil.dll beside
                          the application (win-x64), no compiler
       reader alone       the reader with nothing else of ours: reads the baked package, and its
-                         output holds no compiler and loads none
-      wrong dxc          an explicit Microsoft.Direct3D.DXC of another version fails the build, with
-                         the build-time error code, both with the pinned version already in the
-                         package cache and with an empty one
+                         output holds no native library and the process loads no compiler
+      NRI projection     the same with the NRI projection alone, which reads the projection stored
+      alone              in the package
+      wrong dxc          an explicit Microsoft.Direct3D.DXC of another version fails the build with
+                         SHARPSLANG011, both with the pinned version already in the package cache
+                         and with an empty one
 
     What each run references comes from tools/ci/packages.psd1 (Consume), at the versions the folder
     holds. Each run is a copy of tools/consume under _build/consume/<run>/.
@@ -42,7 +48,7 @@
     nuget.org below the pin).
 
 .PARAMETER Skip
-    Runs to leave out (portable, run, publish, aot, dxc, reader, wrongdxc); each is reported as
+    Runs to leave out (portable, run, nolicences, publish, aot, dxc, reader, nri, wrongdxc); each is reported as
     skipped by request.
 #>
 param(
@@ -139,26 +145,60 @@ function Invoke-Logged([string]$log, [scriptblock]$command) {
     [pscustomobject]@{ Lines = $lines; Exit = $code }
 }
 
-function Test-Layout([string]$run, [string]$out, [bool]$flat) {
+# What the output must hold, read from the package: for each RID it carries (the run's own when
+# flat, every packed one when portable), its licences under licenses/<Binding>/<rid>/ and its
+# standard modules beside where the compiler lands; nothing of them flat beside the application.
+# -NoLicences: the run set <Binding>CopyLicenses=false, so licenses/ must be absent.
+function Test-Layout([string]$run, [string]$out, [bool]$flat, [switch]$NoLicences) {
     $binding = $c.Runs.core.Packages[0]
+    $pkg = @($packed[$binding])[0]
+    $rids = $flat ? @($Rid) : @($pkg.Entries | Where-Object { $_ -match '^runtimes/([^/]+)/native/' } | ForEach-Object { $_.Split('/')[1] } | Select-Object -Unique)
     $licences = Join-Path $out "licenses"
-    if (-not (Carries $binding "licenses/*")) {
-        Result $run "NOTYET" "licences beside the application" "not yet: $binding carries no licenses/<rid>/ to copy (packaging phase: licences out of runtimes/, buildTransitive targets)"
+    if ($NoLicences) {
+        if (Test-Path $licences) { Result $run "FAIL" "licences opted out" "$out has licenses/ with $($c.CopyLicenses)=false" }
+        else { Result $run "PASS" "licences opted out" "no licenses/ with $($c.CopyLicenses)=false" }
     }
-    elseif (@(Get-ChildItem $licences -Recurse -File -ErrorAction SilentlyContinue).Count) { Result $run "PASS" "licences beside the application" "$(@(Get-ChildItem $licences -Recurse -File).Count) files under licenses/" }
-    else { Result $run "FAIL" "licences beside the application" "the package carries licenses/, and $out has no licenses/" }
+    elseif (-not (Carries $binding "licenses/*")) {
+        Result $run "NOTYET" "licences beside the application" "not yet: $binding carries no licenses/<rid>/ to copy"
+    }
+    else {
+        $missing = foreach ($r in $rids) {
+            foreach ($e in @($pkg.Entries | Where-Object { $_ -like "licenses/$r/*" })) {
+                $dest = Join-Path $licences $binding $r ($e.Substring("licenses/$r/".Length))
+                if (-not (Test-Path $dest)) { $dest }
+            }
+        }
+        $count = @(Get-ChildItem $licences -Recurse -File -ErrorAction SilentlyContinue).Count
+        if ($missing) { Result $run "FAIL" "licences beside the application" "$(@($missing).Count) of the package's licence files missing, e.g. $(@($missing)[0])" }
+        else { Result $run "PASS" "licences beside the application" "$count files under licenses/$binding/ for $($rids -join ', ')" }
+    }
     $flatTexts = @(Get-ChildItem $out -File | Where-Object { $_.Name -match '^(LICENSE|LICENCE|NOTICE|COPYING|THIRD-PARTY)' })
-    $flatDirs = @(Get-ChildItem $out -Directory | Where-Object { $_.Name -in 'LICENSES', 'LICENCES' })
+    # Slang's LICENSES/ and third-party-notices/ copied flat; licenses/ is ours only when it holds
+    # nothing but licenses/<binding>/ (the names compare without case, as Windows' file system does)
+    $flatDirs = @(Get-ChildItem $out -Directory | Where-Object {
+        $_.Name -eq 'third-party-notices' -or ($_.Name -in 'LICENSES', 'LICENCES' -and @(Get-ChildItem $_.FullName | Where-Object Name -ne $binding).Count) })
     if ($flatTexts -or $flatDirs) { Result $run "FAIL" "no licence text flat beside the application" (($flatTexts + $flatDirs | ForEach-Object Name) -join ', ') }
     else { Result $run "PASS" "no licence text flat beside the application" "" }
-    if ($flat) {
-        # Files of a subfolder of runtimes/<rid>/native/ that NuGet copied flat beside the application
-        $pkg = @($packed[$binding])[0]
-        $nested = @($pkg.Entries | Where-Object { $_ -match "^runtimes/$([regex]::Escape($Rid))/native/[^/]+/" } | ForEach-Object { Split-Path $_ -Leaf } | Select-Object -Unique)
-        $flattened = @($nested | Where-Object { Test-Path (Join-Path $out $_) })
-        if ($flattened) { Result $run "FAIL" "no native/ subfolder flattened" "$($flattened.Count) files of a runtimes/$Rid/native/ subfolder are flat beside the application (e.g. $($flattened[0]))" }
-        else { Result $run "PASS" "no native/ subfolder flattened" "" }
+
+    # The standard modules, folders kept, where the compiler lands
+    $modules = @(); $absent = @()
+    foreach ($r in $rids) {
+        $base = $flat ? $out : (Join-Path $out "runtimes" $r "native")
+        foreach ($e in @($pkg.Entries | Where-Object { $_ -like "standard-modules/$r/*" })) {
+            $modules += $e
+            $dest = Join-Path $base ($e.Substring("standard-modules/$r/".Length))
+            if (-not (Test-Path $dest)) { $absent += $dest }
+        }
     }
+    if (-not $modules) { Result $run "NOTYET" "standard modules beside the compiler" "not yet: $binding carries no standard-modules/<rid>/" }
+    elseif ($absent) { Result $run "FAIL" "standard modules beside the compiler" "$($absent.Count) of $($modules.Count) files missing, e.g. $($absent[0])" }
+    else { Result $run "PASS" "standard modules beside the compiler" "$($modules.Count) files for $($rids -join ', ')" }
+
+    # Files of a subfolder of native/ (or of the module folder) that landed flat beside the application
+    $nested = @($pkg.Entries | Where-Object { $_ -match "^runtimes/[^/]+/native/[^/]+/" -or $_ -match '^standard-modules/' } | ForEach-Object { Split-Path $_ -Leaf } | Select-Object -Unique)
+    $flattened = @($nested | Where-Object { Test-Path (Join-Path $out $_) })
+    if ($flattened) { Result $run "FAIL" "no native/ subfolder flattened" "$($flattened.Count) files of a native/ subfolder are flat beside the application (e.g. $($flattened[0]))" }
+    else { Result $run "PASS" "no native/ subfolder flattened" "" }
 }
 
 $baked = Join-Path $work "baked.slangpkg"
@@ -183,6 +223,7 @@ if ($Skip -notcontains 'portable') {
             $r = Invoke-Logged (Join-Path $work "core-dll.log") { dotnet (Join-Path $out "SharpSlang.Consume.dll") }
             Absorb "portable (dotnet dll)" $r.Lines $r.Exit "run"
         } finally { Pop-Location }
+        Test-Layout "portable" $out $false
     }
 } else { Result "portable" "SKIP" "run" "skipped by request" }
 
@@ -191,7 +232,17 @@ if ($Skip -notcontains 'run') {
     Write-Host "`n==> core, dotnet run -r $Rid"
     $r = Invoke-Logged (Join-Path $work "core-run.log") { dotnet run --project $core.Project -c Release -r $Rid @($core.Props) -- (Join-Path $work "baked-run.slangpkg") }
     Absorb "run -r" $r.Lines $r.Exit "run"
+    if ($r.Exit -eq 0) { Test-Layout "run -r" (Join-Path $core.Dir "bin" "Release" "net11.0" $Rid) $true }
 } else { Result "run -r" "SKIP" "run" "skipped by request" }
+
+# core, RID-specific build with the notices opted out
+if ($Skip -notcontains 'nolicences') {
+    Write-Host "`n==> core, dotnet build -r $Rid -p:$($c.CopyLicenses)=false"
+    $optOut = New-Run "nolicences" "core" @("-p:$($c.CopyLicenses)=false")
+    $b = Invoke-Logged (Join-Path $work "nolicences-build.log") { dotnet build $optOut.Project -c Release -r $Rid @($optOut.Props) }
+    if ($b.Exit -ne 0) { Result "licences off" "FAIL" "build" "exit $($b.Exit): $(($b.Lines | Select-String ': error ' | Select-Object -First 3) -join ' / ')" }
+    else { Test-Layout "licences off" (Join-Path $optOut.Dir "bin" "Release" "net11.0" $Rid) $true -NoLicences }
+} else { Result "licences off" "SKIP" "run" "skipped by request" }
 
 # core, publish -r
 if ($Skip -notcontains 'publish') {
@@ -220,12 +271,18 @@ if ($Skip -notcontains 'aot') {
         Absorb "AOT" $r.Lines $r.Exit "run"
         Test-Layout "AOT" $aot $true
     }
-    # IsAotCompatible sets IsTrimmable, which the SDK writes into the assembly as metadata
-    $bindingDll = @(Get-ChildItem (Join-Path $packagesPath $c.Binding.ToLowerInvariant()) -Recurse -Filter "$($c.Binding).dll" -ErrorAction SilentlyContinue | Where-Object { $_.FullName -match '[\\/]lib[\\/]' })[0]
-    $declares = $bindingDll -and ([Text.Encoding]::UTF8.GetString([IO.File]::ReadAllBytes($bindingDll.FullName)).Contains("IsTrimmable"))
-    if (-not $bindingDll) { Result "AOT" "FAIL" "declares IsAotCompatible" "no $($c.Binding).dll restored under $packagesPath" }
-    elseif ($declares) { Result "AOT" "PASS" "declares IsAotCompatible" "$($c.Binding).dll carries IsTrimmable" }
-    else { Result "AOT" "NOTYET" "declares IsAotCompatible" "not yet: $($c.Binding).dll declares no IsAotCompatible/IsTrimmable (packaging phase)$(if ($aotWarnings) { "; the AOT publish warned $($aotWarnings -join ', ')" })" }
+    # No trim, AOT or single-file warning from the publish: each names a construct of ours that
+    # Native AOT cannot keep, or an assembly that never ran the analyzers
+    if ($aotWarnings) { Result "AOT" "FAIL" "no trim or AOT warnings" "the AOT publish warned $($aotWarnings -join ', ') (core-aot.log)" }
+    elseif ($b.Exit -eq 0) { Result "AOT" "PASS" "no trim or AOT warnings" "" }
+    # IsAotCompatible sets IsTrimmable, which the SDK writes into the assembly as metadata: every
+    # assembly of ours the core run restored
+    $ours = @($data.Packages | Where-Object { $_.Assemblies } | ForEach-Object { $_.Id })
+    $dlls = @(foreach ($id in $ours) { Get-ChildItem (Join-Path $packagesPath $id.ToLowerInvariant()) -Recurse -Filter "$id.dll" -ErrorAction SilentlyContinue | Where-Object { $_.FullName -match '[\\/]lib[\\/]' } })
+    $undeclared = @($dlls | Where-Object { -not [Text.Encoding]::UTF8.GetString([IO.File]::ReadAllBytes($_.FullName)).Contains("IsTrimmable") } | ForEach-Object Name)
+    if (-not @($dlls | Where-Object Name -eq "$($c.Binding).dll")) { Result "AOT" "FAIL" "declares IsAotCompatible" "no $($c.Binding).dll restored under $packagesPath" }
+    elseif ($undeclared) { Result "AOT" "FAIL" "declares IsAotCompatible" "$($undeclared -join ', ') declare no IsAotCompatible/IsTrimmable" }
+    else { Result "AOT" "PASS" "declares IsAotCompatible" "$(($dlls | ForEach-Object Name | Sort-Object -Unique) -join ', ') carry IsTrimmable" }
 } else { Result "AOT" "SKIP" "run" "skipped by request" }
 
 # the dxc package alone
@@ -247,24 +304,22 @@ if ($Skip -notcontains 'dxc') {
     }
 } else { Result "dxc alone" "SKIP" "run" "skipped by request" }
 
-# the reader alone
-if ($Skip -notcontains 'reader') {
-    Write-Host "`n==> the reader alone"
-    $reader = New-Run "reader" "reader"
-    $b = Invoke-Logged (Join-Path $work "reader-build.log") { dotnet build $reader.Project -c Release @($reader.Props) }
-    if ($b.Exit -ne 0) { Result "reader alone" "FAIL" "build" "exit $($b.Exit): $(($b.Lines | Select-String ': error ' | Select-Object -First 3) -join ' / ')" }
-    else {
-        $out = Join-Path $reader.Dir "bin" "Release" "net11.0"
-        $compiler = @(Get-ChildItem $out -Recurse -File | Where-Object { $_.Name -like "*$($c.Compiler)*" -or $_.Name -like "*glslang*" })
-        if ($compiler) { Result "reader alone" "FAIL" "no compiler in the output" "$(($compiler | ForEach-Object Name) -join ', ')" } else { Result "reader alone" "PASS" "no compiler in the output" "" }
-        if (-not (Test-Path $baked)) { Result "reader alone" "FAIL" "read" "no baked package: the core portable run did not write $baked" }
-        else {
-            $r = Invoke-Logged (Join-Path $work "reader-run.log") { dotnet (Join-Path $out "SharpSlang.Consume.dll") $baked }
-            Absorb "reader alone" $r.Lines $r.Exit "run"
-        }
-    }
-} else { Result "reader alone" "SKIP" "run" "skipped by request" }
-
+# the reader alone, and the NRI projection alone: no compiler in the output or the process, and no
+# NRI library either (the projection references SharpNRI.Descs only)
+foreach ($alone in @(@{ Kind = "reader"; Label = "reader alone" }, @{ Kind = "nri"; Label = "NRI projection alone" })) {
+    $label = $alone.Label
+    if ($Skip -contains $alone.Kind) { Result $label "SKIP" "run" "skipped by request"; continue }
+    Write-Host "`n==> $label"
+    $reader = New-Run $alone.Kind $alone.Kind
+    $b = Invoke-Logged (Join-Path $work "$($alone.Kind)-build.log") { dotnet build $reader.Project -c Release @($reader.Props) }
+    if ($b.Exit -ne 0) { Result $label "FAIL" "build" "exit $($b.Exit): $(($b.Lines | Select-String ': error ' | Select-Object -First 3) -join ' / ')"; continue }
+    $out = Join-Path $reader.Dir "bin" "Release" "net11.0"
+    $native = @(Get-ChildItem $out -Recurse -File | Where-Object { $_.Name -like "*$($c.Compiler)*" -or $_.Name -like "*glslang*" -or $_.Name -match '^(lib)?NRI\.(dll|so|dylib)$' })
+    if ($native) { Result $label "FAIL" "no native library in the output" "$(($native | ForEach-Object Name) -join ', ')" } else { Result $label "PASS" "no native library in the output" "" }
+    if (-not (Test-Path $baked)) { Result $label "FAIL" "read" "no baked package: the core portable run did not write $baked"; continue }
+    $r = Invoke-Logged (Join-Path $work "$($alone.Kind)-run.log") { dotnet (Join-Path $out "SharpSlang.Consume.dll") $baked }
+    Absorb $label $r.Lines $r.Exit "run"
+}
 # a wrong dxc version fails the build
 if ($Skip -notcontains 'wrongdxc') {
     $pinned = $pinValues[$c.DxcPin]

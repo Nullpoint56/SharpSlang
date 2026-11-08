@@ -27,21 +27,39 @@
 
     <!-- $(SlangVersion) is pinned in ../Directory.Build.props — the single source of truth. -->
 
-    <!-- NuGet identity -->
+    <!-- Trimming and Native AOT: declared, so the trim, AOT and single-file analyzers run in every build (errors under -warnaserror), and tools/consume publishes it with Native AOT (AGENTS.md#native-packages) -->
+    <IsAotCompatible>true</IsAotCompatible>
     <PackageId>SharpSlang</PackageId>
     <Version>$(SharpSlangVersion)</Version>
-    <Authors>szombathy-tamas</Authors>
-    <Description>C# bindings over the Slang shader compiler: compilation and full reflection. Pure managed P/Invoke, no C++/CLI. Windows x64, Linux x64, Linux arm64, macOS arm64. Alpha: not yet load-tested by a shipping game.</Description>
+    <!-- The packed description names the native libraries the package carries: SharpSlangPackageDescription below -->
+    <SharpSlangDescriptionLead>C# bindings over the Slang shader compiler $(SlangVersion): compilation and full reflection. Pure managed P/Invoke over a pinned Slang release; the major of the version is the Slang version as YYYYRRP.</SharpSlangDescriptionLead>
+    <Description>$(SharpSlangDescriptionLead)</Description>
     <PackageTags>slang;shader;spirv;vulkan;shader-compiler;reflection</PackageTags>
-    <PackageLicenseExpression>MIT</PackageLicenseExpression>
-    <RepositoryType>git</RepositoryType>
     <NoWarn>$(NoWarn);NU5128</NoWarn>
   </PropertyGroup>
 
-  <!-- This package is the only one that redistributes anything, so it carries the notice; the
-       opt-in SharpSlang.Dxc carries it too, to say why it redistributes nothing. Slang's
-       own licence texts ride along under runtimes/<rid>/, staged there by tools/fetch-native.ps1;
-       this file is what explains them. -->
+  <!--
+    The description says which native libraries are inside, read from what is staged at pack time,
+    so it cannot name a platform the package lacks. tools/ci/check-packages.ps1 compares it with the
+    RIDs the pack was given.
+  -->
+  <Target Name="SharpSlangPackageDescription" BeforeTargets="GenerateNuspec">
+    <ItemGroup>
+      <_SharpSlangPackedPlatform Include="Windows x64" Condition="Exists('$(_SharpSlangRuntimes)win-x64\native\slang-compiler.dll')" />
+      <_SharpSlangPackedPlatform Include="Linux x64" Condition="Exists('$(_SharpSlangRuntimes)linux-x64\native\libslang-compiler.so')" />
+      <_SharpSlangPackedPlatform Include="Linux arm64" Condition="Exists('$(_SharpSlangRuntimes)linux-arm64\native\libslang-compiler.so')" />
+      <_SharpSlangPackedPlatform Include="macOS arm64" Condition="Exists('$(_SharpSlangRuntimes)osx-arm64\native\libslang-compiler.dylib')" />
+    </ItemGroup>
+    <Error Code="SHARPSLANG001" Condition="'@(_SharpSlangPackedPlatform)' == ''"
+           Text="No native library is staged under $([System.IO.Path]::GetFullPath('$(_SharpSlangRuntimes)')): run pwsh tools/fetch-native.ps1 (or tools/build-native.ps1) before packing." />
+    <PropertyGroup>
+      <PackageDescription>$(SharpSlangDescriptionLead) Native library inside for: @(_SharpSlangPackedPlatform, ', ').</PackageDescription>
+    </PropertyGroup>
+  </Target>
+
+  <!-- This package is the only one that redistributes anything, so it carries the notice (also under
+       licenses/<rid>/SharpSlang/, below); the opt-in SharpSlang.Dxc carries it too, to say why it
+       redistributes nothing. -->
   <ItemGroup>
     <None Include="$(MSBuildThisFileDirectory)..\THIRD-PARTY-NOTICES.md" Pack="true" PackagePath="\" />
   </ItemGroup>
@@ -130,28 +148,78 @@
   </PropertyGroup>
 
   <!--
-    The two globs below must stay DISJOINT. They originally overlapped on the host RID — its files
-    matched both, and the Content item's Pack="false" won, so the published package contained every
-    RID *except* the one it was built on. A win-x64 build shipped a package with no win-x64 payload:
-    it packs cleanly, restores cleanly, and fails at run time with DllNotFoundException.
-    Caught by inspecting the .nupkg, which is why publish.yml uploads it as an artifact.
+    The staged tree (runtimes/<rid>/: native/ with the libraries and slang-standard-module-<version>/,
+    and Slang's LICENSE.txt, LICENSES/ and third-party-notices/ beside native/) is packed in three
+    places, because NuGet copies every file under runtimes/<rid>/native/ flat into a RID-specific
+    build, publish and Native AOT output (AGENTS.md#native-packages):
+
+      runtimes/<rid>/native/                   the two libraries, nothing in a subfolder
+      standard-modules/<rid>/slang-standard-module-<version>/
+                                               the standard modules, folders kept; Slang looks for
+                                               that folder beside the library it runs from, and
+                                               buildTransitive/SharpSlang.targets puts it there
+      licenses/<rid>/Slang/, licenses/<rid>/SharpSlang/
+                                               the notices, copied by the same targets to
+                                               licenses/SharpSlang/<rid>/ beside the application
+
+    The host RID's items and the other RIDs' must stay DISJOINT. They originally overlapped on the
+    host RID — its files matched both, and the Content item's Pack="false" won, so the published
+    package contained every RID *except* the one it was built on. A win-x64 build shipped a package
+    with no win-x64 payload: it packs cleanly, restores cleanly, and fails at run time with
+    DllNotFoundException. tools/ci/check-packages.ps1 checks every RID's files.
   -->
+  <PropertyGroup>
+    <_SharpSlangRuntimes>$(MSBuildThisFileDirectory)..\runtimes\</_SharpSlangRuntimes>
+  </PropertyGroup>
   <ItemGroup>
-    <!-- Host RID: packed under its RID folder AND copied flat for ProjectReference consumers. -->
-    <Content Include="$(MSBuildThisFileDirectory)..\runtimes\$(SharpSlangRid)\native\**\*"
+    <!-- Host RID: packed, AND copied for ProjectReference consumers flat beside them, the module folder kept -->
+    <Content Include="$(_SharpSlangRuntimes)$(SharpSlangRid)\native\*"
+             CopyToOutputDirectory="PreserveNewest"
+             Link="%(Filename)%(Extension)"
+             Pack="true"
+             PackagePath="runtimes\$(SharpSlangRid)\native\%(Filename)%(Extension)"
+             Visible="false" />
+    <Content Include="$(_SharpSlangRuntimes)$(SharpSlangRid)\native\slang-standard-module-*\**\*"
              CopyToOutputDirectory="PreserveNewest"
              Link="%(RecursiveDir)%(Filename)%(Extension)"
              Pack="true"
-             PackagePath="runtimes\$(SharpSlangRid)\native\%(RecursiveDir)%(Filename)%(Extension)"
+             PackagePath="standard-modules\$(SharpSlangRid)\%(RecursiveDir)%(Filename)%(Extension)"
              Visible="false" />
 
-    <!-- Every other RID: packed only. Copying them flat would collide on filename. -->
-    <None Include="$(MSBuildThisFileDirectory)..\runtimes\**\*"
-          Exclude="$(MSBuildThisFileDirectory)..\runtimes\$(SharpSlangRid)\native\**\*"
+    <!-- Every other RID: packed only. RecursiveDir starts at the RID: "linux-x64\native\..." -->
+    <None Include="$(_SharpSlangRuntimes)*\native\*"
+          Exclude="$(_SharpSlangRuntimes)$(SharpSlangRid)\native\*"
           Pack="true"
           PackagePath="runtimes\%(RecursiveDir)%(Filename)%(Extension)"
           Visible="false" />
+    <None Include="$(_SharpSlangRuntimes)*\native\slang-standard-module-*\**\*"
+          Exclude="$(_SharpSlangRuntimes)$(SharpSlangRid)\native\**\*"
+          Pack="true"
+          PackagePath="standard-modules\$([System.String]::Copy('%(RecursiveDir)').Replace('native\', '').Replace('native/', ''))%(Filename)%(Extension)"
+          Visible="false" />
+
+    <!-- Every RID's notices (never copied for ProjectReference consumers): "win-x64\LICENSES\" becomes licenses\win-x64\Slang\LICENSES\ -->
+    <None Include="$(_SharpSlangRuntimes)*\LICENSE.txt;$(_SharpSlangRuntimes)*\LICENSES\**\*;$(_SharpSlangRuntimes)*\third-party-notices\**\*"
+          Pack="true"
+          PackagePath="licenses\$([System.Text.RegularExpressions.Regex]::Replace('%(RecursiveDir)', '^([^\\/]+)[\\/]', '$1\Slang\'))%(Filename)%(Extension)"
+          Visible="false" />
   </ItemGroup>
+
+  <!--
+    SharpSlang's own licence and notices, once per packed RID, so licenses/<rid>/ is everything an
+    application of that RID ships. LICENSE is copied to LICENSE.txt first: packed under a name whose
+    extension differs from the source's, NuGet takes the PackagePath for a folder (the first pack
+    produced licenses/win-x64/SharpSlang/LICENSE.txt/LICENSE).
+  -->
+  <Target Name="SharpSlangPackOwnLicenses" BeforeTargets="_GetPackageFiles">
+    <Copy SourceFiles="$(MSBuildThisFileDirectory)..\LICENSE" DestinationFiles="$(BaseIntermediateOutputPath)licenses\LICENSE.txt" SkipUnchangedFiles="true" />
+    <ItemGroup>
+      <_SharpSlangPackedRid Include="$([System.IO.Directory]::GetDirectories('$(_SharpSlangRuntimes)'))" Condition="Exists('$(_SharpSlangRuntimes)')" />
+      <_SharpSlangPackedRid Remove="@(_SharpSlangPackedRid)" Condition="!Exists('%(Identity)\native')" />
+      <None Include="$(BaseIntermediateOutputPath)licenses\LICENSE.txt" Pack="true" PackagePath="licenses\%(_SharpSlangPackedRid.Filename)\SharpSlang\LICENSE.txt" Visible="false" />
+      <None Include="$(MSBuildThisFileDirectory)..\THIRD-PARTY-NOTICES.md" Pack="true" PackagePath="licenses\%(_SharpSlangPackedRid.Filename)\SharpSlang\THIRD-PARTY-NOTICES.md" Visible="false" />
+    </ItemGroup>
+  </Target>
 
   <!--
     The native library is built, never committed. Without it a build from source succeeds and the
