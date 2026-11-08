@@ -1,6 +1,6 @@
 // L1 — the libraries Slang loads by name, loaded first from where they actually are.
 //
-// PrismSlang's DllImport("slang-compiler") is resolved by .NET: deps.json's native assets, the
+// SharpSlang's DllImport("slang-compiler") is resolved by .NET: deps.json's native assets, the
 // NATIVE_DLL_SEARCH_DIRECTORIES the host passes, the application directory. Slang then loads its
 // companions itself, by bare name, with LoadLibrary — slang-glslang, which carries spirv-opt;
 // slang-glsl-module for GLSL input; dxcompiler for DXIL — and Windows looks for a bare name in the
@@ -17,7 +17,7 @@
 //   * A PackageReference consumer's portable build, the default (no RuntimeIdentifier). The
 //     payload stays under runtimes\win-x64\native\, which .NET reads through deps.json and Windows
 //     never searches, so spirv-opt was unavailable however the app was started, from its own
-//     directory included. dxc, which PrismSlang.Native.Dxc copies to the output root, was found by
+//     directory included. dxc, which SharpSlang.Dxc copies to the output root, was found by
 //     the apphost and lost under `dotnet app.dll` from elsewhere. A `-r win-x64` build flattens the
 //     payload and worked, which left the default build broken for every Windows consumer.
 //
@@ -38,7 +38,7 @@
 //     and no DT_RPATH, and glibc's dlopen searches the calling object's DT_RUNPATH for a bare
 //     name, so Slang's own dlopen of libslang-glslang-2026.21.so resolves in the compiler's
 //     directory whatever the executable and the working directory are. Measured on linux-x64
-//     under WSL: `dotnet PrismSlang.Prober.dll` from another directory, with no preload, loaded
+//     under WSL: `dotnet SharpSlang.Prober.dll` from another directory, with no preload, loaded
 //     libslang-glslang from beside the compiler and optimised 2,048 bytes of SPIR-V to 1,664.
 //   * osx-arm64: libslang-compiler.dylib carries LC_RPATH "@loader_path/../lib" and
 //     "@loader_path", its install name is @rpath/libslang-compiler.0.2026.21.dylib, and the only
@@ -51,9 +51,9 @@
 // those readings is measured where it applies rather than only stated here.
 
 using System.Runtime.InteropServices;
-using PrismSlang.Native;
+using SharpSlang.Native;
 
-namespace PrismSlang.Interop;
+namespace SharpSlang.Interop;
 
 /// <summary>
 /// Loads Slang's companion libraries by full path, from where they are, before Slang looks for
@@ -120,7 +120,7 @@ internal static unsafe class CompanionLibraries
     /// <remarks>
     /// <para>
     /// Both directories, because dxcompiler.dll and dxil.dll are copied to the root of the output
-    /// — by PrismSlang.Native.Dxc's targets, or by a cooker importing them itself — which is beside
+    /// — by SharpSlang.Dxc's targets, or by a cooker importing them itself — which is beside
     /// the compiler when the payload is flat (a ProjectReference, a RID-specific build) and one
     /// <c>runtimes\win-x64\native\</c> away from it in a portable package build. The first that has
     /// it, not both, so that two different dxcompiler.dll files never share one process under one

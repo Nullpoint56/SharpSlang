@@ -17,7 +17,7 @@ set -u
 # The target framework is part of this path, and a stale one does not fail: it reads as "the prober
 # is not built" below, and the debugger reproduction quietly stops happening. Retargeting the
 # projects means changing it here too.
-prober=tests/PrismSlang.Prober/bin/Release/net11.0/PrismSlang.Prober
+prober=tests/SharpSlang.Prober/bin/Release/net11.0/SharpSlang.Prober
 
 if command -v lldb >/dev/null 2>&1 && [ -x "$prober" ]; then
   echo "=== the out-of-order teardown, under lldb"
@@ -47,12 +47,12 @@ interesting=""
 for ips in "$reports"/*.ips; do
   [ -e "$ips" ] || continue
   case "$(basename "$ips")" in
-    dotnet*|testhost*|PrismSlang*|slang*) interesting="$interesting $ips" ;;
+    dotnet*|testhost*|SharpSlang*|slang*) interesting="$interesting $ips" ;;
   esac
 done
 
 if [ -z "$interesting" ]; then
-  echo "    no report matched dotnet/testhost/PrismSlang/slang — falling back to the newest three"
+  echo "    no report matched dotnet/testhost/SharpSlang/slang — falling back to the newest three"
   interesting="$(ls -t "$reports"/*.ips 2>/dev/null | head -3 | tr '\n' ' ')"
 fi
 

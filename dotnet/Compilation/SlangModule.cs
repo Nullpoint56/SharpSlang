@@ -1,9 +1,9 @@
 // L2 — a compiled module and its entry points.
 
-using PrismSlang.Interop;
-using PrismSlang.Native;
+using SharpSlang.Interop;
+using SharpSlang.Native;
 
-namespace PrismSlang;
+namespace SharpSlang;
 
 /// <summary>A compiled Slang module.</summary>
 public sealed unsafe class SlangModule : SlangObject<IModule>

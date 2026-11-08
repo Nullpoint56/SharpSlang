@@ -5,10 +5,10 @@
 // per-configuration objects.
 
 using System.Reflection;
-using PrismSlang.Interop;
-using PrismSlang.Native;
+using SharpSlang.Interop;
+using SharpSlang.Native;
 
-namespace PrismSlang;
+namespace SharpSlang;
 
 /// <summary>Configuration for a <see cref="SlangGlobalSession"/>.</summary>
 public sealed class GlobalSessionOptions
@@ -204,7 +204,7 @@ public sealed unsafe class SlangGlobalSession : SlangObject<IGlobalSession>
         // Directory.Build.props, which every project imports. Reachable from a fork that dropped
         // it, and saying so beats degrading to a check that silently passes.
         ?? throw new InvalidOperationException(
-            "PrismSlang was built without SlangVersion assembly metadata, so the pinned Slang "
+            "SharpSlang was built without SlangVersion assembly metadata, so the pinned Slang "
             + "release is unknown and cannot be verified against the loaded library. The csproj "
             + "must emit <AssemblyMetadata Include=\"SlangVersion\" Value=\"$(SlangVersion)\" />.");
 
@@ -222,7 +222,7 @@ public sealed unsafe class SlangGlobalSession : SlangObject<IGlobalSession>
         if (loaded == pinned) return;
 
         throw new SlangVersionMismatchException(pinned, loaded, $$"""
-            PrismSlang was generated against Slang {{pinned}}, but the loaded
+            SharpSlang was generated against Slang {{pinned}}, but the loaded
             slang-compiler reports {{loaded}}.
 
             Slang does not promise a stable ABI between releases. These bindings call COM vtables
@@ -261,7 +261,7 @@ public sealed unsafe class SlangGlobalSession : SlangObject<IGlobalSession>
     /// first compile with Slang's "failed to load dynamic library" note, on a path that otherwise
     /// looks like a shader error. Asked here instead, before any shader, the way
     /// <see cref="RequireSpirvOptimizer"/> asks about spirv-opt. <c>dxil.dll</c> is not checked,
-    /// because the dxc that <c>PrismSlang.Native.Dxc</c> pins does not use it: dxc 1.9.2609.5
+    /// because the dxc that <c>SharpSlang.Dxc</c> pins does not use it: dxc 1.9.2609.5
     /// signs with the validator built into <c>dxcompiler.dll</c>. Measured with dxil.dll deleted,
     /// so that no module of that name was in the process: a compute shader came out byte for byte
     /// as it did with dxil.dll present, carrying the digest dxil.dll's own validator writes, and
@@ -277,7 +277,7 @@ public sealed unsafe class SlangGlobalSession : SlangObject<IGlobalSession>
             Slang cannot load dxc ('dxcompiler.dll'), which it needs to emit DXIL. Slang's own
             release does not ship it.
 
-            Add the PrismSlang.Native.Dxc package, which puts dxcompiler.dll and dxil.dll in the
+            Add the SharpSlang.Dxc package, which puts dxcompiler.dll and dxil.dll in the
             application's output on win-x64 from Microsoft's own Microsoft.Direct3D.DXC package.
             In this repository the test project already does that; restore it.
 

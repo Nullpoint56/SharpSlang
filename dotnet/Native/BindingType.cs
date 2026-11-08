@@ -1,6 +1,6 @@
-using static PrismSlang.Native.SlangBindingType;
+using static SharpSlang.Native.SlangBindingType;
 
-namespace PrismSlang.Native;
+namespace SharpSlang.Native;
 
 [NativeTypeName("SlangBindingTypeIntegral")]
 public enum BindingType : uint

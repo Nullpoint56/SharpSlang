@@ -8,10 +8,10 @@
 // invalid once that is disposed. So this is not a SlangObject: nothing to release, but it does
 // hold a managed reference to its owner so the owner cannot be collected first.
 
-using PrismSlang.Interop;
-using PrismSlang.Native;
+using SharpSlang.Interop;
+using SharpSlang.Native;
 
-namespace PrismSlang;
+namespace SharpSlang;
 
 /// <summary>A named type in a compiled program — a struct, an interface, or a generic.</summary>
 public sealed unsafe class SlangType

@@ -8,9 +8,9 @@
 // So: Span is scoped to the blob's lifetime and never escapes; ToArray copies out.
 
 using System.Text;
-using PrismSlang.Native;
+using SharpSlang.Native;
 
-namespace PrismSlang.Interop;
+namespace SharpSlang.Interop;
 
 /// <summary>An owned reference to a Slang blob. Dispose releases the native buffer.</summary>
 public sealed unsafe class SlangBlob : SlangObject<ISlangBlob>

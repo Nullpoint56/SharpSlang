@@ -1,7 +1,7 @@
 using System;
 using System.Runtime.CompilerServices;
 
-namespace PrismSlang.Native;
+namespace SharpSlang.Native;
 
 [NativeTypeName("struct ISlangMutableFileSystem : ISlangFileSystemExt")]
 public unsafe partial struct ISlangMutableFileSystem

@@ -5,7 +5,7 @@
 # validation layers, the allocators, the API approval. All of them can be green on four runners that
 # disagree with each other, and for a cook farm that is the failure that matters.
 #
-# The first run of this check found two things at once. The layout — the half PrismSlang produces —
+# The first run of this check found two things at once. The layout — the half SharpSlang produces —
 # is identical everywhere. The module is identical between *operating systems* (win-x64 and
 # linux-x64 agree byte for byte) and differs between *architectures*, for exactly the three corpus
 # shaders that use SV_VertexID. That is Slang's codegen, not ours, and it is not something this

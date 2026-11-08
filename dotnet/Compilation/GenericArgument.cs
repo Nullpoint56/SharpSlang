@@ -5,9 +5,9 @@
 // get out of step, and a union whose wrong member is a silent misread — so this is one type that
 // carries both halves and can only be built through a factory that sets them together.
 
-using PrismSlang.Native;
+using SharpSlang.Native;
 
-namespace PrismSlang;
+namespace SharpSlang;
 
 /// <summary>A concrete argument for one generic parameter.</summary>
 /// <remarks>

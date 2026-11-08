@@ -7,7 +7,7 @@
 using System.Runtime.InteropServices;
 using System.Text;
 
-namespace PrismSlang.Interop;
+namespace SharpSlang.Interop;
 
 /// <summary>UTF-8 conversions across the native boundary.</summary>
 internal static unsafe class Utf8

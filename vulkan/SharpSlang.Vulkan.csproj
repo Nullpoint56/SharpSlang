@@ -1,0 +1,53 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    SharpSlang.Vulkan — the Slang-to-Vulkan reading of a reflection snapshot.
+
+    Split out of the core package deliberately. Everything in SharpSlang proper is Slang-neutral:
+    Slang's own binding vocabulary already spans D3D, Vulkan and Metal, so a D3D12 or Metal
+    consumer should never pull Vulkan concepts in. A future SharpSlang.D3D12 slots in beside this
+    with no change to the core. Same repository, so the Slang pin and CI are shared; separate
+    assembly and separate package, so the dependency is opt-in.
+
+    It has NO dependency on Vortice.Vulkan or any other Vulkan binding. The enums here mirror the
+    Vulkan spec's numeric values exactly, so the renderer casts them to whichever binding it uses:
+
+        (VkDescriptorType)binding.DescriptorType
+        (VkFormat)attribute.Format
+        (VkShaderStageFlags)binding.StageFlags
+
+    That keeps this package standalone and leaves the choice of Vulkan binding library to the
+    consumer.
+
+    What it deliberately does NOT emit — renderer policy, not compiler output:
+      * vertex buffer bindings, strides, or input rates (only attribute locations and formats)
+      * any meaning attached to a set index ("set 1 is per-material")
+      * descriptor pool sizing or update strategy
+  -->
+
+  <PropertyGroup>
+    <TargetFramework>net11.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>SharpSlang.Vulkan</RootNamespace>
+
+    <PackageId>SharpSlang.Vulkan</PackageId>
+    <Version>0.1.0-alpha</Version>
+    <Authors>szombathy-tamas</Authors>
+    <Description>Vulkan projection for SharpSlang reflection: descriptor set layouts, push constant ranges, and vertex input attributes from a Slang shader. No Vulkan binding dependency — enums mirror the spec's values for a direct cast. Alpha: not yet load-tested by a shipping game.</Description>
+    <PackageTags>slang;vulkan;spirv;shader;reflection;descriptor-set</PackageTags>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <RepositoryType>git</RepositoryType>
+  </PropertyGroup>
+
+  <!--
+    SharpSlang.Pipeline, not SharpSlang. Projecting a layout is arithmetic over managed data and
+    never touches the compiler, so referencing the compiler dragged a 36 MB per-RID payload behind
+    a 10 KB assembly for every consumer — including a game that only reads baked packages. Docs
+    .
+  -->
+  <ItemGroup>
+    <ProjectReference Include="..\pipeline\SharpSlang.Pipeline.csproj" />
+  </ItemGroup>
+
+</Project>

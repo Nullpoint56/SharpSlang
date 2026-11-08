@@ -1,0 +1,49 @@
+<Solution>
+  <Folder Name="/Solution Items/">
+    <File Path="README.md" />
+    <File Path="LICENSE" />
+    <File Path="THIRD-PARTY-NOTICES.md" />
+    <File Path="Directory.Build.props" />
+    <File Path="NativeReaderEnums.props" />
+    <File Path=".gitignore" />
+    <File Path="nuget.config" />
+  </Folder>
+  <Folder Name="/docs/">
+    <File Path="docs/guide.md" />
+    <File Path="docs/design.md" />
+  </Folder>
+  <Folder Name="/tools/">
+    <File Path="tools/fetch-native.ps1" />
+    <File Path="tools/generate-native.ps1" />
+  </Folder>
+  <Folder Name="/tools/ci/">
+    <File Path="tools/ci/check-docs.sh" />
+    <File Path="tools/ci/ci-gate.ps1" />
+    <File Path="tools/ci/compare-digests.sh" />
+    <File Path="tools/ci/count-tests.ps1" />
+    <File Path="tools/ci/cross-arch-differences.txt" />
+    <File Path="tools/ci/spirv-worddiff.py" />
+    <File Path="tools/ci/macos-backtrace.sh" />
+    <File Path="tools/ci/verify-linux.sh" />
+  </Folder>
+  <Folder Name="/.github/">
+    <File Path=".github/workflows/ci.yml" />
+    <File Path=".github/workflows/publish.yml" />
+  </Folder>
+  <!-- Files, not a project: it restores from the packages publish.yml packs, which do not exist
+       until a release is being made, so as a project it would fail every restore of the solution. -->
+  <Folder Name="/tests/SharpSlang.PackageConsumer/">
+    <File Path="tests/SharpSlang.PackageConsumer/SharpSlang.PackageConsumer.csproj" />
+    <File Path="tests/SharpSlang.PackageConsumer/Program.cs" />
+    <File Path="tests/SharpSlang.PackageConsumer/nuget.config" />
+  </Folder>
+  <Project Path="pipeline/SharpSlang.Pipeline.csproj" />
+  <Project Path="dotnet/SharpSlang.csproj" />
+  <Project Path="vulkan/SharpSlang.Vulkan.csproj" />
+  <Project Path="pipeline-nri/SharpSlang.Pipeline.NRI.csproj" />
+  <Project Path="dxc/SharpSlang.Dxc.csproj" />
+  <Project Path="tests/SharpSlang.Tests/SharpSlang.Tests.csproj" />
+  <Project Path="tests/SharpSlang.Pipeline.Consumer/SharpSlang.Pipeline.Consumer.csproj" />
+  <Project Path="tests/SharpSlang.Prober/SharpSlang.Prober.csproj" />
+  <Project Path="samples/SharpSlang.Smoke/SharpSlang.Smoke.csproj" />
+</Solution>

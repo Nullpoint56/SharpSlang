@@ -1,6 +1,6 @@
 using System.Runtime.InteropServices;
 
-namespace PrismSlang.Native;
+namespace SharpSlang.Native;
 
 public static unsafe partial class SlangApi
 {

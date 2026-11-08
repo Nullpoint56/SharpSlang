@@ -12,7 +12,7 @@
 #   a .NET 11 SDK on this machine
 #
 # Under WSL from Windows:
-#   wsl -d Ubuntu -- bash /mnt/e/path/to/PrismSlang/tools/ci/verify-linux.sh
+#   wsl -d Ubuntu -- bash /mnt/e/path/to/SharpSlang/tools/ci/verify-linux.sh
 
 set -uo pipefail
 
@@ -49,7 +49,7 @@ logs="$root/obj"
 mkdir -p "$logs"
 
 echo "===== BUILD ====="
-"$DOTNET" build PrismSlang.slnx -v q --nologo 2>&1 | tee "$logs/verify-build.log"
+"$DOTNET" build SharpSlang.slnx -v q --nologo 2>&1 | tee "$logs/verify-build.log"
 if [[ ${PIPESTATUS[0]} -ne 0 ]]; then status=1; fi
 
 echo "===== TESTS ====="
@@ -60,7 +60,7 @@ export MALLOC_PERTURB_=165
 
 # A test-host crash is the signal this script exists to catch, so grep for it explicitly:
 # the runner can report "Passed!" for the tests that completed before the process died.
-out="$("$DOTNET" test PrismSlang.slnx --no-build --nologo -v q 2>&1)"
+out="$("$DOTNET" test SharpSlang.slnx --no-build --nologo -v q 2>&1)"
 printf '%s\n' "$out" > "$logs/verify-tests.log"
 printf '%s\n' "$out" | grep -E 'Passed!|Failed!|crashed|Aborted'
 
@@ -75,7 +75,7 @@ fi
 if printf '%s\n' "$out" | grep -qE 'crashed|Aborted|Failed!'; then status=1; fi
 
 echo "===== SPIKE ====="
-"$DOTNET" run --project samples/PrismSlang.Smoke --no-build 2>&1 | tee "$logs/verify-spike.log"
+"$DOTNET" run --project samples/SharpSlang.Smoke --no-build 2>&1 | tee "$logs/verify-spike.log"
 if [[ ${PIPESTATUS[0]} -ne 0 ]]; then status=1; fi
 
 echo

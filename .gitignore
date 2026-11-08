@@ -19,7 +19,7 @@ runtimes/
 # TRX from the filtered validation-layer run in CI (ci.yml). A build artefact, not a result.
 vulkan-results/
 
-# Packed packages. publish.yml packs into artifacts/ and tests/PrismSlang.PackageConsumer restores
+# Packed packages. publish.yml packs into artifacts/ and tests/SharpSlang.PackageConsumer restores
 # from there, so rehearsing those steps locally leaves them behind.
 artifacts/
 

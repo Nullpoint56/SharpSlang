@@ -1,4 +1,4 @@
-namespace PrismSlang.Native;
+namespace SharpSlang.Native;
 
 [NativeTypeName("uint32_t")]
 public enum SyntheticResourceAccess : uint

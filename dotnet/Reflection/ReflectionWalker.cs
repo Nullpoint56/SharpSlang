@@ -8,10 +8,10 @@
 // thousand of them at load time — tens of microseconds, once. See docs §4.4 for why that kills the
 // argument for batching this behind a C++ shim.
 
-using PrismSlang.Interop;
-using PrismSlang.Native;
+using SharpSlang.Interop;
+using SharpSlang.Native;
 
-namespace PrismSlang.Reflection;
+namespace SharpSlang.Reflection;
 
 /// <summary>Builds a <see cref="ProgramLayout"/> from a linked program.</summary>
 public static unsafe class ReflectionWalker
@@ -981,7 +981,7 @@ public static unsafe class ReflectionWalker
     /// same on a DXIL target. So a renderer built from the set view bound the buffer at set 0
     /// where the shader read set 1 — and on SPIR-V the reconciliation pass below then added an
     /// <c>UNKNOWN</c> range at the real slot, which the projections refuse, so the symptom there
-    /// was a refusal naming a gap in PrismSlang; on DXIL nothing was added, and D3D12 refused the
+    /// was a refusal naming a gap in SharpSlang; on DXIL nothing was added, and D3D12 refused the
     /// pipeline because its root signature did not cover the register.
     /// </para>
     /// <para>

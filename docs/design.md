@@ -1,4 +1,4 @@
-# PrismSlang — Surface Study and Approach
+# SharpSlang — Surface Study and Approach
 
 Scope study for a fully-featured C# binding over the Slang shader compiler, including reflection,
 for consumption by PrismEngine's Renderer Core.
@@ -17,7 +17,7 @@ and were not re-taken, while every number the test suite checks was.
 > Section numbers are cited from code comments by bare number, so `§4.4` in a source file means the
 > heading below. They do not get renumbered.
 >
-> For *using* PrismSlang rather than understanding its shape, see [guide.md](guide.md) and the
+> For *using* SharpSlang rather than understanding its shape, see [guide.md](guide.md) and the
 > [README](../README.md).
 
 ---
@@ -31,7 +31,7 @@ and records the intent:
 > **Future migration path:** Slang via Slang.Sdk once C# bindings reach maturity and Linux/macOS
 > support ships. Migration is contained to Renderer Core behind the SPI.
 
-PrismSlang exists to be that binding rather than to wait for one. Two constraints from foundation.md
+SharpSlang exists to be that binding rather than to wait for one. Two constraints from foundation.md
 bind this design directly:
 
 - **V1.0 targets Windows x64 and Linux x64**, and no decision may structurally exclude macOS.
@@ -135,7 +135,7 @@ the file mixes two populations:
 Slang cannot drop the reflection exports without rewriting its own public C++ reflection API. The
 warning is a filing accident: the declarations live in the legacy header for historical reasons.
 
-**Mitigation, not faith:** pin the native payload per PrismSlang release (§3.5), and carry a
+**Mitigation, not faith:** pin the native payload per SharpSlang release (§3.5), and carry a
 smoke test that resolves every bound symbol from the shipped binary at CI time. A rename then
 fails the build instead of the game.
 
@@ -156,7 +156,7 @@ ship the exact libraries they built against. Combined with Slang's release caden
 releases between v2026.14.1 (30 July 2026) and v2026.21 (4 November 2026), the current pin — this
 means:
 
-- One PrismSlang version pins exactly one Slang version. No floating range.
+- One SharpSlang version pins exactly one Slang version. No floating range.
 - The Slang version belongs in the package identity and in an assert-on-load version check
   (`spGetBuildTagString`).
 
@@ -187,7 +187,7 @@ The cross-platform column is the whole argument. **This is precisely what disqua
 the binding foundation.md nominated: it is implemented in C++/CLI, which does not exist outside
 Windows on modern .NET. Its own README lists Linux and macOS as future work gated on sponsorship,
 and it remains alpha ("for experimental use only, should not be included in production builds").
-That is not a maturity problem that time fixes — it is an architectural ceiling. If PrismSlang
+That is not a maturity problem that time fixes — it is an architectural ceiling. If SharpSlang
 adopts a native-shim design, it inherits a weaker version of the same ceiling.
 
 A C++ shim also buys a benefit worth naming honestly: it could batch a whole reflection walk into
@@ -443,7 +443,7 @@ load-bearing claims in the first survey turned out to be wrong.
 
 **`Slang.Sdk`** (Ravbug) is the closest thing. It is a real, working binding, and the difference is
 scope rather than quality: it wraps the compilation path and a useful slice of reflection, and it
-carries its own native build. PrismSlang binds the reflection surface exhaustively — descriptor
+carries its own native build. SharpSlang binds the reflection surface exhaustively — descriptor
 sets, byte layouts down to matrix and array strides, the declaration tree, generics, specialization
 constants — projects it to an immutable managed snapshot that outlives the compiler (§4.4), and
 consumes Slang's own published release rather than building it.
@@ -566,9 +566,9 @@ exist.
 Two mitigations proposed here were **not** built as written. Recording that is cheaper than leaving
 the rows to imply otherwise:
 
-- *"Isolate [reverse interop] in one assembly."* It lives in `dotnet/Hosting/`, inside `PrismSlang`.
+- *"Isolate [reverse interop] in one assembly."* It lives in `dotnet/Hosting/`, inside `SharpSlang`.
   The assembly split that did happen was a different one — the reader half into
-  `PrismSlang.Runtime` — driven by a consumer's requirement rather than by this risk.
+  `SharpSlang.Pipeline` — driven by a consumer's requirement rather than by this risk.
 - *"Fuzz the VFS callbacks."* They are boundary-tested exhaustively instead: every slot, every null,
   an exception thrown from inside a read. The fuzzer that exists, `MalformedInputTests`, points at
   the two file readers, which is where malformed bytes actually arrive from outside.
@@ -577,7 +577,7 @@ the rows to imply otherwise:
 
 ## 8. Tier 0 spike — done
 
-`samples/PrismSlang.Smoke` drives the whole path against the real payload: global session → session
+`samples/SharpSlang.Smoke` drives the whole path against the real payload: global session → session
 with a SPIR-V target → module from source → two entry points → compose → link → emit SPIR-V, then
 validate the result structurally. It runs in CI on all four platforms.
 

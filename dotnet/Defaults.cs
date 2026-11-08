@@ -22,11 +22,11 @@
 // compiler cannot tell which layout you compiled against.
 //
 // Rule for this file: never construct a Slang descriptor with `new`. Always start from Create().
-// PrismSlangDefaultsTests re-parses slang.h and fails if any value here drifts from upstream.
+// SharpSlangDefaultsTests re-parses slang.h and fails if any value here drifts from upstream.
 
-using PrismSlang.Native;
+using SharpSlang.Native;
 
-namespace PrismSlang;
+namespace SharpSlang;
 
 /// <summary>
 /// Descriptor factories that restore the C++ default member initializers ClangSharp discards.
@@ -79,7 +79,7 @@ internal static unsafe class Defaults
     };
 
     /// <summary>
-    /// Mirrors <c>slang::TargetDesc</c> configured for the engine's only target: Vulkan SPIR-V.
+    /// Mirrors <c>slang::TargetDesc</c> configured for the default target: Vulkan SPIR-V.
     /// </summary>
     internal static TargetDesc SpirvTargetDesc()
     {

@@ -1,6 +1,6 @@
 using System.Runtime.InteropServices;
 
-namespace PrismSlang.Native;
+namespace SharpSlang.Native;
 
 [StructLayout(LayoutKind.Explicit)]
 public unsafe partial struct SlangReflectionGenericArg

@@ -1,15 +1,15 @@
 // Specialization constants read as VkSpecializationInfo.
 //
-// This is the one place PrismSlang.Vulkan produces *data* rather than a description. Everything
+// This is the one place SharpSlang.Vulkan produces *data* rather than a description. Everything
 // else here says what the shader requires and leaves the renderer to satisfy it; a specialization
 // buffer has to be packed by somebody, the packing has to agree with the map entries byte for byte,
 // and getting it wrong gives you a pipeline that compiles and renders with the wrong constants.
 // Splitting that across the boundary would guarantee two subtly different packers.
 
-using PrismSlang.Native;
-using PrismSlang.Reflection;
+using SharpSlang.Native;
+using SharpSlang.Reflection;
 
-namespace PrismSlang.Vulkan;
+namespace SharpSlang.Vulkan;
 
 /// <summary>One entry of a <c>VkSpecializationInfo::pMapEntries</c> array.</summary>
 /// <param name="ConstantId">Cast to <c>VkSpecializationMapEntry::constantID</c>.</param>

@@ -5,9 +5,9 @@
 // Vulkan half of the mapping lives here, where it is a fact about the specification rather than a
 // guess about the compiler.
 
-using PrismSlang.Spirv;
+using SharpSlang.Spirv;
 
-namespace PrismSlang.Vulkan;
+namespace SharpSlang.Vulkan;
 
 /// <summary>A Vulkan API version, as <c>VkApplicationInfo::apiVersion</c> names it.</summary>
 public enum VulkanApiVersion

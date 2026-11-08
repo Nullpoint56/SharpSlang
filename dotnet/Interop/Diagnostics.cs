@@ -12,9 +12,9 @@
 // output. Those are fatal here by default; see SlangDiagnosticPolicy.
 
 using System.Text.RegularExpressions;
-using PrismSlang.Native;
+using SharpSlang.Native;
 
-namespace PrismSlang.Interop;
+namespace SharpSlang.Interop;
 
 /// <summary>A failed Slang call, with the compiler's own diagnostic text attached.</summary>
 public sealed class SlangException(int result, string operation, string? diagnostics)

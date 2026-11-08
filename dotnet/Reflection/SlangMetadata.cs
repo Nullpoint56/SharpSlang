@@ -12,10 +12,10 @@
 // answer differs between the vertex and fragment stages of one program, and the layout describes
 // both at once.
 
-using PrismSlang.Interop;
-using PrismSlang.Native;
+using SharpSlang.Interop;
+using SharpSlang.Native;
 
-namespace PrismSlang.Reflection;
+namespace SharpSlang.Reflection;
 
 /// <summary>
 /// Which parameter locations the code generated for one target actually uses.

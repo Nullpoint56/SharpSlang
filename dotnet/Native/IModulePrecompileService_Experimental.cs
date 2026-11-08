@@ -1,7 +1,7 @@
 using System;
 using System.Runtime.CompilerServices;
 
-namespace PrismSlang.Native;
+namespace SharpSlang.Native;
 
 [NativeTypeName("struct IModulePrecompileService_Experimental : ISlangUnknown")]
 public unsafe partial struct IModulePrecompileService_Experimental

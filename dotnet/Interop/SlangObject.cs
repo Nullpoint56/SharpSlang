@@ -46,9 +46,9 @@
 //      can find with a memory profiler, whereas corruption is a bug you find in a crash dump from
 //      a player six months later.
 
-using PrismSlang.Native;
+using SharpSlang.Native;
 
-namespace PrismSlang.Interop;
+namespace SharpSlang.Interop;
 
 /// <summary>
 /// Base for an owned reference to a Slang COM object. Disposing releases the native reference.

@@ -6,16 +6,16 @@
 // The API-neutral half — which leaf attributes the vertex stage reads and where, which outputs
 // the fragment stage writes, which blocks are push constants, what a descriptor slot is called,
 // and the invariant that every parameter was placed somewhere — lives in
-// PrismSlang.Reflection.PipelineInterface, in the Runtime assembly, because PrismSlang.NRI needs
+// SharpSlang.Reflection.PipelineInterface, in the Runtime assembly, because SharpSlang.Pipeline.NRI needs
 // exactly the same answers. This file gives each of those answers its Vulkan spelling and adds the
 // rules that are Vulkan's alone: the descriptor type per binding kind, the stage bits, the
 // VkFormat per leaf type, and the two-locations-for-a-wide-64-bit-vector rule the module itself
 // gets wrong.
 
-using PrismSlang.Native;
-using PrismSlang.Reflection;
+using SharpSlang.Native;
+using SharpSlang.Reflection;
 
-namespace PrismSlang.Vulkan;
+namespace SharpSlang.Vulkan;
 
 /// <summary>Reads a <see cref="ProgramLayout"/> as Vulkan pipeline requirements.</summary>
 public static class VulkanProjection
@@ -139,14 +139,14 @@ public static class VulkanProjection
             // A shape it does not recognise arrives here rather than being given a plausible type.
             SlangBindingType.SLANG_BINDING_TYPE_UNKNOWN => throw new NotSupportedException(
                 "this shader binds something Slang omitted from its descriptor-set reflection and " +
-                "whose resource shape PrismSlang does not recognise, so its descriptor type cannot " +
+                "whose resource shape SharpSlang does not recognise, so its descriptor type cannot " +
                 "be determined. The binding is real — the module decorates it — so this is a gap in " +
-                "PrismSlang rather than a shader error; the parameter name is on the binding. " +
+                "SharpSlang rather than a shader error; the parameter name is on the binding. " +
                 "See ReflectionWalker.AddUncoveredParameters."),
 
             _ => throw new NotSupportedException(
                 $"Slang binding type {binding} has no Vulkan descriptor type. If this is a real " +
-                $"shader construct rather than a Slang internal, PrismSlang.Vulkan needs extending."),
+                $"shader construct rather than a Slang internal, SharpSlang.Vulkan needs extending."),
         };
     }
 
@@ -261,7 +261,7 @@ public static class VulkanProjection
             throw new NotSupportedException(
                 $"this program has {result.Count} push-constant buffers " +
                 $"({string.Join(", ", result.Select(r => r.Name))}). Slang reports their offsets as " +
-                $"buffer indices, not byte offsets, so PrismSlang.Vulkan cannot lay them out into " +
+                $"buffer indices, not byte offsets, so SharpSlang.Vulkan cannot lay them out into " +
                 $"the single block Vulkan expects. Merge them into one [vk::push_constant] struct.");
         }
 
@@ -294,7 +294,7 @@ public static class VulkanProjection
                     $"vertex input '{input.Name}' is {input.Type.Kind}" +
                     $"{(input.Type.Name is null ? "" : $" ('{input.Type.Name}')")}, which has no Vulkan " +
                     $"attribute format, but it occupies {input.LocationsConsumed} location(s). " +
-                    $"PrismSlang.Vulkan will not guess one.");
+                    $"SharpSlang.Vulkan will not guess one.");
             }
 
             result.Add(new VulkanVertexInput(input.Location, format, input.Name, input.Semantic));

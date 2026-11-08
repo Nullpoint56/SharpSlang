@@ -13,19 +13,19 @@ name: CI
 #     the branch. A run started that way does not appear in a pull request's checks, so the report
 #     job posts its outcome on the tested commit as a commit status named "ci", and the pull
 #     request shows it.
-#   * A branch must be up to date with main before it merges, and must have a green run. GitHub
+#   * A branch must be up to date with master before it merges, and must have a green run. GitHub
 #     cannot enforce either on a private Free repository: branch protection and rulesets answer
 #     "Upgrade to GitHub Pro or make this repository public". So the gate refuses to test a branch
-#     that is behind main, which costs one short Linux job rather than a matrix. And the "ci"
+#     that is behind master, which costs one short Linux job rather than a matrix. And the "ci"
 #     status is what a ruleset would require, once the plan allows one ("require status checks",
 #     strict).
-#   * Nothing re-runs on main unless the code differs from what a branch run tested. A push to
-#     main starts this workflow, and the gate skips every job whose result already exists for the
+#   * Nothing re-runs on master unless the code differs from what a branch run tested. A push to
+#     master starts this workflow, and the gate skips every job whose result already exists for the
 #     same tree. For the merge of an up-to-date branch that is all of them. A merge that skipped
 #     its branch run, or that differs from it, is tested here. Documentation-only pushes start
 #     nothing, because the branch run checked them.
-#   * macOS on demand. The osx-arm64 leg is most of a run's cost, and macOS is not an engine
-#     target yet. It runs when a manual run asks for it, and before every release, where
+#   * macOS on demand. The osx-arm64 leg is most of a run's cost. It runs when
+#     a manual run asks for it, and before every release, where
 #     publish.yml calls this workflow with it on.
 #
 # tools/ci/ci-gate.ps1 makes those decisions, and its header lists them. It runs on Linux in
@@ -45,10 +45,10 @@ name: CI
 # release pinned in Directory.Build.props, which also proves the fetch script still works against
 # the current upstream layout.
 on:
-  # main only, and only for what a branch run could not have covered; the gate decides. Markdown
+  # master only, and only for what a branch run could not have covered; the gate decides. Markdown
   # and docs/ changes start nothing here: the docs job of the branch run checked them.
   push:
-    branches: [main]
+    branches: [master]
     paths-ignore: ['**.md', 'docs/**']
   # The only way a branch is tested.
   workflow_dispatch:
@@ -179,7 +179,7 @@ jobs:
   # a code comment cites resolves to a real heading in design.md. The numbered sections are cited
   # from code by bare number, so this is what stops a renumbering from silently orphaning them, and
   # a change that touches no markdown can break it: a § renumbered in a code comment, or a file
-  # renamed out from under PrismSlang.slnx. It was docs.yml plus a step of the linux-x64 leg, and
+  # renamed out from under SharpSlang.slnx. It was docs.yml plus a step of the linux-x64 leg, and
   # is one job here, so a documentation-only branch is still checked by its one manual run while
   # the test legs skip.
   docs:
@@ -373,7 +373,7 @@ jobs:
           echo "VK_ADD_LAYER_PATH=$GITHUB_WORKSPACE/obj/vvl/share/vulkan/explicit_layer.d" >> "$GITHUB_ENV"
 
       - name: Build
-        run: dotnet build PrismSlang.slnx -c Release --nologo -warnaserror
+        run: dotnet build SharpSlang.slnx -c Release --nologo -warnaserror
 
       # MALLOC_PERTURB_ makes the allocator the assertion, on every test rather than the few that
       # were written to look for it. glibc fills freshly malloc'd memory with the complement of the
@@ -448,7 +448,7 @@ jobs:
         # The TRX goes to one fixed place, test-results/results.trx, because every "actually ran"
         # gate below counts its classes from this file instead of running them again (see
         # tools/ci/count-tests.ps1). The upload and crash steps search recursively and find it here.
-        run: dotnet test PrismSlang.slnx -c Release --no-build --nologo --blame --logger "trx;LogFileName=results.trx" --results-directory test-results
+        run: dotnet test SharpSlang.slnx -c Release --no-build --nologo --blame --logger "trx;LogFileName=results.trx" --results-directory test-results
 
       # A skipped test is green, so installing lavapipe and never noticing it failed to load would
       # leave the whole validation harness silently switched off. Two of the three run on any
@@ -546,9 +546,9 @@ jobs:
       # the whole class off on a run that reports success.
       #
       # This step counts win-x64 and the next one linux-x64, the two legs the NRI device tests run
-      # on (tests/PrismSlang.Tests/NriFact.cs). On linux-arm64 every one of them skips because the
-      # SharpNRI package has no payload for it, and on osx-arm64 by decision, since macOS is not an
-      # engine target yet; each says so in its skip reason.
+      # on (tests/SharpSlang.Tests/NriFact.cs). On linux-arm64 every one of them skips because the
+      # SharpNRI package has no payload for it, and on osx-arm64 by decision; each says so in its skip
+      # reason.
       #
       # What is counted is NONE and D3D12. Hosted Windows has no Vulkan driver, so the tests gated
       # on NRI's Vulkan backend (the 33-case pipeline theory, which xunit reports as one skipped
@@ -713,7 +713,7 @@ jobs:
           MallocScribble: 1
           MallocPreScribble: 1
           MallocNanoZone: 0
-        run: dotnet run --project samples/PrismSlang.Smoke -c Release --no-build
+        run: dotnet run --project samples/SharpSlang.Smoke -c Release --no-build
 
       # A test-host crash reports whatever was on stderr as its "reason", which is never the cause:
       # the first macOS run blamed a Slang warning about an uninitialized variable in a module three
@@ -814,7 +814,7 @@ jobs:
           # A packaging bug once excluded the host RID from the .nupkg: its files matched both the
           # Content and None globs, and Pack="false" won. The package restored cleanly and failed
           # at run time with DllNotFoundException. Cheap to assert, invisible otherwise.
-          dotnet pack dotnet/PrismSlang.csproj -c Release -o pack-check --no-build --nologo
+          dotnet pack dotnet/SharpSlang.csproj -c Release -o pack-check --no-build --nologo
           $nupkg = Get-ChildItem pack-check -Filter *.nupkg | Select-Object -First 1
           if (-not $nupkg) { throw "no package produced" }
 

@@ -1,6 +1,6 @@
-using static PrismSlang.Native.SlangParameterCategory;
+using static SharpSlang.Native.SlangParameterCategory;
 
-namespace PrismSlang.Native;
+namespace SharpSlang.Native;
 
 [NativeTypeName("SlangParameterCategoryIntegral")]
 public enum ParameterCategory : uint

@@ -2,7 +2,7 @@ using System.Diagnostics.CodeAnalysis;
 using System.Runtime.InteropServices;
 
 
-namespace PrismSlang.Native;
+namespace SharpSlang.Native;
 
 public unsafe partial struct SpecializationArg
 {

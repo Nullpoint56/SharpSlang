@@ -1,4 +1,4 @@
-namespace PrismSlang.Native;
+namespace SharpSlang.Native;
 
 [NativeTypeName("SlangArchiveTypeIntegral")]
 public enum SlangArchiveType

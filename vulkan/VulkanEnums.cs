@@ -12,10 +12,10 @@
 // VulkanEnumTests. That dependency is on the test project alone; this package still has none, which
 // was the point of mirroring in the first place.
 //
-// Renderer Core casts directly:
+// the renderer casts directly:
 //     var type = (VkDescriptorType)binding.DescriptorType;
 
-namespace PrismSlang.Vulkan;
+namespace SharpSlang.Vulkan;
 
 /// <summary>Mirrors <c>VkDescriptorType</c>.</summary>
 public enum VulkanDescriptorType

@@ -5,7 +5,7 @@
 // managed object. Binding generators emit the former and never the latter, so this is hand-written
 // by necessity rather than by preference (docs §4.5).
 //
-// Why the engine needs it: PrismEngine loads assets from packs through its own virtual filesystem.
+// Why a host needs it: an engine that loads assets from packs through its own virtual filesystem.
 // Without this, `import` and `#include` in a .slang file can only reach the OS filesystem, which
 // means shipping loose shader source next to the executable.
 //
@@ -22,10 +22,10 @@
 // than fail to compile.
 
 using System.Runtime.InteropServices;
-using PrismSlang.Interop;
-using PrismSlang.Native;
+using SharpSlang.Interop;
+using SharpSlang.Native;
 
-namespace PrismSlang.Hosting;
+namespace SharpSlang.Hosting;
 
 /// <summary>
 /// A filesystem Slang can read through — implement this over an engine VFS, an asset pack, or an

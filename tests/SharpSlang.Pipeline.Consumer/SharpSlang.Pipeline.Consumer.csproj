@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    The acceptance criterion for the assembly split, written as a project rather than as a claim.
+
+    It references SharpSlang.Pipeline, SharpSlang.Vulkan and SharpSlang.Pipeline.NRI and NOTHING ELSE — no
+    SharpSlang, no Vortice, no SharpNRI proper, no test framework. If any of those ever picks up a
+    transitive edge to the compiler, slang-compiler.dll and the runtimes/ tree land in this
+    project's output; if SharpSlang.Pipeline.NRI ever references SharpNRI rather than SharpNRI.Descs, NRI.dll
+    does. AssemblySplitTests notices either.
+
+    It is an exe rather than a library so that it produces the real deployment closure a game would
+    get, including everything a ProjectReference copies flat.
+  -->
+
+  <PropertyGroup>
+    <TargetFramework>net11.0</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <RootNamespace>SharpSlang.Pipeline.Consumer</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\pipeline\SharpSlang.Pipeline.csproj" />
+    <ProjectReference Include="..\..\vulkan\SharpSlang.Vulkan.csproj" />
+    <ProjectReference Include="..\..\pipeline-nri\SharpSlang.Pipeline.NRI.csproj" />
+  </ItemGroup>
+
+</Project>

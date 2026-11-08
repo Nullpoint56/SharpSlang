@@ -7,10 +7,10 @@
 // test that passes.
 
 using System.Runtime.InteropServices;
-using PrismSlang.Interop;
-using PrismSlang.Native;
+using SharpSlang.Interop;
+using SharpSlang.Native;
 
-namespace PrismSlang;
+namespace SharpSlang;
 
 /// <summary>A compilation context: targets, search paths, macros, and the modules loaded into it.</summary>
 public sealed unsafe class SlangSession : SlangObject<ISession>
@@ -246,7 +246,7 @@ public sealed unsafe class SlangSession : SlangObject<ISession>
     /// <remarks>
     /// <para>
     /// Slang's own staleness check for an IR cache entry. Distinct from
-    /// <c>ShaderPackage.IsUpToDate</c>, which is PrismSlang's content-hash check over a baked
+    /// <c>ShaderPackage.IsUpToDate</c>, which is SharpSlang's content-hash check over a baked
     /// <em>shader</em> — this one is about a cached <em>module</em>, one step earlier.
     /// </para>
     /// <para>

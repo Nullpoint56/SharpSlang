@@ -1,6 +1,6 @@
 // L2 — turning a linked program into a shippable package.
 //
-// Separated from ShaderPackage itself, which lives in PrismSlang.Runtime. Reading a package needs
+// Separated from ShaderPackage itself, which lives in SharpSlang.Pipeline. Reading a package needs
 // nothing but managed code; *making* one needs a LinkedProgram, a SlangModule and the 36 MB
 // compiler behind them. Keeping the two in one class meant a game that only ever calls ReadFromFile
 // still had to reference the compiler to name the type — see docs .
@@ -10,11 +10,11 @@
 
 using System.Security.Cryptography;
 using System.Text;
-using PrismSlang.Native;
-using PrismSlang.Reflection;
-using PrismSlang.Spirv;
+using SharpSlang.Native;
+using SharpSlang.Reflection;
+using SharpSlang.Spirv;
 
-namespace PrismSlang.Baking;
+namespace SharpSlang.Baking;
 
 /// <summary>Compiles a linked program into a <see cref="ShaderPackage"/>.</summary>
 public static class ShaderPackageBaker
@@ -99,7 +99,7 @@ public static class ShaderPackageBaker
         // this one goes through a serializer whose options (nulls dropped, enums as strings) and
         // annotations (`required`) have to agree with each other, and the consumer cannot know
         // which parts are lossy. They disagreed once: a `required` nullable dropped on write made
-        // every package with an unbounded array unreadable, and the engine's cook caught the read
+        // every package with an unbounded array unreadable, and a consumer's cook caught the read
         // exception in its up-to-date check and silently re-cooked, so the defect only surfaced at
         // pipeline creation. The check costs one serialize and one parse, at build time.
         VerifyLayoutRoundTrips(layout.ToJson());
@@ -153,12 +153,12 @@ public static class ShaderPackageBaker
     /// <remarks>
     /// Only the public <see cref="ProgramLayout.ToJson"/> and <see cref="ProgramLayout.FromJson"/>,
     /// because they are what <see cref="ShaderPackage.ReadFrom"/> runs on, and because
-    /// PrismSlang.Runtime grants this assembly no internals by decision.
+    /// SharpSlang.Pipeline grants this assembly no internals by decision.
     /// </remarks>
     internal static void VerifyLayoutRoundTrips(string json)
     {
         const string Defect =
-            "The baked layout does not read back. This is a defect in PrismSlang's layout " +
+            "The baked layout does not read back. This is a defect in SharpSlang's layout " +
             "serializer, not in the shader; please report it with the shader that triggered it.";
 
         string reread;

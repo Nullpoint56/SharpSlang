@@ -10,7 +10,7 @@
 // NOTE: SlangAttribute, not Attribute — a type named `Attribute` in this namespace shadows
 // System.Attribute and breaks every generated [NativeTypeName]/[VtblIndex] helper attribute.
 
-namespace PrismSlang.Native;
+namespace SharpSlang.Native;
 
 public partial struct SlangAttribute { }
 public partial struct TypeReflection { }

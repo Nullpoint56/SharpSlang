@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-  Regenerate the PrismSlang L0 raw interop layer from the Slang headers.
+  Regenerate the SharpSlang L0 raw interop layer from the Slang headers.
 
 .DESCRIPTION
   Runs ClangSharpPInvokeGenerator over slang.h + slang-deprecated.h and applies the post-processing
@@ -33,7 +33,7 @@
 param(
     [string]$SlangVersion,
     [string]$Output,
-    [string]$Namespace = "PrismSlang.Native",
+    [string]$Namespace = "SharpSlang.Native",
     [string]$Library   = "slang-compiler"   # NOT "slang" — renamed in v2025.21, alias dies end of 2026
 )
 
@@ -254,7 +254,7 @@ $guidNames = $guidMatches | ForEach-Object { $_.Groups['name'].Value }
 
 # ICompileRequest predates Slang's COM conversion: it is a plain vtable type with no
 # SLANG_COM_INTERFACE and therefore no IID, by design. It belongs to the 83-function legacy
-# compile-request API that PrismSlang does not bind (docs/design.md §3.3, Tier 4).
+# compile-request API that SharpSlang does not bind (docs/design.md §3.3, Tier 4).
 $noIidByDesign = @('ICompileRequest')
 
 $declaredIfaces = @(Get-ChildItem (Join-Path $Output "I*.cs") | ForEach-Object { $_.BaseName })

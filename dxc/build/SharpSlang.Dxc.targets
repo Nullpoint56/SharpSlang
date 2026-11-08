@@ -1,0 +1,73 @@
+<!--
+  Imported into every project that references the SharpSlang.Dxc package. NuGet imports a
+  package's build/<PackageId>.targets into the consuming project, and that is the whole mechanism:
+  this file copies dxc into the root of the consumer's output. That is beside slang-compiler.dll
+  for a RID-specific build, and one runtimes\win-x64\native\ away from it for a portable one;
+  SlangGlobalSession loads dxc from either before Slang looks for it by name (CompanionLibraries
+  in SharpSlang says why that has to be done for it).
+
+  The DLLs come from Microsoft.Direct3D.DXC, Microsoft's own NuGet package, which this package
+  depends on at an exact version. That package lays them out for C++ consumers — a build/native/
+  tree with props and targets that only a vcxproj imports — so a .NET project that references it
+  gets nothing copied, and this file does the copy instead. Copied from the package cache rather
+  than carried here: SharpSlang redistributes no Microsoft binary, and a consumer takes Microsoft's
+  terms by restoring Microsoft's package (THIRD-PARTY-NOTICES.md).
+
+  The version below is the one dependency version this package declares, restated because a
+  transitive package's path is not handed to a consumer as a property: NuGet generates
+  Pkg* path properties only for direct references with GeneratePathProperty, and the package root
+  is the one thing every SDK project knows. DocumentedFactsTests pins this value to the
+  DxcPackageVersion in Directory.Build.props, so the two cannot drift apart silently.
+
+  win-x64 only, for the same reason the package is: the binaries are x64 Windows builds, and on
+  any other host they would sit beside a slang-compiler that cannot load them. On those hosts the
+  item group is empty and the build is unchanged.
+-->
+<Project>
+
+  <PropertyGroup>
+    <SharpSlangDxcPackageVersion Condition="'$(SharpSlangDxcPackageVersion)' == ''">1.9.2609.5</SharpSlangDxcPackageVersion>
+
+    <!-- The host RID, resolved as dotnet/SharpSlang.csproj resolves it for the Slang payload. -->
+    <SharpSlangDxcHostRid Condition="'$(SharpSlangDxcHostRid)' == ''">$(RuntimeIdentifier)</SharpSlangDxcHostRid>
+    <SharpSlangDxcHostRid Condition="'$(SharpSlangDxcHostRid)' == ''">$(NETCoreSdkPortableRuntimeIdentifier)</SharpSlangDxcHostRid>
+
+    <!--
+      EnsureTrailingSlash, because the package root does not always end in one. NuGet writes it
+      with a separator for the default cache and without one for a globalPackagesFolder set in
+      nuget.config, and adds the separator itself in the imports it generates. Concatenated bare,
+      the path became obj\packagesmicrosoft.direct3d.dxc\... and the copy failed with MSB3030:
+      found by publish.yml's portable consumer, the first build of this file under such a config.
+    -->
+    <SharpSlangDxcBin>$([MSBuild]::EnsureTrailingSlash('$(NuGetPackageRoot)'))microsoft.direct3d.dxc\$(SharpSlangDxcPackageVersion)\build\native\bin\x64\</SharpSlangDxcBin>
+  </PropertyGroup>
+
+  <ItemGroup Condition="'$(SharpSlangDxcHostRid)' == 'win-x64'">
+    <None Include="$(SharpSlangDxcBin)dxcompiler.dll;$(SharpSlangDxcBin)dxil.dll"
+          CopyToOutputDirectory="PreserveNewest"
+          Link="%(Filename)%(Extension)"
+          Visible="false" />
+  </ItemGroup>
+
+  <!--
+    An error that names the package, in place of the copy's own. When the folder above is missing —
+    a restore that resolved a different version, a package cache somewhere else — the copy cannot
+    succeed, and MSBuild says so as MSB3030, "Could not copy the file "...\dxcompiler.dll" because
+    it was not found": a path under the package cache, and nothing about which package was meant to
+    be there or what to do about it. Both DLLs are checked because the copy names both.
+
+    Before BeforeBuild, the first target Build runs, so it comes before the references are resolved
+    and before anything is compiled or copied. It was BeforeTargets="Build", which is too late: a
+    target hooked before another runs after that target's own dependencies, and Build's are
+    BeforeBuild, CoreBuild and AfterBuild, with the copy inside CoreBuild (PrepareForRun,
+    CopyFilesToOutputDirectory). CoreBuild and CopyFilesToOutputDirectory are too late for the same
+    reason. Measured with a project importing this file at a Microsoft.Direct3D.DXC version the
+    cache does not hold: hooked before Build, the build failed with two MSB3030s, one per DLL, and
+    this message never appeared; hooked here, it fails with this message and nothing else.
+  -->
+  <Target Name="SharpSlangDxcRequirePackage" BeforeTargets="BeforeBuild"
+          Condition="'$(SharpSlangDxcHostRid)' == 'win-x64' And (!Exists('$(SharpSlangDxcBin)dxcompiler.dll') Or !Exists('$(SharpSlangDxcBin)dxil.dll'))">
+    <Error Text="SharpSlang.Dxc copies dxcompiler.dll and dxil.dll from Microsoft.Direct3D.DXC $(SharpSlangDxcPackageVersion) at $(SharpSlangDxcBin), and they are not both there. Restore the project, and check that the dependency resolved to exactly that version." />
+  </Target>
+
+</Project>

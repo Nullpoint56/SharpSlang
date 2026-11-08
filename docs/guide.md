@@ -1,7 +1,7 @@
 | The same shader, two architectures, different bytes | x64 and ARM64 emit byte-identical SPIR-V within an architecture and differ on shaders using `SV_VertexID`: Slang creates the two builtins it lowers to in the opposite order, so the modules are equivalent and will never compare equal. Windows and Linux agree exactly. Cook on one architecture, or content-address per architecture. |
 | The baked layout is byte-stable, the module is not | `ProgramLayout.ToJson` writes `
 ` on every platform on purpose, so a hash over a baked layout is portable. The SPIR-V beside it carries the caveat above. |
-# PrismSlang — Guide
+# SharpSlang — Guide
 
 How to use it: what to type, and what Slang does that will surprise you.
 
@@ -13,7 +13,7 @@ recalled — and the traps flagged along the way are the ones that actually bit 
 ## Contents
 
 - [The two halves](#the-two-halves)
-- [Referencing PrismSlang from source](#referencing-prismslang-from-source)
+- [Referencing SharpSlang from source](#referencing-sharpslang-from-source)
 - [Compiling](#compiling)
 - [Reflecting](#reflecting)
 - [Filling a uniform buffer](#filling-a-uniform-buffer)
@@ -40,52 +40,52 @@ recalled — and the traps flagged along the way are the ones that actually bit 
 
 ## The two halves
 
-Reference `PrismSlang` in the tool that cooks shaders. Reference `PrismSlang.Runtime` — and
-`PrismSlang.Vulkan` if you want the pipeline projection — in the game that loads them. The runtime
+Reference `SharpSlang` in the tool that cooks shaders. Reference `SharpSlang.Pipeline` — and
+`SharpSlang.Vulkan` if you want the pipeline projection — in the game that loads them. The runtime
 half has no native dependency, so a shipped build carries no compiler.
 
 ```xml
 <!-- asset pipeline -->
-<PackageReference Include="PrismSlang" Version="0.1.0-alpha" />
-<PackageReference Include="PrismSlang.Vulkan" Version="0.1.0-alpha" />
+<PackageReference Include="SharpSlang" Version="0.1.0-alpha" />
+<PackageReference Include="SharpSlang.Vulkan" Version="0.1.0-alpha" />
 
 <!-- game -->
-<PackageReference Include="PrismSlang.Runtime" Version="0.1.0-alpha" />
-<PackageReference Include="PrismSlang.Vulkan" Version="0.1.0-alpha" />
+<PackageReference Include="SharpSlang.Pipeline" Version="0.1.0-alpha" />
+<PackageReference Include="SharpSlang.Vulkan" Version="0.1.0-alpha" />
 ```
 
 `ShaderPackage` — the container, its reader, and the staleness checks — is in the runtime half.
-`ShaderPackageBaker`, which is the only thing that needs a compiler, is in `PrismSlang`.
+`ShaderPackageBaker`, which is the only thing that needs a compiler, is in `SharpSlang`.
 
-## Referencing PrismSlang from source
+## Referencing SharpSlang from source
 
-An engine developed alongside PrismSlang can reference its projects instead of its packages: a
+An engine developed alongside SharpSlang can reference its projects instead of its packages: a
 sibling checkout and `ProjectReference`s, so a change on one side is visible on the other without
 a pack in between.
 
 ```xml
-<!-- the cooker; ../PrismSlang is the checkout -->
-<ProjectReference Include="..\PrismSlang\dotnet\PrismSlang.csproj" />
-<ProjectReference Include="..\PrismSlang\nri\PrismSlang.NRI.csproj" />
+<!-- the cooker; ../SharpSlang is the checkout -->
+<ProjectReference Include="..\SharpSlang\dotnet\SharpSlang.csproj" />
+<ProjectReference Include="..\SharpSlang\pipeline-nri\SharpSlang.Pipeline.NRI.csproj" />
 ```
 
 **Stage the payload in the checkout.** Run `pwsh tools/fetch-native.ps1` there once per Slang pin.
-The reference to `dotnet/PrismSlang.csproj` then copies the host RID's payload flat into the
+The reference to `dotnet/SharpSlang.csproj` then copies the host RID's payload flat into the
 engine's output, beside its own assemblies.
 
 **DXIL takes the targets by hand.** A package's `build/` files do not flow through a project
-reference, so referencing `native/PrismSlang.Native.Dxc.csproj` would copy no dxc. The cooker does
-what the package does: reference Microsoft's package at PrismSlang's `DxcPackageVersion` and import
-the targets file, as `tests/PrismSlang.Tests/PrismSlang.Tests.csproj` does.
+reference, so referencing `dxc/SharpSlang.Dxc.csproj` would copy no dxc. The cooker does
+what the package does: reference Microsoft's package at SharpSlang's `DxcPackageVersion` and import
+the targets file, as `tests/SharpSlang.Tests/SharpSlang.Tests.csproj` does.
 
 ```xml
 <ItemGroup>
   <PackageReference Include="Microsoft.Direct3D.DXC" Version="[1.9.2609.5]" PrivateAssets="all" />
 </ItemGroup>
-<Import Project="..\PrismSlang\native\build\PrismSlang.Native.Dxc.targets" />
+<Import Project="..\SharpSlang\dxc\build\SharpSlang.Dxc.targets" />
 ```
 
-**Both solutions build into PrismSlang's `obj/` and `bin/`.** The engine builds PrismSlang's
+**Both solutions build into SharpSlang's `obj/` and `bin/`.** The engine builds SharpSlang's
 projects in place, so each solution's restore rewrites the other's. With the same target framework
 on both sides that is harmless.
 
@@ -99,8 +99,8 @@ same, measured; on macOS its `@loader_path` rpaths should, and the osx-arm64 tes
 ## Compiling
 
 ```csharp
-using PrismSlang;
-using PrismSlang.Spirv;
+using SharpSlang;
+using SharpSlang.Spirv;
 
 using var global = SlangGlobalSession.Create();
 
@@ -145,7 +145,7 @@ the emitted header and throws if Slang produced something else.
 ## Reflecting
 
 ```csharp
-using PrismSlang.Reflection;
+using SharpSlang.Reflection;
 
 ProgramLayout layout = program.Reflect();
 ```
@@ -211,7 +211,7 @@ pipeline is created.
 ## Projecting to Vulkan
 
 ```csharp
-using PrismSlang.Vulkan;
+using SharpSlang.Vulkan;
 
 VulkanPipelineLayout vk = layout.ToVulkan();
 ```
@@ -249,7 +249,7 @@ rather than omitting a stage that reads the binding; narrow it per pipeline if y
 ## Projecting to NRI
 
 ```csharp
-using PrismSlang.NRI;
+using SharpSlang.Pipeline.NRI;
 
 NriPipelineProjection nri = layout.ToNri(new NriProjectionOptions { UnboundedArrayCap = 1024 });
 using var pipelineLayout = device.CreatePipelineLayout(nri.Layout);
@@ -258,8 +258,8 @@ using var pipelineLayout = device.CreatePipelineLayout(nri.Layout);
 `nri.Layout` is a SharpNRI `NriPipelineLayoutDesc`, filled in from the same reading of the snapshot
 as the Vulkan projection: one `NriDescriptorSetDesc` per register space the shader uses, one
 `DescriptorRangeDesc` per binding, one `RootConstantDesc` per push-constant block, and
-`ShaderStages` set to every stage the program has. `PrismSlang.NRI` references `SharpNRI.Descs`
-only — the descs as plain types, no `NRI.dll` — so this runs wherever `PrismSlang.Runtime` does.
+`ShaderStages` set to every stage the program has. `SharpSlang.Pipeline.NRI` references `SharpNRI.Descs`
+only — the descs as plain types, no `NRI.dll` — so this runs wherever `SharpSlang.Pipeline` does.
 
 What NRI's API is indexed by, and the desc cannot carry, is on the projection beside it:
 
@@ -350,7 +350,7 @@ using var dxil = global.CreateSession(new SessionOptions
 ```
 
 **dxc has to be there.** Slang emits DXIL by handing HLSL to dxc, and ships none. Reference
-`PrismSlang.Native.Dxc`, which stages `dxcompiler.dll` and `dxil.dll` in the application's output
+`SharpSlang.Dxc`, which stages `dxcompiler.dll` and `dxil.dll` in the application's output
 for `win-x64`; `CreateSession` refuses a DXIL target without it, naming the package, so the failure
 is at session creation rather than inside the first compile.
 
@@ -437,7 +437,7 @@ shader's default because that is what Vulkan does with one.
 In the asset pipeline:
 
 ```csharp
-using PrismSlang.Baking;
+using SharpSlang.Baking;
 
 ShaderPackage package = ShaderPackageBaker.Bake(program, module);   // module, for its imports
 package.WriteToFile("cooked/standard_surface.pslb");
@@ -480,7 +480,7 @@ rebuild the project.
 
 `ReadFrom` has exactly one failure mode — `InvalidDataException` — whatever is wrong with the bytes.
 `Bake` reads its own layout back before returning, and throws `InvalidOperationException` if the
-package could not be loaded again. That is a defect in PrismSlang to report, not an error in the
+package could not be loaded again. That is a defect in SharpSlang to report, not an error in the
 shader.
 
 ## Serving shaders from your own filesystem

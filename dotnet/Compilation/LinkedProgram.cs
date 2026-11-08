@@ -1,11 +1,11 @@
 // L2 — a linked program: the thing you can generate code from and reflect over.
 
-using PrismSlang.Interop;
-using PrismSlang.Native;
-using PrismSlang.Reflection;
-using PrismSlang.Spirv;
+using SharpSlang.Interop;
+using SharpSlang.Native;
+using SharpSlang.Reflection;
+using SharpSlang.Spirv;
 
-namespace PrismSlang;
+namespace SharpSlang;
 
 /// <summary>
 /// A composed and linked program. Code generation and reflection both require linking first,

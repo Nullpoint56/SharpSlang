@@ -3,10 +3,10 @@
 // These types stop exactly where the Vulkan spec stops and renderer policy begins. They describe
 // what the shader requires; they say nothing about how to satisfy it.
 
-using PrismSlang.Native;
-using PrismSlang.Spirv;
+using SharpSlang.Native;
+using SharpSlang.Spirv;
 
-namespace PrismSlang.Vulkan;
+namespace SharpSlang.Vulkan;
 
 /// <summary>One binding within a descriptor set.</summary>
 /// <param name="Binding">The <c>binding = N</c> index.</param>
@@ -200,7 +200,7 @@ public sealed record VulkanPushConstantRange(uint Offset, uint Size, VulkanShade
 /// <remarks>
 /// There is deliberately no buffer binding or stride here. Which buffer an attribute is read from,
 /// and how attributes are interleaved, is a renderer decision — the shader does not express it and
-/// this package will not invent it. Renderer Core supplies <c>binding</c> and <c>offset</c> when it
+/// this package will not invent it. The renderer supplies <c>binding</c> and <c>offset</c> when it
 /// builds the <c>VkVertexInputAttributeDescription</c>.
 /// </remarks>
 /// <param name="Location">The <c>location = N</c> index.</param>

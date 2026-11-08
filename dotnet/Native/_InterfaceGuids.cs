@@ -8,7 +8,7 @@ using System;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
-namespace PrismSlang.Native;
+namespace SharpSlang.Native;
 
 public static class SlangIID
 {
