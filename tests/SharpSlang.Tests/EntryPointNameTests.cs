@@ -84,7 +84,7 @@ public class EntryPointNameTests
     public void The_same_option_at_link_time_names_the_entry_point() =>
         Assert.Equal("vertexMain", LinkWithEntryPointName());
 
-    private string LinkWithEntryPointName()
+    private static string LinkWithEntryPointName()
     {
         using var global = SlangGlobalSession.Create();
         using var session = Session(global, useEntryPointName: false);
