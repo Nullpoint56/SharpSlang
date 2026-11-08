@@ -440,4 +440,5 @@ public class CompilationTests
         Assert.DoesNotContain("assert failure", e.Message, StringComparison.Ordinal);
 
         using var other = session.LoadModuleFromSource("second", "other.slang", Source);
-    }}
+    }
+}

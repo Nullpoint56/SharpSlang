@@ -34,15 +34,15 @@ public sealed class TargetValidationTests(ITestOutputHelper output)
 
     /// <summary>What a declared entry expects: the outcome, words its message must contain, and why.</summary>
     /// <summary>A declared outcome. <paramref name="FixedBy"/> names the defect whose patch makes the row
-/// <see cref="Outcome.Valid"/> on a payload built with that patch (AGENTS.md#patches).</summary>
-public sealed record Expected(Outcome Outcome, string Words, string Reason, string? FixedBy = null)
-{
-    /// <summary>What the staged payload should produce: <see cref="Outcome.Valid"/> where it carries the fix.</summary>
-    public Expected ForStagedPayload() =>
-        FixedBy is not null && PatchRegistry.PatchFor(FixedBy) is { } patch && StagedPayload.Carries(patch)
-            ? new Expected(Outcome.Valid, "", $"patched ({FixedBy})")
-            : this;
-}
+    /// <see cref="Outcome.Valid"/> on a payload built with that patch (AGENTS.md#patches).</summary>
+    public sealed record Expected(Outcome Outcome, string Words, string Reason, string? FixedBy = null)
+    {
+        /// <summary>What the staged payload should produce: <see cref="Outcome.Valid"/> where it carries the fix.</summary>
+        public Expected ForStagedPayload() =>
+            FixedBy is not null && PatchRegistry.PatchFor(FixedBy) is { } patch && StagedPayload.Carries(patch)
+                ? new Expected(Outcome.Valid, "", $"patched ({FixedBy})")
+                : this;
+    }
 
     /// <summary>One entry point's code for one target, or Slang's reason for not producing it.</summary>
     private sealed record Emitted(string Key, SlangStage Stage, byte[]? Code, string? Refusal);
@@ -271,9 +271,10 @@ public sealed record Expected(Outcome Outcome, string Words, string Reason, stri
     /// The registry test of a patch that fixes a target's output: the case must be <see cref="Outcome.Valid"/>
     /// on our build, so the build without the patch is red (AGENTS.md#patches).
     /// </summary>
-    private void RequirePatchedCaseValid(string target, string name, Validator validator)
+    private static void RequirePatchedCaseValid(string target, string name, Validator validator)
     {
-        Assert.SkipWhen(TargetValidators.Unavailable(validator) is { } missing, missing ?? "");
+        var missing = TargetValidators.Unavailable(validator);
+        Assert.SkipWhen(missing is not null, missing ?? "");
         var t = TargetNamed(target);
         using var global = SlangGlobalSession.Create();
         var caseName = name.Split('/')[0];

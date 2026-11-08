@@ -149,7 +149,7 @@ public class CompositeTests(ITestOutputHelper output)
         using var fresh = session.CreateCompositeComponentType(module, entry);
         using var optimised = fresh.LinkWithOptions(maximal);
         var result = (firstCode, optimised.GetEntryPointCodeBytes(0, 0), again.GetEntryPointCodeBytes(0, 0));
-        output.WriteLine($"NONE {result.Item1.Length} B, MAXIMAL on a fresh composite {result.Item2.Length} B, " +
+        output.WriteLine($"NONE {result.firstCode.Length} B, MAXIMAL on a fresh composite {result.Item2.Length} B, " +
                          $"MAXIMAL on the first composite {result.Item3.Length} B");
         return result;
     }
