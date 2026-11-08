@@ -34,7 +34,7 @@ try
 
     Console.WriteLine($"spir-v {spirv.Length} bytes, with spirv-opt required");
 
-    var dxil = Compile(global, new TargetOptions { Format = SlangCompileTarget.SLANG_DXIL }, "csMain", """
+    var dxil = Compile(global, new TargetOptions { Format = SlangCompileTarget.SLANG_DXIL, Profile = "sm_6_5" }, "csMain", """
         RWStructuredBuffer<float> output;
 
         [shader("compute")]

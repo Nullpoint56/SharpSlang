@@ -1,12 +1,12 @@
-// L3 — the walk itself.
+// The walk: a linked program's reflection read once into the immutable managed snapshot.
 //
-// Reads the native reflection tree once and builds the managed snapshot. Every native pointer used
-// here is borrowed from the LinkedProgram and must not outlive it, so none of them escape this
-// file: the only thing that leaves is immutable managed data.
+// Built on SharpSlang's public L2 reflection classes only (SlangShaderReflection, SlangTypeLayout,
+// SlangVariableLayout, ...; AGENTS.md#layers). Each of them borrows from the LinkedProgram and
+// throws once it is disposed, so none of them escapes this file: the only thing that leaves is
+// immutable managed data (AGENTS.md#reflection-snapshot).
 //
 // Cost is not a concern. These are O(1) reads over layout data Slang already computed, a few
-// thousand of them at load time — tens of microseconds, once. See AGENTS.md#reflection-snapshot for why that kills the
-// argument for batching this behind a C++ shim.
+// thousand of them at cook time, once per shader.
 
 using SharpSlang.Interop;
 using SharpSlang.Native;
@@ -14,7 +14,7 @@ using SharpSlang.Native;
 namespace SharpSlang.Reflection;
 
 /// <summary>Builds a <see cref="ProgramLayout"/> from a linked program.</summary>
-public static unsafe class ReflectionWalker
+public static class ReflectionWalker
 {
     /// <summary>Walks the reflection tree of a linked program for one target.</summary>
     /// <param name="program">A linked program. Must not be disposed.</param>
@@ -23,9 +23,7 @@ public static unsafe class ReflectionWalker
     {
         ArgumentNullException.ThrowIfNull(program);
 
-        var shader = (SlangProgramLayout*)program.GetLayout(targetIndex);
-        if (shader is null)
-            throw new SlangException(SlangResult.Fail, "getLayout returned no reflection", null);
+        var shader = program.GetLayout(targetIndex);
 
         // Types are shared across the tree (every `float` is the same TypeLayout*), so cache by
         // pointer. Also stops a cyclic or deeply-shared graph from exploding the walk.
@@ -33,10 +31,10 @@ public static unsafe class ReflectionWalker
 
         var parameters = new List<ShaderParameter>();
         var specializationConstants = new List<SpecializationConstant>();
-        var paramCount = SlangApi.spReflection_GetParameterCount(shader);
+        var paramCount = shader.ParameterCount;
         for (uint i = 0; i < paramCount; i++)
         {
-            var varLayout = SlangApi.spReflection_GetParameterByIndex(shader, i);
+            var varLayout = shader.GetParameterByIndex(i)!;
             var parameter = ReadParameter(varLayout, cache);
             parameters.Add(parameter);
 
@@ -45,17 +43,15 @@ public static unsafe class ReflectionWalker
         }
 
         var entryPoints = new List<EntryPointLayout>();
-        var epCount = SlangApi.spReflection_getEntryPointCount(shader);
+        var epCount = shader.EntryPointCount;
         for (ulong i = 0; i < epCount; i++)
-            entryPoints.Add(ReadEntryPoint(SlangApi.spReflection_getEntryPointByIndex(shader, i), cache));
+            entryPoints.Add(ReadEntryPoint(shader.GetEntryPointByIndex(i)!, cache));
 
         var hashed = new List<string>();
-        var hashedCount = SlangApi.spReflection_getHashedStringCount(shader);
+        var hashedCount = shader.HashedStringCount;
         for (ulong i = 0; i < hashedCount; i++)
         {
-            nuint len;
-            var s = SlangApi.spReflection_getHashedString(shader, (nuint)i, &len);
-            if (s is not null) hashed.Add(new string((sbyte*)s, 0, (int)len));
+            if (shader.GetHashedString(i) is { } s) hashed.Add(s);
         }
 
         return new ProgramLayout
@@ -64,10 +60,10 @@ public static unsafe class ReflectionWalker
             EntryPoints = entryPoints,
             DescriptorSets = MarkImplicitGlobalBuffer(
                 WithStageUsage(ReadDescriptorSets(shader), program, targetIndex, entryPoints),
-                SlangApi.spReflection_getGlobalConstantBufferSize(shader),
-                (uint)SlangApi.spReflection_getGlobalConstantBufferBinding(shader)),
-            GlobalConstantBufferSize = SlangApi.spReflection_getGlobalConstantBufferSize(shader),
-            GlobalConstantBufferBinding = (uint)SlangApi.spReflection_getGlobalConstantBufferBinding(shader),
+                shader.GlobalConstantBufferSize,
+                (uint)shader.GlobalConstantBufferBinding),
+            GlobalConstantBufferSize = (nuint)shader.GlobalConstantBufferSize,
+            GlobalConstantBufferBinding = (uint)shader.GlobalConstantBufferBinding,
             HashedStrings = hashed,
             SpecializationParameters = ReadSpecializationParameters(shader),
             SpecializationConstants = specializationConstants.OrderBy(c => c.ConstantId).ToList(),
@@ -76,30 +72,6 @@ public static unsafe class ReflectionWalker
         };
     }
 
-    /// <summary>
-    /// Fills in which stages read each descriptor range, from the per-entry-point metadata.
-    /// </summary>
-    /// <remarks>
-    /// <para>
-    /// The one fact in this snapshot that reflection cannot supply. Slang's global-scope view does
-    /// not attribute a parameter to the entry points that use it, which is why
-    /// the projections reported every stage on every binding for as long as it existed.
-    /// <c>IMetadata</c> knows, per entry point, whether the generated code touches a location — so
-    /// asking it once per stage per range produces the attribution the layout view lacks.
-    /// </para>
-    /// <para>
-    /// Done here rather than in the projection because the projection reads a snapshot and the
-    /// compiler is gone by then, and because a baked package should carry the answer rather than
-    /// recompute it. The cost is one native call per stage per range, all of them pointer
-    /// comparisons in Slang.
-    /// </para>
-    /// <para>
-    /// A range no stage claims keeps an empty list, which the projection reads as "every stage" —
-    /// see <c>DescriptorRange.Stages</c>. Failing to ask at all, on a target whose backend does not
-    /// track usage, does the same. Neither case narrows anything, which is the only safe direction:
-    /// omitting a stage that really reads the binding is a driver rejection.
-    /// </para>
-    /// </remarks>
     /// <summary>
     /// Labels the range that is the implicit buffer for loose global uniforms, when there is one.
     /// </summary>
@@ -118,7 +90,7 @@ public static unsafe class ReflectionWalker
     /// </remarks>
     private static List<DescriptorSet> MarkImplicitGlobalBuffer(
         List<DescriptorSet> sets,
-        nuint size,
+        ulong size,
         uint binding)
     {
         if (size == 0) return sets;
@@ -146,6 +118,28 @@ public static unsafe class ReflectionWalker
         return sets;
     }
 
+    /// <summary>
+    /// Fills in which stages read each descriptor range, from the per-entry-point metadata.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The one fact in this snapshot that reflection cannot supply. Slang's global-scope view does
+    /// not attribute a parameter to the entry points that use it. <c>IMetadata</c> knows, per entry
+    /// point, whether the generated code touches a location — so asking it once per stage per
+    /// range produces the attribution the layout view lacks.
+    /// </para>
+    /// <para>
+    /// Done here rather than in the projection because the projection reads a snapshot and the
+    /// compiler is gone by then, and because a baked package should carry the answer rather than
+    /// recompute it.
+    /// </para>
+    /// <para>
+    /// A range no stage claims keeps an empty list, which the projection reads as "every stage" —
+    /// see <c>DescriptorRange.Stages</c>. Failing to ask at all, on a target whose backend does not
+    /// track usage, does the same. Neither case narrows anything, which is the only safe direction:
+    /// omitting a stage that really reads the binding is a driver rejection.
+    /// </para>
+    /// </remarks>
     private static List<DescriptorSet> WithStageUsage(
         List<DescriptorSet> sets,
         LinkedProgram program,
@@ -165,8 +159,7 @@ public static unsafe class ReflectionWalker
                 }
                 catch (SlangException)
                 {
-                    // This target cannot answer. Leaving the lists empty means "every stage",
-                    // which is what the projection did before any of this existed.
+                    // This target cannot answer. Leaving the lists empty means "every stage".
                     return sets;
                 }
             }
@@ -209,43 +202,40 @@ public static unsafe class ReflectionWalker
     }
 
     /// <summary>The space reserved for a bindless heap, or null for the usual "there isn't one".</summary>
-    private static uint? BindlessSpace(SlangProgramLayout* shader)
+    private static uint? BindlessSpace(SlangShaderReflection shader)
     {
-        var index = SlangApi.spReflection_getBindlessSpaceIndex(shader);
+        var index = shader.BindlessSpaceIndex;
         return index < 0 ? null : (uint)index;
     }
 
     /// <summary>
     /// The global scope's sub-object ranges: which of its binding ranges are objects with bindings
-    /// of their own, and which space each took.
+    /// of their own.
     /// </summary>
-    private static List<SubObjectRange> ReadSubObjectRanges(SlangProgramLayout* shader)
+    private static List<SubObjectRange> ReadSubObjectRanges(SlangShaderReflection shader)
     {
         var result = new List<SubObjectRange>();
 
-        var globalScope = SlangApi.spReflection_getGlobalParamsTypeLayout(shader);
+        var globalScope = shader.GlobalParamsTypeLayout;
         if (globalScope is null) return result;
 
-        var count = SlangApi.spReflectionTypeLayout_getSubObjectRangeCount(globalScope);
+        var count = globalScope.SubObjectRangeCount;
         for (long i = 0; i < count; i++)
         {
-            var bindingRange = SlangApi.spReflectionTypeLayout_getSubObjectRangeBindingRangeIndex(globalScope, i);
+            var bindingRange = globalScope.GetSubObjectRangeBindingRangeIndex(i);
             if (bindingRange < 0) continue;
 
             // Not from getSubObjectRangeOffset. That returns a variable layout with no variable
             // behind it — measured on 2026.21, every name came back null — so the name comes from
             // the binding range it points at, which is the same object reached the other way.
-            var variable = SlangApi.spReflectionTypeLayout_getBindingRangeLeafVariable(
-                globalScope, bindingRange);
+            var variable = globalScope.GetBindingRangeLeafVariable(bindingRange);
 
             // No space here on purpose. getSubObjectRangeSpaceOffset reported 0 for a block
             // occupying set 1 and 0 for one occupying set 2, and getBindingRangeDescriptorSetIndex
             // reports 0 for both — it indexes the enclosing scope's own set list. Emitting either
             // as "the set" would be a wrong number in a field that looks authoritative, so the
             // record carries the name and the caller joins on DescriptorSets. See SubObjectRange.
-            result.Add(new SubObjectRange(
-                (uint)bindingRange,
-                variable is null ? null : Utf8.Read(SlangApi.spReflectionVariable_GetName(variable))));
+            result.Add(new SubObjectRange((uint)bindingRange, variable?.Name));
         }
 
         return result;
@@ -265,7 +255,7 @@ public static unsafe class ReflectionWalker
     /// both getters), so probing in the wrong order silently turns integers into floats.
     /// </remarks>
     private static SpecializationConstant ReadSpecializationConstant(
-        SlangReflectionVariableLayout* varLayout,
+        SlangVariableLayout varLayout,
         ShaderParameter parameter)
     {
         var scalar = parameter.Type is ScalarLayout s
@@ -274,8 +264,8 @@ public static unsafe class ReflectionWalker
 
         var id = parameter.Bindings[0].Index;
 
-        var variable = SlangApi.spReflectionVariableLayout_GetVariable(varLayout);
-        if (variable is null || SlangApi.spReflectionVariable_HasDefaultValue(variable) == 0)
+        var variable = varLayout.Variable;
+        if (variable is null || !variable.HasDefaultValue)
             return new SpecializationConstant(parameter.Name, id, scalar);
 
         var isFloat = scalar
@@ -285,14 +275,12 @@ public static unsafe class ReflectionWalker
 
         if (isFloat)
         {
-            float f;
-            return SlangResult.Succeeded(SlangApi.spReflectionVariable_GetDefaultValueFloat(variable, &f))
+            return variable.TryGetDefaultValueFloat(out var f)
                 ? new SpecializationConstant(parameter.Name, id, scalar, DefaultFloat: f)
                 : new SpecializationConstant(parameter.Name, id, scalar);
         }
 
-        long v;
-        return SlangResult.Succeeded(SlangApi.spReflectionVariable_GetDefaultValueInt(variable, &v))
+        return variable.TryGetDefaultValueInt(out var v)
             ? new SpecializationConstant(parameter.Name, id, scalar, DefaultInt: v)
             : new SpecializationConstant(parameter.Name, id, scalar);
     }
@@ -312,17 +300,17 @@ public static unsafe class ReflectionWalker
         var root = module.GetModuleReflection();
         return root is null
             ? new DeclarationNode(module.Name, DeclarationKind.Module, [])
-            : ReadDecl((SlangReflectionDecl*)root, module.Name, depth: 0);
+            : ReadDecl(root, module.Name, depth: 0);
     }
 
     // A module's tree is shallow in practice, but a generic's inner decl can point back at its
     // container, so cap the recursion rather than trusting the shape.
     private const int MaxDeclarationDepth = 32;
 
-    private static DeclarationNode ReadDecl(SlangReflectionDecl* decl, string? fallbackName, int depth)
+    private static DeclarationNode ReadDecl(SlangDecl decl, string? fallbackName, int depth)
     {
-        var name = Utf8.Read(SlangApi.spReflectionDecl_getName(decl)) ?? fallbackName ?? "";
-        var kind = SlangApi.spReflectionDecl_getKind(decl) switch
+        var name = decl.Name ?? fallbackName ?? "";
+        var kind = decl.Kind switch
         {
             SlangDeclKind.SLANG_DECL_KIND_MODULE => DeclarationKind.Module,
             SlangDeclKind.SLANG_DECL_KIND_STRUCT => DeclarationKind.Struct,
@@ -337,11 +325,10 @@ public static unsafe class ReflectionWalker
         var children = new List<DeclarationNode>();
         if (depth < MaxDeclarationDepth)
         {
-            var count = SlangApi.spReflectionDecl_getChildrenCount(decl);
+            var count = decl.ChildrenCount;
             for (uint i = 0; i < count; i++)
             {
-                var child = SlangApi.spReflectionDecl_getChild(decl, i);
-                if (child is not null) children.Add(ReadDecl(child, null, depth + 1));
+                if (decl.GetChild(i) is { } child) children.Add(ReadDecl(child, null, depth + 1));
             }
         }
 
@@ -352,25 +339,13 @@ public static unsafe class ReflectionWalker
         // the only way in: a variable declaration is a decl node like any other and its type is
         // not on the node.
         string? variableType = null;
-        if (kind == DeclarationKind.Variable)
-        {
-            var variable = SlangApi.spReflectionDecl_castToVariable(decl);
-            if (variable is not null)
-                variableType = FullTypeName(SlangApi.spReflectionVariable_GetType(variable));
-        }
+        if (kind == DeclarationKind.Variable && decl.CastToVariable() is { } variable)
+            variableType = FullTypeName(variable.Type);
 
         // Nesting, for a generic inside a generic.
         string? outerGeneric = null;
-        if (kind == DeclarationKind.Generic)
-        {
-            var generic = SlangApi.spReflectionDecl_castToGeneric(decl);
-            var outer = generic is null
-                ? null
-                : SlangApi.spReflectionGeneric_GetOuterGenericContainer(generic);
-
-            if (outer is not null)
-                outerGeneric = Utf8.Read(SlangApi.spReflectionGeneric_GetName(outer));
-        }
+        if (kind == DeclarationKind.Generic && decl.CastToGeneric()?.OuterGenericContainer is { } outer)
+            outerGeneric = outer.Name;
 
         return new DeclarationNode(
             name, kind, children, generics, function,
@@ -385,19 +360,19 @@ public static unsafe class ReflectionWalker
     /// compiler's nesting rather than this walk's. The module node at the root is dropped: every
     /// name would otherwise begin with it, which is noise.
     /// </remarks>
-    private static string QualifiedNameOf(SlangReflectionDecl* decl, string name)
+    private static string QualifiedNameOf(SlangDecl decl, string name)
     {
         var parts = new List<string> { name };
 
-        var parent = SlangApi.spReflectionDecl_getParent(decl);
+        var parent = decl.Parent;
         for (var depth = 0; parent is not null && depth < MaxDeclarationDepth; depth++)
         {
-            if (SlangApi.spReflectionDecl_getKind(parent) == SlangDeclKind.SLANG_DECL_KIND_MODULE) break;
+            if (parent.Kind == SlangDeclKind.SLANG_DECL_KIND_MODULE) break;
 
-            var parentName = Utf8.Read(SlangApi.spReflectionDecl_getName(parent));
+            var parentName = parent.Name;
             if (!string.IsNullOrEmpty(parentName)) parts.Add(parentName);
 
-            parent = SlangApi.spReflectionDecl_getParent(parent);
+            parent = parent.Parent;
         }
 
         parts.Reverse();
@@ -406,16 +381,16 @@ public static unsafe class ReflectionWalker
 
     /// <summary>Which of Slang's declaration modifiers this declaration carries.</summary>
     /// <remarks>
-    /// Same shape as <see cref="ModifiersOf(SlangReflectionFunction*)"/> and for the same reason:
-    /// there is no "list the modifiers" query, only one that answers about a single id.
+    /// There is no "list the modifiers" query, only one that answers about a single id, so each
+    /// is asked in turn.
     /// </remarks>
-    private static List<string>? ModifiersOfDecl(SlangReflectionDecl* decl)
+    private static List<string>? ModifiersOfDecl(SlangDecl decl)
     {
         List<string>? found = null;
 
         foreach (var id in Enum.GetValues<SlangModifierID>())
         {
-            if (SlangApi.spReflectionDecl_findModifier(decl, id) is null) continue;
+            if (decl.FindModifier(id) is null) continue;
             (found ??= []).Add(ModifierName(id));
         }
 
@@ -425,7 +400,7 @@ public static unsafe class ReflectionWalker
     /// <summary>
     /// The signature of a function reached by name rather than through the declaration tree.
     /// </summary>
-    internal static FunctionSignature ReadFunctionSignature(SlangReflectionFunction* function) =>
+    internal static FunctionSignature ReadFunctionSignature(SlangFunction function) =>
         ReadFunction(function, expandOverloads: true);
 
     /// <summary>
@@ -441,43 +416,42 @@ public static unsafe class ReflectionWalker
     /// and reports 0 here — as it does everywhere else this project has asked it, including on
     /// types written as <c>Wrapper&lt;Lambert&gt;</c> in source.
     /// </remarks>
-    internal static SpecializedType ReadSpecialization(
-        SlangProgramLayout* shader, SlangReflectionGeneric* specialized)
+    internal static SpecializedType ReadSpecialization(SlangShaderReflection shader, SlangGeneric specialized)
     {
         var bindings = new List<GenericArgumentBinding>();
 
-        var typeCount = SlangApi.spReflectionGeneric_GetTypeParameterCount(specialized);
+        var typeCount = specialized.TypeParameterCount;
         for (uint i = 0; i < typeCount; i++)
         {
-            var parameter = SlangApi.spReflectionGeneric_GetTypeParameter(specialized, i);
+            var parameter = specialized.GetTypeParameter(i);
             if (parameter is null) continue;
 
-            var concrete = SlangApi.spReflectionGeneric_GetConcreteType(specialized, parameter);
+            var concrete = specialized.GetConcreteType(parameter);
             bindings.Add(new GenericArgumentBinding(
-                Utf8.Read(SlangApi.spReflectionVariable_GetName(parameter)) ?? "",
+                parameter.Name ?? "",
                 GenericParameterKind.Type,
                 Type: concrete is null ? null : FullTypeName(concrete)));
         }
 
-        var valueCount = SlangApi.spReflectionGeneric_GetValueParameterCount(specialized);
+        var valueCount = specialized.ValueParameterCount;
         for (uint i = 0; i < valueCount; i++)
         {
-            var parameter = SlangApi.spReflectionGeneric_GetValueParameter(specialized, i);
+            var parameter = specialized.GetValueParameter(i);
             if (parameter is null) continue;
 
             bindings.Add(new GenericArgumentBinding(
-                Utf8.Read(SlangApi.spReflectionVariable_GetName(parameter)) ?? "",
+                parameter.Name ?? "",
                 GenericParameterKind.Value,
-                Value: SlangApi.spReflectionGeneric_GetConcreteIntVal(specialized, parameter)));
+                Value: specialized.GetConcreteIntVal(parameter)));
         }
 
-        var name = Utf8.Read(SlangApi.spReflectionGeneric_GetName(specialized)) ?? "<unnamed>";
-        var inner = SlangApi.spReflectionGeneric_GetInnerDecl(specialized);
+        var name = specialized.Name ?? "<unnamed>";
+        var inner = specialized.InnerDecl;
 
         // What the generic wraps. `struct Wrapper<T>` and `float3 shade<T>(…)` are both generics,
         // and the caller specialized one by name — so it has to be told which it got, rather than
         // being handed a null layout and left to infer.
-        var kind = SlangApi.spReflectionGeneric_GetInnerKind(specialized) switch
+        var kind = specialized.InnerKind switch
         {
             SlangDeclKind.SLANG_DECL_KIND_STRUCT => DeclarationKind.Struct,
             SlangDeclKind.SLANG_DECL_KIND_FUNC => DeclarationKind.Func,
@@ -494,14 +468,12 @@ public static unsafe class ReflectionWalker
             // A generic function's parameter types come back substituted rather than symbolic —
             // `shade(SgLambert m, vector<float,3> a)` rather than `shade(T m, vector<float,3> a)`.
             // That is the whole reason to specialize a function you are not going to call.
-            var function = inner is null ? null : SlangApi.spReflectionDecl_castToFunction(inner);
-            var applied = function is null
-                ? null
-                : SlangApi.spReflectionFunction_applySpecializations(function, specialized);
+            var function = inner?.CastToFunction();
+            var applied = function?.ApplySpecializations(specialized);
 
             // applySpecializations where it works, the unspecialized declaration where it does not
             // — a symbolic signature is more use than none, and the bindings say what it was given.
-            var resolved = applied is not null ? applied : function;
+            var resolved = applied ?? function;
             var signature = resolved is null
                 ? null
                 : ReadFunction(resolved, expandOverloads: false, substitute: specialized);
@@ -509,15 +481,12 @@ public static unsafe class ReflectionWalker
             return new SpecializedType(signature?.ToString() ?? name, bindings, null, kind, signature);
         }
 
-        var innerType = inner is null ? null : SlangApi.spReflection_getTypeFromDecl(inner);
-        var appliedType = innerType is null
-            ? null
-            : SlangApi.spReflectionType_applySpecializations(innerType, specialized);
+        var innerType = inner?.Type;
+        var appliedType = innerType?.ApplySpecializations(specialized);
 
         if (appliedType is null) return new SpecializedType(name, bindings, null, kind);
 
-        var typeLayout = SlangApi.spReflection_GetTypeLayout(
-            shader, appliedType, SlangLayoutRules.SLANG_LAYOUT_RULES_DEFAULT);
+        var typeLayout = shader.GetTypeLayout(appliedType, SlangLayoutRules.SLANG_LAYOUT_RULES_DEFAULT);
 
         return new SpecializedType(
             FullTypeName(appliedType),
@@ -527,11 +496,8 @@ public static unsafe class ReflectionWalker
     }
 
     /// <summary>The signature of a function declaration.</summary>
-    private static FunctionSignature? ReadFunction(SlangReflectionDecl* decl)
-    {
-        var function = SlangApi.spReflectionDecl_castToFunction(decl);
-        return function is null ? null : ReadFunction(function, expandOverloads: true);
-    }
+    private static FunctionSignature? ReadFunction(SlangDecl decl) =>
+        decl.CastToFunction() is { } function ? ReadFunction(function, expandOverloads: true) : null;
 
     /// <param name="function">The function to read.</param>
     /// <param name="expandOverloads">Whether an overloaded name is read as each of its overloads.</param>
@@ -548,27 +514,24 @@ public static unsafe class ReflectionWalker
     /// call left the signature symbolic.
     /// </remarks>
     private static FunctionSignature ReadFunction(
-        SlangReflectionFunction* function,
+        SlangFunction function,
         bool expandOverloads,
-        SlangReflectionGeneric* substitute = null)
+        SlangGeneric? substitute = null)
     {
-        var parameterCount = SlangApi.spReflectionFunction_GetParameterCount(function);
+        var parameterCount = function.ParameterCount;
         var parameters = new List<FunctionParameter>((int)parameterCount);
 
         for (uint i = 0; i < parameterCount; i++)
         {
-            var parameter = SlangApi.spReflectionFunction_GetParameter(function, i);
+            var parameter = function.GetParameter(i);
             if (parameter is null) continue;
 
-            if (substitute is not null)
-            {
-                var appliedVariable = SlangApi.spReflectionVariable_applySpecializations(parameter, substitute);
-                if (appliedVariable is not null) parameter = appliedVariable;
-            }
+            if (substitute is not null && parameter.ApplySpecializations(substitute) is { } appliedVariable)
+                parameter = appliedVariable;
 
             parameters.Add(new FunctionParameter(
-                Utf8.Read(SlangApi.spReflectionVariable_GetName(parameter)) ?? "",
-                FullTypeName(Substituted(SlangApi.spReflectionVariable_GetType(parameter), substitute)),
+                parameter.Name ?? "",
+                FullTypeName(Substituted(parameter.Type, substitute)),
                 DirectionOf(parameter),
                 ReadAttributes(parameter)));
         }
@@ -578,20 +541,19 @@ public static unsafe class ReflectionWalker
         // Expanding one level is enough — an overload is a concrete declaration and is not itself
         // overloaded — and the recursion is bounded by that flag rather than by trust.
         List<FunctionSignature>? overloads = null;
-        if (expandOverloads && SlangApi.spReflectionFunction_isOverloaded(function) != 0)
+        if (expandOverloads && function.IsOverloaded)
         {
-            var count = SlangApi.spReflectionFunction_getOverloadCount(function);
+            var count = function.OverloadCount;
             overloads = new List<FunctionSignature>((int)count);
             for (uint i = 0; i < count; i++)
             {
-                var overload = SlangApi.spReflectionFunction_getOverload(function, i);
-                if (overload is not null) overloads.Add(ReadFunction(overload, expandOverloads: false));
+                if (function.GetOverload(i) is { } overload) overloads.Add(ReadFunction(overload, expandOverloads: false));
             }
         }
 
         return new FunctionSignature(
-            Utf8.Read(SlangApi.spReflectionFunction_GetName(function)) ?? "",
-            FullTypeName(Substituted(SlangApi.spReflectionFunction_GetResultType(function), substitute)),
+            function.Name ?? "",
+            FullTypeName(Substituted(function.ResultType, substitute)),
             parameters,
             ModifiersOf(function),
             ReadFunctionAttributes(function),
@@ -599,12 +561,10 @@ public static unsafe class ReflectionWalker
     }
 
     /// <summary>The type with a specialization applied, where there is one to apply.</summary>
-    private static SlangReflectionType* Substituted(
-        SlangReflectionType* type, SlangReflectionGeneric* substitute)
+    private static SlangType? Substituted(SlangType? type, SlangGeneric? substitute)
     {
         if (type is null || substitute is null) return type;
-        var applied = SlangApi.spReflectionType_applySpecializations(type, substitute);
-        return applied is not null ? applied : type;
+        return type.ApplySpecializations(substitute) ?? type;
     }
 
     /// <summary>
@@ -615,27 +575,25 @@ public static unsafe class ReflectionWalker
     /// id — so this asks about each in turn. Eleven calls per function, all of them pointer
     /// comparisons in Slang, and the alternative is not reporting them.
     /// </remarks>
-    private static List<string>? ModifiersOf(SlangReflectionFunction* function)
+    private static List<string>? ModifiersOf(SlangFunction function)
     {
         List<string>? found = null;
 
         foreach (var id in Enum.GetValues<SlangModifierID>())
         {
-            if (SlangApi.spReflectionFunction_FindModifier(function, id) is null) continue;
+            if (function.FindModifier(id) is null) continue;
             (found ??= []).Add(ModifierName(id));
         }
 
         return found;
     }
 
-    private static ParameterDirection DirectionOf(SlangReflectionVariable* parameter)
+    private static ParameterDirection DirectionOf(SlangVariable parameter)
     {
         // Asked in this order because `inout` is its own id rather than the two flags together,
         // and a parameter that is `out` is not also `in`.
-        if (SlangApi.spReflectionVariable_FindModifier(parameter, SlangModifierID.SLANG_MODIFIER_INOUT) is not null)
-            return ParameterDirection.InOut;
-        if (SlangApi.spReflectionVariable_FindModifier(parameter, SlangModifierID.SLANG_MODIFIER_OUT) is not null)
-            return ParameterDirection.Out;
+        if (parameter.FindModifier(SlangModifierID.SLANG_MODIFIER_INOUT) is not null) return ParameterDirection.InOut;
+        if (parameter.FindModifier(SlangModifierID.SLANG_MODIFIER_OUT) is not null) return ParameterDirection.Out;
         return ParameterDirection.In;
     }
 
@@ -647,37 +605,30 @@ public static unsafe class ReflectionWalker
     /// A type's full name, generic arguments included.
     /// </summary>
     /// <remarks>
-    /// <c>GetFullName</c> writes into a blob the caller owns, unlike <c>GetName</c> which returns
-    /// an interior pointer. It is the one worth having: <c>GetName</c> reports
+    /// <c>GetFullName</c> is the one worth having: <c>GetName</c> reports
     /// <c>StructuredBuffer</c> where a signature check needs
     /// <c>StructuredBuffer&lt;float4&gt;</c>. Falls back to the short name, then to <c>void</c>,
     /// which is what a null result type means.
     /// </remarks>
-    private static string FullTypeName(SlangReflectionType* type)
+    internal static string FullTypeName(SlangType? type)
     {
         if (type is null) return "void";
 
-        ISlangBlob* blob = null;
-        if (SlangResult.Succeeded(SlangApi.spReflectionType_GetFullName(type, &blob)) && blob is not null)
-        {
-            using var owned = new SlangBlob(blob);
-            var text = owned.AsText();
-            if (!string.IsNullOrEmpty(text)) return text;
-        }
+        var text = type.FullName;
+        if (!string.IsNullOrEmpty(text)) return text;
 
-        return Utf8.Read(SlangApi.spReflectionType_GetName(type)) ?? "void";
+        return type.DeclaredName ?? "void";
     }
 
-    private static List<UserAttribute>? ReadFunctionAttributes(SlangReflectionFunction* function)
+    private static List<UserAttribute>? ReadFunctionAttributes(SlangFunction function)
     {
-        var count = SlangApi.spReflectionFunction_GetUserAttributeCount(function);
+        var count = function.UserAttributeCount;
         if (count == 0) return null;
 
         var attributes = new List<UserAttribute>((int)count);
         for (uint i = 0; i < count; i++)
         {
-            var attr = SlangApi.spReflectionFunction_GetUserAttribute(function, i);
-            if (attr is not null) attributes.Add(ReadAttribute(attr));
+            if (function.GetUserAttribute(i) is { } attr) attributes.Add(ReadAttribute(attr));
         }
 
         return attributes.Count > 0 ? attributes : null;
@@ -691,47 +642,36 @@ public static unsafe class ReflectionWalker
     /// type parameters exclusively, so <c>struct Buffer&lt;let N : int&gt;</c> is invisible there
     /// and reachable only through the generic's own reflection.
     /// </remarks>
-    private static List<GenericParameter>? ReadGenericParameters(SlangReflectionDecl* decl)
+    private static List<GenericParameter>? ReadGenericParameters(SlangDecl decl)
     {
-        var generic = SlangApi.spReflectionDecl_castToGeneric(decl);
+        var generic = decl.CastToGeneric();
         if (generic is null) return null;
 
         var result = new List<GenericParameter>();
 
-        var typeCount = SlangApi.spReflectionGeneric_GetTypeParameterCount(generic);
+        var typeCount = generic.TypeParameterCount;
         for (uint i = 0; i < typeCount; i++)
         {
-            var param = SlangApi.spReflectionGeneric_GetTypeParameter(generic, i);
+            var param = generic.GetTypeParameter(i);
             if (param is null) continue;
 
             var constraints = new List<string>();
-            var constraintCount =
-                SlangApi.spReflectionGeneric_GetTypeParameterConstraintCount(generic, param);
+            var constraintCount = generic.GetTypeParameterConstraintCount(param);
             for (uint k = 0; k < constraintCount; k++)
             {
-                var constraint =
-                    SlangApi.spReflectionGeneric_GetTypeParameterConstraintType(generic, param, k);
-                if (constraint is null) continue;
-                var n = Utf8.Read(SlangApi.spReflectionType_GetName(constraint));
-                if (n is not null) constraints.Add(n);
+                if (generic.GetTypeParameterConstraintType(param, k)?.DeclaredName is { } n) constraints.Add(n);
             }
 
-            result.Add(new GenericParameter(
-                Utf8.Read(SlangApi.spReflectionVariable_GetName(param)) ?? "",
-                GenericParameterKind.Type,
-                constraints));
+            result.Add(new GenericParameter(param.Name ?? "", GenericParameterKind.Type, constraints));
         }
 
-        var valueCount = SlangApi.spReflectionGeneric_GetValueParameterCount(generic);
+        var valueCount = generic.ValueParameterCount;
         for (uint i = 0; i < valueCount; i++)
         {
-            var param = SlangApi.spReflectionGeneric_GetValueParameter(generic, i);
+            var param = generic.GetValueParameter(i);
             if (param is null) continue;
 
-            result.Add(new GenericParameter(
-                Utf8.Read(SlangApi.spReflectionVariable_GetName(param)) ?? "",
-                GenericParameterKind.Value,
-                []));
+            result.Add(new GenericParameter(param.Name ?? "", GenericParameterKind.Value, []));
         }
 
         return result.Count > 0 ? result : null;
@@ -740,27 +680,24 @@ public static unsafe class ReflectionWalker
     /// <summary>
     /// The program's unbound generic parameters and the interfaces they must satisfy.
     /// </summary>
-    private static List<SpecializationParameter> ReadSpecializationParameters(SlangProgramLayout* shader)
+    private static List<SpecializationParameter> ReadSpecializationParameters(SlangShaderReflection shader)
     {
         var result = new List<SpecializationParameter>();
-        var count = SlangApi.spReflection_GetTypeParameterCount(shader);
+        var count = shader.TypeParameterCount;
 
         for (uint i = 0; i < count; i++)
         {
-            var param = SlangApi.spReflection_GetTypeParameterByIndex(shader, i);
+            var param = shader.GetTypeParameterByIndex(i);
             if (param is null) continue;
 
             var constraints = new List<string>();
-            var constraintCount = SlangApi.spReflectionTypeParameter_GetConstraintCount(param);
+            var constraintCount = param.ConstraintCount;
             for (uint k = 0; k < constraintCount; k++)
             {
-                var constraint = SlangApi.spReflectionTypeParameter_GetConstraintByIndex(param, k);
-                if (constraint is null) continue;
-                var n = Utf8.Read(SlangApi.spReflectionType_GetName(constraint));
-                if (n is not null) constraints.Add(n);
+                if (param.GetConstraintByIndex(k)?.DeclaredName is { } n) constraints.Add(n);
             }
 
-            var name = Utf8.Read(SlangApi.spReflectionTypeParameter_GetName(param));
+            var name = param.Name;
 
             // Measured against slang-compiler 2026.21, because the two cases are not
             // distinguished by any flag:
@@ -769,7 +706,7 @@ public static unsafe class ReflectionWalker
             // The second is an interface-typed shader parameter, where the concrete type arrives
             // at bind time rather than at specialisation time. Name presence is the discriminator.
             result.Add(new SpecializationParameter(
-                (int)SlangApi.spReflectionTypeParameter_GetIndex(param),
+                (int)param.Index,
                 name,
                 string.IsNullOrEmpty(name)
                     ? SpecializationParameterKind.Existential
@@ -782,61 +719,54 @@ public static unsafe class ReflectionWalker
 
     // ---------------------------------------------------------------- parameters and entry points
 
-    private static ShaderParameter ReadParameter(
-        SlangReflectionVariableLayout* varLayout,
-        Dictionary<nint, TypeLayout> cache)
+    private static ShaderParameter ReadParameter(SlangVariableLayout varLayout, Dictionary<nint, TypeLayout> cache)
     {
-        var variable = SlangApi.spReflectionVariableLayout_GetVariable(varLayout);
-        var typeLayout = SlangApi.spReflectionVariableLayout_GetTypeLayout(varLayout);
+        var variable = varLayout.Variable;
+        var typeLayout = varLayout.TypeLayout;
 
-        var name = Utf8.Read(SlangApi.spReflectionVariable_GetName(variable)) ?? "<unnamed>";
-        var semantic = Utf8.Read(SlangApi.spReflectionVariableLayout_GetSemanticName(varLayout));
+        var name = variable?.Name ?? "<unnamed>";
 
         return new ShaderParameter(
             name,
             ReadTypeLayout(typeLayout, cache),
             ReadBindings(varLayout, typeLayout),
-            semantic,
-            (uint)SlangApi.spReflectionVariableLayout_GetSemanticIndex(varLayout),
+            varLayout.SemanticName,
+            (uint)varLayout.SemanticIndex,
             ReadAttributes(variable),
-            SlangApi.spReflectionVariableLayout_getStage(varLayout));
+            varLayout.Stage);
     }
 
     /// <summary>
     /// A parameter can occupy several categories at once, so read the offset in each one the type
     /// layout reports rather than assuming a single binding.
     /// </summary>
-    private static List<ParameterBinding> ReadBindings(
-        SlangReflectionVariableLayout* varLayout,
-        SlangReflectionTypeLayout* typeLayout)
+    private static List<ParameterBinding> ReadBindings(SlangVariableLayout varLayout, SlangTypeLayout? typeLayout)
     {
         var result = new List<ParameterBinding>();
-        var categories = SlangApi.spReflectionTypeLayout_GetCategoryCount(typeLayout);
+        if (typeLayout is null) return result;
 
+        var categories = typeLayout.CategoryCount;
         for (uint c = 0; c < categories; c++)
         {
-            var category = SlangApi.spReflectionTypeLayout_GetCategoryByIndex(typeLayout, c);
+            var category = typeLayout.GetCategoryByIndex(c);
             result.Add(new ParameterBinding(
                 category,
-                (uint)SlangApi.spReflectionVariableLayout_GetOffset(varLayout, category),
-                (uint)SlangApi.spReflectionVariableLayout_GetSpace(varLayout, category)));
+                (uint)varLayout.GetOffset(category),
+                (uint)varLayout.GetSpace(category)));
         }
 
         return result;
     }
 
-    private static EntryPointLayout ReadEntryPoint(
-        SlangEntryPointLayout* ep,
-        Dictionary<nint, TypeLayout> cache)
+    private static EntryPointLayout ReadEntryPoint(SlangEntryPointReflection ep, Dictionary<nint, TypeLayout> cache)
     {
-        var name = Utf8.Read(SlangApi.spReflectionEntryPoint_getName(ep)) ?? "<unnamed>";
-        var stage = SlangApi.spReflectionEntryPoint_getStage(ep);
+        var name = ep.Name ?? "<unnamed>";
+        var stage = ep.Stage;
 
         var parameters = new List<ShaderParameter>();
-        var count = SlangApi.spReflectionEntryPoint_getParameterCount(ep);
-        for (ulong i = 0; i < count; i++)
-            parameters.Add(ReadParameter(
-                SlangApi.spReflectionEntryPoint_getParameterByIndex(ep, (uint)i), cache));
+        var count = ep.ParameterCount;
+        for (uint i = 0; i < count; i++)
+            parameters.Add(ReadParameter(ep.GetParameterByIndex(i)!, cache));
 
         // Mesh and amplification are dispatched in workgroups too, and declare one with
         // [numthreads] exactly as compute does — the module emits OpExecutionMode LocalSize for all
@@ -847,51 +777,39 @@ public static unsafe class ReflectionWalker
                   or SlangStage.SLANG_STAGE_MESH
                   or SlangStage.SLANG_STAGE_AMPLIFICATION)
         {
-            var dims = stackalloc ulong[3];
-            SlangApi.spReflectionEntryPoint_getComputeThreadGroupSize(ep, 3, dims);
+            Span<ulong> dims = stackalloc ulong[3];
+            ep.GetComputeThreadGroupSize(dims);
             threadGroup = new ThreadGroupSize(dims[0], dims[1], dims[2]);
         }
 
         TypeLayout? resultType = null;
-        var resultVar = SlangApi.spReflectionEntryPoint_getResultVarLayout(ep);
-        if (resultVar is not null)
-        {
-            var tl = SlangApi.spReflectionVariableLayout_GetTypeLayout(resultVar);
-            if (tl is not null) resultType = ReadTypeLayout(tl, cache);
-        }
+        if (ep.ResultVarLayout?.TypeLayout is { } tl) resultType = ReadTypeLayout(tl, cache);
 
         // Where this entry point's own parameter block sits in the global numbering, and how much
         // uniform data it carries. Both are needed to place `uniform` entry-point parameters,
         // which report their offsets relative to this block rather than absolutely.
         List<ParameterBinding>? parameterBase = null;
         ulong uniformSize = 0;
-        var epVarLayout = SlangApi.spReflectionEntryPoint_getVarLayout(ep);
-        if (epVarLayout is not null)
+        var epVarLayout = ep.VarLayout;
+        if (epVarLayout?.TypeLayout is { } epTypeLayout)
         {
-            var epTypeLayout = SlangApi.spReflectionVariableLayout_GetTypeLayout(epVarLayout);
-            if (epTypeLayout is not null)
-            {
-                parameterBase = ReadBindings(epVarLayout, epTypeLayout);
+            parameterBase = ReadBindings(epVarLayout, epTypeLayout);
 
-                // The entry point's block is a constant buffer wrapping a struct, and the wrapper
-                // reports a uniform size of 0 — the bytes are on the element. Reading the wrapper
-                // says an entry point with `uniform float4 tint` needs no push constants at all.
-                var element = SlangApi.spReflectionTypeLayout_GetElementTypeLayout(epTypeLayout);
-                uniformSize = SlangApi.spReflectionTypeLayout_GetSize(
-                    element is not null ? element : epTypeLayout,
-                    SlangParameterCategory.SLANG_PARAMETER_CATEGORY_UNIFORM);
-            }
+            // The entry point's block is a constant buffer wrapping a struct, and the wrapper
+            // reports a uniform size of 0 — the bytes are on the element. Reading the wrapper
+            // says an entry point with `uniform float4 tint` needs no push constants at all.
+            var element = epTypeLayout.ElementTypeLayout ?? epTypeLayout;
+            uniformSize = element.GetSize(SlangParameterCategory.SLANG_PARAMETER_CATEGORY_UNIFORM);
         }
 
         // Slang writes 0 when the entry point declared no [WaveSize(N)], and 0 threads per wave is
         // not a thing — so null is the honest projection, the same reasoning as ThreadGroupSize's
         // specialized dimensions.
-        ulong waveSize;
-        SlangApi.spReflectionEntryPoint_getComputeWaveSize(ep, &waveSize);
+        var waveSize = ep.ComputeWaveSize;
 
         // Null rather than a repeat of Name. A caller wants to know that the module calls this
         // entry point something else, and an override equal to the name is not that.
-        var nameOverride = Utf8.Read(SlangApi.spReflectionEntryPoint_getNameOverride(ep));
+        var nameOverride = ep.NameOverride;
         if (string.Equals(nameOverride, name, StringComparison.Ordinal)) nameOverride = null;
 
         return new EntryPointLayout(
@@ -899,26 +817,14 @@ public static unsafe class ReflectionWalker
             stage,
             parameters,
             threadGroup,
-            SlangApi.spReflectionEntryPoint_usesAnySampleRateInput(ep) != 0,
+            ep.UsesAnySampleRateInput,
             resultType,
             parameterBase,
             uniformSize,
             nameOverride,
             waveSize == 0 ? null : waveSize,
-            SlangApi.spReflectionEntryPoint_hasDefaultConstantBuffer(ep) != 0,
-            ReadEntryPointFunction(ep));
-    }
-
-    /// <summary>The entry point read as an ordinary function declaration.</summary>
-    /// <remarks>
-    /// A different question from the one the rest of this method answers. The layout describes the
-    /// pipeline interface; this describes the declaration — modifiers, user attributes, and the
-    /// source-level result type rather than the varying it becomes.
-    /// </remarks>
-    private static FunctionSignature? ReadEntryPointFunction(SlangEntryPointLayout* ep)
-    {
-        var function = SlangApi.spReflectionEntryPoint_getFunction(ep);
-        return function is null ? null : ReadFunction(function, expandOverloads: false);
+            ep.HasDefaultConstantBuffer,
+            ep.Function is { } function ? ReadFunction(function, expandOverloads: false) : null);
     }
 
     // ---------------------------------------------------------------- descriptor sets
@@ -941,24 +847,16 @@ public static unsafe class ReflectionWalker
     /// So the walk has to recurse and add the offsets. Reading only the global scope silently
     /// loses every binding inside a parameter block.
     /// </remarks>
-    private static List<DescriptorSet> ReadDescriptorSets(SlangProgramLayout* shader)
+    private static List<DescriptorSet> ReadDescriptorSets(SlangShaderReflection shader)
     {
         var bySpace = new SortedDictionary<uint, List<DescriptorRange>>();
 
-        var globalScope = SlangApi.spReflection_getGlobalParamsTypeLayout(shader);
-        if (globalScope is not null) CollectSets(globalScope, baseSpace: 0, bySpace);
+        if (shader.GlobalParamsTypeLayout is { } globalScope) CollectSets(globalScope, baseSpace: 0, bySpace);
 
         CollectEntryPointSets(shader, bySpace);
 
-        var paramCount = SlangApi.spReflection_GetParameterCount(shader);
-        for (uint i = 0; i < paramCount; i++)
-        {
-            var varLayout = SlangApi.spReflection_GetParameterByIndex(shader, i);
-            var typeLayout = SlangApi.spReflectionVariableLayout_GetTypeLayout(varLayout);
-            if (typeLayout is null) continue;
-
+        foreach (var (varLayout, typeLayout) in Parameters(shader))
             CollectSpaces(varLayout, typeLayout, parentSpace: 0, bySpace);
-        }
 
         RelocateExplicitlySpacedParameters(shader, bySpace);
         AddUncoveredParameters(shader, bySpace);
@@ -967,6 +865,17 @@ public static unsafe class ReflectionWalker
             .Where(kv => kv.Value.Count > 0)
             .Select(kv => new DescriptorSet(kv.Key, kv.Value))
             .ToList();
+    }
+
+    /// <summary>The global parameters that have a type layout, with it.</summary>
+    private static IEnumerable<(SlangVariableLayout Variable, SlangTypeLayout Type)> Parameters(SlangShaderReflection shader)
+    {
+        var paramCount = shader.ParameterCount;
+        for (uint i = 0; i < paramCount; i++)
+        {
+            var varLayout = shader.GetParameterByIndex(i)!;
+            if (varLayout.TypeLayout is { } typeLayout) yield return (varLayout, typeLayout);
+        }
     }
 
     /// <summary>
@@ -996,25 +905,20 @@ public static unsafe class ReflectionWalker
     /// </para>
     /// </remarks>
     private static void RelocateExplicitlySpacedParameters(
-        SlangProgramLayout* shader,
+        SlangShaderReflection shader,
         SortedDictionary<uint, List<DescriptorRange>> bySpace)
     {
-        var paramCount = SlangApi.spReflection_GetParameterCount(shader);
-        for (uint i = 0; i < paramCount; i++)
+        foreach (var (varLayout, typeLayout) in Parameters(shader))
         {
-            var varLayout = SlangApi.spReflection_GetParameterByIndex(shader, i);
-            var typeLayout = SlangApi.spReflectionVariableLayout_GetTypeLayout(varLayout);
-            if (typeLayout is null) continue;
             if (SubElementSpace(varLayout, typeLayout) is not null) continue;
 
-            var variable = SlangApi.spReflectionVariableLayout_GetVariable(varLayout);
-            var name = variable is null ? null : Utf8.Read(SlangApi.spReflectionVariable_GetName(variable));
+            var name = varLayout.Variable?.Name;
             if (name is null) continue;
 
-            var categories = SlangApi.spReflectionTypeLayout_GetCategoryCount(typeLayout);
+            var categories = typeLayout.CategoryCount;
             for (uint c = 0; c < categories; c++)
             {
-                var category = SlangApi.spReflectionTypeLayout_GetCategoryByIndex(typeLayout, c);
+                var category = typeLayout.GetCategoryByIndex(c);
                 if (category is not (SlangParameterCategory.SLANG_PARAMETER_CATEGORY_DESCRIPTOR_TABLE_SLOT
                                      or SlangParameterCategory.SLANG_PARAMETER_CATEGORY_CONSTANT_BUFFER
                                      or SlangParameterCategory.SLANG_PARAMETER_CATEGORY_SHADER_RESOURCE
@@ -1024,8 +928,8 @@ public static unsafe class ReflectionWalker
                     continue;
                 }
 
-                var space = (uint)SlangApi.spReflectionVariableLayout_GetSpace(varLayout, category);
-                var index = (uint)SlangApi.spReflectionVariableLayout_GetOffset(varLayout, category);
+                var space = (uint)varLayout.GetSpace(category);
+                var index = (uint)varLayout.GetOffset(category);
 
                 foreach (var (otherSpace, ranges) in bySpace)
                 {
@@ -1056,6 +960,7 @@ public static unsafe class ReflectionWalker
     /// The space of whatever encloses this. Sub-element offsets are relative, so the absolute space
     /// is the running sum down the chain.
     /// </param>
+    /// <param name="bySpace">The ranges found so far, by space, added to in place.</param>
     /// <remarks>
     /// <para>
     /// Recursive because the nesting is, and the recursion used to stop after one level.
@@ -1075,10 +980,9 @@ public static unsafe class ReflectionWalker
     /// the same block.
     /// </para>
     /// </remarks>
-    /// <param name="bySpace">The ranges found so far, by space, added to in place.</param>
     private static void CollectSpaces(
-        SlangReflectionVariableLayout* varLayout,
-        SlangReflectionTypeLayout* typeLayout,
+        SlangVariableLayout varLayout,
+        SlangTypeLayout typeLayout,
         uint parentSpace,
         SortedDictionary<uint, List<DescriptorRange>> bySpace)
     {
@@ -1088,13 +992,13 @@ public static unsafe class ReflectionWalker
 
         var space = parentSpace + offset;
 
-        if (SlangApi.spReflectionTypeLayout_getKind(typeLayout) == SlangTypeKind.SLANG_TYPE_KIND_STRUCT)
+        if (typeLayout.Kind == SlangTypeKind.SLANG_TYPE_KIND_STRUCT)
         {
             CollectNestedSpaces(typeLayout, space, bySpace);
             return;
         }
 
-        var element = SlangApi.spReflectionTypeLayout_GetElementTypeLayout(typeLayout);
+        var element = typeLayout.ElementTypeLayout;
 
         // A parameter block's own uniform data becomes an implicit constant buffer, and that
         // descriptor lives on the *container* var layout rather than in the element's descriptor
@@ -1109,21 +1013,17 @@ public static unsafe class ReflectionWalker
 
     /// <summary>Walks a struct's fields for anything that introduces a space of its own.</summary>
     private static void CollectNestedSpaces(
-        SlangReflectionTypeLayout* structLayout,
+        SlangTypeLayout structLayout,
         uint space,
         SortedDictionary<uint, List<DescriptorRange>> bySpace)
     {
-        if (SlangApi.spReflectionTypeLayout_getKind(structLayout) != SlangTypeKind.SLANG_TYPE_KIND_STRUCT)
-            return;
+        if (structLayout.Kind != SlangTypeKind.SLANG_TYPE_KIND_STRUCT) return;
 
-        var fields = SlangApi.spReflectionTypeLayout_GetFieldCount(structLayout);
+        var fields = structLayout.FieldCount;
         for (uint f = 0; f < fields; f++)
         {
-            var fieldVar = SlangApi.spReflectionTypeLayout_GetFieldByIndex(structLayout, f);
-            if (fieldVar is null) continue;
-
-            var fieldType = SlangApi.spReflectionVariableLayout_GetTypeLayout(fieldVar);
-            if (fieldType is not null) CollectSpaces(fieldVar, fieldType, space, bySpace);
+            var fieldVar = structLayout.GetFieldByIndex(f);
+            if (fieldVar?.TypeLayout is { } fieldType) CollectSpaces(fieldVar, fieldType, space, bySpace);
         }
     }
 
@@ -1155,38 +1055,30 @@ public static unsafe class ReflectionWalker
     /// </para>
     /// </remarks>
     private static void AddUncoveredParameters(
-        SlangProgramLayout* shader,
+        SlangShaderReflection shader,
         SortedDictionary<uint, List<DescriptorRange>> bySpace)
     {
         const SlangParameterCategory Slot =
             SlangParameterCategory.SLANG_PARAMETER_CATEGORY_DESCRIPTOR_TABLE_SLOT;
 
-        var paramCount = SlangApi.spReflection_GetParameterCount(shader);
-        for (uint i = 0; i < paramCount; i++)
+        foreach (var (varLayout, typeLayout) in Parameters(shader))
         {
-            var varLayout = SlangApi.spReflection_GetParameterByIndex(shader, i);
-            var typeLayout = SlangApi.spReflectionVariableLayout_GetTypeLayout(varLayout);
-            if (typeLayout is null) continue;
-
             // A parameter block lives in its own space; its contents were collected by recursing.
             if (SubElementSpace(varLayout, typeLayout) is not null) continue;
 
-            var slots = SlangApi.spReflectionTypeLayout_GetSize(typeLayout, Slot);
+            var slots = typeLayout.GetSize(Slot);
             if (slots == 0) continue;
 
-            var space = (uint)SlangApi.spReflectionVariableLayout_GetSpace(varLayout, Slot);
-            var index = (uint)SlangApi.spReflectionVariableLayout_GetOffset(varLayout, Slot);
+            var space = (uint)varLayout.GetSpace(Slot);
+            var index = (uint)varLayout.GetOffset(Slot);
 
             if (!bySpace.TryGetValue(space, out var ranges)) bySpace[space] = ranges = [];
             if (ranges.Any(r => Covers(r, index))) continue;
 
-            var type = SlangApi.spReflectionTypeLayout_GetType(typeLayout);
+            var type = typeLayout.Type;
             var shape = type is null
                 ? SlangResourceShape.SLANG_RESOURCE_NONE
-                : SlangApi.spReflectionType_GetResourceShape(type)
-                  & SlangResourceShape.SLANG_RESOURCE_BASE_SHAPE_MASK;
-
-            var variable = SlangApi.spReflectionVariableLayout_GetVariable(varLayout);
+                : type.ResourceShape & SlangResourceShape.SLANG_RESOURCE_BASE_SHAPE_MASK;
 
             ranges.Add(new DescriptorRange(
                 shape == SlangResourceShape.SLANG_TEXTURE_SUBPASS
@@ -1195,7 +1087,7 @@ public static unsafe class ReflectionWalker
                 index,
                 (uint)slots,
                 Slot,
-                Name: variable is null ? null : Utf8.Read(SlangApi.spReflectionVariable_GetName(variable)),
+                Name: varLayout.Variable?.Name,
                 InputAttachmentIndex: SubpassIndex(varLayout, typeLayout)));
         }
 
@@ -1206,21 +1098,13 @@ public static unsafe class ReflectionWalker
     }
 
     /// <summary>The <c>SUBPASS</c> category offset — the module's input attachment index.</summary>
-    private static uint? SubpassIndex(
-        SlangReflectionVariableLayout* varLayout,
-        SlangReflectionTypeLayout* typeLayout)
+    private static uint? SubpassIndex(SlangVariableLayout varLayout, SlangTypeLayout typeLayout)
     {
-        var categories = SlangApi.spReflectionTypeLayout_GetCategoryCount(typeLayout);
+        var categories = typeLayout.CategoryCount;
         for (uint c = 0; c < categories; c++)
         {
-            if (SlangApi.spReflectionTypeLayout_GetCategoryByIndex(typeLayout, c)
-                != SlangParameterCategory.SLANG_PARAMETER_CATEGORY_SUBPASS)
-            {
-                continue;
-            }
-
-            return (uint)SlangApi.spReflectionVariableLayout_GetOffset(
-                varLayout, SlangParameterCategory.SLANG_PARAMETER_CATEGORY_SUBPASS);
+            if (typeLayout.GetCategoryByIndex(c) != SlangParameterCategory.SLANG_PARAMETER_CATEGORY_SUBPASS) continue;
+            return (uint)varLayout.GetOffset(SlangParameterCategory.SLANG_PARAMETER_CATEGORY_SUBPASS);
         }
         return null;
     }
@@ -1243,23 +1127,16 @@ public static unsafe class ReflectionWalker
     /// bindings 3 and 4, exactly matching the module's decorations.
     /// </remarks>
     private static void CollectEntryPointSets(
-        SlangProgramLayout* shader,
+        SlangShaderReflection shader,
         SortedDictionary<uint, List<DescriptorRange>> bySpace)
     {
-        var count = SlangApi.spReflection_getEntryPointCount(shader);
+        var count = shader.EntryPointCount;
         for (ulong e = 0; e < count; e++)
         {
-            var ep = SlangApi.spReflection_getEntryPointByIndex(shader, e);
-            if (ep is null) continue;
+            var varLayout = shader.GetEntryPointByIndex(e)?.VarLayout;
+            if (varLayout?.TypeLayout is not { } typeLayout) continue;
 
-            var varLayout = SlangApi.spReflectionEntryPoint_getVarLayout(ep);
-            if (varLayout is null) continue;
-
-            var typeLayout = SlangApi.spReflectionVariableLayout_GetTypeLayout(varLayout);
-            if (typeLayout is null) continue;
-
-            var baseSpace = (uint)SlangApi.spReflectionVariableLayout_GetSpace(
-                varLayout, SlangParameterCategory.SLANG_PARAMETER_CATEGORY_DESCRIPTOR_TABLE_SLOT);
+            var baseSpace = (uint)varLayout.GetSpace(SlangParameterCategory.SLANG_PARAMETER_CATEGORY_DESCRIPTOR_TABLE_SLOT);
 
             CollectSets(typeLayout, baseSpace, bySpace, varLayout);
         }
@@ -1273,29 +1150,29 @@ public static unsafe class ReflectionWalker
     /// Null for the global scope, whose ranges are already absolute.
     /// </param>
     private static void CollectSets(
-        SlangReflectionTypeLayout* tl,
+        SlangTypeLayout tl,
         uint baseSpace,
         SortedDictionary<uint, List<DescriptorRange>> bySpace,
-        SlangReflectionVariableLayout* rebase = null)
+        SlangVariableLayout? rebase = null)
     {
         var leaves = ReadBindingRanges(tl);
 
-        var setCount = SlangApi.spReflectionTypeLayout_getDescriptorSetCount(tl);
+        var setCount = tl.DescriptorSetCount;
         for (long s = 0; s < setCount; s++)
         {
-            var space = baseSpace + (uint)SlangApi.spReflectionTypeLayout_getDescriptorSetSpaceOffset(tl, s);
+            var space = baseSpace + (uint)tl.GetDescriptorSetSpaceOffset(s);
             if (!bySpace.TryGetValue(space, out var ranges))
                 bySpace[space] = ranges = [];
 
-            var rangeCount = SlangApi.spReflectionTypeLayout_getDescriptorSetDescriptorRangeCount(tl, s);
+            var rangeCount = tl.GetDescriptorSetDescriptorRangeCount(s);
             for (long r = 0; r < rangeCount; r++)
             {
-                var category = SlangApi.spReflectionTypeLayout_getDescriptorSetDescriptorRangeCategory(tl, s, r);
-                var index = (uint)SlangApi.spReflectionTypeLayout_getDescriptorSetDescriptorRangeIndexOffset(tl, s, r);
-                var count = SlangApi.spReflectionTypeLayout_getDescriptorSetDescriptorRangeDescriptorCount(tl, s, r);
+                var category = tl.GetDescriptorSetDescriptorRangeCategory(s, r);
+                var index = (uint)tl.GetDescriptorSetDescriptorRangeIndexOffset(s, r);
+                var count = tl.GetDescriptorSetDescriptorRangeDescriptorCount(s, r);
 
                 if (rebase is not null)
-                    index += (uint)SlangApi.spReflectionVariableLayout_GetOffset(rebase, category);
+                    index += (uint)rebase.GetOffset(category);
 
                 // -1 as a SlangInt is how Slang reports "runtime-sized". It is not a count and
                 // must not be handed to Vulkan as one.
@@ -1303,7 +1180,7 @@ public static unsafe class ReflectionWalker
                 var leaf = leaves.GetValueOrDefault((s, r));
 
                 ranges.Add(new DescriptorRange(
-                    SlangApi.spReflectionTypeLayout_getDescriptorSetDescriptorRangeType(tl, s, r),
+                    tl.GetDescriptorSetDescriptorRangeType(s, r),
                     index,
                     unbounded ? 0u : (uint)count,
                     category,
@@ -1326,9 +1203,8 @@ public static unsafe class ReflectionWalker
     /// binding-range view says what declared it, and links the two through
     /// <c>getBindingRangeDescriptorSetIndex</c> plus <c>getBindingRangeFirstDescriptorRangeIndex</c>.
     /// Joining them is the only way to name a binding <em>inside</em> a <c>ParameterBlock</c>:
-    /// those are not top-level parameters, so the projection's habit of recovering names by
-    /// scanning the parameter list reported every binding of Slang's own descriptor-set feature as
-    /// unnamed.
+    /// those are not top-level parameters, so recovering names by scanning the parameter list
+    /// reports every binding of Slang's own descriptor-set feature as unnamed.
     /// </para>
     /// <para>
     /// A binding range with <c>descriptorSetIndex == -1</c> is a parameter block, which lives in a
@@ -1336,47 +1212,37 @@ public static unsafe class ReflectionWalker
     /// walk recurses into the element.
     /// </para>
     /// <para>
-    /// <b>The image format call is guarded, and the guard has outlived its reason.</b> This said
-    /// <c>spReflectionTypeLayout_getBindingRangeImageFormat</c> access-violates on a
-    /// <c>PARAMETER_BLOCK</c> binding range "measured against slang-compiler 2026.14.1". Re-measured
-    /// against 2026.14.1 it does not: it returns <c>unknown</c>, for a parameter block and for
-    /// every other non-texture shape a shader can produce — constant buffer, sampler, raw buffer,
-    /// acceleration structure. Either the crash was measured on an earlier pin and the version
-    /// travelled with the sentence, or the original shape had an ingredient not reconstructed here;
-    /// there is no way to tell from this side, and claiming either would be inventing history.
-    /// 2026.21 answers the same: <c>unknown</c> for every one of those shapes.
-    ///
-    /// The guard stays. Dropping it would trade a free branch for a class of failure that ends the
-    /// process, on the strength of two releases behaving. What has changed is that the claim is now
-    /// tested rather than remembered — <c>ProberTests</c> runs the call across every binding-range
-    /// shape in a child process, so if it ever crashes again that is a red test rather than a dead
+    /// <b>The image format call is asked of textures only, a guard that has outlived its reason.</b>
+    /// <c>getBindingRangeImageFormat</c> on a <c>PARAMETER_BLOCK</c> binding range was once recorded
+    /// as access-violating; at 2026.14.1 and 2026.21 it returns <c>unknown</c> for every non-texture
+    /// shape a shader can produce. The guard stays, because dropping it would trade a free branch
+    /// for a class of failure that ends the process; <c>ProberTests</c> runs the call across every
+    /// binding-range shape in a child process, so a crash would be a red test rather than a dead
     /// runner.
     /// </para>
     /// </remarks>
-    private static Dictionary<(long Set, long Range), BindingRangeLeaf>
-        ReadBindingRanges(SlangReflectionTypeLayout* tl)
+    private static Dictionary<(long Set, long Range), BindingRangeLeaf> ReadBindingRanges(SlangTypeLayout tl)
     {
         var result = new Dictionary<(long, long), BindingRangeLeaf>();
 
-        var count = SlangApi.spReflectionTypeLayout_getBindingRangeCount(tl);
+        var count = tl.BindingRangeCount;
         for (long b = 0; b < count; b++)
         {
-            var set = SlangApi.spReflectionTypeLayout_getBindingRangeDescriptorSetIndex(tl, b);
+            var set = tl.GetBindingRangeDescriptorSetIndex(b);
             if (set < 0) continue;
 
-            var type = SlangApi.spReflectionTypeLayout_getBindingRangeType(tl, b);
+            var type = tl.GetBindingRangeType(b);
             var format = type is SlangBindingType.SLANG_BINDING_TYPE_TEXTURE
                              or SlangBindingType.SLANG_BINDING_TYPE_MUTABLE_TETURE
-                ? SlangApi.spReflectionTypeLayout_getBindingRangeImageFormat(tl, b)
+                ? tl.GetBindingRangeImageFormat(b)
                 : SlangImageFormat.SLANG_IMAGE_FORMAT_unknown;
 
-            var variable = SlangApi.spReflectionTypeLayout_getBindingRangeLeafVariable(tl, b);
-            var name = variable is null ? null : Utf8.Read(SlangApi.spReflectionVariable_GetName(variable));
+            var name = tl.GetBindingRangeLeafVariable(b)?.Name;
 
-            var first = SlangApi.spReflectionTypeLayout_getBindingRangeFirstDescriptorRangeIndex(tl, b);
-            var spanned = SlangApi.spReflectionTypeLayout_getBindingRangeDescriptorRangeCount(tl, b);
+            var first = tl.GetBindingRangeFirstDescriptorRangeIndex(b);
+            var spanned = tl.GetBindingRangeDescriptorRangeCount(b);
             var counter = CounterOffset(tl, b);
-            var specializable = SlangApi.spReflectionTypeLayout_isBindingRangeSpecializable(tl, b) != 0;
+            var specializable = tl.IsBindingRangeSpecializable(b);
             for (long r = 0; r < spanned; r++)
                 result[(set, first + r)] = new(name, format, counter, specializable);
         }
@@ -1402,18 +1268,12 @@ public static unsafe class ReflectionWalker
     /// The offset is relative to the owning buffer's own descriptor index, so the caller adds it to
     /// the absolute index it already has.
     /// </remarks>
-    private static uint? CounterOffset(SlangReflectionTypeLayout* tl, long bindingRange)
+    private static uint? CounterOffset(SlangTypeLayout tl, long bindingRange)
     {
-        var leaf = SlangApi.spReflectionTypeLayout_getBindingRangeLeafTypeLayout(tl, bindingRange);
-        if (leaf is null) return null;
-
-        var counter = SlangApi.spReflectionTypeLayout_GetExplicitCounter(leaf);
+        var counter = tl.GetBindingRangeLeafTypeLayout(bindingRange)?.ExplicitCounter;
         if (counter is null) return null;
 
-        var offset = SlangApi.spReflectionVariableLayout_GetOffset(
-            counter, SlangParameterCategory.SLANG_PARAMETER_CATEGORY_DESCRIPTOR_TABLE_SLOT);
-
-        return offset < 0 ? null : (uint)offset;
+        return (uint)counter.GetOffset(SlangParameterCategory.SLANG_PARAMETER_CATEGORY_DESCRIPTOR_TABLE_SLOT);
     }
 
     /// <summary>
@@ -1421,26 +1281,20 @@ public static unsafe class ReflectionWalker
     /// buffer) occupies for its own uniform data, if it has any.
     /// </summary>
     private static void AddContainerDescriptor(
-        SlangReflectionVariableLayout* varLayout,
-        SlangReflectionTypeLayout* typeLayout,
-        SlangReflectionTypeLayout* element,
+        SlangVariableLayout varLayout,
+        SlangTypeLayout typeLayout,
+        SlangTypeLayout? element,
         uint space,
         SortedDictionary<uint, List<DescriptorRange>> bySpace)
     {
-        var container = SlangApi.spReflectionTypeLayout_getContainerVarLayout(typeLayout);
-        if (container is null) return;
-
-        var containerType = SlangApi.spReflectionVariableLayout_GetTypeLayout(container);
-        if (containerType is null) return;
+        var container = typeLayout.ContainerVarLayout;
+        if (container?.TypeLayout is not { } containerType) return;
 
         // No uniform payload means no implicit buffer — the block holds only resources.
-        var uniformSize = element is null
-            ? 0
-            : SlangApi.spReflectionTypeLayout_GetSize(
-                element, SlangParameterCategory.SLANG_PARAMETER_CATEGORY_UNIFORM);
+        var uniformSize = element?.GetSize(SlangParameterCategory.SLANG_PARAMETER_CATEGORY_UNIFORM) ?? 0;
         if (uniformSize == 0) return;
 
-        var categories = SlangApi.spReflectionTypeLayout_GetCategoryCount(containerType);
+        var categories = containerType.CategoryCount;
         for (uint c = 0; c < categories; c++)
         {
             // The category the target files the buffer under: DESCRIPTOR_TABLE_SLOT for SPIR-V,
@@ -1450,14 +1304,13 @@ public static unsafe class ReflectionWalker
             // the D3D12 device leg, which refuses a pipeline whose root signature does not cover a
             // register the shader reads: "Shader CBV descriptor range (BaseShaderRegister=0,
             // NumDescriptors=1, RegisterSpace=1) is not fully bound in root signature", on
-            // parameter-blocks and buffer-arrays. Vulkan never saw it because Vulkan never ran a
-            // DXIL layout.
-            var category = SlangApi.spReflectionTypeLayout_GetCategoryByIndex(containerType, c);
+            // parameter-blocks and buffer-arrays.
+            var category = containerType.GetCategoryByIndex(c);
             if (category is not (SlangParameterCategory.SLANG_PARAMETER_CATEGORY_DESCRIPTOR_TABLE_SLOT
                                  or SlangParameterCategory.SLANG_PARAMETER_CATEGORY_CONSTANT_BUFFER))
                 continue;
 
-            var index = (uint)SlangApi.spReflectionVariableLayout_GetOffset(container, category);
+            var index = (uint)container.GetOffset(category);
 
             if (!bySpace.TryGetValue(space, out var ranges))
                 bySpace[space] = ranges = [];
@@ -1471,11 +1324,9 @@ public static unsafe class ReflectionWalker
                 // Named after the block, which is what the module calls it: a ParameterBlock<Frame>
                 // named gFrame decorates its implicit buffer `gFrame`, while its contents get
                 // `gFrame.shadow` and so on.
-                var variable = SlangApi.spReflectionVariableLayout_GetVariable(varLayout);
-
                 ranges.Add(new DescriptorRange(
                     SlangBindingType.SLANG_BINDING_TYPE_CONSTANT_BUFFER, index, 1, category,
-                    Name: variable is null ? null : Utf8.Read(SlangApi.spReflectionVariable_GetName(variable))));
+                    Name: varLayout.Variable?.Name));
             }
             return;
         }
@@ -1485,18 +1336,16 @@ public static unsafe class ReflectionWalker
     /// The register space a parameter introduces, if it introduces one. For register-space
     /// categories the *offset* carries the space index; the space field stays 0.
     /// </summary>
-    private static uint? SubElementSpace(
-        SlangReflectionVariableLayout* varLayout,
-        SlangReflectionTypeLayout* typeLayout)
+    private static uint? SubElementSpace(SlangVariableLayout varLayout, SlangTypeLayout typeLayout)
     {
-        var categories = SlangApi.spReflectionTypeLayout_GetCategoryCount(typeLayout);
+        var categories = typeLayout.CategoryCount;
         for (uint c = 0; c < categories; c++)
         {
-            var category = SlangApi.spReflectionTypeLayout_GetCategoryByIndex(typeLayout, c);
+            var category = typeLayout.GetCategoryByIndex(c);
             if (category is SlangParameterCategory.SLANG_PARAMETER_CATEGORY_SUB_ELEMENT_REGISTER_SPACE
                          or SlangParameterCategory.SLANG_PARAMETER_CATEGORY_REGISTER_SPACE)
             {
-                return (uint)SlangApi.spReflectionVariableLayout_GetOffset(varLayout, category);
+                return (uint)varLayout.GetOffset(category);
             }
         }
         return null;
@@ -1504,41 +1353,36 @@ public static unsafe class ReflectionWalker
 
     // ---------------------------------------------------------------- the type tree
 
-    private static TypeLayout ReadTypeLayout(SlangReflectionTypeLayout* tl, Dictionary<nint, TypeLayout> cache)
+    private static TypeLayout ReadTypeLayout(SlangTypeLayout? tl, Dictionary<nint, TypeLayout> cache)
     {
         if (tl is null) return new OpaqueLayout { Kind = LayoutKind.Unknown };
-        if (cache.TryGetValue((nint)tl, out var hit)) return hit;
+
+        var key = tl.NativeHandle;
+        if (cache.TryGetValue(key, out var hit)) return hit;
 
         // Insert a placeholder before recursing so a self-referential type cannot loop forever.
-        cache[(nint)tl] = new OpaqueLayout { Kind = LayoutKind.Unknown, Name = "<recursive>" };
+        cache[key] = new OpaqueLayout { Kind = LayoutKind.Unknown, Name = "<recursive>" };
 
         // The two facts every kind of layout can carry, applied once here rather than threaded
         // through eight construction sites. `with` on an abstract record clones the concrete one.
+        var genericIndex = tl.GenericParamIndex;
         var built = Build(tl, cache) with
         {
-            GenericParameterIndex = GenericParameterIndex(tl),
-            HasPendingData = SlangApi.spReflectionTypeLayout_getPendingDataTypeLayout(tl) is not null,
+            GenericParameterIndex = genericIndex < 0 ? null : (uint)genericIndex,
+            HasPendingData = tl.PendingDataTypeLayout is not null,
         };
 
-        cache[(nint)tl] = built;
+        cache[key] = built;
         return built;
     }
 
-    /// <summary>Which generic parameter this layout stands in for, or null.</summary>
-    private static uint? GenericParameterIndex(SlangReflectionTypeLayout* tl)
+    private static TypeLayout Build(SlangTypeLayout tl, Dictionary<nint, TypeLayout> cache)
     {
-        var index = SlangApi.spReflectionTypeLayout_getGenericParamIndex(tl);
-        return index < 0 ? null : (uint)index;
-    }
-
-    private static TypeLayout Build(SlangReflectionTypeLayout* tl, Dictionary<nint, TypeLayout> cache)
-    {
-        var type = SlangApi.spReflectionTypeLayout_GetType(tl);
-        var kind = SlangApi.spReflectionTypeLayout_getKind(tl);
-        var name = type is not null ? Utf8.Read(SlangApi.spReflectionType_GetName(type)) : null;
+        var type = tl.Type;
+        var kind = tl.Kind;
+        var name = type?.DeclaredName;
         var sizes = ReadSizes(tl);
-        var alignment = SlangApi.spReflectionTypeLayout_getAlignment(
-            tl, SlangParameterCategory.SLANG_PARAMETER_CATEGORY_UNIFORM);
+        var alignment = tl.GetAlignment(SlangParameterCategory.SLANG_PARAMETER_CATEGORY_UNIFORM);
 
         switch (kind)
         {
@@ -1546,7 +1390,7 @@ public static unsafe class ReflectionWalker
                 return new ScalarLayout
                 {
                     Kind = LayoutKind.Scalar, Name = name, Sizes = sizes, Alignment = alignment,
-                    ScalarType = SlangApi.spReflectionType_GetScalarType(type),
+                    ScalarType = type?.ScalarType ?? SlangScalarType.SLANG_SCALAR_TYPE_NONE,
                 };
 
             case SlangTypeKind.SLANG_TYPE_KIND_VECTOR:
@@ -1554,14 +1398,14 @@ public static unsafe class ReflectionWalker
                 {
                     Kind = LayoutKind.Vector, Name = name, Sizes = sizes, Alignment = alignment,
                     ElementType = ElementScalar(type),
-                    ElementCount = (int)SlangApi.spReflectionType_GetElementCount(type),
+                    ElementCount = (int)(type?.ElementCount ?? 0),
                 };
 
             case SlangTypeKind.SLANG_TYPE_KIND_MATRIX:
                 {
-                    var mode = SlangApi.spReflectionTypeLayout_GetMatrixLayoutMode(tl);
-                    var rows = (int)SlangApi.spReflectionType_GetRowCount(type);
-                    var columns = (int)SlangApi.spReflectionType_GetColumnCount(type);
+                    var mode = tl.MatrixLayoutMode;
+                    var rows = (int)(type?.RowCount ?? 0);
+                    var columns = (int)(type?.ColumnCount ?? 0);
 
                     return new MatrixLayout
                     {
@@ -1589,24 +1433,23 @@ public static unsafe class ReflectionWalker
                 {
                     // Ask about the size first, and only ask for a count if the answer was a number.
                     // An array whose length is a specialization constant reports CategorySize.Unknown,
-                    // and spReflectionType_GetElementCount access-violates on it — as does
-                    // GetSpecializedElementCount, which the C++ header presents as the resolving
-                    // version. Measured against slang-compiler 2026.21; see ArrayLayout for the
-                    // resource-array case, which has no such signal and cannot be guarded.
+                    // and getElementCount ends the process on it (U1; SlangType.ElementCount) — as
+                    // does getSpecializedElementCount, which the C++ header presents as the resolving
+                    // version. See ArrayLayout for the resource-array case, which has no such signal
+                    // and cannot be guarded.
                     var specializationSized = sizes.Any(s => !s.IsKnown);
 
-                    var count = specializationSized ? 0 : SlangApi.spReflectionType_GetElementCount(type);
+                    var count = specializationSized ? 0 : type?.ElementCount ?? 0;
 
                     return new ArrayLayout
                     {
                         Kind = LayoutKind.Array, Name = name, Sizes = sizes, Alignment = alignment,
-                        ElementType = ReadTypeLayout(SlangApi.spReflectionTypeLayout_GetElementTypeLayout(tl), cache),
+                        ElementType = ReadTypeLayout(tl.ElementTypeLayout, cache),
                         // 0 is how Slang reports an unbounded array; a real zero-length array is not
                         // expressible in the language, so the mapping is unambiguous.
                         ElementCount = specializationSized || count == 0 ? null : (int)count,
                         IsSpecializationSized = specializationSized,
-                        ElementStride = SlangApi.spReflectionTypeLayout_GetElementStride(
-                            tl, SlangParameterCategory.SLANG_PARAMETER_CATEGORY_UNIFORM),
+                        ElementStride = (nuint)tl.GetElementStride(SlangParameterCategory.SLANG_PARAMETER_CATEGORY_UNIFORM),
                     };
                 }
 
@@ -1619,19 +1462,18 @@ public static unsafe class ReflectionWalker
                     // typed buffers, subpass inputs and acceleration structures, so no shape test is
                     // needed: the resources that have an element layout are exactly the ones that
                     // return one.
-                    var elementLayout = SlangApi.spReflectionTypeLayout_GetElementTypeLayout(tl);
+                    var elementLayout = tl.ElementTypeLayout;
 
                     return new ResourceLayout
                     {
                         Kind = LayoutKind.Resource, Name = name, Sizes = sizes, Alignment = alignment,
-                        Shape = SlangApi.spReflectionType_GetResourceShape(type),
-                        Access = SlangApi.spReflectionType_GetResourceAccess(type),
+                        Shape = type?.ResourceShape ?? SlangResourceShape.SLANG_RESOURCE_NONE,
+                        Access = type?.ResourceAccess ?? SlangResourceAccess.SLANG_RESOURCE_ACCESS_NONE,
                         ResultType = ReadResultType(type),
                         ElementType = elementLayout is null ? null : ReadTypeLayout(elementLayout, cache),
                         ElementStride = elementLayout is null
                             ? 0
-                            : SlangApi.spReflectionTypeLayout_GetStride(
-                                elementLayout, SlangParameterCategory.SLANG_PARAMETER_CATEGORY_UNIFORM),
+                            : (nuint)elementLayout.GetStride(SlangParameterCategory.SLANG_PARAMETER_CATEGORY_UNIFORM),
                     };
                 }
 
@@ -1655,7 +1497,7 @@ public static unsafe class ReflectionWalker
                         _ => LayoutKind.ShaderStorageBuffer,
                     },
                     Name = name, Sizes = sizes, Alignment = alignment,
-                    ElementType = ReadTypeLayout(SlangApi.spReflectionTypeLayout_GetElementTypeLayout(tl), cache),
+                    ElementType = ReadTypeLayout(tl.ElementTypeLayout, cache),
                 };
 
             default:
@@ -1676,103 +1518,94 @@ public static unsafe class ReflectionWalker
         }
     }
 
-    private static List<FieldLayout> ReadFields(SlangReflectionTypeLayout* tl, Dictionary<nint, TypeLayout> cache)
+    private static List<FieldLayout> ReadFields(SlangTypeLayout tl, Dictionary<nint, TypeLayout> cache)
     {
         var fields = new List<FieldLayout>();
-        var count = SlangApi.spReflectionTypeLayout_GetFieldCount(tl);
+        var count = tl.FieldCount;
 
         for (uint i = 0; i < count; i++)
         {
-            var fieldVarLayout = SlangApi.spReflectionTypeLayout_GetFieldByIndex(tl, i);
+            var fieldVarLayout = tl.GetFieldByIndex(i);
             if (fieldVarLayout is null) continue;
 
-            var variable = SlangApi.spReflectionVariableLayout_GetVariable(fieldVarLayout);
-            var fieldTypeLayout = SlangApi.spReflectionVariableLayout_GetTypeLayout(fieldVarLayout);
+            var variable = fieldVarLayout.Variable;
+            var fieldTypeLayout = fieldVarLayout.TypeLayout;
 
             var offsets = new List<CategoryOffset>();
-            var categories = SlangApi.spReflectionTypeLayout_GetCategoryCount(fieldTypeLayout);
+            var categories = fieldTypeLayout?.CategoryCount ?? 0;
             for (uint c = 0; c < categories; c++)
             {
-                var category = SlangApi.spReflectionTypeLayout_GetCategoryByIndex(fieldTypeLayout, c);
+                var category = fieldTypeLayout!.GetCategoryByIndex(c);
                 offsets.Add(new CategoryOffset(
                     category,
-                    SlangApi.spReflectionVariableLayout_GetOffset(fieldVarLayout, category),
-                    (uint)SlangApi.spReflectionVariableLayout_GetSpace(fieldVarLayout, category)));
+                    fieldVarLayout.GetOffset(category),
+                    (uint)fieldVarLayout.GetSpace(category)));
             }
 
             fields.Add(new FieldLayout(
-                Utf8.Read(SlangApi.spReflectionVariable_GetName(variable)) ?? "<unnamed>",
+                variable?.Name ?? "<unnamed>",
                 ReadTypeLayout(fieldTypeLayout, cache),
                 offsets,
-                Utf8.Read(SlangApi.spReflectionVariableLayout_GetSemanticName(fieldVarLayout)),
-                (uint)SlangApi.spReflectionVariableLayout_GetSemanticIndex(fieldVarLayout),
+                fieldVarLayout.SemanticName,
+                (uint)fieldVarLayout.SemanticIndex,
                 ReadAttributes(variable)));
         }
 
         return fields;
     }
 
-    private static List<CategorySize> ReadSizes(SlangReflectionTypeLayout* tl)
+    private static List<CategorySize> ReadSizes(SlangTypeLayout tl)
     {
         var sizes = new List<CategorySize>();
-        var count = SlangApi.spReflectionTypeLayout_GetCategoryCount(tl);
+        var count = tl.CategoryCount;
 
         for (uint c = 0; c < count; c++)
         {
-            var category = SlangApi.spReflectionTypeLayout_GetCategoryByIndex(tl, c);
-            sizes.Add(new CategorySize(category, SlangApi.spReflectionTypeLayout_GetSize(tl, category)));
+            var category = tl.GetCategoryByIndex(c);
+            sizes.Add(new CategorySize(category, tl.GetSize(category)));
         }
 
         return sizes;
     }
 
-    private static List<UserAttribute>? ReadAttributes(SlangReflectionVariable* variable)
+    private static List<UserAttribute>? ReadAttributes(SlangVariable? variable)
     {
         if (variable is null) return null;
 
-        var count = SlangApi.spReflectionVariable_GetUserAttributeCount(variable);
+        var count = variable.UserAttributeCount;
         if (count == 0) return null;
 
         var attributes = new List<UserAttribute>((int)count);
         for (uint i = 0; i < count; i++)
         {
-            var attr = SlangApi.spReflectionVariable_GetUserAttribute(variable, i);
-            if (attr is not null) attributes.Add(ReadAttribute(attr));
+            if (variable.GetUserAttribute(i) is { } attr) attributes.Add(ReadAttribute(attr));
         }
 
         return attributes.Count > 0 ? attributes : null;
     }
 
-    /// <summary>A type's full name, for callers outside this walk.</summary>
-    internal static string TypeName(SlangReflectionType* type) => FullTypeName(type);
-
-    /// <summary>One user attribute, for callers outside this walk.</summary>
-    internal static UserAttribute Attribute(SlangReflectionUserAttribute* attribute) =>
-        ReadAttribute(attribute);
-
     /// <summary>User attributes on a type's own declaration, or null.</summary>
-    private static List<UserAttribute>? ReadTypeAttributes(SlangReflectionType* type)
+    private static List<UserAttribute>? ReadTypeAttributes(SlangType? type)
     {
         if (type is null) return null;
 
-        var count = SlangApi.spReflectionType_GetUserAttributeCount(type);
+        var count = type.UserAttributeCount;
         if (count == 0) return null;
 
         var attributes = new List<UserAttribute>((int)count);
         for (uint i = 0; i < count; i++)
         {
-            var attr = SlangApi.spReflectionType_GetUserAttribute(type, i);
-            if (attr is not null) attributes.Add(ReadAttribute(attr));
+            if (type.GetUserAttribute(i) is { } attr) attributes.Add(ReadAttribute(attr));
         }
 
         return attributes.Count > 0 ? attributes : null;
     }
 
     /// <summary>One user attribute, whatever it is hanging off.</summary>
-    private static UserAttribute ReadAttribute(SlangReflectionUserAttribute* attr)
+    internal static UserAttribute ReadAttribute(SlangUserAttribute attr)
     {
-        var name = Utf8.Read(SlangApi.spReflectionUserAttribute_GetName(attr)) ?? "<unnamed>";
-        var argCount = SlangApi.spReflectionUserAttribute_GetArgumentCount(attr);
+        var name = attr.Name ?? "<unnamed>";
+        var argCount = attr.ArgumentCount;
         var args = new List<object?>((int)argCount);
         var types = new List<string>((int)argCount);
 
@@ -1781,28 +1614,20 @@ public static unsafe class ReflectionWalker
             // The declared type, alongside the probed value. Slang has no variant accessor, so the
             // value still has to be guessed at by trying each; this at least records what it was
             // supposed to be.
-            var declared = SlangApi.spReflectionUserAttribute_GetArgumentType(attr, a);
-            types.Add(declared is null
-                ? "<unknown>"
-                : Utf8.Read(SlangApi.spReflectionType_GetName(declared)) ?? "<unnamed>");
+            var declared = attr.GetArgumentType(a);
+            types.Add(declared is null ? "<unknown>" : declared.DeclaredName ?? "<unnamed>");
         }
 
         for (uint a = 0; a < argCount; a++)
         {
             // Slang has no "what type is this argument" query; the accessors report failure
             // for the wrong type, so probe int, then float, then string.
-            int intValue;
-            float floatValue;
-            if (SlangResult.Succeeded(SlangApi.spReflectionUserAttribute_GetArgumentValueInt(attr, a, &intValue)))
+            if (attr.TryGetArgumentValueInt(a, out var intValue))
                 args.Add(intValue);
-            else if (SlangResult.Succeeded(SlangApi.spReflectionUserAttribute_GetArgumentValueFloat(attr, a, &floatValue)))
+            else if (attr.TryGetArgumentValueFloat(a, out var floatValue))
                 args.Add(floatValue);
             else
-            {
-                nuint len;
-                var s = SlangApi.spReflectionUserAttribute_GetArgumentValueString(attr, a, &len);
-                args.Add(s is not null ? new string((sbyte*)s, 0, (int)len) : null);
-            }
+                args.Add(attr.GetArgumentValueString(a));
         }
 
         return new UserAttribute(name, args, types.Count > 0 ? types : null);
@@ -1832,35 +1657,32 @@ public static unsafe class ReflectionWalker
         return major <= 0 ? 0 : total / (ulong)major;
     }
 
-    private static SlangScalarType ElementScalar(SlangReflectionType* type)
+    private static SlangScalarType ElementScalar(SlangType? type)
     {
-        var element = SlangApi.spReflectionType_GetElementType(type);
-        return element is not null
-            ? SlangApi.spReflectionType_GetScalarType(element)
-            : SlangApi.spReflectionType_GetScalarType(type);
+        if (type is null) return SlangScalarType.SLANG_SCALAR_TYPE_NONE;
+        return type.ElementType is { } element ? element.ScalarType : type.ScalarType;
     }
 
-    private static TypeLayout? ReadResultType(SlangReflectionType* type)
+    private static TypeLayout? ReadResultType(SlangType? type)
     {
-        var result = SlangApi.spReflectionType_GetResourceResultType(type);
+        var result = type?.ResourceResultType;
         if (result is null) return null;
 
-        // A bare SlangReflectionType* has no layout, so describe it structurally without sizes.
-        var kind = SlangApi.spReflectionType_GetKind(result);
-        var name = Utf8.Read(SlangApi.spReflectionType_GetName(result));
+        // A bare type has no layout, so describe it structurally without sizes.
+        var name = result.DeclaredName;
 
-        return kind switch
+        return result.Kind switch
         {
             SlangTypeKind.SLANG_TYPE_KIND_SCALAR => new ScalarLayout
             {
                 Kind = LayoutKind.Scalar, Name = name,
-                ScalarType = SlangApi.spReflectionType_GetScalarType(result),
+                ScalarType = result.ScalarType,
             },
             SlangTypeKind.SLANG_TYPE_KIND_VECTOR => new VectorLayout
             {
                 Kind = LayoutKind.Vector, Name = name,
                 ElementType = ElementScalar(result),
-                ElementCount = (int)SlangApi.spReflectionType_GetElementCount(result),
+                ElementCount = (int)result.ElementCount,
             },
             SlangTypeKind.SLANG_TYPE_KIND_GENERIC_TYPE_PARAMETER =>
                 new OpaqueLayout { Kind = LayoutKind.GenericTypeParameter, Name = name },
@@ -1868,22 +1690,4 @@ public static unsafe class ReflectionWalker
             _ => new OpaqueLayout { Kind = LayoutKind.Unknown, Name = name },
         };
     }
-}
-
-/// <summary>Convenience entry point for reflecting a linked program.</summary>
-public static class LinkedProgramReflectionExtensions
-{
-    /// <summary>
-    /// Walks this program's reflection and returns an immutable snapshot. Safe to keep after the
-    /// program is disposed.
-    /// </summary>
-    public static ProgramLayout Reflect(this LinkedProgram program, int targetIndex = 0) =>
-        ReflectionWalker.Walk(program, targetIndex);
-
-    /// <summary>
-    /// Walks this module's declaration tree. Independent of linking, so it works on a module that
-    /// still has unbound generic parameters.
-    /// </summary>
-    public static DeclarationNode ReflectDeclarations(this SlangModule module) =>
-        ReflectionWalker.WalkDeclarations(module);
 }

@@ -81,7 +81,7 @@ try
             [numthreads(64, 1, 1)]
             void csMain(uint3 id : SV_DispatchThreadID) { output[id.x] = id.x * 2.0; }
             """;
-        using var session = global.CreateSession(new SessionOptions { Targets = [new TargetOptions { Format = SlangCompileTarget.SLANG_DXIL }] });
+        using var session = global.CreateSession(new SessionOptions { Targets = [new TargetOptions { Format = SlangCompileTarget.SLANG_DXIL, Profile = "sm_6_5" }] });
         using var module = session.LoadModuleFromSource("csMain", "csMain.slang", Compute);
         using var entry = module.FindEntryPoint("csMain");
         using var program = session.Link(module, entry);

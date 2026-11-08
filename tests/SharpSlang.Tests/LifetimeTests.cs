@@ -12,6 +12,8 @@
 //   - loadModule returns a *borrowed* pointer, unlike every other Slang out-parameter, so the
 //     wrapper takes its own reference on adoption.
 //   - Dispose is idempotent and use-after-dispose throws rather than dereferencing.
+//   - A parent refuses Dispose while a child it made is alive, so a wrong order is an exception
+//     and the hierarchy stays whole (the template's rule; AGENTS.md#ownership-and-lifetime).
 //
 // A regression in any of these is heap corruption, which does not fail politely. That is the reason
 // to have the tests and also the reason they look paranoid.
@@ -93,9 +95,18 @@ public class LifetimeTests
         var ep = module.FindEntryPoint("fragmentMain");
         var program = session.Link(module, ep);
 
+        var layout = program.GetLayout();
         program.Dispose();
         Assert.Throws<ObjectDisposedException>(() => program.GetEntryPointCodeBytes(0));
         Assert.Throws<ObjectDisposedException>(() => program.Reflect());
+
+        // The program's reflection is borrowed from it, so it throws too rather than reading
+        // freed memory (SlangReflectionObject).
+        Assert.Throws<ObjectDisposedException>(() => layout.ParameterCount);
+        Assert.Throws<ObjectDisposedException>(() => layout.NativeHandle);
+
+        ep.Dispose();
+        Assert.Throws<ObjectDisposedException>(() => ep.NativeHandle);
 
         module.Dispose();
         Assert.Throws<ObjectDisposedException>(() => module.FindEntryPoint("fragmentMain"));
@@ -103,8 +114,6 @@ public class LifetimeTests
         session.Dispose();
         Assert.Throws<ObjectDisposedException>(
             () => session.LoadModuleFromSource("x", "x.slang", Source));
-
-        ep.Dispose();
     }
 
     [NativeFact]
@@ -213,10 +222,10 @@ public class LifetimeTests
         // Read while it is unambiguously alive; Raw throws once the wrapper is disposed.
         var globalPtr = (SharpSlang.Native.ISlangUnknown*)global.RawForTests;
 
-        global.Dispose();
-        session.Dispose();
-        module.Dispose();
+        // The order that reached the crash is refused now (the test below), so the program is the
+        // only thing released; the invariant is the same number, with every ancestor alive.
         ep.Dispose();
+        module.Dispose();
 
         globalPtr->addRef();
         var remaining = globalPtr->release();
@@ -228,26 +237,107 @@ public class LifetimeTests
             + "ancestor, not only the immediate owner —");
 
         program.Dispose();
+        session.Dispose();
+        global.Dispose();
     }
 
     [NativeFact]
-    public void An_owner_may_be_disposed_before_the_things_it_owns()
+    public void An_owner_refuses_Dispose_while_the_things_it_owns_live()
     {
-        // Out of order on purpose, outermost first. This is only safe because SlangObject takes a
-        // native reference on its owner — Slang itself does not guarantee it, and the test above
-        // is the measurement. Before that reference existed this was a use-after-free that three
-        // of four platforms happened to survive.
+        // Out of order on purpose, outermost first. Each refusal leaves the object alive and
+        // usable, names how many children it still has, and the innermost-first teardown after
+        // it works: a wrong order is an exception, never a teardown Slang may not survive (U13).
         var global = SlangGlobalSession.Create();
         var session = NewSession(global);
         var module = session.LoadModuleFromSource("m", "m.slang", Source);
         var ep = module.FindEntryPoint("fragmentMain");
         var program = session.Link(module, ep);
+        var code = program.GetEntryPointCode(0);
 
-        global.Dispose();
-        session.Dispose();
-        module.Dispose();
-        ep.Dispose();
+        Assert.Equal(1, global.LiveChildren);    // the session
+        Assert.Equal(2, session.LiveChildren);   // the module and the program
+        Assert.Equal(1, module.LiveChildren);    // the entry point
+        Assert.Equal(1, program.LiveChildren);   // the code blob
+
+        var refusal = Assert.Throws<InvalidOperationException>(global.Dispose);
+        Assert.Contains("1 object(s)", refusal.Message, StringComparison.Ordinal);
+        Assert.False(global.IsDisposed);
+        Assert.Contains("2 object(s)", Assert.Throws<InvalidOperationException>(session.Dispose).Message, StringComparison.Ordinal);
+        Assert.Throws<InvalidOperationException>(module.Dispose);
+        Assert.Throws<InvalidOperationException>(program.Dispose);
+
+        // Still whole: everything that refused still compiles.
+        using (var again = module.FindEntryPoint("fragmentMain")) Assert.Equal("fragmentMain", again.Name);
+        Assert.True(SpirvModule.IsSpirv(program.GetEntryPointCodeBytes(0)));
+        Assert.True(global.IsDownstreamCompilerAvailable(SharpSlang.Native.SlangPassThrough.SLANG_PASS_THROUGH_SPIRV_OPT));
+
+        code.Dispose();
         program.Dispose();
+        ep.Dispose();
+        module.Dispose();
+        Assert.Equal(0, session.LiveChildren);
+        session.Dispose();
+        Assert.Equal(0, global.LiveChildren);
+        global.Dispose();
+        Assert.True(global.IsDisposed);
+    }
+
+    [NativeFact]
+    public void A_file_system_refuses_Dispose_while_a_session_holds_it()
+    {
+        // Slang holds the file system for the session's lifetime, so freeing it under a live
+        // session would hand Slang freed memory on its next load: refused, by the binding's own
+        // count of sessions. Slang's reference count on it is measured beside, not relied on.
+        var files = new Hosting.InMemoryFileProvider(new Dictionary<string, string> { ["lib.slang"] = "float4 tint() { return 1; }" });
+        var fs = new Hosting.SlangFileSystem(files);
+        using var global = SlangGlobalSession.Create();
+
+        var before = fs.NativeReferenceCount;
+        var session = global.CreateSession(new SessionOptions { Targets = [new TargetOptions()], FileSystem = fs });
+        Assert.Equal(1, fs.LiveSessions);
+        Assert.True(fs.NativeReferenceCount > before, "Slang did not take a reference on the file system it was handed");
+
+        Assert.Throws<InvalidOperationException>(fs.Dispose);
+
+        using (var module = session.LoadModule("lib")) Assert.Equal("lib", module.Name);
+
+        session.Dispose();
+        Assert.Equal(0, fs.LiveSessions);
+
+        // Measured: Slang gives back every reference it took when the session goes.
+        Assert.Equal(before, fs.NativeReferenceCount);
+        fs.Dispose();
+    }
+
+    [NativeFact]
+    public void Every_wrapper_exposes_its_native_pointer_and_reflection_shares_it()
+    {
+        // The second escape hatch (AGENTS.md#layers): the interface pointer of each wrapper, and
+        // of each reflection object, which a vtable call or an spReflection* function takes.
+        using var global = SlangGlobalSession.Create();
+        using var session = NewSession(global);
+        using var module = session.LoadModuleFromSource("m", "m.slang", Source);
+        using var ep = module.FindEntryPoint("fragmentMain");
+        using var program = session.Link(module, ep);
+
+        Assert.NotEqual(0, global.NativeHandle);
+        Assert.NotEqual(0, program.NativeHandle);
+
+        // Two reads of the same reflection object are two wrappers over one pointer, equal.
+        var first = program.GetLayout().GetParameterByIndex(0)!;
+        var second = program.GetLayout().GetParameterByIndex(0)!;
+        Assert.NotSame(first, second);
+        Assert.Equal(first, second);
+        Assert.Equal(first.NativeHandle, second.NativeHandle);
+        Assert.Equal(first.GetHashCode(), second.GetHashCode());
+        Assert.Same(program, first.Owner);
+
+        unsafe
+        {
+            // The raw door agrees with the wrapper.
+            var raw = SharpSlang.Native.SlangApi.spReflection_GetParameterCount((SharpSlang.Native.SlangProgramLayout*)program.GetLayout().NativeHandle);
+            Assert.Equal(program.GetLayout().ParameterCount, raw);
+        }
     }
 
     [NativeFact]
@@ -396,7 +486,11 @@ public class LifetimeTests
         Assert.True(owner.IsAlive, "the session was collected while a module from it was alive");
 
         // And the module is still usable, which is the point of keeping the owner around.
-        using (child) Assert.NotNull(child.FindEntryPoint("fragmentMain"));
+        using (child)
+        using (var entry = child.FindEntryPoint("fragmentMain"))
+        {
+            Assert.NotNull(entry);
+        }
 
         [MethodImpl(MethodImplOptions.NoInlining)]
         static (SlangModule Child, WeakReference Owner) MakeChild()

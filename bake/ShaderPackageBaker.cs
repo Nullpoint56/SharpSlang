@@ -1,12 +1,10 @@
-// L2 — turning a linked program into a shippable package.
+// Turning a linked program into a shippable package: SharpSlang.Pipeline.Bake, the cooker.
 //
 // Separated from ShaderPackage itself, which lives in SharpSlang.Pipeline. Reading a package needs
-// nothing but managed code; *making* one needs a LinkedProgram, a SlangModule and the 36 MB
-// compiler behind them. Keeping the two in one class meant a game that only ever calls ReadFromFile
-// still had to reference the compiler to name the type — see docs .
-//
-// So the split runs exactly along that line: the container, its reader, its writer and its
-// staleness checks are on the runtime side; this, the only method that compiles anything, is here.
+// nothing but managed code; *making* one needs a LinkedProgram, a SlangModule and the compiler
+// behind them. So the split runs exactly along that line: the container, its reader, its writer and
+// its staleness checks are on the runtime side; this, the only method that compiles anything, is
+// here, on SharpSlang's public API (AGENTS.md#layers).
 
 using System.Security.Cryptography;
 using System.Text;

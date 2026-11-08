@@ -16,8 +16,9 @@
 //                          They are interior pointers owned by the IComponentType that produced
 //                          them and have no refcount at all. They must NEVER be wrapped here —
 //                          releasing one would corrupt the heap, and holding one past its owner
-//                          is the use-after-free AGENTS.md#reflection-snapshot is about. They stay inside L3 and are
-//                          projected to a managed snapshot instead.
+//                          is the use-after-free AGENTS.md#reflection-snapshot is about.
+//                          SlangReflectionObject wraps them instead: it releases nothing and
+//                          checks the owner on every read.
 //
 // Why IDisposable and not SafeHandle: these are not OS handles. SafeHandle exists to defeat
 // handle-recycling attacks and to survive P/Invoke marshalling, and pays interlocked ref-counting
@@ -37,14 +38,18 @@
 // already torn down its allocator. That is a use-after-free, and a finalizer turns a leak (benign,
 // findable) into heap corruption (silent, catastrophic, and not reproducible on demand).
 //
-// So: no finalizer. Two things replace it.
+// So: no finalizer. Three things replace it.
 //   1. Every wrapper holds a managed reference to its owner, so the owner cannot be collected
 //      while a child is alive, and a *native* reference on every ancestor above it, so none of
 //      them can be destroyed early or in the wrong order. See _ancestors — the native half took
 //      two more platforms and two more findings to get right.
-//   2. Failing to Dispose leaks until process exit. That is the correct trade: a leak is a bug you
+//   2. A parent refuses Dispose while a child it made is alive (the template's rule, SharpNRI's
+//      NriDevice): the wrong order is an InvalidOperationException naming the count, not a
+//      teardown Slang may not survive. _children counts them.
+//   3. Failing to Dispose leaks until process exit. That is the correct trade: a leak is a bug you
 //      can find with a memory profiler, whereas corruption is a bug you find in a crash dump from
-//      a player six months later.
+//      a player six months later. A forgotten child keeps its parent from disposing, which is a
+//      leak of both.
 
 using SharpSlang.Native;
 
@@ -111,6 +116,9 @@ public abstract unsafe class SlangObject : IDisposable
     // wrapper may be disposed and Raw would throw. Depth is at most four.
     private readonly nint[] _ancestors;
 
+    // Wrappers created with this one as their owner and not yet disposed.
+    private int _children;
+
     // Releasing native objects while the runtime is tearing down a process can run after the
     // native library has already been unloaded. Leaking at exit is harmless; crashing is not.
     private static volatile bool s_processExiting;
@@ -146,10 +154,29 @@ public abstract unsafe class SlangObject : IDisposable
 
         foreach (var ancestor in chain) ((ISlangUnknown*)ancestor)->addRef();
         _ancestors = chain;
+        Interlocked.Increment(ref owner._children);
     }
 
     /// <summary>True once the native reference has been released.</summary>
     public bool IsDisposed => Volatile.Read(ref _unknown) == 0;
+
+    /// <summary>
+    /// Wrappers created from this one (sessions of a global session, modules and programs of a
+    /// session, entry points of a module, code blobs and metadata of a program) and not yet
+    /// disposed. <see cref="Dispose"/> refuses while it is above zero.
+    /// </summary>
+    public int LiveChildren => Volatile.Read(ref _children);
+
+    /// <summary>
+    /// The Slang interface pointer this wrapper owns a reference to (<c>slang::IGlobalSession*</c>,
+    /// <c>slang::IComponentType*</c>, ...), for calling a vtable method of the generated structs in
+    /// <c>SharpSlang.Native</c> where the binding has no managed form. Valid while this object
+    /// lives; throws after disposal. The second escape hatch (AGENTS.md#layers): the binding sees
+    /// none of those calls, and a <c>release</c> through it that this wrapper did not take leaves
+    /// the wrapper dangling. Last resort.
+    /// </summary>
+    /// <exception cref="ObjectDisposedException">This object has been disposed.</exception>
+    public nint NativeHandle => (nint)Raw;
 
     /// <summary>
     /// The live native pointer, for measuring reference counts from the prober.
@@ -185,16 +212,34 @@ public abstract unsafe class SlangObject : IDisposable
         p->addRef();
     }
 
+    /// <summary>
+    /// Releases the native reference, and this wrapper's references on its ancestors.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">
+    /// A wrapper created from this one is still alive (<see cref="LiveChildren"/>); dispose it
+    /// first. The object stays alive and usable.
+    /// </exception>
     public void Dispose()
     {
         // No wrapper has a finalizer (AGENTS.md#ownership-and-lifetime); CA1816 asks for this anyway,
         // for a derived type that would add one, and it costs nothing without one.
         GC.SuppressFinalize(this);
 
+        if (Volatile.Read(ref _unknown) == 0 || s_processExiting) return;
+
+        var live = Volatile.Read(ref _children);
+        if (live > 0)
+        {
+            throw new InvalidOperationException(
+                $"{_what} disposed with {live} object(s) created from it still alive. Dispose " +
+                $"everything created from it first (AGENTS.md#ownership-and-lifetime).");
+        }
+
         // Interlocked so concurrent Dispose calls cannot double-release.
         var p = Interlocked.Exchange(ref _unknown, 0);
-        if (p == 0 || s_processExiting) return;
+        if (p == 0) return;
 
+        BeforeRelease();
         ((ISlangUnknown*)p)->release();
 
         // Ours, taken in the constructor. Nearest-first and after this object's own release, so an
@@ -202,9 +247,21 @@ public abstract unsafe class SlangObject : IDisposable
         // and never from inside a descendant's destructor, which is the part Slang cannot survive.
         foreach (var ancestor in _ancestors) ((ISlangUnknown*)ancestor)->release();
 
+        if (_owner is not null) Interlocked.Decrement(ref _owner._children);
+        OnReleased();
+
         // The owner must outlive this release, not merely reach it.
         GC.KeepAlive(_owner);
     }
+
+    /// <summary>
+    /// Runs once, before this wrapper's own release: where a wrapper gives back the references its
+    /// optional interfaces took (L3), so the object is never destroyed after its ancestors.
+    /// </summary>
+    private protected virtual void BeforeRelease() { }
+
+    /// <summary>Runs once, after the native references are released.</summary>
+    private protected virtual void OnReleased() { }
 
     public override string ToString() => IsDisposed ? $"{_what} (disposed)" : _what;
 }

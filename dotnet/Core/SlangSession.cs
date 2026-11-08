@@ -18,8 +18,19 @@ public sealed unsafe class SlangSession : SlangObject<ISession>
     // Owner references keep Slang's hierarchy alive in the GC's eyes: a session cannot be
     // collected while a module from it lives, and so on down. See SlangObject for why this
     // replaces a finalizer rather than supplementing one.
-    private SlangSession(ISession* owned, SlangGlobalSession owner, IReadOnlyList<TargetOptions> targets)
-        : base(owned, nameof(SlangSession), owner) => Targets = targets;
+    private readonly Hosting.SlangFileSystem? _fileSystem;
+
+    private SlangSession(
+        ISession* owned, SlangGlobalSession owner, IReadOnlyList<TargetOptions> targets, Hosting.SlangFileSystem? fileSystem)
+        : base(owned, nameof(SlangSession), owner)
+    {
+        Targets = targets;
+        _fileSystem = fileSystem;
+        fileSystem?.SessionCreated();
+    }
+
+    // Slang holds the file system for the session's lifetime, so it refuses Dispose until then.
+    private protected override void OnReleased() => _fileSystem?.SessionReleased();
 
     /// <summary>
     /// The targets this session was created with, in order. Kept so a linked program can check what
@@ -128,7 +139,7 @@ public sealed unsafe class SlangSession : SlangObject<ISession>
             if (SlangResult.Failed(hr) || p is null)
                 throw new SlangException(hr, "IGlobalSession::createSession", null);
 
-            return new SlangSession(p, global, [.. options.Targets]);
+            return new SlangSession(p, global, [.. options.Targets], options.FileSystem);
         }
         finally
         {
@@ -245,9 +256,8 @@ public sealed unsafe class SlangSession : SlangObject<ISession>
     /// </summary>
     /// <remarks>
     /// <para>
-    /// Slang's own staleness check for an IR cache entry. Distinct from
-    /// <c>ShaderPackage.IsUpToDate</c>, which is SharpSlang's content-hash check over a baked
-    /// <em>shader</em> — this one is about a cached <em>module</em>, one step earlier.
+    /// Slang's own staleness check for an IR cache entry: about a cached <em>module</em>, not a
+    /// compiled shader.
     /// </para>
     /// <para>
     /// <strong>Ask it from a session that has not loaded the module.</strong> It is answered

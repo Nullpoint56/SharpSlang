@@ -52,7 +52,8 @@ public sealed class InMemoryFileProvider(IReadOnlyDictionary<string, string> fil
 
 /// <summary>
 /// Exposes an <see cref="ISlangFileProvider"/> to Slang as a native <c>ISlangFileSystem</c>.
-/// Dispose after the session that uses it — Slang holds the pointer for the session's lifetime.
+/// Dispose after the sessions that use it — Slang holds the pointer for each session's lifetime,
+/// and <see cref="Dispose"/> refuses before then.
 /// </summary>
 public sealed unsafe class SlangFileSystem : IDisposable
 {
@@ -89,11 +90,43 @@ public sealed unsafe class SlangFileSystem : IDisposable
         _native[1] = (void*)GCHandle.ToIntPtr(_self);
     }
 
+    // Sessions created with this file system and not yet disposed: Slang holds the pointer for each
+    // session's lifetime, so freeing it under one would hand Slang freed memory on its next load.
+    private int _sessions;
+
     /// <summary>The native pointer to hand to Slang, e.g. via <c>SessionDesc.fileSystem</c>.</summary>
     internal ISlangFileSystem* Handle => (ISlangFileSystem*)_native;
 
+    /// <summary>
+    /// Slang's own reference count on this object, as its <c>addRef</c> and <c>release</c> have
+    /// left it: 1 is this wrapper's own. For measuring what Slang holds; the binding decides
+    /// Dispose by <see cref="LiveSessions"/>, its own count, not by this.
+    /// </summary>
+    public int NativeReferenceCount => Volatile.Read(ref _refCount);
+
+    /// <summary>Sessions created with this file system and not yet disposed. <see cref="Dispose"/> refuses while it is above zero.</summary>
+    public int LiveSessions => Volatile.Read(ref _sessions);
+
+    internal void SessionCreated() => Interlocked.Increment(ref _sessions);
+
+    internal void SessionReleased() => Interlocked.Decrement(ref _sessions);
+
+    /// <summary>Frees the native object.</summary>
+    /// <exception cref="InvalidOperationException">
+    /// A session created with this file system is still alive (<see cref="LiveSessions"/>); dispose
+    /// it first. The file system stays usable.
+    /// </exception>
     public void Dispose()
     {
+        var live = Volatile.Read(ref _sessions);
+        if (live > 0 && _native is not null)
+        {
+            throw new InvalidOperationException(
+                $"SlangFileSystem disposed while {live} session(s) created with it are alive, and " +
+                $"Slang holds it for each session's lifetime. Dispose the sessions first " +
+                $"(AGENTS.md#ownership-and-lifetime).");
+        }
+
         if (_native is not null) { NativeMemory.Free(_native); _native = null; }
         if (_vtable is not null) { NativeMemory.Free(_vtable); _vtable = null; }
         if (_self.IsAllocated) _self.Free();

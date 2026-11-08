@@ -67,7 +67,7 @@ public sealed unsafe class SlangModule : SlangObject<IModule>
     /// <remarks>
     /// Normally the resolved absolute path. Not a content hash — it does not change when the file
     /// does, so it answers "is this the same module" and never "is this module current". For the
-    /// latter see <c>ShaderPackage.IsUpToDate</c>, which hashes the whole import graph.
+    /// latter hash the files <see cref="DependencyFilePaths"/> names, which is the whole import graph.
     /// </remarks>
     public string? UniqueIdentity => Utf8.Read(Ptr->getUniqueIdentity());
 
@@ -257,8 +257,25 @@ public sealed unsafe class SlangModule : SlangObject<IModule>
         FindType(name) ?? throw new SlangException(
             SlangResult.NotFound, $"type '{name}' not found in module '{Name}'", null);
 
-    /// <summary>The root of this module's declaration tree, borrowed. For L3's use.</summary>
-    internal DeclReflection* GetModuleReflection() => Ptr->getModuleReflection();
+    /// <summary>
+    /// <c>IModule::getModuleReflection</c>: the root of this module's declaration tree, or null.
+    /// Borrowed from the module (AGENTS.md#reflection-snapshot).
+    /// </summary>
+    public SlangDecl? GetModuleReflection() =>
+        SlangDecl.From((SlangReflectionDecl*)Ptr->getModuleReflection(), this);
+
+    /// <summary>
+    /// <c>IComponentType::getLayout</c> on the module alone: its reflection for one target, before
+    /// any link. Borrowed from the module.
+    /// </summary>
+    /// <exception cref="SlangException">Slang produced no layout; its diagnostics are attached.</exception>
+    public SlangShaderReflection GetLayout(int targetIndex = 0)
+    {
+        ISlangBlob* diagnostics = null;
+        var layout = Ptr->getLayout(targetIndex, &diagnostics);
+        Diagnostics.ThrowIfNull(layout, $"IModule::getLayout for '{Name}'", diagnostics);
+        return new SlangShaderReflection((SlangProgramLayout*)layout, this);
+    }
 
     internal IComponentType* AsComponent => (IComponentType*)Ptr;
 }
@@ -271,6 +288,13 @@ public sealed unsafe class SlangEntryPoint : SlangObject<IEntryPoint>
 
     /// <summary>The entry point's function name.</summary>
     public string Name { get; }
+
+    /// <summary>
+    /// <c>IEntryPoint::getFunctionReflection</c>: the entry point's function declaration, or null.
+    /// Borrowed from the entry point.
+    /// </summary>
+    public SlangFunction? FunctionReflection =>
+        SlangFunction.From((SlangReflectionFunction*)Ptr->getFunctionReflection(), this);
 
     internal IComponentType* AsComponent => (IComponentType*)Ptr;
 }

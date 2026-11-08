@@ -118,6 +118,7 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\dotnet\SharpSlang.csproj" />
+    <ProjectReference Include="..\..\bake\SharpSlang.Pipeline.Bake.csproj" />
     <ProjectReference Include="..\..\pipeline-nri\SharpSlang.Pipeline.NRI.csproj" />
 
     <!--

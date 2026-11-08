@@ -1,0 +1,48 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    SharpSlang.Pipeline.Bake — the cooker: compiles nothing itself, reads what SharpSlang compiled.
+
+    The half of the pipeline that needs the compiler, split from the reader so a shipped game
+    carries no compiler (AGENTS.md#decisions), and from the binding so the binding knows nothing of
+    the pipeline (AGENTS.md#layers).
+
+    What lives here:
+      ReflectionWalker.cs    reads a linked program's reflection once, through SharpSlang's public
+                             L2 reflection classes (SlangShaderReflection, SlangTypeLayout, ...),
+                             into SharpSlang.Pipeline's immutable ProgramLayout
+      ShaderPackageBaker.cs  a linked program, its code and its layout as a ShaderPackage
+      BakeExtensions.cs      the snapshot-returning conveniences on SharpSlang's objects
+                             (Reflect, SpecializeGeneric, FindFunction, ...)
+
+    SharpSlang's public API only (the template's <Binding>.<Feature> slot, owner, 2026-11-08): no
+    InternalsVisibleTo from it, no SharpSlang.Native call, no unsafe code.
+  -->
+
+  <PropertyGroup>
+    <TargetFramework>net11.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>SharpSlang</RootNamespace>
+
+    <PackageId>SharpSlang.Pipeline.Bake</PackageId>
+    <Version>$(SharpSlangVersion)</Version>
+    <Authors>szombathy-tamas</Authors>
+    <Description>The SharpSlang shader cooker: walks a linked program's reflection into SharpSlang.Pipeline's snapshot and bakes code and layout into a ShaderPackage. Uses SharpSlang's public API; reference it from the asset pipeline, and SharpSlang.Pipeline alone from the game. Alpha: not yet load-tested by a shipping game.</Description>
+    <PackageTags>slang;shader;spirv;reflection;shader-package;cooker</PackageTags>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <RepositoryType>git</RepositoryType>
+  </PropertyGroup>
+
+  <!-- Both exact in the nuspec (Directory.Build.targets): the binding it reads, the reader it writes for. -->
+  <ItemGroup>
+    <ProjectReference Include="$(MSBuildThisFileDirectory)..\dotnet\SharpSlang.csproj" />
+    <ProjectReference Include="$(MSBuildThisFileDirectory)..\pipeline\SharpSlang.Pipeline.csproj" />
+  </ItemGroup>
+
+  <!-- The tests assert the baker's own read-back check against a mutated layout. -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="SharpSlang.Tests" />
+  </ItemGroup>
+
+</Project>

@@ -160,12 +160,13 @@ dotnet_diagnostic.CA1401.severity = none
 
 # ---------------------------------------------------------------- names a baked package carries
 #
-# SpirvVersion and LayoutKind are serialized by name (JsonStringEnumConverter) into the layout JSON
-# of every baked .pslb, so their member names are part of the file format: renaming V1_5 or
-# Pointer would make every package baked before the rename unreadable. SpirvVersion's members are
-# version numbers, whose dot an identifier cannot hold (CA1707), and LayoutKind.Pointer is Slang's
-# own kind name (slang.h: SLANG_TYPE_KIND_POINTER) (CA1720).
-[pipeline/SpirvModule.cs]
+# SpirvVersion and LayoutKind are part of every baked .pslb: SpirvVersion's values per entry point
+# and LayoutKind by name (JsonStringEnumConverter) in the layout JSON, so renaming V1_5 or Pointer
+# breaks the format and every caller that names them. SpirvVersion's members are version numbers,
+# whose dot an identifier cannot hold (CA1707); it is a managed desc form in SharpSlang.Descs, which
+# the binding and the reader both name (AGENTS.md#layers). LayoutKind.Pointer is Slang's own kind
+# name (slang.h: SLANG_TYPE_KIND_POINTER) (CA1720).
+[descs/SpirvVersion.cs]
 dotnet_diagnostic.CA1707.severity = none
 
 [pipeline/TypeLayout.cs]

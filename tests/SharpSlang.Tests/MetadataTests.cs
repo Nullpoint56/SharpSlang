@@ -7,7 +7,6 @@
 // bound in L0 and reachable from nothing.
 
 using SharpSlang.Native;
-using SharpSlang.Reflection;
 
 namespace SharpSlang.Tests;
 
@@ -139,8 +138,8 @@ public class MetadataTests(ITestOutputHelper output)
     [NativeFact]
     public void Metadata_outlives_nothing_and_disposes_cleanly()
     {
-        // It holds a managed reference to the program, so disposal order does not matter — the
-        // rule the whole of SlangObject exists to enforce.
+        // A child of the program: the program refuses Dispose while it lives
+        // (AGENTS.md#ownership-and-lifetime), and a second Dispose of the metadata is a no-op.
         var (global, session, module) = Load();
         using (global) using (session) using (module)
         {
@@ -148,9 +147,10 @@ public class MetadataTests(ITestOutputHelper output)
             var program = session.Link(module, fragment);
             var metadata = program.GetTargetMetadata();
 
+            Assert.Throws<InvalidOperationException>(program.Dispose);
+            metadata.Dispose();
+            metadata.Dispose();
             program.Dispose();
-            metadata.Dispose();
-            metadata.Dispose();
         }
     }
 }

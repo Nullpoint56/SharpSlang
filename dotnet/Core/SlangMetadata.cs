@@ -1,4 +1,6 @@
-// L3 — what the compiler knows about the *generated code* that reflection does not.
+// L2 — slang::IMetadata: what the compiler knows about the *generated code* that reflection does
+// not. Its optional interfaces (IBindlessResourceMetadata, ISyntheticResourceMetadata) are L3,
+// in dotnet/Extensions.
 //
 // Reflection describes the shader's interface: every parameter the author declared, with the
 // binding Slang assigned it. That is the right answer for a descriptor set layout and the wrong one
@@ -66,29 +68,6 @@ public sealed unsafe class SlangMetadata : SlangObject<IMetadata>
     }
 
     /// <summary>
-    /// The bindings in <paramref name="layout"/> that the generated code never touches.
-    /// </summary>
-    /// <remarks>
-    /// The question a cooker asks. Reflection cannot answer it and the emitted module cannot
-    /// either — a declared-but-unread binding is present in both.
-    /// </remarks>
-    public IReadOnlyList<ParameterBinding> UnusedBindings(ProgramLayout layout)
-    {
-        ArgumentNullException.ThrowIfNull(layout);
-
-        var unused = new List<ParameterBinding>();
-        foreach (var parameter in layout.Parameters)
-        {
-            foreach (var binding in parameter.Bindings)
-            {
-                if (!IsUsed(binding.Category, binding.Space, binding.Index)) unused.Add(binding);
-            }
-        }
-
-        return unused;
-    }
-
-    /// <summary>
     /// The identifier tying this build to its debug information, where the target emits one.
     /// </summary>
     /// <remarks>
@@ -96,6 +75,30 @@ public sealed unsafe class SlangMetadata : SlangObject<IMetadata>
     /// key on, so a captured frame can be matched back to the source it was cooked from.
     /// </remarks>
     public string? DebugBuildIdentifier => Utf8.Read(Ptr->getDebugBuildIdentifier());
+
+    private SlangBindlessResourceMetadataExtension? _bindless;
+    private bool _bindlessProbed;
+
+    /// <summary>
+    /// <c>slang::IBindlessResourceMetadata</c> (<c>castAs</c>), or null when this metadata does not
+    /// carry it. Acquired once; borrowed for this metadata's lifetime.
+    /// </summary>
+    public SlangBindlessResourceMetadataExtension? TryBindlessResourceMetadata
+    {
+        get
+        {
+            if (!_bindlessProbed)
+            {
+                _bindless = SlangBindlessResourceMetadataExtension.TryAcquire(this, Ptr);
+                _bindlessProbed = true;
+            }
+            return _bindless;
+        }
+    }
+
+    /// <summary><c>slang::IBindlessResourceMetadata</c>. Throws <see cref="NotSupportedException"/> when absent.</summary>
+    public SlangBindlessResourceMetadataExtension BindlessResourceMetadata =>
+        TryBindlessResourceMetadata ?? throw new NotSupportedException("castAs(IBindlessResourceMetadata) returned null on this metadata");
 
     public override string ToString() =>
         IsDisposed ? "SlangMetadata (disposed)" : "SlangMetadata";

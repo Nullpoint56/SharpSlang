@@ -16,9 +16,11 @@ public sealed class TargetOptions
 {
     /// <summary>
     /// Output format. Defaults to SPIR-V. <c>SLANG_DXIL</c> is the
-    /// other one this binding measures, for D3D12 through SharpSlang.Pipeline.NRI; it needs dxc, which the
+    /// other one this binding measures, for D3D12; it needs dxc, which the
     /// <c>SharpSlang.Dxc</c> package copies into the application's output and
-    /// <see cref="SlangGlobalSession.RequireDxc"/> checks at session creation.
+    /// <see cref="SlangGlobalSession.RequireDxc"/> checks at session creation. Name its shader
+    /// model in <see cref="Profile"/> (<c>sm_6_5</c> for mesh and ray-tracing stages): left
+    /// unset, Slang picks one.
     /// </summary>
     public SlangCompileTarget Format { get; init; } = SlangCompileTarget.SLANG_SPIRV;
 
@@ -58,8 +60,7 @@ public sealed class TargetOptions
     /// </summary>
     /// <remarks>
     /// Off by default, matching Slang. Whichever way this is set, read the resulting name from the
-    /// module rather than assuming it — <see cref="SpirvEntryPoint"/> explains why, and
-    /// <c>ShaderPackage</c> records it so a pipeline builder never has to guess.
+    /// module rather than assuming it (AGENTS.md#layout-and-the-emitted-module).
     ///
     /// Note this must be set here or on the session: measured against slang-compiler 2026.21,
     /// passing <c>VulkanUseEntryPointName</c> to <c>linkWithOptions</c> has no effect at all.
@@ -129,25 +130,15 @@ public sealed class TargetOptions
     /// <summary>Whether this target emits SPIR-V, and so whether the SPIR-V knobs apply.</summary>
     internal bool IsSpirv => Format == SlangCompileTarget.SLANG_SPIRV;
 
-    /// <summary>What a DXIL target falls back to when no profile is named.</summary>
-    /// <remarks>
-    /// The same reasoning as <see cref="FallbackSpirvVersion"/>: a decision rather than an
-    /// inheritance. Left unset, Slang picks a shader model of its own and the emitted container
-    /// moves with the compiler version — measured on 2026.14.1, the two differed by a few dozen
-    /// bytes on the same shader, which is a different shader model, not noise, and slangc 2026.21
-    /// builds an unprofiled compute shader as shader model 6.0. Shader model 6.5 is
-    /// what this repository's D3D12 device tests compile against: the first model with mesh
-    /// shaders and inline ray tracing, which the corpus declares, and accepted by the RTX 4070
-    /// SUPER those tests were first measured on.
-    /// </remarks>
-    private const string FallbackDxilProfile = "sm_6_5";
-
     /// <summary>The profile name to hand Slang, or null to leave it unset.</summary>
+    /// <remarks>
+    /// A non-SPIR-V target gets no profile unless <see cref="Profile"/> names one, so Slang's own
+    /// choice stands (AGENTS.md#layers: no default but the header's). For DXIL that choice moves
+    /// with the compiler: slangc 2026.21 builds an unprofiled compute shader as shader model 6.0,
+    /// and a mesh or ray-tracing shader needs <c>sm_6_5</c> named.
+    /// </remarks>
     internal string? ResolveProfile() =>
-        Profile
-        ?? (IsSpirv ? (this.SpirvVersion ?? FallbackSpirvVersion).ToProfileName()
-            : Format == SlangCompileTarget.SLANG_DXIL ? FallbackDxilProfile
-            : null);
+        Profile ?? (IsSpirv ? (this.SpirvVersion ?? FallbackSpirvVersion).ToProfileName() : null);
 
     /// <summary>
     /// The SPIR-V version the emitted module must carry, or Unspecified when nothing was pinned

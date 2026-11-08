@@ -187,7 +187,7 @@ public sealed unsafe class SlangGlobalSession : SlangObject<IGlobalSession>
     /// Slang's own hash of a string, as <c>getStringHash</c> computes it in a shader.
     /// </summary>
     /// <remarks>
-    /// The other end of <c>ProgramLayout.HashedStrings</c>. A shader calling
+    /// The other end of <see cref="SlangShaderReflection.GetHashedString"/>. A shader calling
     /// <c>getStringHash("albedo")</c> compiles to a constant, and the host holding a name has no
     /// way to match it against that constant without computing the same hash — which is this.
     /// </remarks>

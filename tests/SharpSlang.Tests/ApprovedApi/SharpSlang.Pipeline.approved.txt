@@ -479,26 +479,6 @@ namespace SharpSlang.Spirv
         public uint Generator { get; init; }
         public SharpSlang.Spirv.SpirvVersion Version { get; init; }
     }
-    [System.Text.Json.Serialization.JsonConverter(typeof(System.Text.Json.Serialization.JsonStringEnumConverter<SharpSlang.Spirv.SpirvVersion>))]
-    public enum SpirvVersion
-    {
-        Unspecified = 0,
-        V1_0 = 65536,
-        V1_1 = 65792,
-        V1_2 = 66048,
-        V1_3 = 66304,
-        V1_4 = 66560,
-        V1_5 = 66816,
-        V1_6 = 67072,
-    }
-    public static class SpirvVersions
-    {
-        public static SharpSlang.Spirv.SpirvVersion FromProfileName(string? profile) { }
-        public static int Major(this SharpSlang.Spirv.SpirvVersion v) { }
-        public static int Minor(this SharpSlang.Spirv.SpirvVersion v) { }
-        public static string ToDisplayString(this SharpSlang.Spirv.SpirvVersion v) { }
-        public static string? ToProfileName(this SharpSlang.Spirv.SpirvVersion v) { }
-    }
     public readonly struct SpirvWorkgroupDimension : System.IEquatable<SharpSlang.Spirv.SpirvWorkgroupDimension>
     {
         public SpirvWorkgroupDimension(uint Value, uint? SpecializationConstantId = default) { }

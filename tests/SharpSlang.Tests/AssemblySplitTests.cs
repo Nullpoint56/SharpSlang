@@ -116,6 +116,109 @@ public class AssemblySplitTests
         Assert.Equal("SharpSlang", typeof(Native.SlangApi).Assembly.GetName().Name);
     }
 
+    // ---------------------------------------------------------------- the binding and the pipeline
+
+    [Fact]
+    public void The_binding_names_no_pipeline_package()
+    {
+        // AGENTS.md#layers: the binding knows nothing about the pipeline. Measured from metadata:
+        // its references are the runtime's and SharpSlang.Descs, and it grants none of the
+        // pipeline packages its internals.
+        var binding = typeof(SlangGlobalSession).Assembly;
+        var references = binding.GetReferencedAssemblies().Select(a => a.Name!).ToList();
+
+        Assert.Contains("SharpSlang.Descs", references);
+        Assert.DoesNotContain(references, r => r.StartsWith("SharpSlang.Pipeline", StringComparison.Ordinal));
+        Assert.All(references, r => Assert.True(
+            r is "SharpSlang.Descs" or "System" or "Microsoft.Win32.Primitives" || r.StartsWith("System.", StringComparison.Ordinal),
+            $"SharpSlang references {r}"));
+
+        var grants = binding.GetCustomAttributes<System.Runtime.CompilerServices.InternalsVisibleToAttribute>()
+            .Select(a => a.AssemblyName).ToList();
+        Assert.DoesNotContain(grants, g => g.StartsWith("SharpSlang.Pipeline", StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData("SharpSlang.Pipeline", new[] { "SharpSlang.Descs" })]
+    [InlineData("SharpSlang.Pipeline.Bake", new[] { "SharpSlang", "SharpSlang.Descs", "SharpSlang.Pipeline" })]
+    [InlineData("SharpSlang.Pipeline.NRI", new[] { "SharpNRI.Descs", "SharpSlang.Descs", "SharpSlang.Pipeline" })]
+    public void Each_pipeline_package_references_what_its_slot_allows(string name, string[] allowed)
+    {
+        // The dependency graph of AGENTS.md#native-packages, from each assembly's own metadata:
+        // the reader takes the descs, the cooker the binding and the reader, the projection the
+        // reader and NRI's descs. Nothing else of this repository or of SharpNRI.
+        var assembly = Load(name);
+        var ours = assembly.GetReferencedAssemblies()
+            .Select(a => a.Name!)
+            .Where(r => r.StartsWith("SharpSlang", StringComparison.Ordinal) || r.StartsWith("SharpNRI", StringComparison.Ordinal))
+            .Order(StringComparer.Ordinal)
+            .ToList();
+
+        Assert.Equal(allowed.Order(StringComparer.Ordinal), ours);
+    }
+
+    [Fact]
+    public void The_cooker_calls_no_native_function_and_no_binding_internal()
+    {
+        // The template's <Binding>.<Feature> slot: SharpSlang's public API only (owner,
+        // 2026-11-08). Read from the cooker's IL metadata: no reference to SlangApi (the
+        // P/Invokes), to a COM interface struct or to a reflection handle of the generated layer,
+        // and nothing the binding declares non-public.
+        var cooker = Load("SharpSlang.Pipeline.Bake");
+        using var file = File.OpenRead(cooker.Location);
+        using var pe = new System.Reflection.PortableExecutable.PEReader(file);
+        var md = System.Reflection.Metadata.PEReaderExtensions.GetMetadataReader(pe);
+
+        var native = new List<string>();
+        foreach (var handle in md.TypeReferences)
+        {
+            var type = md.GetTypeReference(handle);
+            var ns = md.GetString(type.Namespace);
+            var typeName = md.GetString(type.Name);
+            if (ns != "SharpSlang.Native") continue;
+
+            // The vocabulary (enums) is what a cooker names; the import class, the interface
+            // structs and the reflection handles are the layers below L2.
+            var resolved = typeof(Native.SlangUUID).Assembly.GetType($"{ns}.{typeName}")
+                ?? typeof(Native.SlangApi).Assembly.GetType($"{ns}.{typeName}");
+            if (resolved is null || !resolved.IsEnum) native.Add($"{ns}.{typeName}");
+        }
+
+        Assert.True(native.Count == 0,
+            "the cooker names the generated layer below the binding's L2:\n" + string.Join("\n", native));
+
+        Assert.DoesNotContain(typeof(SlangGlobalSession).Assembly.GetCustomAttributes<System.Runtime.CompilerServices.InternalsVisibleToAttribute>(),
+            a => a.AssemblyName == "SharpSlang.Pipeline.Bake");
+    }
+
+    [Fact]
+    public void A_cooker_consumer_carries_the_compiler()
+    {
+        // The other side of the reader-only consumer: a project referencing the cooker builds
+        // with the binding and the host RID's payload beside it. The cooker's own build output is
+        // that consumer, as a ProjectReference sees it.
+        var binary = Path.GetDirectoryName(Load("SharpSlang.Pipeline.Bake").Location)!;
+        var cookerOutput = Path.Combine(SlangHeader.RepoRoot(), "bake", "bin",
+            Path.GetFileName(Path.GetDirectoryName(binary)!), Path.GetFileName(binary));
+
+        Assert.True(Directory.Exists(cookerOutput), $"the cooker was not built at {cookerOutput}");
+        var files = Directory.EnumerateFiles(cookerOutput).Select(Path.GetFileName).ToList();
+
+        foreach (var expected in new[] { "SharpSlang.dll", "SharpSlang.Descs.dll", "SharpSlang.Pipeline.dll", "SharpSlang.Pipeline.Bake.dll" })
+            Assert.Contains(expected, files);
+
+        Assert.Contains(files, f => f!.Contains("slang-compiler", StringComparison.Ordinal));
+        Assert.DoesNotContain(files, f => f!.StartsWith("SharpSlang.Pipeline.NRI", StringComparison.Ordinal));
+    }
+
+    private static Assembly Load(string name) => name switch
+    {
+        "SharpSlang.Pipeline" => typeof(Reflection.ProgramLayout).Assembly,
+        "SharpSlang.Pipeline.Bake" => typeof(Reflection.ReflectionWalker).Assembly,
+        "SharpSlang.Pipeline.NRI" => typeof(Pipeline.NRI.NriPipelineProjection).Assembly,
+        _ => throw new ArgumentOutOfRangeException(nameof(name), name, "not a pipeline package"),
+    };
+
     // ---------------------------------------------------------------- and it works
 
     [NativeFact]

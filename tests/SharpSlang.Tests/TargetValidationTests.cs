@@ -25,7 +25,6 @@
 
 using SharpSlang.Interop;
 using SharpSlang.Native;
-using SharpSlang.Reflection;
 
 namespace SharpSlang.Tests;
 

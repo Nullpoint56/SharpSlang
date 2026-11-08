@@ -1052,13 +1052,12 @@ public sealed class NriDeviceTests(ITestOutputHelper output)
 
     internal sealed record Compiled(ProgramLayout Layout, byte[][] Code);
 
-    /// <summary>The DXIL target every D3D12 test compiles for: the binding's default profile.</summary>
+    /// <summary>The DXIL target every D3D12 test compiles for: shader model 6.5.</summary>
     /// <remarks>
-    /// No profile named, on purpose, so the tests run against what TargetOptions falls back to
-    /// (<c>sm_6_5</c>) — the profile a host that did not think about it gets, which is the one most
-    /// worth knowing works.
+    /// Named, because the binding sets no DXIL profile of its own (AGENTS.md#dxil): <c>sm_6_5</c>
+    /// is the first model with mesh shaders and inline ray tracing, which the corpus declares.
     /// </remarks>
-    internal static TargetOptions Dxil => new() { Format = SharpSlang.Native.SlangCompileTarget.SLANG_DXIL };
+    internal static TargetOptions Dxil => new() { Format = SharpSlang.Native.SlangCompileTarget.SLANG_DXIL, Profile = "sm_6_5" };
 
     /// <summary>Compiles, links and reflects for one target, keeping each entry point's code.</summary>
     internal static Compiled Compile(
