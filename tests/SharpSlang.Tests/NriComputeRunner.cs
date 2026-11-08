@@ -177,27 +177,11 @@ internal sealed class NriComputeRunner(NriDevice device) : IDisposable
         cmd.End();
 
         _queue.Submit(cmd, fence, 1);
-        WaitFor(fence, 1);
+        GpuWait.For(fence, 1, "the dispatch");
 
         var bytes = readback.Map().ToArray();
         readback.Unmap();
         return bytes;
-    }
-
-    /// <summary>Returns once the fence has reached the value; fails after two minutes.</summary>
-    /// <remarks>
-    /// Not <c>NriFence.Wait</c>, whose own five-second timeout lavapipe passes while it
-    /// JIT-compiles shaders on a cold cache (NriDeviceTests.WaitFor says what was measured).
-    /// </remarks>
-    private static void WaitFor(NriFence fence, ulong value)
-    {
-        var clock = System.Diagnostics.Stopwatch.StartNew();
-        while (fence.Value < value)
-        {
-            if (clock.Elapsed > TimeSpan.FromMinutes(2))
-                throw new TimeoutException($"the GPU work did not reach fence value {value} in 2 minutes (the fence is at {fence.Value})");
-            Thread.Sleep(1);
-        }
     }
 
     // ---------------------------------------------------------------- teardown

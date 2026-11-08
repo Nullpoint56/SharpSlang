@@ -389,6 +389,9 @@ public class AllocationTests
 
             _signals[0] = new NriFenceSubmit(_fence, _frame);
             _queue.Submit(_commandBuffers, default, _signals);
+            // NRI's own wait, not GpuWait: this frame runs on the NONE backend, whose Wait is an
+            // empty function and whose fence value is always 0, so a poll would never return
+            // (GpuWait says where that was read). What is measured here is the call's allocation.
             _fence.Wait(_frame);
             Charge(Part.Submit);
         }

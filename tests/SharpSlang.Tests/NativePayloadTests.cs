@@ -115,7 +115,7 @@ public sealed class NativePayloadTests
 
     private static string? SkipReason(string? os) =>
         !Rids.Contains(Rid) ? $"No payload contract for {Rid}."
-        : os is not null && !OperatingSystem.IsOSPlatform(os) ? $"a {os} binary format question"
+        : os is not null && !OperatingSystem.IsOSPlatform(os) ? $"the payload staged here is {Rid}'s, which holds no {os} binaries to read"
         : !Directory.Exists(NativeDir) ? $"{NativeDir} is absent. Run: pwsh tools/build-native.ps1 -Rid {Rid}"
         : null;
 

@@ -206,11 +206,9 @@ public sealed class NriDeviceTests(ITestOutputHelper output)
         if (LayoutUnbuildable(projection, device) is { } reason)
         {
             // A device limit rather than a permanent exclusion: the same shader is buildable on a
-            // workstation and not on lavapipe. Written to the output because a test that covers
-            // nothing and a test that covers everything are both green, and the log is the only
-            // thing that tells them apart.
-            output.WriteLine($"layout not built on this device — {reason}");
-            return;
+            // workstation and not on lavapipe. A skip naming the feature, not a pass: a row that
+            // built nothing must not count as one that built everything (the CI gates count passes).
+            Assert.Skip($"layout not built on this device — {reason}");
         }
 
         using (var layout = device.CreatePipelineLayout(projection.Layout))
@@ -617,33 +615,13 @@ public sealed class NriDeviceTests(ITestOutputHelper output)
         cmd.End();
 
         queue.Submit(cmd, fence, 1);
-        WaitFor(fence, 1);
+        GpuWait.For(fence, 1, "the dispatch");
 
         var words = System.Runtime.InteropServices.MemoryMarshal.Cast<byte, T>(readback.Map()).ToArray();
         readback.Unmap();
 
         Assert.True(words.Length >= count, $"the readback mapped {words.Length} elements, expected {count}");
         return words;
-    }
-
-    /// <summary>
-    /// Returns once the fence has reached the value; fails after two minutes.
-    /// </summary>
-    /// <remarks>
-    /// Not <c>NriFence.Wait</c>. NRI's wait gives up after its own five-second timeout, and
-    /// SharpNRI reports that as an exception — but the reason it exists is lavapipe JIT-compiling
-    /// shaders while it executes the command buffer, which on a cold cache and a loaded runner
-    /// passes five seconds. SharpNRI's GpuWork.Wait polls for the same reason, with the same cap.
-    /// </remarks>
-    private static void WaitFor(NriFence fence, ulong value)
-    {
-        var clock = System.Diagnostics.Stopwatch.StartNew();
-        while (fence.Value < value)
-        {
-            if (clock.Elapsed > TimeSpan.FromMinutes(2))
-                Assert.Fail($"the GPU work did not reach fence value {value} in 2 minutes (the fence is at {fence.Value})");
-            Thread.Sleep(1);
-        }
     }
 
     private void RequireNoErrors(NriTestDevice fixture)
@@ -916,8 +894,7 @@ public sealed class NriDeviceTests(ITestOutputHelper output)
 
         if (LayoutUnbuildable(projection, device) is { } reason)
         {
-            output.WriteLine($"layout not built on this device — {reason}");
-            return;
+            Assert.Skip($"layout not built on this device — {reason}");
         }
 
         Exception? refused = null;
