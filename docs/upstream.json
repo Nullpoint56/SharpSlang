@@ -181,7 +181,7 @@
       "area": "GLSL",
       "kind": "Slang defect",
       "patch": "0009-glsl-patch-constant-function-void.patch",
-      "test": "TargetValidationTests.Glsl_a_hull_shaders_patch_constant_function_returns_void",
+      "test": "TargetValidationTests.A_hull_shaders_patch_constant_function_returns_void_in_glsl",
       "state": "patched",
       "verified": "v2026.21",
       "upstream": [
@@ -194,7 +194,7 @@
       "area": "GLSL",
       "kind": "Slang defect",
       "patch": "0010-glsl-domain-input-unsized.patch",
-      "test": "TargetValidationTests.Glsl_a_domain_shaders_patch_input_compiles",
+      "test": "TargetValidationTests.A_domain_shaders_patch_input_compiles_as_glsl",
       "state": "patched",
       "verified": "v2026.21",
       "upstream": [
@@ -207,7 +207,7 @@
       "area": "WGSL",
       "kind": "Slang defect",
       "patch": "0012-wgsl-override-not-const.patch",
-      "test": "TargetValidationTests.Wgsl_a_value_computed_from_a_specialization_constant_is_not_const",
+      "test": "TargetValidationTests.A_value_computed_from_a_specialization_constant_is_not_a_wgsl_const",
       "state": "patched",
       "verified": "v2026.21",
       "upstream": [
@@ -260,7 +260,7 @@
       "area": "C++",
       "kind": "Slang defect",
       "patch": "0011-cpp-prelude-half-vector-ops.patch",
-      "test": "TargetValidationTests.Cpp_half_vector_arithmetic_and_comparison_compile",
+      "test": "TargetValidationTests.Half_vector_arithmetic_and_comparison_compile_as_cpp",
       "state": "patched",
       "verified": "v2026.21",
       "upstream": [
@@ -350,7 +350,7 @@
       "area": "C++ output",
       "kind": "Slang defect",
       "patch": "0020-cpp-append-consume-counter.patch",
-      "test": "TargetValidationTests.Cpp_append_and_consume_buffers_compile",
+      "test": "TargetValidationTests.Append_and_consume_buffers_compile_as_cpp",
       "state": "patched",
       "verified": "v2026.21"
     },
@@ -370,7 +370,7 @@
       "area": "GLSL output",
       "kind": "Slang defect",
       "patch": "0022-glsl-tessellation-layouts.patch",
-      "test": "TargetValidationTests.Glsl_the_tessellation_stages_declare_their_layouts",
+      "test": "TargetValidationTests.The_tessellation_stages_declare_their_glsl_layouts",
       "state": "patched",
       "verified": "v2026.21"
     },

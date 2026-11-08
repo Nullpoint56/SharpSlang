@@ -289,7 +289,7 @@ public sealed class TargetValidationTests(ITestOutputHelper output)
     }
 
     [PatchedFact("U34")]
-    public void Glsl_the_tessellation_stages_declare_their_layouts()
+    public void The_tessellation_stages_declare_their_glsl_layouts()
     {
         // U34, patched (0022): the hull shader declares its output control points and the domain
         // shader its abstract patch, which GLSL requires of each stage and HLSL carries as
@@ -303,11 +303,11 @@ public sealed class TargetValidationTests(ITestOutputHelper output)
     }
 
     [PatchedFact("U32")]
-    public void Cpp_append_and_consume_buffers_compile() =>
+    public void Append_and_consume_buffers_compile_as_cpp() =>
         RequirePatchedCaseValid("cpp", "append-buffers/abCompute", Validator.HostCxx);
 
     [PatchedFact("U18")]
-    public void Glsl_a_hull_shaders_patch_constant_function_returns_void()
+    public void A_hull_shaders_patch_constant_function_returns_void_in_glsl()
     {
         // U18, patched (0009): the patch-constant function, whose returns legalization rewrites to
         // return nothing, is declared void. Read from the text: glslang still refuses the hull stage
@@ -339,7 +339,7 @@ public sealed class TargetValidationTests(ITestOutputHelper output)
     }
 
     [PatchedFact("U20")]
-    public void Wgsl_a_value_computed_from_a_specialization_constant_is_not_const() =>
+    public void A_value_computed_from_a_specialization_constant_is_not_a_wgsl_const() =>
         RequirePatchedCaseValid("wgsl", "specialization-constants/scFragment", Validator.Naga);
 
     [PatchedFact("U23")]
@@ -364,10 +364,10 @@ public sealed class TargetValidationTests(ITestOutputHelper output)
         }
     }
     [PatchedFact("U24")]
-    public void Cpp_half_vector_arithmetic_and_comparison_compile() =>
+    public void Half_vector_arithmetic_and_comparison_compile_as_cpp() =>
         RequirePatchedComputeValid("cpp", Validator.HostCxx, "compute:half-vector-calc.slang", "compute:half-vector-compare.slang");
     [PatchedFact("U19")]
-    public void Glsl_a_domain_shaders_patch_input_compiles() =>
+    public void A_domain_shaders_patch_input_compiles_as_glsl() =>
         RequirePatchedCaseValid("glsl", "tessellation/teDomain", Validator.GlslangValidator);
     private void CheckCase(string target, string name)
     {
