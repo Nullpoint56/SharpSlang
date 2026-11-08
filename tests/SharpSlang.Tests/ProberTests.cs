@@ -197,7 +197,7 @@ public class ProberTests(ITestOutputHelper output)
             + $"and that paragraph is what needs rewriting, not this assertion.\n{outcome}");
     }
 
-    [NativeFact]
+    [ReleasePayloadFact("U3")]
     public void A_mismatched_generic_argument_kind_crashes_on_two_platforms_and_diagnoses_on_the_third()
     {
         // U3 (AGENTS.md#reflection-snapshot), corrected by the first macOS run. This was called
@@ -218,7 +218,7 @@ public class ProberTests(ITestOutputHelper output)
         AssertMismatchRefused(Run("generic-argument-kind-mismatch"), "expected a type");
     }
 
-    [NativeFact]
+    [ReleasePayloadFact("U3")]
     public void The_argument_count_has_to_match_too_not_only_the_kinds()
     {
         // The other half of SpecializeGeneric's guard: two type arguments for one type parameter —
@@ -371,6 +371,28 @@ public class ProberTests(ITestOutputHelper output)
         Assert.Contains("2 binding range(s)", outcome.Stdout, StringComparison.Ordinal);
         Assert.Contains($"scArray type=SLANG_BINDING_TYPE_TEXTURE bindings={unknown}", outcome.Stdout, StringComparison.Ordinal);
         Assert.Contains("scSampler type=SLANG_BINDING_TYPE_SAMPLER bindings=1", outcome.Stdout, StringComparison.Ordinal);
+    }
+
+    [PatchedFact("U3")]
+    public void A_mismatched_generic_argument_list_is_refused_with_a_diagnostic()
+    {
+        // U3 (AGENTS.md#reflection-snapshot), patch 0004. The diagnostic macOS's release already
+        // reaches, without the non-null generic it returned beside it, on every platform: an int
+        // where a type parameter belongs, and two type arguments for one parameter.
+        foreach (var (probe, diagnostic) in new[]
+                 {
+                     ("generic-argument-kind-mismatch", "expected a type"),
+                     ("generic-argument-count-mismatch", "too many arguments"),
+                 })
+        {
+            var outcome = Run(probe);
+            output.WriteLine($"{probe}: {outcome}");
+
+            Assert.True(outcome.ExitCode == 0, $"'{probe}' ended the process:\n{outcome}");
+            Assert.Contains("\nrefused", "\n" + outcome.Stdout.ReplaceLineEndings("\n"), StringComparison.Ordinal);
+            Assert.Contains("error", outcome.Stdout, StringComparison.Ordinal);
+            Assert.Contains(diagnostic, outcome.Stdout, StringComparison.Ordinal);
+        }
     }
 
     [NativeFact]

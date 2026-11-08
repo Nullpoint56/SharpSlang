@@ -26,7 +26,7 @@ carry until the switch (`AGENTS.md`, Decisions), has none of them.
 |---|---|---|---|---|---|---|---|
 | U1 | `spReflectionType_GetElementCount` / `GetSpecializedElementCount` crash on an array sized by a link-time constant | reflection | Slang defect | `0002-element-count-of-a-specialization-sized-array.patch` | `ProberTests.The_element_count_of_a_specialization_sized_array_is_unknown` | patched | v2026.21 |
 | U2 | `getBindingRangeCount` throws a C++ exception through `extern "C"` for a resource array sized by a link-time constant | reflection | Slang defect | `0003-binding-ranges-of-a-specialization-sized-array.patch` | `ProberTests.A_specialization_sized_resource_array_has_binding_ranges_of_unknown_count` | patched | v2026.21 |
-| U3 | `spReflection_specializeGeneric` access-violates on a mismatched argument list | reflection | Slang defect |  | `ProberTests.A_mismatched_generic_argument_kind_crashes_on_two_platforms_and_diagnoses_on_the_third` | unpatched | v2026.21 |
+| U3 | `spReflection_specializeGeneric` access-violates on a mismatched argument list | reflection | Slang defect | `0004-specialize-generic-mismatched-arguments.patch` | `ProberTests.A_mismatched_generic_argument_list_is_refused_with_a_diagnostic` | patched | v2026.21 |
 | U4 | `spReflection_specializeType` on a non-generic type segfaults on Linux (an assert that removes its own check) | reflection | Slang defect | `0001-specialize-type-diagnose-argument-count.patch` | `ProberTests.Specializing_a_non_generic_type_is_refused_with_a_diagnostic` | patched | v2026.21 |
 | U5 | A constant buffer whose block holds only link-time-sized arrays gets no binding | reflection | Slang defect |  | `UnknownSizeTests.A_buffer_with_no_fixed_size_is_refused_rather_than_dropped` | unpatched | v2026.21 |
 | U6 | A 64-bit 3/4-component vertex input is given one location; Vulkan requires two | SPIR-V | Slang defect |  | `NriValidationTests.A_wide_64_bit_vertex_attribute_really_does_consume_two_locations` | unpatched | v2026.21 |
@@ -214,6 +214,28 @@ checked first: `SlangReflectionGenericArgType` is a 4-byte enum, `SlangReflectio
 8-byte union, and the same call with a matching argument returns the correct specialization (a
 type argument gives `MgWrapper<MgLambert>` with the right layout; a value argument on a value
 generic sizes the array).
+
+**Cause.** `Linkage::specializeGeneric` (`source/slang/slang-session.cpp`) takes the declaration
+out of the checked application unconditionally:
+
+```cpp
+auto specializedDeclRef =
+    as<DeclRefExpr>(visitor.checkGenericAppWithCheckedArgs(genericAppExpr))->declRef;   // 808-809
+```
+
+On a mismatched argument list, `checkGenericAppWithCheckedArgs` diagnoses it and returns an error
+expression, the `GenericAppExpr` itself (`CreateErrorExpr` at the error label of
+`CompleteOverloadCandidate`, `source/slang/slang-check-overload.cpp`). `as<DeclRefExpr>` of that is
+null and the member access dereferences it: undefined behaviour, which is why macOS returns a
+non-null generic where the other platforms access-violate.
+
+**Fix.** Check the cast and return a null `DeclRef`, which `spReflection_specializeGeneric` returns
+as null beside the diagnostics the check already produced. A matching argument list takes the same
+path as before. Regression test: `tools/slang-unit-test/unit-test-specialize-generic-mismatch.cpp`.
+Carried as `patches/0004-specialize-generic-mismatched-arguments.patch`.
+
+With the fix: null with `expected a type` for the integer argument and `too many arguments` for the
+two type arguments (win-x64 with MSVC, linux-x64 with GCC 13.3, the tag built from source).
 
 **Repro.**
 

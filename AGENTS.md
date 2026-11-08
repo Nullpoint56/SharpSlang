@@ -797,6 +797,7 @@ packages).
 | `0001-specialize-type-diagnose-argument-count` | U4 | `Linkage::specializeType` diagnoses an argument count that does not match (38025) instead of asserting it, so no build can drop the check |
 | `0002-element-count-of-a-specialization-sized-array` | U1 | `GetSpecializedElementCount` returns `SLANG_UNKNOWN_SIZE` for a length that is not a constant instead of throwing out of `getIntVal` |
 | `0003-binding-ranges-of-a-specialization-sized-array` | U2 | the binding ranges of a resource array of such a length carry an unknown count instead of throwing |
+| `0004-specialize-generic-mismatched-arguments` | U3 | `Linkage::specializeGeneric` returns null when the application fails to check, instead of dereferencing the error expression |
 
 Every Slang defect in `docs/upstream.md` gets a patch, test first, and the registry says what became
 of each (owner, 2026-11-08: "All of them and we roll a registry of them so we can clearly see if they
@@ -1318,7 +1319,10 @@ in `docs/upstream.md`.
   non-null generic alongside the error (v2026.21, prober, all four legs). U3. Handled:
   `SpecializeGeneric` compares the argument kinds and count against the generic before calling.
   Residue: a generic mixing type and value parameters reports them as two lists, so their
-  interleaving is not recoverable and a wrong order with matching counts reaches Slang.
+  interleaving is not recoverable and a wrong order with matching counts reaches Slang. Patched
+  (0004): null with "expected a type" and "too many arguments" on win-x64 and linux-x64 (source
+  builds of the tag). The guard stays while the packages carry the release, which has the defect;
+  it can go once they carry our build (Patches).
 - **`specializeType` on a non-generic type**: null on win-x64 and osx-arm64, SIGSEGV (exit 139) on
   Linux (v2026.21, prober). U4. Handled: never called in process; `SpecializeGeneric` refuses a
   non-generic type. The cause is undefined behaviour, so the answer is the compiler's: in Release

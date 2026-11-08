@@ -27,9 +27,9 @@
       "title": "`spReflection_specializeGeneric` access-violates on a mismatched argument list",
       "area": "reflection",
       "kind": "Slang defect",
-      "patch": null,
-      "test": "ProberTests.A_mismatched_generic_argument_kind_crashes_on_two_platforms_and_diagnoses_on_the_third",
-      "state": "unpatched",
+      "patch": "0004-specialize-generic-mismatched-arguments.patch",
+      "test": "ProberTests.A_mismatched_generic_argument_list_is_refused_with_a_diagnostic",
+      "state": "patched",
       "verified": "v2026.21"
     },
     {
