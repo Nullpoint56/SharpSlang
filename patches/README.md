@@ -1,6 +1,9 @@
 # patches/
 
-Changes to Slang applied on top of the pinned tag before the native build. There are none yet.
+Changes to Slang applied on top of the pinned tag before the native build, one per Slang defect.
+`docs/upstream.json` is the registry: which defect each patch fixes, the test that holds it, and
+its state; `tools/ci/patch-registry.ps1` checks the two against each other and that every patch
+applies (AGENTS.md#patches).
 
 ## Format
 
@@ -28,7 +31,10 @@ git -C slang diff -- <paths> > patches/NNNN-short-description.patch
 
 then write the header above the diff. Patches follow Slang's coding standard (`slang/CLAUDE.md`,
 `slang/CONTRIBUTING.md`, `extras/formatting.sh`), make no semantic change to an existing call, and
-keep comments in Slang's voice.
+keep comments in Slang's voice. Each adds a regression test in Slang's form (a `SLANG_UNIT_TEST`
+under `tools/slang-unit-test/`, or a `.slang` test under `tests/`). A new test goes in its own
+file: a patch that changed a file an earlier patch creates could not apply alone. Then add the
+patch to the registry, and run `pwsh tools/ci/patch-registry.ps1 -Write`.
 
 ## Moving the pin
 
@@ -36,4 +42,5 @@ Check out the new tag in `slang/` (`git -C slang fetch --tags`, `git -C slang ch
 `git -C slang submodule update --init --recursive`), stage the pointer with
 `git update-index --cacheinfo 160000,<commit>,slang`, set `SlangVersion`, and re-run
 `tools/build-native.ps1`, which refuses a checkout that is not at the pinned tag and rebuilds from a
-fresh tree when the commit, the patches or the options change.
+fresh tree when the commit, the patches or the options change. `pwsh tools/ci/patch-registry.ps1
+-Bump` then says which patches still apply and which the new tag no longer needs (AGENTS.md#patches).

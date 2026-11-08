@@ -18,8 +18,8 @@ against. The states: `patched` (our build carries the patch), `fixed upstream in
 or the patch dropped), `filed: <URL>` and `upstream PR from fork: <URL>` (the patch still carried),
 `not patchable: <reason>`, and `unpatched` (recorded, no patch yet). Every defect gets a patch, test
 first (owner, 2026-11-08); the order and the procedure are in `AGENTS.md` under Patches. A patch
-reaches users only in a payload built from source: Slang's own release, which CI and the packages
-carry until the switch (`AGENTS.md`, Decisions), has none of them.
+reaches only a payload built from source, which is what a release packs; Slang's own release
+archive, which CI tests until the switch (`AGENTS.md`, Decisions), has none of them.
 
 <!-- patch-registry:begin (generated from docs/upstream.json by tools/ci/patch-registry.ps1 -Write; do not edit) -->
 | # | Defect | Area | Kind | Patch | Test | State | Verified |

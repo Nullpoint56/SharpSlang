@@ -22,6 +22,13 @@ inputs:
     description: the job token, for fetch-native.ps1's API fallback route
     required: false
     default: ''
+  restore-only:
+    description: >
+      'true': a build payload must come from the cache, and a miss fails instead of building. For
+      ci.yml's test legs, whose payload the native-from-source job built on the runner that sets the
+      glibc floor (Ubuntu 22.04); a test leg's own build would be above it
+    required: false
+    default: 'false'
 
 outputs:
   cache-hit:
@@ -60,15 +67,22 @@ runs:
       run: ./tools/fetch-native.ps1 -Rid ${{ inputs.rid }} -Profile Spirv
 
     # ---------------------------------------------------------------- build: the submodule
+    - name: The source-built payload is not cached
+      if: steps.restore.outputs.cache-hit != 'true' && inputs.source == 'build' && inputs.restore-only == 'true'
+      shell: bash
+      run: |
+        echo "::error::no cached payload under ${{ steps.key.outputs.cache }}: the native-from-source job builds and saves it before the test legs run"
+        exit 1
+
     # Slang and its own submodules (external/, about 1.4 GB checked out), only on a miss.
     - name: Fetch the Slang submodule
-      if: steps.restore.outputs.cache-hit != 'true' && inputs.source == 'build'
+      if: steps.restore.outputs.cache-hit != 'true' && inputs.source == 'build' && inputs.restore-only != 'true'
       shell: bash
       run: git -c submodule.fetchJobs=8 submodule update --init --recursive slang
 
     # From the image's apt lists, refreshed only after a failed install (the template's rule).
     - name: Install Ninja
-      if: steps.restore.outputs.cache-hit != 'true' && inputs.source == 'build' && runner.os != 'Windows'
+      if: steps.restore.outputs.cache-hit != 'true' && inputs.source == 'build' && inputs.restore-only != 'true' && runner.os != 'Windows'
       shell: bash
       run: |
         command -v ninja && exit 0
@@ -76,14 +90,14 @@ runs:
         sudo apt-get install -y -qq ninja-build || { sudo apt-get update -qq && sudo apt-get install -y -qq ninja-build; }
 
     - name: Build the payload
-      if: steps.restore.outputs.cache-hit != 'true' && inputs.source == 'build'
+      if: steps.restore.outputs.cache-hit != 'true' && inputs.source == 'build' && inputs.restore-only != 'true'
       shell: pwsh
       run: ./tools/build-native.ps1 -Rid ${{ inputs.rid }}
 
     # The symbols the same link wrote beside each staged library, with the hash of the library they
     # belong to, so a cached payload keeps its symbols (tools/ci/native-symbols.ps1).
     - name: Keep the native symbols
-      if: steps.restore.outputs.cache-hit != 'true' && inputs.source == 'build'
+      if: steps.restore.outputs.cache-hit != 'true' && inputs.source == 'build' && inputs.restore-only != 'true'
       shell: pwsh
       run: ./tools/ci/native-symbols.ps1 -Rid ${{ inputs.rid }} -Collect
 
