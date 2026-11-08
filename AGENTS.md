@@ -504,6 +504,17 @@ the same commands as CI's `lint` job. Descs-version and zero-alloc gates come la
 - The Tier 0 spike (`samples/SharpSlang.Smoke`) has no skip logic: almost every test is a `[NativeFact]`
   that skips when `slang-compiler` cannot load, so the spike is what fails a leg whose payload
   stages and does not load.
+- Figures with the oracles (`PixelTests`, `TargetValidationTests`; branch `sharpslang-oracles`).
+  The workstation (Release; Vulkan with the SDK's 1.4.363 layer and D3D12, the RTX 4070 SUPER;
+  every validator but xcrun): 1043 results, 1036 passed, 7 skipped (the three `NativePayloadTests`
+  rows for other platforms' binaries, the three Metal rows, `DxilTests`' session without dxc), 0
+  failed, 2m20s. WSL (`verify-linux.sh` in a Linux-filesystem clone, lavapipe, layer 1.4.363
+  through `VK_ADD_LAYER_PATH`, `SHARPNRI_TEST_SOFTWARE=1`, spirv-tools and glslang-tools from
+  Ubuntu's archive, naga from cargo): 851 results, 825 passed, 26 skipped (8 `DxilTests`, 3 D3D12
+  `NriDeviceTests`, the D3D12 pixel row, 2 `NativePayloadTests`, and the DXIL, HLSL, CUDA and Metal
+  validator rows, 12), 0 failed. A Windows run shaped like the hosted runner
+  (`SHARPNRI_TEST_SOFTWARE=1`, `GITHUB_ACTIONS=true`, no Vulkan driver, no SDK, cargo or CUDA on
+  the path) of the four oracle classes: every gate's count as ci.yml expects it.
 - Figures at eae435a (SharpSlang.Descs split out). The workstation (Release, Vulkan with the SDK's
   1.4.363 layer, and D3D12, the RTX 4070 SUPER): 791 total, 788 passed, 3 skipped (the
   `NativePayloadTests` rows that read Linux and macOS binaries), 0 failed, 1m31s. WSL
@@ -1367,14 +1378,15 @@ Each compile target is held to its strongest outside oracle (owner, 2026-11-08; 
 device where one runs here, a validator where the target has one, a compiler where its output is
 source. Tools are found at run time (`TargetValidators`: PATH, then `$VULKAN_SDK/bin`,
 `$CARGO_HOME/bin` or `~/.cargo/bin`, `$CUDA_PATH`, the test output for dxc); a missing one is a skip
-naming it and how to get it. Measured on the workstation at v2026.21 (every tool but xcrun), and the
-Linux tools under WSL (Test runner):
+naming it and how to get it. Measured on the workstation at v2026.21 (every tool but xcrun), and
+under WSL with the Linux tools CI installs (spirv-val 2025.1, glslang 15.1.0 from Ubuntu 24.04's
+noble-updates, naga 30.0.1), with the same outcomes for SPIR-V, GLSL, WGSL and C++ (Test runner):
 
 | Target | Device | Tool | ShaderCorpus, 42 entry points | `tests/compute`, 56 | Defects |
 |---|---|---|---|---|---|
 | SPIR-V | Vulkan (`PixelTests`, `NriDeviceTests`, the compute dispatches) | `spirv-val` 2026.4 (SDK) / 2025.1 (Ubuntu), `--target-env` from the module's version | 42 valid (one with `--allow-localsizeid`: LocalSizeId needs maintenance4) | 56 valid | none new |
 | DXIL | D3D12 (`PixelTests`, `NriDeviceTests`) | `IDxcValidator` in `dxil.dll` 1.9 | 39 valid, 3 refused by dxc inside Slang | 56 valid | none |
-| GLSL | none | `glslangValidator` 16.6.0, `-V --target-env vulkan1.2` | 40 valid, 2 rejected | 56 valid | U18, U19 |
+| GLSL | none | `glslangValidator` 16.6.0 (SDK) / 15.1.0 (Ubuntu), `-V --target-env vulkan1.2` | 40 valid, 2 rejected | 56 valid | U18, U19 |
 | HLSL | none | dxc's `IDxcCompiler3`, `-T <stage>_6_5` | 39 valid, 1 refused, 2 rejected (the Vulkan-only and `double` inputs dxc refuses on the DXIL target too) | 56 valid | none |
 | WGSL | none | naga 30.0.1 | 15 valid, 21 refused, 6 rejected | 49 valid, 6 refused, 1 rejected | U20, U21, U22, U23, U25 |
 | Metal | none | `xcrun -sdk macosx metal` to AIR, macOS only | 14 refused by Slang (measured without the tool); xcrun's verdict on the other 28 not measured | 1 refused; 55 not measured | U23 |
@@ -1417,8 +1429,9 @@ CUDA device harness.
   executable has one such mode, `test-adapters`, which only reports adapters (Test runner).
 - **Two in-process questions moved out on suspicion** (`specialized-type-arg-out-of-range`,
   `apply-generic-to-itself`): benign on Windows and Linux, unproven on macOS; asked out of process.
-- **Expected skips.** The workstation skips only the `NativePayloadTests` rows for other platforms' binaries (3; 788 passed at eae435a). WSL skips the 11 D3D12 and
-  DXIL rows and 2 `NativePayloadTests` rows (682 passed at eae435a). CI per leg has not run on this tree: the last figures are of the tree
+- **Expected skips.** The workstation skips the `NativePayloadTests` rows for other platforms' binaries (3), the Metal rows (3) and `DxilTests`' session without dxc (1036 passed, Test runner); before the oracles it skipped only the first three (788 passed at eae435a). WSL skips the D3D12 and
+  DXIL rows, 2 `NativePayloadTests` rows and the validator rows for tools Linux lacks (26, 825
+  passed; 682 at eae435a). CI per leg has not run on this tree: the last figures are of the tree
   before the Vulkan projection's removal (run 42422416933 on 9af4412: win-x64 774 passed, 10
   skipped; linux-x64 740, 12; linux-arm64 670, 18; run 42423571989 on 15428be: osx-arm64 632, 24),
   and are re-measured by the first CI run of this tree. Each skip prints its reason in the TRX: no

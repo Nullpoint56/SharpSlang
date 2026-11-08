@@ -400,7 +400,7 @@ jobs:
           echo "VK_ADD_LAYER_PATH=$GITHUB_WORKSPACE/obj/vvl/share/vulkan/explicit_layer.d" >> "$GITHUB_ENV"
 
       # The shader validators TargetValidationTests judges Slang's output with, from the image's
-      # own apt lists (Ubuntu 24.04's noble-updates: spirv-tools 2025.1~rc1, glslang-tools), on
+      # own apt lists (Ubuntu 24.04's noble-updates: spirv-tools 2025.1~rc1, glslang-tools 15.1.0), on
       # both Linux legs. Both legs because arm64 is where the SPIR-V differs (U17 in
       # docs/upstream.md, AGENTS.md#cross-platform-behaviour): its modules are validated as built
       # there. The lavapipe step above already refreshed the lists on linux-x64.
