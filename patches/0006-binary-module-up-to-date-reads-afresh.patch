@@ -1,0 +1,145 @@
+Read a serialized module's dependencies afresh in Linkage::isBinaryModuleUpToDate.
+
+Linkage::isBinaryModuleUpToDate (source/slang/slang-session.cpp) hashes each file dependency the
+module records and compares the result with the module's digest. It reads the files through
+Linkage::loadSourceFile, that is, through the session's file system, a CacheFileSystem that keeps
+what it has read, and the session's source manager, which keeps the files it loaded. In the session
+that loaded the module, every dependency therefore hashes as it did when the module was loaded:
+after the source is rewritten, isBinaryModuleUpToDate still returns true, and it returns true
+for a module path where no file exists. A new session with the same search paths reads the files
+and returns false for both. Its declaration in slang.h documents neither behaviour.
+
+This reads the dependencies through a new CacheFileSystem over the same underlying file system and
+a source manager of its own, as a new session reads them. A file system the caller supplied as a
+CacheFileSystem is the caller's cache and is read as before. A regression test is added as
+tools/slang-unit-test/unit-test-binary-module-up-to-date.cpp.
+
+Measured on v2026.21: before, true for the rewritten source and for an absent path in the loading
+session, false in a new one (win-x64, linux-x64, linux-arm64, osx-arm64); after, false in both.
+diff --git a/source/slang/slang-session.cpp b/source/slang/slang-session.cpp
+index 9141ac443..85ddd9fe4 100644
+--- a/source/slang/slang-session.cpp
++++ b/source/slang/slang-session.cpp
+@@ -2188,6 +2188,34 @@ bool Linkage::isBinaryModuleUpToDate(String fromPath, RIFF::ListChunk const* bas
+     digestBuilder.append(version);
+     m_optionSet.buildHash(digestBuilder);
+ 
++    // The session's file system caches what it has read, and its source manager keeps the files it
++    // loaded, so reading the dependencies through them answers for the files as this session first
++    // read them: a source rewritten since, or one reached through a path that does not exist, still
++    // matches. The dependencies are read through a new cache over the same underlying file system
++    // and a source manager of their own, as a new session would read them. A file system the caller
++    // supplied as a CacheFileSystem is the caller's own cache, and is read as it is.
++    //
++    ComPtr<ISlangFileSystemExt> freshFileSystem;
++    if (!m_fileSystem)
++        freshFileSystem = new CacheFileSystem(OSFileSystem::getExtSingleton());
++    else if (as<CacheFileSystem>(m_fileSystem))
++        freshFileSystem = getFileSystemExt();
++    else
++        freshFileSystem = new CacheFileSystem(m_fileSystem);
++    SourceManager freshSourceManager;
++    freshSourceManager.initialize(nullptr, freshFileSystem);
++    IncludeSystem freshIncludeSystem(&getSearchDirectories(), freshFileSystem, &freshSourceManager);
++    auto loadFreshSourceFile = [&](const String& pathFrom, const String& path) -> SourceFile*
++    {
++        ComPtr<slang::IBlob> blob;
++        PathInfo pathInfo;
++        SourceFile* sourceFile = nullptr;
++        if (SLANG_FAILED(freshIncludeSystem.findFile(path, pathFrom, pathInfo)) ||
++            SLANG_FAILED(freshIncludeSystem.loadFile(pathInfo, blob, sourceFile)))
++            return nullptr;
++        return sourceFile;
++    };
++
+     // Find the canonical path of the directory containing the module source file.
+     String moduleSrcPath = "";
+ 
+@@ -2201,12 +2229,8 @@ bool Linkage::isBinaryModuleUpToDate(String fromPath, RIFF::ListChunk const* bas
+     {
+         moduleSrcPath = firstDependencyChunk->getValue();
+ 
+-        IncludeSystem includeSystem(
+-            &getSearchDirectories(),
+-            getFileSystemExt(),
+-            getSourceManager());
+         PathInfo modulePathInfo;
+-        if (SLANG_SUCCEEDED(includeSystem.findFile(moduleSrcPath, fromPath, modulePathInfo)))
++        if (SLANG_SUCCEEDED(freshIncludeSystem.findFile(moduleSrcPath, fromPath, modulePathInfo)))
+         {
+             moduleSrcPath = modulePathInfo.foundPath;
+             Path::getCanonical(moduleSrcPath, moduleSrcPath);
+@@ -2217,13 +2241,13 @@ bool Linkage::isBinaryModuleUpToDate(String fromPath, RIFF::ListChunk const* bas
+     for (auto dependencyChunk : dependencyChunks)
+     {
+         auto file = dependencyChunk->getValue();
+-        auto sourceFile = loadSourceFile(fromPath, file);
++        auto sourceFile = loadFreshSourceFile(fromPath, file);
+         if (!sourceFile)
+         {
+             // If we cannot find the source file from `fromPath`,
+             // try again from the module's source file path.
+             if (dependencyChunks.getFirst())
+-                sourceFile = loadSourceFile(moduleSrcPath, file);
++                sourceFile = loadFreshSourceFile(moduleSrcPath, file);
+         }
+         if (!sourceFile)
+         {
+diff --git a/tools/slang-unit-test/unit-test-binary-module-up-to-date.cpp b/tools/slang-unit-test/unit-test-binary-module-up-to-date.cpp
+new file mode 100644
+index 000000000..45c2cbfe9
+--- /dev/null
++++ b/tools/slang-unit-test/unit-test-binary-module-up-to-date.cpp
+@@ -0,0 +1,51 @@
++// unit-test-binary-module-up-to-date.cpp
++
++#include "core/slang-io.h"
++#include "slang-com-ptr.h"
++#include "slang.h"
++#include "unit-test/slang-unit-test.h"
++
++using namespace Slang;
++
++// This test serializes a module loaded from a file, rewrites the file, and asks the same session
++// whether the serialized module is still up to date. The session that loaded the module must not
++// answer from the contents it read before the file changed.
++
++SLANG_UNIT_TEST(binaryModuleUpToDateAfterSourceChange)
++{
++    const char* source = "public float4 f() { return float4(1, 2, 3, 4); }\n";
++    const String path = "binaryModuleUpToDateAfterSourceChange.slang";
++    SLANG_CHECK_ABORT(SLANG_SUCCEEDED(File::writeAllText(path, source)));
++
++    ComPtr<slang::IGlobalSession> globalSession;
++    SLANG_CHECK_ABORT(
++        slang_createGlobalSession(SLANG_API_VERSION, globalSession.writeRef()) == SLANG_OK);
++
++    slang::TargetDesc targetDesc = {};
++    targetDesc.format = SLANG_SPIRV;
++    targetDesc.profile = globalSession->findProfile("spirv_1_5");
++
++    const char* searchPath = ".";
++    slang::SessionDesc sessionDesc = {};
++    sessionDesc.targetCount = 1;
++    sessionDesc.targets = &targetDesc;
++    sessionDesc.searchPaths = &searchPath;
++    sessionDesc.searchPathCount = 1;
++
++    ComPtr<slang::ISession> session;
++    SLANG_CHECK_ABORT(globalSession->createSession(sessionDesc, session.writeRef()) == SLANG_OK);
++
++    ComPtr<slang::IBlob> diagnosticBlob;
++    auto module =
++        session->loadModule("binaryModuleUpToDateAfterSourceChange", diagnosticBlob.writeRef());
++    SLANG_CHECK_ABORT(module != nullptr);
++
++    ComPtr<slang::IBlob> serialized;
++    SLANG_CHECK_ABORT(SLANG_SUCCEEDED(module->serialize(serialized.writeRef())));
++    SLANG_CHECK(session->isBinaryModuleUpToDate(path.getBuffer(), serialized));
++
++    SLANG_CHECK_ABORT(SLANG_SUCCEEDED(File::writeAllText(path, String(source) + "// changed\n")));
++    SLANG_CHECK(!session->isBinaryModuleUpToDate(path.getBuffer(), serialized));
++
++    File::remove(path);
++}
+\ No newline at end of file

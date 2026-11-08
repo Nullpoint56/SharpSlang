@@ -147,7 +147,43 @@ public class ModuleSerializationTests(ITestOutputHelper output)
         }
     }
 
-    [NativeFact]
+    [PatchedFact("U14")]
+    public void The_staleness_check_reads_the_files_afresh_in_the_session_that_loaded_the_module()
+    {
+        // U14, patched (0006): the loading session reads the dependencies as a new session would,
+        // so a rewritten source and an absent path are both stale there too.
+        var directory = Directory.CreateTempSubdirectory("sharpslang-modcache-");
+        try
+        {
+            var source = Path.Combine(directory.FullName, "mslib.slang");
+            var absent = Path.Combine(directory.FullName, "absent.slang");
+            File.WriteAllText(source, Library);
+
+            using var global = SlangGlobalSession.Create();
+            using var session = global.CreateSession(new SessionOptions
+            {
+                Targets = [new TargetOptions()],
+                SearchPaths = [directory.FullName],
+            });
+            using var fromFile = session.LoadModule("mslib");
+            using var blob = fromFile.Serialize();
+            var ir = blob.ToArray();
+
+            Assert.True(session.IsBinaryModuleUpToDate(source, ir));
+
+            File.WriteAllText(source, Library + "\n// touched\n");
+            File.SetLastWriteTimeUtc(source, DateTime.UtcNow.AddMinutes(5));
+
+            Assert.False(session.IsBinaryModuleUpToDate(source, ir));
+            Assert.False(session.IsBinaryModuleUpToDate(absent, ir));
+        }
+        finally
+        {
+            directory.Delete(recursive: true);
+        }
+    }
+
+    [ReleasePayloadFact("U14")]
     public void The_staleness_check_answers_from_the_sessions_file_cache_not_from_disk()
     {
         // The finding, and it decides whether the API is usable: `isBinaryModuleUpToDate` is

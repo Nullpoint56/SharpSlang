@@ -140,9 +140,9 @@
       "title": "`isBinaryModuleUpToDate` answers from the session's file cache",
       "area": "modules",
       "kind": "Slang defect",
-      "patch": null,
-      "test": "ModuleSerializationTests.The_staleness_check_answers_from_the_sessions_file_cache_not_from_disk",
-      "state": "unpatched",
+      "patch": "0006-binary-module-up-to-date-reads-afresh.patch",
+      "test": "ModuleSerializationTests.The_staleness_check_reads_the_files_afresh_in_the_session_that_loaded_the_module",
+      "state": "patched",
       "verified": "v2026.21"
     },
     {
