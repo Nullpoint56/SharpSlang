@@ -451,7 +451,7 @@ Decided; not reopened as a side effect of other work.
 
 ```powershell
 pwsh tools/fetch-native.ps1 -Rid win-x64 -Profile Spirv   # stage the pinned Slang payload
-pwsh tools/check.ps1                                      # lint: analyzers as errors, formatter
+pwsh tools/check.ps1                                      # lint (analyzers, formatter, descs version) and zero-alloc
 dotnet build SharpSlang.slnx -c Release -warnaserror
 dotnet test  SharpSlang.slnx -c Release
 dotnet run --project samples/SharpSlang.Smoke -c Release   # the loadability gate CI runs
@@ -589,16 +589,23 @@ Regenerated with 21.1.8.4 at 093382b it equals the committed files byte for byte
 ### Lint
 
 ```powershell
-pwsh tools/check.ps1        # check
-pwsh tools/check.ps1 -Fix   # apply the formatter first, then check
+pwsh tools/check.ps1               # lint and zero-alloc, as CI's two jobs of those names run them
+pwsh tools/check.ps1 -Lint         # lint only (no payload needed)
+pwsh tools/check.ps1 -ZeroAlloc    # zero-alloc only (the payload staged)
+pwsh tools/check.ps1 -Lint -Fix    # apply the formatter first, then check
 ```
 
 The SDK's own analyzers and no analyzer package: `AnalysisLevel` `latest-recommended`,
 `EnforceCodeStyleInBuild` and `GenerateDocumentationFile` on, CS1591 off, set once in
-`Directory.Build.props` and configured in `.editorconfig`. `check.ps1` runs a Release build with
-`-warnaserror -p:SharpSlangRequireNative=false` (lint needs no payload; the property turns off the
-missing-payload warning) and `dotnet format whitespace --exclude dotnet/Native --verify-no-changes`,
-the same commands as CI's `lint` job. Descs-version and zero-alloc gates come later.
+`Directory.Build.props` and configured in `.editorconfig`. Lint is a Release build with
+`-warnaserror -p:SharpSlangRequireNative=false --no-incremental` (lint needs no payload; the
+property turns off the missing-payload warning), `dotnet format whitespace --exclude dotnet/Native
+--verify-no-changes`, and `tools/ci/descs-version.ps1` (Package tools; it asks nuget.org and needs
+the history back to the published commit, so CI checks out with `fetch-depth: 0`). Zero-alloc
+builds the test project and runs `AllocationTests` and `AllocationCoverageTests` alone through
+xunit's runner, with a TRX counted by `count-tests.ps1`: a skip fails it (Pipeline: baking,
+packages, allocation). Both commit-relative: run them on the committed tree. A planted unused
+`using` fails lint with IDE0005 (workstation, branch `sharpslang-workflows`).
 
 - **The generated layer is linted too, and was not.** ClangSharp's `[assembly: GeneratedCode]`
   (`GeneratedCode.cs`) made the SDK's analyzers treat the whole assembly that compiled it as

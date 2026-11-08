@@ -212,7 +212,7 @@ the payload fetch and the binding regeneration, because Slang's ABI is not stabl
 pwsh tools/fetch-native.ps1 -Rid win-x64 -Profile Spirv   # stage the pinned Slang payload
 dotnet build SharpSlang.slnx -c Release
 dotnet test  SharpSlang.slnx -c Release
-pwsh tools/check.ps1                                     # lint: analyzers and formatting, as CI runs it
+pwsh tools/check.ps1                                     # lint and zero allocation, as CI runs them
 dotnet run --project samples/SharpSlang.Smoke -c Release  # source -> SPIR-V, end to end
 ```
 
