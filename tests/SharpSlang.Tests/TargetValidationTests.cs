@@ -189,7 +189,8 @@ public sealed class TargetValidationTests(ITestOutputHelper output)
     private void RequireRejection(string target, Func<byte[], byte[]> breakIt)
     {
         var t = TargetNamed(target);
-        var e = Assert.Single(EmitCase(ShaderCorpus.Case("compute-fixed"), t.Options()));
+        using var global = SlangGlobalSession.Create();
+        var e = Assert.Single(EmitCase(global, ShaderCorpus.Case("compute-fixed"), t.Options()));
         Assert.Null(e.Refusal);
 
         var intact = t.Judge(e);
@@ -220,8 +221,9 @@ public sealed class TargetValidationTests(ITestOutputHelper output)
             if (target.Name == "dxil" && DxcNative.Unavailable is not null) continue;
             checkedTargets.Add(target.Name);
 
-            var emitted = ShaderCorpus.All.SelectMany(c => EmitCase(c, target.Options()))
-                .Concat(SlangTestCorpus.Compute.Select(c => EmitCompute(c, target.Options())))
+            using var global = SlangGlobalSession.Create();
+            var emitted = ShaderCorpus.All.SelectMany(c => EmitCase(global, c, target.Options()))
+                .Concat(SlangTestCorpus.Compute.Select(c => EmitCompute(global, c, target.Options())))
                 .ToList();
             foreach (var e in emitted)
             {
@@ -260,7 +262,8 @@ public sealed class TargetValidationTests(ITestOutputHelper output)
     private void CheckCase(string target, string name)
     {
         var t = TargetNamed(target);
-        Judge(t, EmitCase(ShaderCorpus.Case(name), t.Options()), $"{target}, {name}");
+        using var global = SlangGlobalSession.Create();
+        Judge(t, EmitCase(global, ShaderCorpus.Case(name), t.Options()), $"{target}, {name}");
     }
 
     private void CheckCompute(string target)
@@ -269,7 +272,8 @@ public sealed class TargetValidationTests(ITestOutputHelper output)
         var cases = SlangTestCorpus.Compute;
         Assert.True(cases.Count >= 50, $"the compute corpus has {cases.Count} cases; the listing or the fetch went wrong");
 
-        var emitted = cases.Select(c => EmitCompute(c, t.Options())).ToList();
+        using var global = SlangGlobalSession.Create();
+        var emitted = cases.Select(c => EmitCompute(global, c, t.Options())).ToList();
         Judge(t, emitted, $"{target}, Slang's tests/compute");
 
         // Stale declarations: a key for a case the corpus no longer has is a failure, not a no-op.
@@ -319,9 +323,12 @@ public sealed class TargetValidationTests(ITestOutputHelper output)
     private const string ComputePrefix = "compute:";
 
     /// <summary>Each entry point compiled alone, so one refusal cannot hide another entry's code.</summary>
-    private static List<Emitted> EmitCase(ShaderCase c, TargetOptions target)
+    /// <remarks>
+    /// A session per case, from one global session per test: the session is what a case's
+    /// compile could leave state in, and a global session costs more to create than most compiles.
+    /// </remarks>
+    private static List<Emitted> EmitCase(SlangGlobalSession global, ShaderCase c, TargetOptions target)
     {
-        using var global = SlangGlobalSession.Create();
         using var session = global.CreateSession(new SessionOptions { Targets = [target] });
 
         SlangModule module;
@@ -341,10 +348,9 @@ public sealed class TargetValidationTests(ITestOutputHelper output)
     }
 
     /// <summary>One of Slang's compute tests, compiled the way SlangComputeCorpusTests compiles it.</summary>
-    private static Emitted EmitCompute(SlangTestCorpus.ComputeCase test, TargetOptions target)
+    private static Emitted EmitCompute(SlangGlobalSession global, SlangTestCorpus.ComputeCase test, TargetOptions target)
     {
         var key = ComputePrefix + test.Source;
-        using var global = SlangGlobalSession.Create();
         using var session = global.CreateSession(new SessionOptions
         {
             Targets = [target],
