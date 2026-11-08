@@ -49,6 +49,7 @@
     <File Path="tools/ci/check-packages.ps1" />
     <File Path="tools/ci/descs-version.ps1" />
     <File Path="tools/ci/api-changes.ps1" />
+    <File Path="tools/ci/release-body.ps1" />
   </Folder>
   <Folder Name="/.github/">
     <File Path=".github/workflows/ci.yml" />
