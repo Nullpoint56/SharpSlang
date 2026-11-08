@@ -12,20 +12,20 @@ time they change nothing either (spirv_1_6 still emits SPIR-V 1.5). Nothing is r
 them.
 
 This builds the program's own HLSLToVulkanLayoutOptions from its merged option set when the program
-carries options of its own, and warns E00136 link-time-option-has-no-effect for Capability and
-Profile given to linkWithOptions. A program without options of its own uses the target request's
+carries options of its own, and warns E00136 link-time-option-has-no-effect, when code is generated, for a program that
+carries Capability or Profile from linkWithOptions. A program without options of its own uses the target request's
 layout options as before. A regression test is added as
 tools/slang-unit-test/unit-test-link-time-options.cpp.
 
 Measured on v2026.14.1 by diffing the emitted SPIR-V: Optimization and FloatingPointMode take effect
 at link time; VulkanUseEntryPointName and Capability change nothing and report nothing.
 diff --git a/source/slang/slang-diagnostics.lua b/source/slang/slang-diagnostics.lua
-index 6d707d02d..a81affb22 100644
+index 6d707d02d..d04c0fa70 100644
 --- a/source/slang/slang-diagnostics.lua
 +++ b/source/slang/slang-diagnostics.lua
-@@ -589,6 +589,12 @@ err(
- 
- err("failed-to-load-downstream-compiler", 100, "failed to load downstream compiler '~compiler'")
+@@ -267,6 +267,12 @@ err(
+     span { loc = "location" }
+ )
  
 +warning(
 +    "link-time-option-has-no-effect",
@@ -34,38 +34,10 @@ index 6d707d02d..a81affb22 100644
 +)
 +
  warning(
-     "spirv-optimizer-unavailable",
-     118,
-diff --git a/source/slang/slang-linkable.cpp b/source/slang/slang-linkable.cpp
-index 3098cfcc0..6d0f68edc 100644
---- a/source/slang/slang-linkable.cpp
-+++ b/source/slang/slang-linkable.cpp
-@@ -596,6 +596,23 @@ SLANG_NO_THROW SlangResult SLANG_MCALL ComponentType::linkWithOptions(
-     }
-     linked->getOptionSet().load(count, entries);
- 
-+    // A target's capabilities and profile are fixed when the session creates the target request,
-+    // and code generation reads them from there, so these options given here change nothing.
-+    //
-+    DiagnosticSink sink(getLinkage()->getSourceManager(), Lexer::sourceLocationLexer);
-+    for (uint32_t i = 0; i < count; ++i)
-+    {
-+        if (entries[i].name == slang::CompilerOptionName::Capability ||
-+            entries[i].name == slang::CompilerOptionName::Profile)
-+        {
-+            sink.diagnose(Diagnostics::LinkTimeOptionHasNoEffect{
-+                .option = entries[i].name == slang::CompilerOptionName::Capability ? "Capability"
-+                                                                                   : "Profile"});
-+        }
-+    }
-+    if (outDiagnostics && sink.outputBuffer.getLength() > 0)
-+        sink.getBlobIfNeeded(outDiagnostics);
-+
-     *outLinkedComponentType = ComPtr<slang::IComponentType>(linked).detach();
-     return SLANG_OK;
- }
+     "deprecated-allow-glsl-option",
+     117,
 diff --git a/source/slang/slang-target-program.cpp b/source/slang/slang-target-program.cpp
-index 6492f6c58..224bdddf2 100644
+index 6492f6c58..88a3208ca 100644
 --- a/source/slang/slang-target-program.cpp
 +++ b/source/slang/slang-target-program.cpp
 @@ -21,6 +21,25 @@ TargetProgram::TargetProgram(ComponentType* componentType, TargetRequest* target
@@ -94,6 +66,26 @@ index 6492f6c58..224bdddf2 100644
  void TargetProgram::composeDownstreamArgs()
  {
      CompilerOptionSet* lowerLevels[] = {
+@@ -75,6 +94,19 @@ IArtifact* TargetProgram::_createEntryPointResult(
+     if (entryPointIndex < 0)
+         return nullptr;
+ 
++    // Capability and Profile are fixed on the target request when the session creates it, and code
++    // generation reads the target's capabilities. Given to `linkWithOptions` they live on the program
++    // and change nothing, so say so.
++    //
++    if (sink)
++    {
++        auto& programOptions = m_program->getOptionSet();
++        if (programOptions.hasOption(CompilerOptionName::Capability))
++            sink->diagnose(Diagnostics::LinkTimeOptionHasNoEffect{.option = "Capability"});
++        if (programOptions.hasOption(CompilerOptionName::Profile))
++            sink->diagnose(Diagnostics::LinkTimeOptionHasNoEffect{.option = "Profile"});
++    }
++
+     // It is possible that entry points got added to the `Program`
+     // *after* we created this `TargetProgram`, so there might be
+     // a request for an entry point that we didn't allocate space for.
 diff --git a/source/slang/slang-target-program.h b/source/slang/slang-target-program.h
 index fab416789..764413b33 100644
 --- a/source/slang/slang-target-program.h
@@ -134,10 +126,10 @@ index fab416789..764413b33 100644
  
 diff --git a/tools/slang-unit-test/unit-test-link-time-options.cpp b/tools/slang-unit-test/unit-test-link-time-options.cpp
 new file mode 100644
-index 000000000..02a98685b
+index 000000000..3b87560e1
 --- /dev/null
 +++ b/tools/slang-unit-test/unit-test-link-time-options.cpp
-@@ -0,0 +1,89 @@
+@@ -0,0 +1,92 @@
 +// unit-test-link-time-options.cpp
 +
 +#include "slang-com-ptr.h"
@@ -217,13 +209,16 @@ index 000000000..02a98685b
 +        entry.value.kind = slang::CompilerOptionValueKind::String;
 +        entry.value.stringValue0 = "spirv_1_6";
 +        ComPtr<slang::IComponentType> linked;
-+        ComPtr<slang::IBlob> linkDiagnostics;
 +        SLANG_CHECK_ABORT(SLANG_SUCCEEDED(
-+            composite->linkWithOptions(linked.writeRef(), 1, &entry, linkDiagnostics.writeRef())));
-+        SLANG_CHECK_ABORT(linkDiagnostics != nullptr);
++            composite->linkWithOptions(linked.writeRef(), 1, &entry, diagnostics.writeRef())));
++        ComPtr<slang::IBlob> code;
++        ComPtr<slang::IBlob> codeDiagnostics;
++        SLANG_CHECK_ABORT(SLANG_SUCCEEDED(
++            linked->getEntryPointCode(0, 0, code.writeRef(), codeDiagnostics.writeRef())));
++        SLANG_CHECK_ABORT(codeDiagnostics != nullptr);
 +        auto text = UnownedStringSlice(
-+            (const char*)linkDiagnostics->getBufferPointer(),
-+            linkDiagnostics->getBufferSize());
++            (const char*)codeDiagnostics->getBufferPointer(),
++            codeDiagnostics->getBufferSize());
 +        SLANG_CHECK(text.indexOf(UnownedStringSlice("136")) != -1);
 +    }
 +}
