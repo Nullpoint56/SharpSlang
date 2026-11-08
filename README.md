@@ -24,7 +24,7 @@ changes until then.
 
 ## What you get
 
-Five packages. Which ones you want depends on where the code runs and what it talks to.
+Six packages. Which ones you want depends on where the code runs and what it talks to.
 
 ### `SharpSlang` and `SharpSlang.Pipeline.Bake` — compile and cook, in your asset pipeline
 
@@ -44,6 +44,10 @@ using var program = session.Link(module, vertex, pixel);
 var spirv  = program.GetEntryPointCodeBytes(0, targetIndex: 0);
 var layout = program.Reflect(targetIndex: 0);     // descriptor sets, push constants, vertex inputs, byte layouts
 ```
+
+Slang's standard modules (`import slang.neural`, `slang.numerics`, `slang.functional`,
+`experimental.workgraph`) come with it, beside the compiler in every kind of output; Slang declares
+them experimental, so a session that imports one sets `SessionOptions.ExperimentalFeatures`.
 
 You also get specialization constants, generics and type conformances, the declaration tree, the
 byte layout of a uniform buffer down to matrix and array strides, `import`/`#include` served from
@@ -301,7 +305,8 @@ library its release ships, not separate dependencies of this repository.
 
 The `SharpSlang` package additionally redistributes Slang's own prebuilt binaries, which are
 `Apache-2.0 WITH LLVM-exception`. Their licence texts ship inside the package under
-`runtimes/<rid>/`, and [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) says what is bundled and
-under what terms. `SharpSlang.Pipeline`, `SharpSlang.Pipeline.NRI` and
+`licenses/<rid>/`, and its build targets copy them beside your application, to
+`licenses/SharpSlang/<rid>/` (`SharpSlangCopyLicenses=false` turns that off);
+[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) says what is bundled and under what terms. `SharpSlang.Pipeline`, `SharpSlang.Pipeline.NRI` and
 `SharpSlang.Dxc` bundle nothing and are MIT alone; the last one depends on Microsoft's
 `Microsoft.Direct3D.DXC` package, whose terms a consumer takes on by restoring it.

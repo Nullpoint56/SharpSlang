@@ -34,13 +34,13 @@ The layout below is the binding template's, with the pipeline packages in the te
 | `dotnet/Interop/`, `dotnet/Core/`, `dotnet/Extensions/` | L1, L2 (`Core/Reflection/`: the reflection objects), L3 (Layers) |
 | `dotnet/` | `SharpSlang` (`SharpSlang.csproj`): `SlangApi.cs` and L1 to L3; names no pipeline package |
 | `descs/` | `SharpSlang.Descs` (`SharpSlang.Descs.csproj`): L0 without the `DllImport` file (`SlangApi.cs`), `SlangHeaders` written at build time, and one managed desc form, `SpirvVersion.cs`; no native dependency |
-| `dxc/` | `SharpSlang.Dxc`, targets only (`dxc/build/SharpSlang.Dxc.targets`): copies Microsoft's dxc out of `Microsoft.Direct3D.DXC` |
+| `dxc/` | `SharpSlang.Dxc`, targets only (`dxc/buildTransitive/SharpSlang.Dxc.targets`, packed under `buildTransitive/net11.0/` with `lib/net11.0/_._`): copies Microsoft's dxc out of `Microsoft.Direct3D.DXC` and fails a restore of another version (`SHARPSLANG011`) |
 | `pipeline/` | `SharpSlang.Pipeline`: the reader (reflection snapshot `ProgramLayout`, `ShaderPackage` and its sections, `SpirvModule`), no native dependency |
 | `bake/` | `SharpSlang.Pipeline.Bake`: the cooker, on `SharpSlang`'s public API: `ReflectionWalker` (the walk onto `ProgramLayout`), `ShaderPackageBaker`, and the snapshot-returning extensions (`Reflect`, `SpecializeGeneric`, `FindFunction`, ...) |
 | `pipeline-nri/` | `SharpSlang.Pipeline.NRI`: the projection onto SharpNRI's descs (`NriPipelineProjection`), and the projection stored in a package at bake time and read back at load (`NriPackage`) |
 | `tests/SharpSlang.Tests/` | the suite |
 | `tests/SharpSlang.Prober/` | child-process host for questions whose answer may end the process (Tests and skips) |
-| `tests/SharpSlang.PackageConsumer/`, `tests/SharpSlang.Pipeline.Consumer/` | consume checks outside the solution's build: a portable app against packed packages (publish.yml's; `tools/consume` supersedes it), and a reader-only consumer that must carry no compiler |
+| `tests/SharpSlang.Pipeline.Consumer/` | a reader-only consumer outside the solution's build that must carry no compiler (`AssemblySplitTests` builds it); the packed packages are consumed by `tools/consume` |
 | `samples/SharpSlang.Smoke/` | source to SPIR-V end to end; CI's loadability gate ("Tier 0 spike") |
 | `tools/` | `check.ps1` (lint), `fetch-native.ps1` (stages Slang's prebuilt release until the from-source build replaces it), `generate-native.ps1` with `generate-native-docs.ps1` and `.cs` (header comments as XML docs), `coverage.ps1` with `coverage/` (BoundSurface), `apidiff/`, `consume/`, `ci/` (Package tools) |
 | `runtimes/`, `obj/`, `bin/`, `artifacts/`, `TestResults/`, `_build/` | build output, git-ignored (`_build/`: coverage.ps1's measurement, consume.ps1's runs) |
@@ -49,9 +49,10 @@ The layout below is the binding template's, with the pipeline packages in the te
 | `CLAUDE.local.md` | git-ignored: the filing policy and how we deal with Slang upstream |
 | `docs/guide.md` | usage reference, with the traps table (symptom, cause, section) |
 | `docs/upstream.md` | report text for each Slang defect, and what was filed where |
+| `docs/nuget/README.md` | every package's page, its `blob/master/` links pointed at the release tag at pack time (`Directory.Build.targets`) |
 | `docs/releases/` | per tag, `v<Version>.md`: Added, Fixed, Breaking changes, Verified (format in its README) |
-| `Directory.Build.props` | every pin and version: `SlangVersion`, `SharpSlangVersion`, `SharpSlangDescsVersion`, `SharpSlangPipelineVersion`, `SharpNriPackageVersion`, `SharpNriDescsPackageVersion`, `DxcPackageVersion`, the glibc floors |
-| `Directory.Build.targets` | exact in-repo package dependencies, the major-version guard (`SHARPSLANG004`), the split assembly version (Pin and payload) |
+| `Directory.Build.props` | the shared package metadata, PDB and Source Link settings, and every pin and version: `SlangVersion`, `SharpSlangVersion`, `SharpSlangDescsVersion`, `SharpSlangPipelineVersion`, `SharpNriPackageVersion`, `SharpNriDescsPackageVersion`, `DxcPackageVersion`, the glibc floors |
+| `Directory.Build.targets` | exact in-repo package dependencies, the major-version guard (`SHARPSLANG004`), the split assembly version (Pin and payload), the package page |
 | `NativeSplit.props` | which generated files go to Descs (all but `SlangApi.cs`) and which to `SharpSlang` |
 
 ### Branches
@@ -296,15 +297,69 @@ three, `IBindlessResourceMetadata::usesBindlessResourceHeap`).
 
 | Package | Native content | Notes |
 |---|---|---|
-| `SharpSlang` | `runtimes/<rid>/native/`: `slang-compiler`, `slang-glslang` (carries `spirv-opt`), `slang-standard-module-<version>/`; win-x64, linux-x64, linux-arm64, osx-arm64 | built from `slang/` by `tools/build-native.ps1`; CI still stages Slang's own release archive with `tools/fetch-native.ps1 -Profile Spirv`, which produces the same layout. Beside `native/`: Slang's `LICENSE.txt`, `LICENSES/`, and `third-party-notices/` for what Slang links statically. `NativePayloadTests` holds the file list and the import lists |
-| `SharpSlang.Descs` | none | L0 without `SlangApi.cs`, plus `SpirvVersion` (Layers): `lib/net11.0/SharpSlang.Descs.dll` and its XML docs, no dependency. `SharpSlang` and `SharpSlang.Pipeline` depend on it at `[$(SharpSlangDescsVersion)]`; `SharpSlang`'s `buildTransitive/SharpSlang.targets` fails a consumer that restores another (`SHARPSLANG005`) |
-| `SharpSlang.Dxc` | none | targets only; exact dependency on `Microsoft.Direct3D.DXC` `[$(DxcPackageVersion)]` (1.9.2609.5), copies `dxcompiler.dll` and `dxil.dll` into the application's output on win-x64 |
+| `SharpSlang` | `runtimes/<rid>/native/`: `slang-compiler`, `slang-glslang` (carries `spirv-opt`), nothing in a subfolder; `standard-modules/<rid>/slang-standard-module-<version>/`; win-x64, linux-x64, linux-arm64, osx-arm64 | built from `slang/` by `tools/build-native.ps1`; CI still stages Slang's own release archive with `tools/fetch-native.ps1 -Profile Spirv`, which produces the same layout. `licenses/<rid>/Slang/` (`LICENSE.txt`, `LICENSES/`, `third-party-notices/`) and `licenses/<rid>/SharpSlang/` (`LICENSE.txt`, `THIRD-PARTY-NOTICES.md`). `buildTransitive/SharpSlang.targets` puts the module folder beside the compiler and the notices beside the application (below). `NativePayloadTests` holds the staged file list and the import lists |
+| `SharpSlang.Descs` | none | L0 without `SlangApi.cs`, plus `SpirvVersion` (Layers): `lib/net11.0/SharpSlang.Descs.dll`, its PDB and XML docs, no dependency. `SharpSlang` and `SharpSlang.Pipeline` depend on it at `[$(SharpSlangDescsVersion)]`; `SharpSlang`'s `buildTransitive/SharpSlang.targets` fails a consumer that restores another (`SHARPSLANG005`) |
+| `SharpSlang.Dxc` | none | targets only: `buildTransitive/net11.0/SharpSlang.Dxc.targets` and `lib/net11.0/_._`; exact dependency on `Microsoft.Direct3D.DXC` `[$(DxcPackageVersion)]` (1.9.2609.5), copies `dxcompiler.dll` and `dxil.dll` into the application's output on win-x64, and fails a restore of another version (`SHARPSLANG011`, Companion libraries and dxc) |
 | `SharpSlang.Pipeline`, `.Pipeline.Bake`, `.Pipeline.NRI` | none | exact dependencies (Layers): the reader on Descs; the cooker on `SharpSlang` and the reader, so a cooker gets the compiler through `SharpSlang`; the projection on the reader and `SharpNRI.Descs` `[$(SharpNriDescsPackageVersion)]`, no `NRI` library. `SharpSlang` depends on none of them |
 
+- **Where Slang looks for its standard modules** (v2026.21, read and measured). An `import` the
+  session's search paths do not resolve goes to the optional monolithic `slang-standard-modules`
+  library, which the payload does not stage, and then to
+  `<directory of the library exporting slang_createGlobalSession>/slang-standard-module-2026.21/`,
+  the import path's dots as folders and `.slang-module` appended (`getStandardModuleDirPath`,
+  `findStandardModulePath`, `source/slang/slang-session.cpp:27-55`, the search at `:2062-2116`;
+  the directory from `GetModuleFileNameW` or `dladdr`). The folder name is compiled in
+  (`SLANG_STANDARD_MODULE_DIR_NAME`). All four modules are `[ExperimentalModule]`, and Slang refuses
+  one without the session option `ExperimentalFeature` (`E00104`, `slang-session.cpp:1747`); a
+  module it did not find is `E00001` "cannot open file 'slang/neural.slang'". Measured with
+  `tools/consume` on Windows on the packages of 9809f03: portable found it (the folder kept under
+  `runtimes/win-x64/native/`), and `run -r`, `publish -r` and Native AOT all failed with `E00001`,
+  because NuGet copied the 30 files flat beside the application. `StandardModuleTests` holds the
+  folder beside the loaded compiler and both error codes in the suite.
+- **The layout, chosen for that.** The package carries the folder in `standard-modules/<rid>/`,
+  outside `runtimes/`, and `buildTransitive/SharpSlang.targets` copies it, folders kept, with
+  `CopyToOutputDirectory` and `CopyToPublishDirectory` (`ExcludeFromSingleFile`): beside the
+  application for a RID-specific build, `run -r`, `publish -r` and Native AOT, where NuGet puts the
+  compiler, and to `runtimes/<rid>/native/` for every packed RID in a portable build. The in-repo
+  `ProjectReference` path copies the staged folder beside the consumer as before. With it
+  `tools/consume` finds and imports `slang.neural` and `slang.numerics` from the folder beside the
+  loaded compiler in all four outputs. The binding gained `SessionOptions.ExperimentalFeatures`
+  for it (Decisions): without it no standard module can be imported through the binding.
+- **Licences.** NuGet copies `runtimes/<rid>/native/` flat and ignores the rest of `runtimes/<rid>/`,
+  so the notices are packed as `licenses/<rid>/` and the same targets copy them to
+  `licenses/SharpSlang/<rid>/` beside the application, folders kept: a RID-specific build or publish
+  its RID's, a portable build every packed RID's. `SharpSlangCopyLicenses=false` copies none.
+  `tools/consume` checks each layout and the opt-out.
+- **Debug information.** Every package with an assembly carries its portable PDB beside the DLL and
+  names its commit in `<repository commit>`. Source Link is the SDK's own (no `Microsoft.SourceLink.*`
+  package; `PublishRepositoryUrl`, `EmbedUntrackedSources` in `Directory.Build.props`): each PDB maps
+  the repository to `https://raw.githubusercontent.com/Nullpoint56/SharpSlang/<commit>/*` and
+  `slang/` to Slang's commit, read back from the packed PDBs by `check-packages.ps1`.
+  `publish.yml` packs with `ContinuousIntegrationBuild`. **Not done yet:** the native library's
+  symbols (`SLANG_ENABLE_SPLIT_DEBUG_INFO` writes them beside the libraries, Native build) belong on
+  the GitHub release as zips checked against the staged library, which is the release workflow's
+  step.
+- **Trimming and Native AOT.** `IsAotCompatible` on the five shipped projects with assemblies
+  (`SharpSlang`, `.Descs`, `.Pipeline`, `.Pipeline.Bake`, `.Pipeline.NRI`), so the trim, AOT and
+  single-file analyzers run in every build and `-warnaserror` makes their findings errors. The
+  measured AOT publish of the consumer warned IL2104 and IL3053 for `SharpSlang.Pipeline` (the
+  layout's reflection-based `System.Text.Json`, now a source-generated `JsonSerializerContext`,
+  `ProgramLayoutJson`, with the same options and the same bytes) and IL3000 twice in `SharpSlang`
+  (`Assembly.Location`, empty in a single-file or AOT application, already handled where read:
+  suppressed with that justification). The P/Invokes are blittable `DllImport`s and the walker
+  reads Slang through the reflection objects, not .NET reflection; neither drew a warning. The
+  reader's DLL grew from 117,760 to 343,552 bytes with the generated serializer.
+- **Descriptions** are typed except `SharpSlang`'s platform list, which a target writes at pack time
+  from what is staged ("Native library inside for: Windows x64, Linux x64, Linux arm64, macOS
+  arm64."), refusing a pack with no payload (`SHARPSLANG001`). The package page is
+  `docs/nuget/README.md` for every package, its `blob/master/` and `tree/master/` links rewritten to
+  `v$(SharpSlangVersion)` at pack time (SharpNRI's target).
 - Sizes, from the v2026.21 release archive on 2026-11-07 (1bec6cd): the win-x64 archive is 60.8 MB;
   the staged win-x64 payload with glslang is 63.1 MB, of which the standard modules are 31.6 MB and
-  27 MB of those are the four `numerics` modules. The packed `SharpSlang` size with four RIDs at
-  v2026.21 is not measured: re-measure.
+  27 MB of those are the four `numerics` modules. Packed with four RIDs on the workstation (branch
+  `sharpslang-packaging`): `SharpSlang` 85,084,598 bytes, `SharpSlang.Descs` 102,510 (DLL 90,624,
+  PDB 37,996, XML 245,113), `SharpSlang.Pipeline` 275,702, `.Pipeline.Bake` 50,245,
+  `.Pipeline.NRI` 48,393, `SharpSlang.Dxc` 8,740.
 - Not staged from the archive: `slang-llvm` (CPU/host codegen), `gfx`, `slang-glsl-module` (GLSL
   input only; the `Glsl` profile stages it, untested), the executables, and the `slang.dll` proxy
   (removed upstream at the end of 2026). `build-native.ps1` does not build most of them (its
@@ -331,19 +386,13 @@ three, `IBindlessResourceMetadata::usesBindlessResourceHeap`).
   stages workgraph and functional only (3 files, 0.2 MB of the 31.6 MB); win-x64 `native/` is then
   31.5 MB instead of 62.9 MB, and `import slang.neural` / `import slang.numerics` fail. The default,
   `All`, is what the release carries; the choice is the owner's, not yet made.
-- The template's licence layout (`licenses/<rid>/` plus `buildTransitive` copy targets,
-  `SharpSlangCopyLicenses=false`) is not built yet; the licence files sit one level above
-  `native/` so NuGet's flat copy of `native/` does not put them beside a game's binaries.
 - **Versions and dependencies** (Decisions): `SharpSlangVersion` is the release (`SharpSlang`,
   `.Dxc`, `.Pipeline.Bake`, `.Pipeline.NRI`), `SharpSlangDescsVersion` and
   `SharpSlangPipelineVersion` move only when their sources change (`tools/ci/descs-version.ps1`,
   from `tools/ci/packages.psd1`'s `Sources`); all three are `2026210.0.0-beta.1` until the first
   release. Dependencies between this repository's packages are exact, written by
   `Directory.Build.targets` (SharpNRI's target). The packed `buildTransitive/SharpSlang.props`
-  carries `SharpSlangPackedVersion` and `SharpSlangDescsDependency`. Packed at 093382b (win-x64 payload only): `SharpSlang.Descs`
-  is a 78,077-byte package holding the DLL (89,088 bytes) and its XML (242,997 bytes), no PDB
-  or README yet (`check-packages.ps1`'s two Descs findings, packaging work still to do).
-
+  carries `SharpSlangPackedVersion` and `SharpSlangDescsDependency`.
 ---
 
 ## Rules
@@ -620,6 +669,12 @@ the same commands as CI's `lint` job. Descs-version and zero-alloc gates come la
 - The Tier 0 spike (`samples/SharpSlang.Smoke`) has no skip logic: almost every test is a `[NativeFact]`
   that skips when `slang-compiler` cannot load, so the spike is what fails a leg whose payload
   stages and does not load.
+- Figures with the packaging (branch `sharpslang-packaging`: the standard-module tests and U31's,
+  six results more). The workstation (Release; Vulkan with the SDK's 1.4.363 layer and D3D12, the
+  RTX 4070 SUPER; every validator but xcrun): 1155 results, 1148 passed, 7 skipped (the same seven),
+  0 failed, 2m21s. WSL (`verify-linux.sh` in a fresh Linux-filesystem clone made from a bundle,
+  at 26cd332, the same setup as below): 931 results, 899 passed, 32 skipped (the same 32), 0
+  failed. U31's assertion text is the same on both.
 - Figures at the split (branch `sharpslang-bake`: the L2 reflection objects, the cooker split out,
   the stored NRI projection, Link's steps and the explicit target index). The workstation
   (Release; Vulkan with the SDK's 1.4.363 layer and D3D12, the RTX 4070 SUPER; every validator but
@@ -690,36 +745,39 @@ consume runs; `Packages.psm1` reads it. The package versions are `SharpSlangVers
 packages).
 
 - `tools/ci/check-packages.ps1 -Folder <pack>`: the package check, on a Windows pack and a Linux one.
-  At 094296b both gave the same 35 findings, among them: every RID's 30
-  `slang-standard-module-2026.21/` files in a subfolder of `native/`; Slang's licences under
-  `runtimes/<rid>/`, which NuGet never copies, and no `licenses/<rid>/`; no PDB or README; the
-  `SharpSlang.Pipeline` dependency a floor, not exact; no `buildTransitive` props or targets; a
-  typed description; the dxc targets under `build/` with no `lib/net11.0/_._`. At 093382b on a
-  Windows pack with the win-x64 and linux-x64 payloads staged (so linux-arm64's and osx-arm64's 8
-  entries are missing by construction): 32, the floor dependency and the missing `buildTransitive`
-  files no longer among them; `SharpSlang.Descs` adds two, no PDB and no README, like every package.
-  After the split (branch `sharpslang-bake`, the same two payloads): 34, the same 32 and
-  `SharpSlang.Pipeline.Bake`'s missing PDB and README. The dependencies check found nothing: from
-  the nuspecs, `SharpSlang` -> `SharpSlang.Descs`; `SharpSlang.Pipeline` -> `SharpSlang.Descs`;
-  `SharpSlang.Pipeline.Bake` -> `SharpSlang`, `SharpSlang.Pipeline`; `SharpSlang.Pipeline.NRI` ->
-  `SharpSlang.Pipeline`, `SharpNRI.Descs` 191.0.0-beta.1; `SharpSlang.Dxc` ->
-  `Microsoft.Direct3D.DXC` 1.9.2609.5; all exact.
-- `tools/ci/descs-version.ps1`: for Descs and the reader, a published version must name a commit
+  It also reads each packed PDB's Source Link map and requires the packed commit in it. At 9809f03
+  on a Windows pack with all four payloads staged: 38 findings (every RID's 30 standard-module files
+  in a subfolder of `native/`, Slang's licences under `runtimes/<rid>/` and no `licenses/<rid>/`, no
+  PDB or README in any package, a typed description, the dxc targets under `build/` with no
+  `lib/net11.0/_._`). At 26cd332 (branch `sharpslang-packaging`), four payloads staged: 0 on the
+  workstation's pack, and 0 on a WSL pack in a Linux-filesystem clone once its `origin` named the
+  GitHub repository. With the bundle-file `origin` such a clone has, the SDK's Source Link has no
+  provider and writes no map, and the check reported each of the five PDBs (Native packages); a CI
+  checkout's `origin` is GitHub. The dependencies, from the nuspecs: `SharpSlang` ->
+  `SharpSlang.Descs`; `SharpSlang.Pipeline` -> `SharpSlang.Descs`; `SharpSlang.Pipeline.Bake` ->
+  `SharpSlang`, `SharpSlang.Pipeline`; `SharpSlang.Pipeline.NRI` -> `SharpSlang.Pipeline`,
+  `SharpNRI.Descs` 191.0.0-beta.1; `SharpSlang.Dxc` -> `Microsoft.Direct3D.DXC` 1.9.2609.5; all
+  exact.- `tools/ci/descs-version.ps1`: for Descs and the reader, a published version must name a commit
   whose sources equal HEAD's (`-PublishedFrom Id=commit` states one without the feed).
 - `tools/ci/api-changes.ps1` (`tools/apidiff`): the public surface against a folder of packages, a
   git ref it packs, or nuget.org's previous release; `-Package Old=New` and `-Rename Old=New` carry a
   rename. Against 90ec948 with the PrismSlang renames: every package unchanged, `PrismSlang.Vulkan`
   removed.
 - `tools/ci/release-body.ps1`: Bound libraries, the notes, API changes, Packages.
-- `tools/consume/consume.ps1 -Feed <pack>` (supersedes `tests/SharpSlang.PackageConsumer`):
-  portable, `run -r`, `publish -r`, Native AOT, dxc alone, the reader alone, a wrong dxc version;
-  each check PASS, FAIL or NOT YET (a prerequisite the packages lack, named). At 094296b on
-  Windows: 27 passed, 2 failed (`publish -r` and AOT flatten the standard-module files beside the
-  application), 5 not yet (licences, `IsAotCompatible`, and a wrong `Microsoft.Direct3D.DXC` that
-  builds when the pinned version is in the package cache, or fails with no `SHARPSLANG` code when
-  it is not). The same after the split, with the core run's baked package written through
-  `SharpSlang.Pipeline.Bake` and read by the reader run.
-
+- `tools/consume/consume.ps1 -Feed <pack>`: the cooker (binding, dxc, baker, NRI projection)
+  portable, with `run -r`, `publish -r` and Native AOT, a RID-specific build with
+  `SharpSlangCopyLicenses=false`, and dxc, the reader and the NRI projection each alone; in each
+  core run the loaded compiler, SPIR-V, the standard modules found and imported beside it, DXIL on
+  win-x64 and the layout (licences, module folder, nothing flat); the AOT publish's warnings and
+  `IsAotCompatible` on every assembly of ours; a wrong `Microsoft.Direct3D.DXC` with the pin in the
+  package cache and with an empty one. Each check PASS, FAIL or NOT YET (a prerequisite the
+  packages lack, named). At 9809f03 on Windows: 29 passed, 5 failed (the standard modules not
+  found under `run -r`, `publish -r` and AOT, `E00001`; the module files flat beside the
+  application after `publish -r` and AOT), 5 not yet (the licences twice, `IsAotCompatible` with
+  the AOT publish warning IL3000, IL2104 and IL3053, the wrong dxc building with the pin in the
+  cache and failing a cold cache with no code). At 26cd332: Windows 64 passed, 0 failed, 0 not
+  yet; WSL (Linux-filesystem clone) 57 passed, 0 failed, 0 not yet, the seven fewer being DXIL and
+  the dxc copy, win-x64 only.
 ---
 
 ## Patches
@@ -806,6 +864,20 @@ staged by path; its pointer moves only by `git update-index --cacheinfo 160000,<
   it, so a proxy is a use-after-free presenting as corrupt bindings; a snapshot is serializable, so a
   shipped game needs no compiler (Reflection snapshot).
 - **No finalizers; every wrapper holds its whole ancestor chain** (Ownership and lifetime).
+- **Packages stay unpublished until the owner's last step** (owner, 2026-11-08): versions are
+  `2026210.0.0-beta.1`; going public and nuget.org come last.
+- **Slang's standard modules ship in `standard-modules/<rid>/`, copied beside the compiler by build
+  targets** (2026-11-08, the packaging step): the template forbids a subfolder under `native/`,
+  which NuGet flattens, and Slang reads the modules only from a folder of one fixed name beside the
+  library it runs from (Native packages). Copying keeps them per RID, as Slang's release builds
+  them.
+- **`SessionOptions.ExperimentalFeatures`** (2026-11-08, the packaging step): Slang's
+  `-experimental-feature` on the session, the one switch without which no standard module the
+  package carries can be imported through the binding. Off by default, as in Slang.
+- **Notices beside the application, opt-out `SharpSlangCopyLicenses=false`** (the template's rule):
+  `licenses/SharpSlang/<rid>/`, as SharpNRI's `licenses/SharpNRI/<rid>/`.
+- **Trimming and Native AOT declared on every shipped assembly**, and the layout's JSON source
+  generated (Native packages): a cooker published with Native AOT warns nothing.
 - **SharpNRI from nuget.org at exact versions** (owner, 2026-11-07): `SharpNRI` and `SharpNRI.Testing`
   at `SharpNriPackageVersion` (191.0.0-beta.4) for the tests, `SharpNRI.Descs` at
   `SharpNriDescsPackageVersion` (191.0.0-beta.1) for the projection. Sibling-checkout mode and the
@@ -995,15 +1067,21 @@ in `docs/upstream.md`.
   (Slang `dlopen`s `slang-glslang-<version>`, `slang-glslang-compiler.cpp:590-595`). Staging both
   names had cost 38.8 MB of an 83 MB linux-x64 payload. `fetch-native.ps1` stages the plain
   compiler name and the versioned glslang name.
-- **Licence files go beside `native/`, not in it**, and as `LICENSE.txt`: NuGet treats an
+- **Licence files are staged beside `native/`, not in it**, and as `LICENSE.txt`: NuGet treats an
   extensionless `PackagePath` as a directory (the first pack produced
-  `runtimes/win-x64/LICENSE/win-x64/LICENSE`). Staging clears everything beside `native/` first; a
-  rename once left the old name staged and packed.
+  `runtimes/win-x64/LICENSE/win-x64/LICENSE`), and a `PackagePath` whose extension differs from the
+  source file's as one too (the repository's `LICENSE` packed as
+  `licenses/win-x64/SharpSlang/LICENSE.txt/LICENSE`, so the pack copies it to
+  `obj/licenses/LICENSE.txt` first). The pack moves them to `licenses/<rid>/` (Native packages).
+  Staging clears everything beside `native/` first; a rename once left the old name staged and
+  packed.
 - **A packaging glob once dropped the host RID from the package** (its files matched both the
   Content and None globs and `Pack="false"` won); the package restored and failed with
   `DllNotFoundException`. CI's "Package contains the host RID's payload" step checks it.
 - **The standard modules are loose files** beside the compiler (`slang-standard-module-<version>/`);
-  the core module is embedded, but any other `import` resolves there.
+  the core module is embedded, but any other `import` resolves there, and only there: from a folder
+  NuGet flattened the import fails with `E00001` (Native packages has the measurement and the
+  layout). Every one is `[ExperimentalModule]`: `SessionOptions.ExperimentalFeatures`, or `E00104`.
 - **The Linux payload has a glibc floor, set by the build host.** The release needs at most
   GLIBC_2.34 and GLIBCXX_3.4.29 on linux-x64 and linux-arm64 (its version-needs sections,
   `readelf -V`, v2026.21), so it loads on Ubuntu 22.04. Built from source on Ubuntu 24.04 with GCC
@@ -1083,13 +1161,18 @@ in `docs/upstream.md`.
 - **dxc goes into the application's output**, which is beside `slang-compiler` only in a flat build;
   a portable build has the compiler one `runtimes\win-x64\native\` away, and `CompanionLibraries`
   loads dxc from either.
-- **The dxc targets.** The guard runs before `BeforeBuild` (hooked before `Build` it ran after
-  `CoreBuild`, whose copy failed first with two MSB3030s); a missing package version fails with the
-  guard's message only. The package path goes through `$([MSBuild]::EnsureTrailingSlash())`:
+- **The dxc targets.** They read the `Microsoft.Direct3D.DXC` version the restore resolved from
+  `project.assets.json` and fail another with `SHARPSLANG011` (none restored: `SHARPSLANG010`; the
+  pinned version without its two DLLs: `SHARPSLANG012`). They once only checked that the pinned
+  version's folder existed, so a wrong version built whenever the pin was already in the package
+  cache, and failed a cold cache with no code: measured by `tools/consume` on the packages of
+  9809f03. The check runs on every host, the copy on win-x64 only. The guard runs before
+  `BeforeBuild` (hooked before `Build` it ran after `CoreBuild`, whose copy failed first with two
+  MSB3030s). The package path goes through `$([MSBuild]::EnsureTrailingSlash())`:
   `$(NuGetPackageRoot)` has no trailing separator when `nuget.config` sets `globalPackagesFolder`.
-  The version is stated twice (props and targets, since NuGet gives a consumer no path property for
-  a transitive package); `DocumentedFactsTests` pins the two to each other.
-- **A package's `build/` files do not flow through a `ProjectReference`**, so a source consumer
+  The version is stated twice (props and targets, since NuGet gives a consumer no version property
+  for a transitive package); `DocumentedFactsTests` pins the two to each other.
+- **A package's `buildTransitive/` files do not flow through a `ProjectReference`**, so a source consumer
   references `Microsoft.Direct3D.DXC` at `DxcPackageVersion` and imports the targets itself, as the
   test project does.
 
@@ -1349,6 +1432,13 @@ in `docs/upstream.md`.
   composite at MAXIMAL gives 1,188; v2026.21, workstation). U30. Asserted as wrong by
   `CompositeTests`; `SlangSession.Link` composes afresh per call, so it never meets it. Caller's
   rule: one composite per link.
+- **A second module from source at a path the session already holds ends in an internal assert**:
+  `loadModuleFromSourceString` of another module name at the same path returns null with
+  "assert failure: slang-dictionary.h(325): The key already exists in Dictionary." and no
+  diagnostic code (`Linkage::loadParsedModule`'s `Dictionary::add`, `slang-session.cpp:1255`;
+  v2026.21, workstation). U31. Asserted as wrong by
+  `CompilationTests.A_second_module_from_source_at_the_same_path_ends_in_an_internal_assert`.
+  Caller's rule: one path per module from source. Found while measuring the standard modules.
 - **Specialization constants**: `Pack` refuses a value of the wrong type by name;
   `c.IsFloatingPoint ? c.DefaultFloat : c.DefaultInt` unifies to `double` before boxing and hands
   `Pack` the wrong type whichever branch is taken. A name the shader does not declare throws.
@@ -1643,8 +1733,8 @@ CUDA device harness.
   executable has one such mode, `test-adapters`, which only reports adapters (Test runner).
 - **Two in-process questions moved out on suspicion** (`specialized-type-arg-out-of-range`,
   `apply-generic-to-itself`): benign on Windows and Linux, unproven on macOS; asked out of process.
-- **Expected skips.** The workstation skips the `NativePayloadTests` rows for other platforms' binaries (3), the Metal rows (3) and `DxilTests`' session without dxc (1142 passed at the split, 1036 before it; Test runner); before the oracles it skipped only the first three (788 passed at eae435a). WSL skips the D3D12 and
-  DXIL rows, 2 `NativePayloadTests` rows and the validator rows for tools Linux lacks (32 at the split, 893
+- **Expected skips.** The workstation skips the `NativePayloadTests` rows for other platforms' binaries (3), the Metal rows (3) and `DxilTests`' session without dxc (1148 passed with the packaging, 1142 at the split, 1036 before it; Test runner); before the oracles it skipped only the first three (788 passed at eae435a). WSL skips the D3D12 and
+  DXIL rows, 2 `NativePayloadTests` rows and the validator rows for tools Linux lacks (32 with the packaging, 899 passed; 32 at the split, 893
   passed; 26 and 825 before it; 682 at eae435a). CI per leg has not run on this tree: the last figures are of the tree
   before the Vulkan projection's removal (run 42422416933 on 9af4412: win-x64 774 passed, 10
   skipped; linux-x64 740, 12; linux-arm64 670, 18; run 42423571989 on 15428be: osx-arm64 632, 24),
@@ -1738,9 +1828,12 @@ owner's (owner, 2026-11-07):
   payload; 10; decided like `docs`: skipped for a docs-only branch, a release, and a tree that
   already passed it), `test` per leg (the Test step 20), `digests`
   (needs every leg; the leg count is in its name because the gate reads it back; 5), `report` (5).
-  `publish.yml`: tag equals `v<Version>`, the full matrix with macOS, stage four RIDs, pack, check
-  each package's contents, a portable consumer compiling SPIR-V and DXIL from the packed packages,
-  then GitHub Packages and a GitHub release. Its jobs have no timeouts yet, and it is replaced by the
+  `publish.yml`: tag equals `v<Version>`, the full matrix with macOS, stage four RIDs, pack the six
+  packages, `check-packages.ps1` and `tools/consume` on them, then GitHub Packages and a GitHub release. Its jobs have no timeouts yet; its `version` job
+  reads `<Version>` as text from the csproj files, which spell it `$(SharpSlangVersion)` and
+  `$(SharpSlangPipelineVersion)` since the versions moved to `Directory.Build.props`, so on a tag it
+  would refuse every release (read, not run); and `-p:Version=<tag>` on the pack would give Descs
+  and the reader the release's version too. It is replaced by the
   template's `release.yml` (version, native builds, pack, consume, release, nuget).
 - Caches: the Slang release archive and the header/corpus per `Directory.Build.props` hash, the
   1.4.363 layer per version. The template's payload cache keyed on git object ids arrives with the
