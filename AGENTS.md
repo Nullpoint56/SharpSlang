@@ -802,7 +802,7 @@ in `docs/upstream.md`.
   to `Directory.Build.props`. A payload with a reordered interface links, calls, and calls the wrong
   function, so this is not defensive. The realistic way to hit it: bump `<SlangVersion>` without
   re-fetching. `RequirePinnedSlangVersion = false` opts out deliberately. The message names the
-  loaded library's path (from the process module list, `SlangVersionMismatchException.LibraryPath`).
+  loaded library's path (`SlangVersionMismatchException.LibraryPath`): from the process module list, and on Unix from `dladdr` on one of the library's exports when the list does not name it, which on the macos-15 runner it did not (run 42475073038, 2026-11-08).
 - **The loaded Descs must be the ones SharpSlang was built with**, checked first in `Create`
   (`Interop/SlangVersionCheck.cs`, SharpNRI's `NriVersionCheck`): the loaded `SharpSlang.Descs`'
   `SlangVersion` metadata against SharpSlang's, and its package version (the informational version
@@ -1218,8 +1218,11 @@ v2026.21 on the workstation (Tests and skips has the counts).
   language extension Slang requires for push constants, and WGSL's `subgroups` extension, which
   naga has not implemented.
 - **Metal**: the same `double` internal error (U23), and a mesh shader writing its output per
-  member is diagnosed (`E56104`). What `xcrun metal` makes of the rest is not measured: it runs on
-  the `osx-arm64` leg only, which has not run this tree.
+  member is diagnosed (`E56104`). `xcrun metal` on the macos-15 runner (run 42475073038,
+  2026-11-08) refuses five outputs as Slang defects: a texture `read` overload Metal lacks (U26),
+  unbounded resource arrays as flexible array members (U27), a matrix vertex input at one
+  `[[attribute]]` (U28, U21 on WGSL), and device-pointer arrays as kernel inputs (U29). It also
+  refuses `rw-texture-simple` for exceeding Metal's 8 read_write textures, which is Metal's limit.
 - **CUDA** source needs two things a consumer must supply: `SLANG_CUDA_ENABLE_HALF` (the prelude's
   own instruction, `slang-cuda-prelude.h:21`) and an architecture NVRTC's default is older than;
   with both, as Slang's own NVRTC path sets them (`compute_75` for NVRTC 12.8 and later), all 56 of

@@ -42,6 +42,10 @@ natural form is an issue.
 | U23 | An internal error where a diagnostic belongs: `double` on WGSL and Metal, varyings on CPU and CUDA, append buffers on C++ | reporting | yes | not filed |
 | U24 | C++: the prelude has no vector arithmetic or comparison for `half` | C++ that does not compile | yes | not filed |
 | U25 | WGSL: 64-bit integers are written as `u64`, which WGSL does not have | invalid WGSL | after investigation | not filed |
+| U26 | Metal: a texture read is called with an overload Metal does not declare | Metal that does not compile | after investigation | not filed |
+| U27 | Metal: an unbounded resource array is written as a flexible array member | Metal that does not compile | after investigation | not filed |
+| U28 | Metal: a matrix vertex input at one `[[attribute]]` | Metal that does not compile | after investigation | not filed |
+| U29 | Metal: an array of device pointers as a kernel input | Metal that does not compile | after investigation | not filed |
 
 Related upstream items found while checking whether these were known: the layout-query robustness
 work [#8964](https://github.com/shader-slang/slang/issues/8964),
@@ -712,3 +716,51 @@ then `clang++ -std=c++17 -fsyntax-only -I prelude`.
 
 **Repro.** `slangc tests/compute/byte-address-buffer-64bit.slang -target wgsl -entry computeMain
 -stage compute`, then `naga <file>.wgsl`.
+
+## U26 — Metal: a texture read is called with an overload Metal does not declare
+
+**Observed.** The corpus entry `descriptor-kinds/dkFragment` compiles to Metal, and Apple's
+compiler refuses it: "descriptor-kinds.slang:42:434: error: no matching member function for call
+to 'read'".
+
+**Expected.** Metal that compiles, or a diagnostic naming the resource kind Metal cannot read that
+way.
+
+**Measurement.** v2026.21, `xcrun metal` on the GitHub-hosted macos-15 runner, run 42475073038
+(2026-11-08). Reduced repro not taken yet: confirm the resource kind before filing.
+
+## U27 — Metal: an unbounded resource array is written as a flexible array member
+
+**Observed.** `descriptor-arrays/daFragment` and `buffer-arrays/baFragment` declare unbounded
+resource arrays. Slang's Metal output declares them as flexible array members, and Apple's compiler
+refuses both: "flexible array members are a C99 feature".
+
+**Expected.** An argument-buffer or bounded form Metal accepts, or a diagnostic.
+
+**Measurement.** As U26.
+
+## U28 — Metal: a matrix vertex input at one `[[attribute]]`
+
+**Observed.** `vertex-interface/viVertex` takes a `float4x4` vertex input. Slang writes it as one
+`[[attribute(n)]]` of type `matrix<float, 4, 4>`, which Apple's compiler refuses: "type
+'matrix<float, int(4), int(4)>' is not valid for attribute 'attribute'". The same input is U21 on
+WGSL.
+
+**Expected.** One attribute per column, as the SPIR-V target writes four locations.
+
+**Measurement.** As U26.
+
+## U29 — Metal: an array of device pointers as a kernel input
+
+**Observed.** Slang's own `tests/compute/loop-unroll.slang` compiles to a kernel whose parameter is
+`array<device int *, 3>`, which Apple's compiler refuses: "invalid type 'array<device int *,
+int(3)>' for input declaration in a kernel function".
+
+**Expected.** The buffers passed as separate kernel parameters or through an argument buffer.
+
+**Measurement.** As U26.
+
+**Not a defect, recorded here so it is not re-investigated:** `tests/compute/rw-texture-simple.slang`
+declares more than eight read_write textures, and Apple's compiler refuses it with "number of
+textures with read_write access exceeds maximum supported (8)". That is Metal's limit, not Slang's
+output.

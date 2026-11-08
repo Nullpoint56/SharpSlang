@@ -480,7 +480,15 @@ public sealed class TargetValidationTests(ITestOutputHelper output)
                 new(Outcome.SlangRefuses, NotInStage, NoStageForTarget)),
             (["mesh/msMesh"], new(Outcome.SlangRefuses, "mesh output must be assigned as whole struct", "Metal writes a mesh vertex whole; Slang diagnoses a per-member write (E56104)")),
             (["wide-vertex-inputs/wvVertex", "wide-scalars/wsFragment", "scalar-widths/swFragment", "compute:bitcast-64bit.slang"],
-                new(Outcome.SlangRefuses, "'double' type emitted", "Metal has no double; Slang ends with an InternalError, E99997, instead of a diagnostic (U23)")));
+                new(Outcome.SlangRefuses, "'double' type emitted", "Metal has no double; Slang ends with an InternalError, E99997, instead of a diagnostic (U23)")),
+            // Measured by xcrun metal on the GitHub-hosted macos-15 runner, run 42475073038
+            // (2026-11-08, Slang v2026.21): the first time these rows met Apple's compiler.
+            (["descriptor-kinds/dkFragment"], new(Outcome.ValidatorRejects, "no matching member function for call to 'read'", "U26: Slang calls a texture read overload Metal does not declare")),
+            (["descriptor-arrays/daFragment", "buffer-arrays/baFragment"],
+                new(Outcome.ValidatorRejects, "flexible array members are a C99 feature", "U27: an unbounded resource array is written as a flexible array member, which Metal's C++ does not have")),
+            (["vertex-interface/viVertex"], new(Outcome.ValidatorRejects, "is not valid for attribute 'attribute'", "U28: a matrix vertex input at one [[attribute]], as U21 on WGSL")),
+            (["compute:loop-unroll.slang"], new(Outcome.ValidatorRejects, "for input declaration in a kernel function", "U29: an array of device pointers passed as a kernel input")),
+            (["compute:rw-texture-simple.slang"], new(Outcome.ValidatorRejects, "number of textures with read_write access exceeds maximum supported (8)", "Metal's limit of 8 read_write textures; the test shader declares more. Not judged as a Slang defect")));
 
         public static readonly Dictionary<string, Expected> Wgsl = Table(
             (["descriptor-kinds/dkFragment", "subpass-inputs/siFragment", "tessellation/teHull", "tessellation/teDomain", "geometry/gsGeometry",
