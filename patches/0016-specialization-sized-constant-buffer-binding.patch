@@ -1,0 +1,96 @@
+Give a constant buffer a binding when its block's size is not known until specialization.
+
+The layout of ConstantBuffer<T> and ParameterBlock<T> (source/slang/slang-type-layout.cpp) allocates
+the buffer's own binding only when the element type "uses ordinary data", which _usesResourceKind
+decides as `resInfo->count.compare(0) == std::partial_ordering::greater`. For a block that holds
+only an array sized by a specialization constant, the uniform size is LayoutSize::invalid() until
+specialization, and an invalid size compares unordered, not greater. The buffer is then treated as
+empty: `ConstantBuffer<Block>` with `struct Block { float4 values[kCount]; }` reports no binding of
+any kind, the [[vk::push_constant]] form no push-constant range, while the shader reads the buffer.
+A block that also has a fixed-size member is bound.
+
+This counts a resource whose size compares unordered as used, so the buffer keeps its binding. A
+regression test is added as
+tools/slang-unit-test/unit-test-specialization-sized-constant-buffer-binding.cpp.
+
+Measured on v2026.21, all four platforms: no parameter category reported for the buffer.
+diff --git a/source/slang/slang-type-layout.cpp b/source/slang/slang-type-layout.cpp
+index 1af403475..455a80267 100644
+--- a/source/slang/slang-type-layout.cpp
++++ b/source/slang/slang-type-layout.cpp
+@@ -3890,7 +3890,15 @@ IRVarLayout* applyOffsetToVarLayout(
+ static bool _usesResourceKind(RefPtr<TypeLayout> typeLayout, LayoutResourceKind kind)
+ {
+     auto resInfo = typeLayout->FindResourceInfo(kind);
+-    return resInfo && resInfo->count.compare(0) == std::partial_ordering::greater;
++    if (!resInfo)
++        return false;
++
++    // A count that does not compare with 0 is one not known until specialization (an array sized
++    // by a specialization constant): the type still uses the resource. Treating it as unused
++    // dropped the constant buffer of a block holding only such arrays, binding and all.
++    //
++    auto order = resInfo->count.compare(0);
++    return order == std::partial_ordering::greater || order == std::partial_ordering::unordered;
+ }
+ 
+ static bool _usesOrdinaryData(RefPtr<TypeLayout> typeLayout)
+diff --git a/tools/slang-unit-test/unit-test-specialization-sized-constant-buffer-binding.cpp b/tools/slang-unit-test/unit-test-specialization-sized-constant-buffer-binding.cpp
+new file mode 100644
+index 000000000..31a01efdf
+--- /dev/null
++++ b/tools/slang-unit-test/unit-test-specialization-sized-constant-buffer-binding.cpp
+@@ -0,0 +1,52 @@
++// unit-test-specialization-sized-constant-buffer-binding.cpp
++
++#include "slang-com-ptr.h"
++#include "slang.h"
++#include "unit-test/slang-unit-test.h"
++
++using namespace Slang;
++
++// A constant buffer whose block holds only an array sized by a specialization constant has a size
++// that is not known until specialization, and it must still be given a binding.
++
++SLANG_UNIT_TEST(specializationSizedConstantBufferBinding)
++{
++    const char* source = R"(
++        [vk::constant_id(0)] const int kCount = 4;
++        struct Block { float4 values[kCount]; };
++        ConstantBuffer<Block> gUnsized;
++
++        [shader("fragment")]
++        float4 fragmentMain() : SV_Target { return gUnsized.values[0]; }
++        )";
++
++    ComPtr<slang::IGlobalSession> globalSession;
++    SLANG_CHECK_ABORT(
++        slang_createGlobalSession(SLANG_API_VERSION, globalSession.writeRef()) == SLANG_OK);
++
++    slang::TargetDesc targetDesc = {};
++    targetDesc.format = SLANG_SPIRV;
++    targetDesc.profile = globalSession->findProfile("spirv_1_5");
++
++    slang::SessionDesc sessionDesc = {};
++    sessionDesc.targetCount = 1;
++    sessionDesc.targets = &targetDesc;
++
++    ComPtr<slang::ISession> session;
++    SLANG_CHECK_ABORT(globalSession->createSession(sessionDesc, session.writeRef()) == SLANG_OK);
++
++    ComPtr<slang::IBlob> diagnostics;
++    auto module = session->loadModuleFromSourceString(
++        "specializationSizedConstantBufferBinding",
++        "specializationSizedConstantBufferBinding.slang",
++        source,
++        diagnostics.writeRef());
++    SLANG_CHECK_ABORT(module != nullptr);
++
++    auto layout = module->getLayout(0, diagnostics.writeRef());
++    SLANG_CHECK_ABORT(layout != nullptr);
++    SLANG_CHECK_ABORT(layout->getParameterCount() == 1);
++    auto parameter = layout->getParameterByIndex(0);
++    SLANG_CHECK(parameter->getCategoryCount() > 0);
++    SLANG_CHECK(parameter->getTypeLayout()->getDescriptorSetCount() + parameter->getCategoryCount() > 0);
++}
+\ No newline at end of file

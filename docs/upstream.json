@@ -47,9 +47,9 @@
       "title": "A constant buffer whose block holds only link-time-sized arrays gets no binding",
       "area": "reflection",
       "kind": "Slang defect",
-      "patch": null,
-      "test": "UnknownSizeTests.A_buffer_with_no_fixed_size_is_refused_rather_than_dropped",
-      "state": "unpatched",
+      "patch": "0016-specialization-sized-constant-buffer-binding.patch",
+      "test": "UnknownSizeTests.A_buffer_with_no_fixed_size_keeps_its_binding",
+      "state": "patched",
       "verified": "v2026.21"
     },
     {
