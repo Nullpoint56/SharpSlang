@@ -34,6 +34,18 @@ natural form is an issue.
 | U15 | Reflection queries that answer nothing, and facts reflection does not carry | reflection gaps | no | not filed |
 | U16 | `linkWithOptions` silently ignores most compiler options | silent no-op | no | not filed (re-measure first) |
 | U17 | SPIR-V for `SV_VertexID` differs between x86-64 and aarch64 builds | determinism | after investigation | not filed |
+| U18 | GLSL: a hull shader's patch-constant function returns its struct with a bare `return;` | invalid GLSL | yes | not filed |
+| U19 | GLSL: a domain shader's per-vertex input is sized by the patch, which GLSL forbids | invalid GLSL | yes | not filed |
+| U20 | WGSL: a `const` is initialised from an `override` | invalid WGSL | yes | not filed |
+| U21 | WGSL: a matrix vertex input is written at one `@location` | invalid WGSL | after investigation | not filed |
+| U22 | WGSL: arrays of textures and samplers are written as `binding_array` with no `enable` | non-portable WGSL | after investigation | not filed (confirm against the specification and Tint first) |
+| U23 | An internal error where a diagnostic belongs: `double` on WGSL and Metal, varyings on CPU and CUDA, append buffers on C++ | reporting | yes | not filed |
+| U24 | C++: the prelude has no vector arithmetic or comparison for `half` | C++ that does not compile | yes | not filed |
+| U25 | WGSL: 64-bit integers are written as `u64`, which WGSL does not have | invalid WGSL | after investigation | not filed |
+| U26 | Metal: a texture read is called with an overload Metal does not declare | Metal that does not compile | after investigation | not filed |
+| U27 | Metal: an unbounded resource array is written as a flexible array member | Metal that does not compile | after investigation | not filed |
+| U28 | Metal: a matrix vertex input at one `[[attribute]]` | Metal that does not compile | after investigation | not filed |
+| U29 | Metal: an array of device pointers as a kernel input | Metal that does not compile | after investigation | not filed |
 
 Related upstream items found while checking whether these were known: the layout-query robustness
 work [#8964](https://github.com/shader-slang/slang/issues/8964),
@@ -503,3 +515,252 @@ float4 vertexMain(uint id : SV_VertexID) : SV_Position { return float4(id, 0, 0,
 ```
 
 Compile with `slangc -target spirv` on an x86-64 and an aarch64 machine and compare the bytes.
+
+## U18 — GLSL: a hull shader's patch-constant function returns its struct with a bare `return;`
+
+**Observed.** For a hull shader with `[patchconstantfunc("teConstants")]`, where `teConstants`
+returns a struct of `SV_TessFactor` and `SV_InsideTessFactor`, the GLSL target emits the function
+as `TePatch_0 teConstants_0(TeControl_0 patch_0[3])`, writes the tessellation levels to
+`gl_TessLevelOuter` / `gl_TessLevelInner` inside it, and ends it with `return;`. glslang 16.6.0
+(`glslangValidator -V --target-env vulkan1.2 -S tesc`): "ERROR: 0:10: 'return' : non-void function
+must return a value". The SPIR-V target compiles the same shader to a module spirv-val accepts.
+
+**Expected.** A `void` function, or a `return` of the struct.
+
+**Measurement.** v2026.21, Windows x64 (the GLSL target's text does not depend on the host).
+
+**Repro.**
+
+```hlsl
+struct TeControl { float3 tePosition : POSITION; };
+struct TePatch   { float teEdges[3] : SV_TessFactor; float teInner : SV_InsideTessFactor; };
+
+TePatch teConstants(InputPatch<TeControl, 3> patch)
+{
+    TePatch c;
+    c.teEdges[0] = c.teEdges[1] = c.teEdges[2] = 1;
+    c.teInner = 1;
+    return c;
+}
+
+[shader("hull")] [domain("tri")] [partitioning("integer")] [outputtopology("triangle_cw")]
+[outputcontrolpoints(3)] [patchconstantfunc("teConstants")]
+TeControl teHull(InputPatch<TeControl, 3> patch, uint i : SV_OutputControlPointID) { return patch[i]; }
+```
+
+`slangc -target glsl -entry teHull -stage hull`, then `glslangValidator -V --target-env vulkan1.2 -S tesc`.
+
+## U19 — GLSL: a domain shader's per-vertex input is sized by the patch, which GLSL forbids
+
+**Observed.** For a domain shader taking `const OutputPatch<TeControl, 3> patch`, the GLSL target
+declares `layout(location = 0) in vec3 patch_tePosition_0[3];`. glslang 16.6.0 (`-S tese`):
+"ERROR: 0:2: '[]' : tessellation input array size must be gl_MaxPatchVertices or implicitly sized".
+The SPIR-V target's module for the same shader passes spirv-val.
+
+**Expected.** `in vec3 patch_tePosition_0[];` (implicitly sized), as GLSL 4.50 requires for a
+tessellation evaluation input.
+
+**Measurement.** v2026.21, Windows x64.
+
+**Repro.** U18's `TeControl`, plus:
+
+```hlsl
+struct TeOut { float4 teClip : SV_Position; };
+
+[shader("domain")] [domain("tri")]
+TeOut teDomain(TePatch c, float3 bary : SV_DomainLocation, const OutputPatch<TeControl, 3> patch)
+{ TeOut o; o.teClip = float4(patch[0].tePosition * bary.x, 1); return o; }
+```
+
+`slangc -target glsl -entry teDomain -stage domain`, then `glslangValidator -V --target-env vulkan1.2 -S tese`.
+
+## U20 — WGSL: a `const` is initialised from an `override`
+
+**Observed.** A specialization constant used in an expression is emitted as an `override` and the
+expression as a `const`: `@id(0) override scCascades_0 : i32 = i32(3);` then, in the function,
+`const _S1 : f32 = f32(scCascades_0);`. A `const` declaration takes a const-expression, and an
+override is not one. naga 30.0.1: "Unexpected override-expression".
+
+**Expected.** `let _S1 : f32 = f32(scCascades_0);` (or an `override` declaration).
+
+**Measurement.** v2026.21, Windows x64.
+
+**Repro.**
+
+```hlsl
+[vk::constant_id(0)] const int   scCascades = 3;
+[vk::constant_id(9)] const float scBias     = 0.005;
+[SpecializationConstant]  const bool scDebug = false;
+
+[shader("fragment")]
+float4 scFragment() : SV_Target { return float4(scCascades, scBias, scDebug ? 1 : 0, 1); }
+```
+
+`slangc -target wgsl -entry scFragment -stage fragment`, then `naga <file>.wgsl`.
+
+## U21 — WGSL: a matrix vertex input is written at one `@location`
+
+**Observed.** A `float4x4` vertex input becomes `@location(1) viInstance_0 : mat4x4<f32>` in the
+vertex input struct, with the next input at `@location(2)`. WGSL's user-defined inputs and outputs
+are numeric scalars and vectors only. naga 30.0.1: "The type [4] cannot be used for user-defined
+entry point inputs or outputs. Only numeric scalars and vectors are allowed."
+
+**Expected.** Four `vec4<f32>` inputs at four consecutive locations, reassembled in the body, or a
+diagnostic.
+
+**Measurement.** v2026.21, Windows x64.
+
+**Repro.**
+
+```hlsl
+struct ViIn { float3 viPosition : POSITION; float4x4 viInstance : INSTANCE; float2 viTexCoord : TEXCOORD0; };
+
+[shader("vertex")]
+float4 viVertex(ViIn v) : SV_Position
+{ return mul(v.viInstance, float4(v.viPosition, 1)) + float4(v.viTexCoord, 0, 0); }
+```
+
+`slangc -target wgsl -entry viVertex -stage vertex`, then `naga <file>.wgsl`. Reduced from the
+measured shader (which also takes a `uint4` and `SV_VertexID`); confirm the reduction before filing.
+
+## U22 — WGSL: arrays of textures and samplers are written as `binding_array` with no `enable`
+
+**Observed.** `Texture2D daFixed[4]` becomes
+`@binding(0) @group(0) var daFixed_0 : binding_array<texture_2d<f32>, i32(4)>;` (and an unbounded
+array `binding_array<texture_2d<f32>>`; a `SamplerState` array the same), with no `enable` directive
+in the module. naga 30.0.1: "the `wgpu_binding_array` enable extension is not enabled".
+
+**Expected.** To be confirmed before filing: `binding_array` is naga's (wgpu's) extension, taken
+behind `enable wgpu_binding_array;`; whether the WGSL specification or Tint defines it was not
+checked here. If neither does, the expected behaviour is a diagnostic, as Slang gives for an array
+of buffers (`E56105`, "array of resource types not supported in WGSL").
+
+**Measurement.** v2026.21, Windows x64, naga 30.0.1 only.
+
+**Repro.**
+
+```hlsl
+Texture2D    daFixed[4];
+SamplerState daSampler;
+
+[shader("fragment")]
+float4 daFragment(float2 uv : TEXCOORD0) : SV_Target { return daFixed[1].Sample(daSampler, uv); }
+```
+
+`slangc -target wgsl -entry daFragment -stage fragment`, then `naga <file>.wgsl`. Reduced from the
+measured shader (which also declares an unbounded array); confirm the reduction before filing.
+
+## U23 — An internal error where a diagnostic belongs
+
+**Observed.** Each of these is a construct the target cannot express, and each ends compilation
+with an internal error rather than a diagnostic naming the construct and the target:
+
+- WGSL and Metal, a `double`: measured with a `double4` vertex input, `double` members of a
+  constant buffer, and Slang's own `tests/compute/bitcast-64bit.slang`:
+  `error[E99997]: Slang compilation aborted due to an exception of class Slang::InternalError
+  unexpected: 'double' type emitted`.
+- CPU (C++ source) and CUDA, a fragment or vertex entry point:
+  `internal error[E99999]: unimplemented feature in Slang compiler: this target doesn't support this
+  system-defined varying parameter` (or "user-defined"). The same targets report a hull, geometry or
+  mesh stage properly, as `E36107` "uses features that are not available in ... stage".
+- C++ source, an `AppendStructuredBuffer` / `ConsumeStructuredBuffer`:
+  `internal error[E99999]: unimplemented feature in Slang compiler: unexpected IR opcode during code
+  emit`.
+
+**Expected.** A diagnostic in the family the targets already use for what they lack (`E36107`,
+`E55202`, `E56105`), naming the construct.
+
+**Measurement.** v2026.21, Windows x64, from `getEntryPointCode`; the messages are Slang's.
+
+**Repro.** For WGSL and Metal:
+
+```hlsl
+struct WsBlock { float wsLead; double wsWide; };
+ConstantBuffer<WsBlock> wsBuffer;
+
+[shader("fragment")]
+float4 wsFragment() : SV_Target { return float4((float)wsBuffer.wsWide, wsBuffer.wsLead, 0, 1); }
+```
+
+`slangc -target wgsl -entry wsFragment -stage fragment` (or `-target metal`); this reduction is of
+a measured shader and is not itself confirmed (confirm before filing). For C++: any fragment shader
+of the corpus with `-target cpp`.
+
+## U24 — C++: the prelude has no vector arithmetic or comparison for `half`
+
+**Observed.** Slang's C++ output for half vectors (`Vector<half, 3> + Vector<half, 3>`,
+`Vector<half, 2> < Vector<half, 2>`) does not compile against Slang's own prelude: clang 22.1.8:
+"invalid operands to binary expression ('Vector<half, 3>' (aka 'Vector<_Float16, 3>') and
+'Vector<half, 3>')". `slang-cpp-types-core.h` instantiates `SLANG_FLOAT_VECTOR_OPS` for `float` and
+`double` (lines 371-372 at v2026.21) and not for `half`.
+
+**Expected.** `SLANG_FLOAT_VECTOR_OPS(half)`, or a diagnostic for half vectors on the C++ target.
+
+**Measurement.** v2026.21, Windows x64, `clang++ -std=c++17 -fsyntax-only` with the prelude
+directory at the tag on the include path. Slang's own `tests/compute/half-vector-calc.slang` and
+`half-vector-compare.slang` show it.
+
+**Repro.** `slangc tests/compute/half-vector-calc.slang -target cpp -entry computeMain -stage compute`,
+then `clang++ -std=c++17 -fsyntax-only -I prelude`.
+
+## U25 — WGSL: 64-bit integers are written as `u64`, which WGSL does not have
+
+**Observed.** Slang's own `tests/compute/byte-address-buffer-64bit.slang` compiles to WGSL using
+`u64` (`var _S2 : u32 = u32((tmp64_0 >> (u64(32))));`). WGSL defines no 64-bit integer type. naga
+30.0.1 rejects the module, on the conversion: "automatic conversions cannot convert elements of
+`u64` to `u32`".
+
+**Expected.** A diagnostic, as for `double` (once U23 is fixed), or a lowering to `vec2<u32>`.
+
+**Measurement.** v2026.21, Windows x64, naga 30.0.1.
+
+**Repro.** `slangc tests/compute/byte-address-buffer-64bit.slang -target wgsl -entry computeMain
+-stage compute`, then `naga <file>.wgsl`.
+
+## U26 — Metal: a texture read is called with an overload Metal does not declare
+
+**Observed.** The corpus entry `descriptor-kinds/dkFragment` compiles to Metal, and Apple's
+compiler refuses it: "descriptor-kinds.slang:42:434: error: no matching member function for call
+to 'read'".
+
+**Expected.** Metal that compiles, or a diagnostic naming the resource kind Metal cannot read that
+way.
+
+**Measurement.** v2026.21, `xcrun metal` on the GitHub-hosted macos-15 runner, run 42475073038
+(2026-11-08). Reduced repro not taken yet: confirm the resource kind before filing.
+
+## U27 — Metal: an unbounded resource array is written as a flexible array member
+
+**Observed.** `descriptor-arrays/daFragment` and `buffer-arrays/baFragment` declare unbounded
+resource arrays. Slang's Metal output declares them as flexible array members, and Apple's compiler
+refuses both: "flexible array members are a C99 feature".
+
+**Expected.** An argument-buffer or bounded form Metal accepts, or a diagnostic.
+
+**Measurement.** As U26.
+
+## U28 — Metal: a matrix vertex input at one `[[attribute]]`
+
+**Observed.** `vertex-interface/viVertex` takes a `float4x4` vertex input. Slang writes it as one
+`[[attribute(n)]]` of type `matrix<float, 4, 4>`, which Apple's compiler refuses: "type
+'matrix<float, int(4), int(4)>' is not valid for attribute 'attribute'". The same input is U21 on
+WGSL.
+
+**Expected.** One attribute per column, as the SPIR-V target writes four locations.
+
+**Measurement.** As U26.
+
+## U29 — Metal: an array of device pointers as a kernel input
+
+**Observed.** Slang's own `tests/compute/loop-unroll.slang` compiles to a kernel whose parameter is
+`array<device int *, 3>`, which Apple's compiler refuses: "invalid type 'array<device int *,
+int(3)>' for input declaration in a kernel function".
+
+**Expected.** The buffers passed as separate kernel parameters or through an argument buffer.
+
+**Measurement.** As U26.
+
+**Not a defect, recorded here so it is not re-investigated:** `tests/compute/rw-texture-simple.slang`
+declares more than eight read_write textures, and Apple's compiler refuses it with "number of
+textures with read_write access exceeds maximum supported (8)". That is Metal's limit, not Slang's
+output.

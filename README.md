@@ -172,10 +172,10 @@ shader construct that caused it.
 
 | RID | CI | Notes |
 |---|---|---|
-| `win-x64` | `windows-latest` | |
-| `linux-x64` | `ubuntu-24.04` | also runs the NRI Vulkan device tests on lavapipe, under the Khronos validation layer |
-| `linux-arm64` | `ubuntu-24.04-arm` | the only leg exercising ARM64 calling conventions |
-| `osx-arm64` | `macos-15` | the only leg on a non-glibc allocator and loader; on demand and before every release |
+| `win-x64` | `windows-latest` | D3D12 on WARP, the pixel test included; DXIL and HLSL judged by dxc |
+| `linux-x64` | `ubuntu-24.04` | also runs the NRI Vulkan device tests on lavapipe, under the Khronos validation layer, the pixel test included; SPIR-V, GLSL and WGSL judged by spirv-val, glslang and naga |
+| `linux-arm64` | `ubuntu-24.04-arm` | the only leg exercising ARM64 calling conventions; its SPIR-V judged by spirv-val |
+| `osx-arm64` | `macos-15` | the only leg on a non-glibc allocator and loader; Metal judged by `xcrun metal`; on demand and before every release |
 
 Windows and both Linux legs run the full suite when CI is started by hand on a branch, which is
 the only way a branch is tested, and on master only for code that no branch run has already passed.
@@ -217,7 +217,7 @@ the only check in the suite that can see a layout error, and the only one that c
 parameter list on a vtable slot nothing has ever called. They skip with instructions where no
 compiler is found; CI has one on every runner.
 
-**791 tests** run on every leg, against oracles rather than expected values typed
+**1075 tests** run on every leg, against oracles rather than expected values typed
 by hand: the emitted SPIR-V, Slang's own alternate route to each fact, the Khronos validation
 layers and the D3D12 debug layer judging real NRI pipelines built from a **33-shader corpus**, and Slang's own test suite — 31 shaders whose expected reflection the Slang
 team wrote, compared against both `spReflection_ToJson` and this package's projection. It also
@@ -225,6 +225,14 @@ team wrote, compared against both `spReflection_ToJson` and this package's proje
 storage images, sampled textures and samplers bound at the register space and range the NRI
 projection reports, and the readback compared with the words Slang's own tests record. `NativeExportTests` resolves all 279 `DllImport` entry points against the
 loaded library.
+
+A vertex and fragment program compiled to SPIR-V and to DXIL, projected, built into an NRI graphics
+pipeline and rendered on Vulkan and on D3D12 must match an image computed on the CPU, **pixel for
+pixel**. Every corpus shader, and Slang's `tests/compute`, is compiled to **every target** and
+judged by that target's own tool: `spirv-val` (SPIR-V), dxc's validator in `dxil.dll` (DXIL),
+`glslangValidator` (GLSL), dxc (HLSL), `xcrun metal` (Metal, on macOS), naga (WGSL), NVRTC (CUDA)
+and the host's C++ compiler (C++), and each tool is shown broken output once to prove it refuses it. Each tool is found on the machine at run time; a missing one is
+a skip that names it, and CI fails a leg where a tool it installs did not run.
 
 ## Documentation
 
@@ -267,7 +275,11 @@ Test-only, none of it shipped in a package:
 | [PublicApiGenerator](https://github.com/PublicApiGenerator/PublicApiGenerator) | renders each package's public surface for approval testing |
 | [Mesa lavapipe](https://gitlab.freedesktop.org/mesa/mesa) | a software Vulkan device, so the NRI Vulkan tests run on a CI runner with no GPU |
 | [Vulkan-ValidationLayers](https://github.com/KhronosGroup/Vulkan-ValidationLayers) | judges the pipelines built from the NRI projection against the specification |
-| [SPIRV-Tools](https://github.com/KhronosGroup/SPIRV-Tools) | `spirv-dis` and `spirv-val`, for reading emitted modules by hand |
+| [SPIRV-Tools](https://github.com/KhronosGroup/SPIRV-Tools) | `spirv-val`, which judges every SPIR-V module the corpora compile to; `spirv-dis` for reading them by hand |
+| [glslang](https://github.com/KhronosGroup/glslang) | `glslangValidator`, which compiles the GLSL target's output for Vulkan |
+| [naga](https://github.com/gfx-rs/wgpu/tree/trunk/naga) | validates the WGSL target's output (`cargo install naga-cli`) |
+| dxc's `dxil.dll` and `dxcompiler.dll` | from `Microsoft.Direct3D.DXC`: the DXIL validator, and the compiler for the HLSL target's output |
+| NVRTC, `xcrun metal` | the CUDA toolkit's runtime compiler and Xcode's Metal compiler, for the CUDA and Metal targets where installed |
 | [LLVM/clang](https://github.com/llvm/llvm-project) | compiles a generated probe against the pinned `slang.h`, so struct layouts and function signatures are checked against a C++ compiler rather than against the generator that produced them |
 | Slang's own [`tests/reflection` and `tests/compute`](https://github.com/shader-slang/slang/tree/master/tests) | fetched at the pinned tag. The only expected values in this repository that the Slang team wrote rather than this repository deriving |
 

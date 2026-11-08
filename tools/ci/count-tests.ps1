@@ -22,6 +22,10 @@
   what a bash step can pass: `pwsh -File` hands every argument over as a plain string, so
   "A,B" arrives as one value rather than two.
 
+  An entry with a dot in it is `Class.Method`, and the method may carry wildcards
+  (`TargetValidationTests.Spirv_*`): it matches that method's results, a theory's rows included,
+  rather than the whole class.
+
 .OUTPUTS
   Prints the skipped tests and their reasons, then one line `passed=N skipped=N failed=N total=N`
   for the gate to parse. Exits 2 when the TRX is missing or matches nothing, which a gate must
@@ -46,7 +50,10 @@ $results = Select-Xml -Xml $doc -XPath '//t:UnitTestResult' -Namespace $ns | For
 
 $matched = @($results | Where-Object {
     $name = $_.testName
-    $Class | Where-Object { $name -like "*.$_.*" }
+    $Class | Where-Object {
+        if ($_.Contains('.')) { $name -like "*.$_" -or $name -like "*.$_(*" }
+        else { $name -like "*.$_.*" }
+    }
 })
 
 if ($matched.Count -eq 0) {

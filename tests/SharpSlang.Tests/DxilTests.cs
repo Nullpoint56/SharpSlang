@@ -174,7 +174,7 @@ public sealed class DxilTests(ITestOutputHelper output)
         // by the process's library search and nothing in a running test host can take a loaded
         // dxcompiler away again — Slang caches the pass-through once it has found it, and the
         // DLL sits in the same directory as the compiler under test. So on a machine that has it
-        // (every win-x64 run with the package restored) this test records that and returns, and
+        // (every win-x64 run with the package restored) this test skips saying so, and
         // the other CI legs are the measurement: linux-x64 and osx-arm64 load slang-compiler and
         // stage no dxc, so there this is the assertion that CreateSession refuses with the fix in
         // its message rather than failing inside the first compile.
@@ -185,9 +185,8 @@ public sealed class DxilTests(ITestOutputHelper output)
 
         if (global.IsDownstreamCompilerAvailable(SlangPassThrough.SLANG_PASS_THROUGH_DXC))
         {
-            output.WriteLine("dxc is loadable here, so there is no refusal to observe; the DXIL session "
-                           + "is A_dxil_session_is_created_when_dxc_is_loadable's subject.");
-            return;
+            Assert.Skip("dxc is loadable here, and this test needs it absent: there is no refusal to observe. "
+                      + "The DXIL session is A_dxil_session_is_created_when_dxc_is_loadable's subject.");
         }
 
         var e = Assert.Throws<SlangException>(

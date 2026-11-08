@@ -13,6 +13,7 @@
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using SharpSlang.Native;
 
 namespace SharpSlang.Interop;
@@ -145,6 +146,42 @@ internal static class SlangVersionCheck
         {
         }
 
-        return null;
+        return OperatingSystem.IsWindows() ? null : MappedFrom();
     }
+
+    /// <summary>The file a Unix loader mapped slang-compiler from, asked of dladdr.</summary>
+    /// <remarks>
+    /// The process module list is not enough on macOS: on the GitHub-hosted macos-15 runner it did
+    /// not list libslang-compiler.dylib although the library was loaded (run 42475073038,
+    /// 2026-11-08), so the guard named no path there. dladdr on one of the library's own exports
+    /// answers on Linux and macOS alike. TryLoad with the DllImports' own resolution returns the
+    /// module they are bound to, as CompanionLibraries relies on for Windows.
+    /// </remarks>
+    private static unsafe string? MappedFrom()
+    {
+        if (!NativeLibrary.TryLoad("slang-compiler", typeof(SlangApi).Assembly, null, out var handle)
+            || !NativeLibrary.TryGetExport(handle, "spGetBuildTagString", out var symbol))
+        {
+            return null;
+        }
+
+        DlInfo info;
+        return dladdr(symbol, &info) != 0 && info.FileName != 0 ? Marshal.PtrToStringUTF8(info.FileName) : null;
+    }
+
+    /// <summary>Dl_info, the same four pointers on glibc and on macOS.</summary>
+    [StructLayout(LayoutKind.Sequential)]
+    private struct DlInfo
+    {
+        public nint FileName;
+        public nint FileBase;
+        public nint SymbolName;
+        public nint SymbolAddress;
+    }
+
+    // Not in SlangApi, which is generated from slang.h; the one libc call the binding makes. "libc"
+    // resolves to glibc on Linux and to libSystem on macOS; dladdr has been in glibc's libc proper
+    // since 2.34, which is the payload's floor (AGENTS.md#pin-and-payload).
+    [DllImport("libc", ExactSpelling = true)]
+    private static extern unsafe int dladdr(nint address, DlInfo* info);
 }

@@ -399,6 +399,43 @@ jobs:
           grep -o '"api_version": "[^"]*"' obj/vvl/share/vulkan/explicit_layer.d/VkLayer_khronos_validation.json
           echo "VK_ADD_LAYER_PATH=$GITHUB_WORKSPACE/obj/vvl/share/vulkan/explicit_layer.d" >> "$GITHUB_ENV"
 
+      # The shader validators TargetValidationTests judges Slang's output with, from the image's
+      # own apt lists (Ubuntu 24.04's noble-updates: spirv-tools 2025.1~rc1, glslang-tools 15.1.0), on
+      # both Linux legs. Both legs because arm64 is where the SPIR-V differs (U17 in
+      # docs/upstream.md, AGENTS.md#cross-platform-behaviour): its modules are validated as built
+      # there. The lavapipe step above already refreshed the lists on linux-x64.
+      #
+      # The other legs carry what they carry: hosted Windows has dxc from the test project's
+      # Microsoft.Direct3D.DXC (DXIL's validator and HLSL's compiler) and LLVM's clang++ (C++);
+      # macOS has Xcode's metal and clang++. None has a CUDA toolkit, so NVRTC runs only where one
+      # is installed (the workstation), and its rows skip naming it.
+      - name: Install the shader validators
+        if: startsWith(matrix.rid, 'linux-')
+        run: |
+          if [ "${{ matrix.rid }}" != linux-x64 ]; then sudo apt-get update -qq; fi
+          sudo apt-get install -y -qq spirv-tools glslang-tools
+          spirv-val --version | head -1
+          glslangValidator --version | head -1
+
+      # naga, for WGSL: no package carries it, so it is built from crates.io once per version and
+      # cached (cargo is on the image). linux-x64 only: WGSL is text and one leg judges it.
+      - name: Cache naga
+        if: matrix.rid == 'linux-x64'
+        id: naga
+        uses: actions/cache@v6
+        with:
+          path: obj/naga
+          key: naga-cli-30.0.1-linux-x64
+
+      - name: Build naga
+        if: matrix.rid == 'linux-x64' && steps.naga.outputs.cache-hit != 'true'
+        run: cargo install naga-cli --version 30.0.1 --locked --root obj/naga
+
+      - name: Put naga on PATH
+        if: matrix.rid == 'linux-x64'
+        run: |
+          echo "$GITHUB_WORKSPACE/obj/naga/bin" >> "$GITHUB_PATH"
+          obj/naga/bin/naga --version
       - name: Build
         run: dotnet build SharpSlang.slnx -c Release --nologo -warnaserror
 
@@ -692,19 +729,22 @@ jobs:
       # Neither would notice dxil.dll going missing, and neither needs to: the pinned dxc never
       # loads it (DxilTests says what was measured).
       #
-      # 74, and no skip at all, measured on a workstation with dxc staged by the same package:
+      # 73 passed and exactly 1 skipped, measured on a workstation with dxc staged by the same package:
       #
       #   33  Every_corpus_entry_point_compiles_to_a_signed_dxil_container, one per corpus case:
       #       31 cases whose every container has a non-zero digest (so a validator signed them: the
       #       one built into dxcompiler.dll, since this dxc does not load dxil.dll), and the two dxc
       #       refusals (subpass-inputs, wide-vertex-inputs) asserted by dxc's own words.
       #   33  The_dxil_projection_accepts_what_the_spirv_one_does_and_reads_registers.
-      #    8  facts: the session with dxc, the session without it (which returns early here, and is
-      #       measured on the Linux and macOS legs, where no dxc is staged), the exception lists,
-      #       the borrowed range names, the push-constant promotion, the texture refusal, the
-      #       space-0 constant buffer defect, and a baked DXIL package round-tripped through a file.
+      #    7  facts: the session with dxc, the exception lists, the borrowed range names, the
+      #       push-constant promotion, the texture refusal, the space-0 constant buffer defect, and
+      #       a baked DXIL package round-tripped through a file.
+      #    1  skipped: the session without dxc, which needs dxc absent and says so; it is measured
+      #       on the Linux and macOS legs, where no dxc is staged. It returned early and counted as
+      #       a pass until the skip audit made it a skip.
       #
-      # Skips are counted as well as passes, because here a skip has only one cause.
+      # Skips are counted as well as passes, because here the one skip has one cause and any
+      # other skip means dxc is not loadable.
       - name: The DXIL tests actually ran
         if: matrix.rid == 'win-x64'
         shell: bash
@@ -715,18 +755,76 @@ jobs:
           passed=$(echo "$counts"  | tail -1 | sed -n 's/.*passed=\([0-9]*\).*/\1/p')
           skipped=$(echo "$counts" | tail -1 | sed -n 's/.*skipped=\([0-9]*\).*/\1/p')
 
-          if [ "${skipped:-0}" -ne 0 ]; then
-            echo "::error::${skipped} DXIL test(s) skipped on ${{ matrix.rid }}. dxc is not loadable beside slang-compiler, so nothing checks that the corpus compiles to DXIL or what the projection makes of a DXIL layout; the skip reason is in the output above."
+          if [ "${skipped:-0}" -ne 1 ]; then
+            echo "::error::${skipped} DXIL test(s) skipped on ${{ matrix.rid }}, expected exactly 1 (the session without dxc). dxc is not loadable beside slang-compiler, so nothing checks that the corpus compiles to DXIL or what the projection makes of a DXIL layout; the skip reasons are in the output above."
             exit 1
           fi
 
-          if [ "${passed:-0}" -lt 74 ]; then
-            echo "::error::only ${passed:-0} DXIL test(s) passed on ${{ matrix.rid }}; expected at least 74."
+          if [ "${passed:-0}" -lt 73 ]; then
+            echo "::error::only ${passed:-0} DXIL test(s) passed on ${{ matrix.rid }}; expected at least 73."
             exit 1
           fi
 
-          echo "::notice::$passed DXIL test(s) ran on ${{ matrix.rid }}, none skipped"
+          echo "::notice::$passed DXIL test(s) ran on ${{ matrix.rid }}, and the one that needs dxc absent skipped"
 
+      # The target validators, the same gate again: every TargetValidationTests row skips rather
+      # than fails when its tool is missing, and a skipped test is green. Per leg, the targets whose
+      # tool that leg has must all have run, none skipped: 33 ShaderCorpus rows, the fact over
+      # Slang's tests/compute, and the fact that hands the tool broken output and needs it refused,
+      # 35 per target, measured locally with every tool present (the workstation) and the Linux
+      # ones under WSL. A new corpus case adds one row per target.
+      #
+      #   win-x64      dxil (dxil.dll), hlsl (dxcompiler.dll), cpp (LLVM's clang++)
+      #   linux-x64    spirv (spirv-val), glsl (glslangValidator), wgsl (naga), cpp
+      #   linux-arm64  spirv, glsl, cpp
+      #   osx-arm64    metal (xcrun metal), cpp
+      - name: The target validators actually ran
+        shell: bash
+        run: |
+          case "${{ matrix.rid }}" in
+            win-x64)     targets="dxil hlsl cpp" ;;
+            linux-x64)   targets="spirv glsl wgsl cpp" ;;
+            linux-arm64) targets="spirv glsl cpp" ;;
+            osx-arm64)   targets="metal cpp" ;;
+          esac
+          status=0
+          for target in $targets; do
+            case "$target" in
+              spirv) method=Spirv ;; dxil) method=Dxil ;; glsl) method=Glsl ;; hlsl) method=Hlsl ;;
+              metal) method=Metal ;; wgsl) method=Wgsl ;; cpp) method=Cpp ;;
+            esac
+            counts=$(pwsh -NoProfile -File tools/ci/count-tests.ps1 -Trx test-results/results.trx \
+              -Class "TargetValidationTests.${method}_*,TargetValidationTests.Slang_compute_corpus_${target}_*") \
+              || { echo "$counts"; exit 1; }
+            echo "$counts"
+            passed=$(echo "$counts"  | tail -1 | sed -n 's/.*passed=\([0-9]*\).*/\1/p')
+            skipped=$(echo "$counts" | tail -1 | sed -n 's/.*skipped=\([0-9]*\).*/\1/p')
+            if [ "${skipped:-0}" -ne 0 ] || [ "${passed:-0}" -lt 35 ]; then
+              echo "::error::$target: ${passed:-0} passed and ${skipped:-0} skipped on ${{ matrix.rid }}; expected 35 and none. Its validator is missing or Slang's output was not judged; the skip reason is above."
+              status=1
+            else
+              echo "::notice::$target: $passed validator rows ran on ${{ matrix.rid }}, none skipped"
+            fi
+          done
+          exit $status
+
+      # And the pixel test, which renders through the whole stack and compares every pixel: one
+      # row per backend, D3D12 on WARP on win-x64 and Vulkan on lavapipe on linux-x64; the other
+      # backend's row skips on each, with the reason.
+      - name: The pixel test actually ran
+        if: matrix.rid == 'win-x64' || matrix.rid == 'linux-x64'
+        shell: bash
+        run: |
+          if [ "${{ matrix.rid }}" = win-x64 ]; then row="PixelTests.*_on_d3d12_*"; else row="PixelTests.*_on_vulkan_*"; fi
+          counts=$(pwsh -NoProfile -File tools/ci/count-tests.ps1 -Trx test-results/results.trx -Class "$row") \
+            || { echo "$counts"; exit 1; }
+          echo "$counts"
+          passed=$(echo "$counts" | tail -1 | sed -n 's/.*passed=\([0-9]*\).*/\1/p')
+          if [ "${passed:-0}" -ne 1 ]; then
+            echo "::error::the pixel test did not pass on ${{ matrix.rid }}; nothing rendered through the stack was compared with the CPU reference. The skip reason is above."
+            exit 1
+          fi
+          echo "::notice::the pixel test rendered and matched on ${{ matrix.rid }}"
       # Also the loadability gate, and on a new platform that is the job that matters most. Almost
       # every test is a [NativeFact], which *skips* when slang-compiler cannot be loaded — so a
       # payload that stages correctly and then refuses to load produces a green run with four
