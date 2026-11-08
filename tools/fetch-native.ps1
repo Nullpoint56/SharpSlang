@@ -3,7 +3,7 @@
   Download the pinned Slang release for a RID and stage the runtime subset.
 
 .DESCRIPTION
-  PrismSlang vendors no native source. It consumes Slang's own prebuilt release, pinned exactly,
+  SharpSlang vendors no native source. It consumes Slang's own prebuilt release, pinned exactly,
   because Slang's public ABI is not stable (docs/design.md §3.5).
 
   The published archives are large (54 MB win-x64, 76 MB linux-x64) and most of that is irrelevant
@@ -13,7 +13,7 @@
     bin/slang-compiler.dll    25 MB   the compiler itself. Required.
     bin/slang-glslang.dll      6 MB   glslang + spirv-opt.
     bin/slang-glsl-module.dll  1.5 MB GLSL *input* support.
-    bin/gfx.dll                1 MB   Slang's own graphics layer. We use Vortice.Vulkan.
+    bin/gfx.dll                1 MB   Slang's own graphics layer. Not used.
     bin/slang*.exe                    tooling.
     bin/slang.dll                     legacy proxy; upstream removes it end of 2026.
 
@@ -155,7 +155,7 @@ if ($stdModules) {
 
 # Slang's licence texts, staged beside the payload rather than inside it.
 #
-# The PrismSlang package redistributes these binaries, so it has to carry the terms they come under
+# The SharpSlang package redistributes these binaries, so it has to carry the terms they come under
 # - Apache-2.0 WITH LLVM-exception for Slang, plus the LICENSES directory covering what Slang itself
 # vendors. THIRD-PARTY-NOTICES.md describes them and this is what makes the description true.
 #

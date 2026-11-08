@@ -1,11 +1,11 @@
 // L2 — a linked program: the thing you can generate code from and reflect over.
 
-using PrismSlang.Interop;
-using PrismSlang.Native;
-using PrismSlang.Reflection;
-using PrismSlang.Spirv;
+using SharpSlang.Interop;
+using SharpSlang.Native;
+using SharpSlang.Reflection;
+using SharpSlang.Spirv;
 
-namespace PrismSlang;
+namespace SharpSlang;
 
 /// <summary>
 /// A composed and linked program. Code generation and reflection both require linking first,
@@ -273,7 +273,7 @@ public sealed unsafe class LinkedProgram : SlangObject<IComponentType>
     /// </summary>
     /// <remarks>
     /// <para>
-    /// The complement to walking <see cref="SlangModule.ReflectDeclarations"/>: that enumerates
+    /// The complement to walking <see cref="LinkedProgramReflectionExtensions.ReflectDeclarations(SlangModule)"/>: that enumerates
     /// what exists, this answers about one name. Both return the same
     /// <see cref="FunctionSignature"/> snapshot and neither lets a native pointer escape.
     /// </para>
@@ -440,7 +440,7 @@ public sealed unsafe class LinkedProgram : SlangObject<IComponentType>
     /// <summary>Generated code for one entry point, for the given target.</summary>
     /// <param name="entryPointIndex">Index into <see cref="EntryPointNames"/>.</param>
     /// <param name="targetIndex">Index into the session's target list.</param>
-    /// <returns>An owned blob; dispose it, or use <see cref="GetEntryPointCodeBytes"/>.</returns>
+    /// <returns>An owned blob; dispose it, or use <see cref="GetEntryPointCodeBytes(int, int)"/>.</returns>
     public SlangBlob GetEntryPointCode(int entryPointIndex, int targetIndex = 0)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(entryPointIndex);
@@ -488,7 +488,7 @@ public sealed unsafe class LinkedProgram : SlangObject<IComponentType>
     /// miss; nothing measured says it covers the compiler build. Pinned both ways by
     /// <c>LinkOptionsTests</c>, so the next change of meaning is a failing test.
     /// </para>
-    /// <para>To key a pipeline cache, hash the bytes from <see cref="GetEntryPointCodeBytes"/>.</para>
+    /// <para>To key a pipeline cache, hash the bytes from <see cref="GetEntryPointCodeBytes(int, int)"/>.</para>
     /// </remarks>
     /// <param name="entryPointIndex">Index into <see cref="EntryPointNames"/>.</param>
     /// <param name="targetIndex">Index into the session's target list.</param>

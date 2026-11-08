@@ -1,9 +1,8 @@
-using System;
 using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
-namespace PrismSlang.Native;
+namespace SharpSlang.Native;
 
 public unsafe partial struct SlangTerminatedChars
 {

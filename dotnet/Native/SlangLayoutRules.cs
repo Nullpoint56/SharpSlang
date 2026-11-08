@@ -1,4 +1,4 @@
-namespace PrismSlang.Native;
+namespace SharpSlang.Native;
 
 [NativeTypeName("SlangLayoutRulesIntegral")]
 public enum SlangLayoutRules : uint

@@ -11,8 +11,8 @@
     SlangMatrixLayoutMode. Those need nothing at run time but a value.
 
     A game that ships a baked ShaderPackage has to name those enums and must not carry a 36 MB
-    compiler to do it. So the list below is compiled into PrismSlang.Runtime and REMOVED from
-    PrismSlang, which references it — one definition of each type, in the assembly that can be
+    compiler to do it. So the list below is compiled into SharpSlang.Pipeline and REMOVED from
+    SharpSlang, which references it — one definition of each type, in the assembly that can be
     referenced on its own.
 
     Named here rather than in either project so the two cannot disagree about where a type lives,
@@ -25,17 +25,17 @@
   -->
 
   <ItemGroup>
-    <PrismSlangReaderEnum Include="$(MSBuildThisFileDirectory)dotnet\Native\BindingType.cs" />
-    <PrismSlangReaderEnum Include="$(MSBuildThisFileDirectory)dotnet\Native\SlangBindingType.cs" />
-    <PrismSlangReaderEnum Include="$(MSBuildThisFileDirectory)dotnet\Native\SlangDeclKind.cs" />
-    <PrismSlangReaderEnum Include="$(MSBuildThisFileDirectory)dotnet\Native\SlangImageFormat.cs" />
-    <PrismSlangReaderEnum Include="$(MSBuildThisFileDirectory)dotnet\Native\SlangMatrixLayoutMode.cs" />
-    <PrismSlangReaderEnum Include="$(MSBuildThisFileDirectory)dotnet\Native\SlangParameterCategory.cs" />
-    <PrismSlangReaderEnum Include="$(MSBuildThisFileDirectory)dotnet\Native\SlangResourceAccess.cs" />
-    <PrismSlangReaderEnum Include="$(MSBuildThisFileDirectory)dotnet\Native\SlangResourceShape.cs" />
-    <PrismSlangReaderEnum Include="$(MSBuildThisFileDirectory)dotnet\Native\SlangScalarType.cs" />
-    <PrismSlangReaderEnum Include="$(MSBuildThisFileDirectory)dotnet\Native\SlangStage.cs" />
-    <PrismSlangReaderEnum Include="$(MSBuildThisFileDirectory)dotnet\Native\SlangTypeKind.cs" />
+    <SharpSlangReaderEnum Include="$(MSBuildThisFileDirectory)dotnet\Native\BindingType.cs" />
+    <SharpSlangReaderEnum Include="$(MSBuildThisFileDirectory)dotnet\Native\SlangBindingType.cs" />
+    <SharpSlangReaderEnum Include="$(MSBuildThisFileDirectory)dotnet\Native\SlangDeclKind.cs" />
+    <SharpSlangReaderEnum Include="$(MSBuildThisFileDirectory)dotnet\Native\SlangImageFormat.cs" />
+    <SharpSlangReaderEnum Include="$(MSBuildThisFileDirectory)dotnet\Native\SlangMatrixLayoutMode.cs" />
+    <SharpSlangReaderEnum Include="$(MSBuildThisFileDirectory)dotnet\Native\SlangParameterCategory.cs" />
+    <SharpSlangReaderEnum Include="$(MSBuildThisFileDirectory)dotnet\Native\SlangResourceAccess.cs" />
+    <SharpSlangReaderEnum Include="$(MSBuildThisFileDirectory)dotnet\Native\SlangResourceShape.cs" />
+    <SharpSlangReaderEnum Include="$(MSBuildThisFileDirectory)dotnet\Native\SlangScalarType.cs" />
+    <SharpSlangReaderEnum Include="$(MSBuildThisFileDirectory)dotnet\Native\SlangStage.cs" />
+    <SharpSlangReaderEnum Include="$(MSBuildThisFileDirectory)dotnet\Native\SlangTypeKind.cs" />
   </ItemGroup>
 
 </Project>

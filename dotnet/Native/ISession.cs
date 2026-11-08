@@ -1,8 +1,7 @@
-using System;
 using System.Runtime.CompilerServices;
-using static PrismSlang.Native.LayoutRules;
+using static SharpSlang.Native.LayoutRules;
 
-namespace PrismSlang.Native;
+namespace SharpSlang.Native;
 
 [NativeTypeName("struct ISession : ISlangUnknown")]
 public unsafe partial struct ISession

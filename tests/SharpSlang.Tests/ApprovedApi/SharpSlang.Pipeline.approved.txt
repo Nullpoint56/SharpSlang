@@ -1,0 +1,781 @@
+namespace SharpSlang.Baking
+{
+    public sealed class BakedEntryPoint : System.IEquatable<SharpSlang.Baking.BakedEntryPoint>
+    {
+        public BakedEntryPoint(string Name, SharpSlang.Native.SlangStage Stage, byte[] Code, string ModuleEntryPointName = "main", SharpSlang.Spirv.SpirvVersion SpirvVersion = 0, SharpSlang.Spirv.SpirvWorkgroupSize? WorkgroupSize = null) { }
+        public byte[] Code { get; init; }
+        public string ModuleEntryPointName { get; init; }
+        public string Name { get; init; }
+        public SharpSlang.Spirv.SpirvVersion SpirvVersion { get; init; }
+        public SharpSlang.Native.SlangStage Stage { get; init; }
+        public SharpSlang.Spirv.SpirvWorkgroupSize? WorkgroupSize { get; init; }
+    }
+    public sealed class ShaderDependency : System.IEquatable<SharpSlang.Baking.ShaderDependency>
+    {
+        public ShaderDependency(string Path, byte[] Hash) { }
+        public byte[] Hash { get; init; }
+        public string Path { get; init; }
+    }
+    public sealed class ShaderPackage
+    {
+        public ShaderPackage() { }
+        public System.Collections.Generic.IReadOnlyList<SharpSlang.Baking.ShaderDependency> Dependencies { get; init; }
+        public required System.Collections.Generic.IReadOnlyList<SharpSlang.Baking.BakedEntryPoint> EntryPoints { get; init; }
+        public required SharpSlang.Reflection.ProgramLayout Layout { get; init; }
+        public required string SlangVersion { get; init; }
+        public required byte[] SourceHash { get; init; }
+        public SharpSlang.Baking.BakedEntryPoint? EntryPoint(string name) { }
+        public bool IsCurrent(string currentSlangVersion) { }
+        public bool IsUpToDate(string source, string currentSlangVersion) { }
+        public System.Collections.Generic.IReadOnlyList<string> StaleDependencies() { }
+        public void WriteTo(System.IO.Stream stream) { }
+        public void WriteToFile(string path) { }
+        public static byte[] HashSource(string source) { }
+        public static SharpSlang.Baking.ShaderPackage ReadFrom(System.IO.Stream stream) { }
+        public static SharpSlang.Baking.ShaderPackage ReadFromFile(string path) { }
+    }
+}
+namespace SharpSlang.Native
+{
+    public enum BindingType : uint
+    {
+        Unknown = 0u,
+        Sampler = 1u,
+        Texture = 2u,
+        ConstantBuffer = 3u,
+        ParameterBlock = 4u,
+        TypedBuffer = 5u,
+        RawBuffer = 6u,
+        CombinedTextureSampler = 7u,
+        InputRenderTarget = 8u,
+        InlineUniformData = 9u,
+        RayTracingAccelerationStructure = 10u,
+        VaryingInput = 11u,
+        VaryingOutput = 12u,
+        ExistentialValue = 13u,
+        PushConstant = 14u,
+        MutableFlag = 256u,
+        MutableTexture = 258u,
+        MutableTypedBuffer = 261u,
+        MutableRawBuffer = 262u,
+        BaseMask = 255u,
+        ExtMask = 65280u,
+    }
+    public enum SlangBindingType : uint
+    {
+        SLANG_BINDING_TYPE_UNKNOWN = 0u,
+        SLANG_BINDING_TYPE_SAMPLER = 1u,
+        SLANG_BINDING_TYPE_TEXTURE = 2u,
+        SLANG_BINDING_TYPE_CONSTANT_BUFFER = 3u,
+        SLANG_BINDING_TYPE_PARAMETER_BLOCK = 4u,
+        SLANG_BINDING_TYPE_TYPED_BUFFER = 5u,
+        SLANG_BINDING_TYPE_RAW_BUFFER = 6u,
+        SLANG_BINDING_TYPE_COMBINED_TEXTURE_SAMPLER = 7u,
+        SLANG_BINDING_TYPE_INPUT_RENDER_TARGET = 8u,
+        SLANG_BINDING_TYPE_INLINE_UNIFORM_DATA = 9u,
+        SLANG_BINDING_TYPE_RAY_TRACING_ACCELERATION_STRUCTURE = 10u,
+        SLANG_BINDING_TYPE_VARYING_INPUT = 11u,
+        SLANG_BINDING_TYPE_VARYING_OUTPUT = 12u,
+        SLANG_BINDING_TYPE_EXISTENTIAL_VALUE = 13u,
+        SLANG_BINDING_TYPE_PUSH_CONSTANT = 14u,
+        SLANG_BINDING_TYPE_MUTABLE_FLAG = 256u,
+        SLANG_BINDING_TYPE_MUTABLE_TETURE = 258u,
+        SLANG_BINDING_TYPE_MUTABLE_TYPED_BUFFER = 261u,
+        SLANG_BINDING_TYPE_MUTABLE_RAW_BUFFER = 262u,
+        SLANG_BINDING_TYPE_BASE_MASK = 255u,
+        SLANG_BINDING_TYPE_EXT_MASK = 65280u,
+    }
+    public enum SlangDeclKind : uint
+    {
+        SLANG_DECL_KIND_UNSUPPORTED_FOR_REFLECTION = 0u,
+        SLANG_DECL_KIND_STRUCT = 1u,
+        SLANG_DECL_KIND_FUNC = 2u,
+        SLANG_DECL_KIND_MODULE = 3u,
+        SLANG_DECL_KIND_GENERIC = 4u,
+        SLANG_DECL_KIND_VARIABLE = 5u,
+        SLANG_DECL_KIND_NAMESPACE = 6u,
+        SLANG_DECL_KIND_ENUM = 7u,
+    }
+    public enum SlangImageFormat : uint
+    {
+        SLANG_IMAGE_FORMAT_unknown = 0u,
+        SLANG_IMAGE_FORMAT_rgba32f = 1u,
+        SLANG_IMAGE_FORMAT_rgba16f = 2u,
+        SLANG_IMAGE_FORMAT_rg32f = 3u,
+        SLANG_IMAGE_FORMAT_rg16f = 4u,
+        SLANG_IMAGE_FORMAT_r11f_g11f_b10f = 5u,
+        SLANG_IMAGE_FORMAT_r32f = 6u,
+        SLANG_IMAGE_FORMAT_r16f = 7u,
+        SLANG_IMAGE_FORMAT_rgba16 = 8u,
+        SLANG_IMAGE_FORMAT_rgb10_a2 = 9u,
+        SLANG_IMAGE_FORMAT_rgba8 = 10u,
+        SLANG_IMAGE_FORMAT_rg16 = 11u,
+        SLANG_IMAGE_FORMAT_rg8 = 12u,
+        SLANG_IMAGE_FORMAT_r16 = 13u,
+        SLANG_IMAGE_FORMAT_r8 = 14u,
+        SLANG_IMAGE_FORMAT_rgba16_snorm = 15u,
+        SLANG_IMAGE_FORMAT_rgba8_snorm = 16u,
+        SLANG_IMAGE_FORMAT_rg16_snorm = 17u,
+        SLANG_IMAGE_FORMAT_rg8_snorm = 18u,
+        SLANG_IMAGE_FORMAT_r16_snorm = 19u,
+        SLANG_IMAGE_FORMAT_r8_snorm = 20u,
+        SLANG_IMAGE_FORMAT_rgba32i = 21u,
+        SLANG_IMAGE_FORMAT_rgba16i = 22u,
+        SLANG_IMAGE_FORMAT_rgba8i = 23u,
+        SLANG_IMAGE_FORMAT_rg32i = 24u,
+        SLANG_IMAGE_FORMAT_rg16i = 25u,
+        SLANG_IMAGE_FORMAT_rg8i = 26u,
+        SLANG_IMAGE_FORMAT_r32i = 27u,
+        SLANG_IMAGE_FORMAT_r16i = 28u,
+        SLANG_IMAGE_FORMAT_r8i = 29u,
+        SLANG_IMAGE_FORMAT_rgba32ui = 30u,
+        SLANG_IMAGE_FORMAT_rgba16ui = 31u,
+        SLANG_IMAGE_FORMAT_rgb10_a2ui = 32u,
+        SLANG_IMAGE_FORMAT_rgba8ui = 33u,
+        SLANG_IMAGE_FORMAT_rg32ui = 34u,
+        SLANG_IMAGE_FORMAT_rg16ui = 35u,
+        SLANG_IMAGE_FORMAT_rg8ui = 36u,
+        SLANG_IMAGE_FORMAT_r32ui = 37u,
+        SLANG_IMAGE_FORMAT_r16ui = 38u,
+        SLANG_IMAGE_FORMAT_r8ui = 39u,
+        SLANG_IMAGE_FORMAT_r64ui = 40u,
+        SLANG_IMAGE_FORMAT_r64i = 41u,
+        SLANG_IMAGE_FORMAT_bgra8 = 42u,
+    }
+    public enum SlangMatrixLayoutMode : uint
+    {
+        SLANG_MATRIX_LAYOUT_MODE_UNKNOWN = 0u,
+        SLANG_MATRIX_LAYOUT_ROW_MAJOR = 1u,
+        SLANG_MATRIX_LAYOUT_COLUMN_MAJOR = 2u,
+    }
+    public enum SlangParameterCategory : uint
+    {
+        SLANG_PARAMETER_CATEGORY_NONE = 0u,
+        SLANG_PARAMETER_CATEGORY_MIXED = 1u,
+        SLANG_PARAMETER_CATEGORY_CONSTANT_BUFFER = 2u,
+        SLANG_PARAMETER_CATEGORY_SHADER_RESOURCE = 3u,
+        SLANG_PARAMETER_CATEGORY_UNORDERED_ACCESS = 4u,
+        SLANG_PARAMETER_CATEGORY_VARYING_INPUT = 5u,
+        SLANG_PARAMETER_CATEGORY_VARYING_OUTPUT = 6u,
+        SLANG_PARAMETER_CATEGORY_SAMPLER_STATE = 7u,
+        SLANG_PARAMETER_CATEGORY_UNIFORM = 8u,
+        SLANG_PARAMETER_CATEGORY_DESCRIPTOR_TABLE_SLOT = 9u,
+        SLANG_PARAMETER_CATEGORY_SPECIALIZATION_CONSTANT = 10u,
+        SLANG_PARAMETER_CATEGORY_PUSH_CONSTANT_BUFFER = 11u,
+        SLANG_PARAMETER_CATEGORY_REGISTER_SPACE = 12u,
+        SLANG_PARAMETER_CATEGORY_GENERIC = 13u,
+        SLANG_PARAMETER_CATEGORY_RAY_PAYLOAD = 14u,
+        SLANG_PARAMETER_CATEGORY_HIT_ATTRIBUTES = 15u,
+        SLANG_PARAMETER_CATEGORY_CALLABLE_PAYLOAD = 16u,
+        SLANG_PARAMETER_CATEGORY_SHADER_RECORD = 17u,
+        SLANG_PARAMETER_CATEGORY_EXISTENTIAL_TYPE_PARAM = 18u,
+        SLANG_PARAMETER_CATEGORY_EXISTENTIAL_OBJECT_PARAM = 19u,
+        SLANG_PARAMETER_CATEGORY_SUB_ELEMENT_REGISTER_SPACE = 20u,
+        SLANG_PARAMETER_CATEGORY_SUBPASS = 21u,
+        SLANG_PARAMETER_CATEGORY_METAL_ARGUMENT_BUFFER_ELEMENT = 22u,
+        SLANG_PARAMETER_CATEGORY_METAL_ATTRIBUTE = 23u,
+        SLANG_PARAMETER_CATEGORY_METAL_PAYLOAD = 24u,
+        SLANG_PARAMETER_CATEGORY_COUNT = 25u,
+        SLANG_PARAMETER_CATEGORY_METAL_BUFFER = 2u,
+        SLANG_PARAMETER_CATEGORY_METAL_TEXTURE = 3u,
+        SLANG_PARAMETER_CATEGORY_METAL_SAMPLER = 7u,
+        SLANG_PARAMETER_CATEGORY_VERTEX_INPUT = 5u,
+        SLANG_PARAMETER_CATEGORY_FRAGMENT_OUTPUT = 6u,
+        SLANG_PARAMETER_CATEGORY_COUNT_V1 = 21u,
+    }
+    public enum SlangResourceAccess : uint
+    {
+        SLANG_RESOURCE_ACCESS_NONE = 0u,
+        SLANG_RESOURCE_ACCESS_READ = 1u,
+        SLANG_RESOURCE_ACCESS_READ_WRITE = 2u,
+        SLANG_RESOURCE_ACCESS_RASTER_ORDERED = 3u,
+        SLANG_RESOURCE_ACCESS_APPEND = 4u,
+        SLANG_RESOURCE_ACCESS_CONSUME = 5u,
+        SLANG_RESOURCE_ACCESS_WRITE = 6u,
+        SLANG_RESOURCE_ACCESS_FEEDBACK = 7u,
+        SLANG_RESOURCE_ACCESS_UNKNOWN = 2147483647u,
+    }
+    public enum SlangResourceShape : uint
+    {
+        SLANG_RESOURCE_BASE_SHAPE_MASK = 15u,
+        SLANG_RESOURCE_NONE = 0u,
+        SLANG_TEXTURE_1D = 1u,
+        SLANG_TEXTURE_2D = 2u,
+        SLANG_TEXTURE_3D = 3u,
+        SLANG_TEXTURE_CUBE = 4u,
+        SLANG_TEXTURE_BUFFER = 5u,
+        SLANG_STRUCTURED_BUFFER = 6u,
+        SLANG_BYTE_ADDRESS_BUFFER = 7u,
+        SLANG_RESOURCE_UNKNOWN = 8u,
+        SLANG_ACCELERATION_STRUCTURE = 9u,
+        SLANG_TEXTURE_SUBPASS = 10u,
+        SLANG_RESOURCE_EXT_SHAPE_MASK = 496u,
+        SLANG_TEXTURE_FEEDBACK_FLAG = 16u,
+        SLANG_TEXTURE_SHADOW_FLAG = 32u,
+        SLANG_TEXTURE_ARRAY_FLAG = 64u,
+        SLANG_TEXTURE_MULTISAMPLE_FLAG = 128u,
+        SLANG_TEXTURE_COMBINED_FLAG = 256u,
+        SLANG_TEXTURE_1D_ARRAY = 65u,
+        SLANG_TEXTURE_2D_ARRAY = 66u,
+        SLANG_TEXTURE_CUBE_ARRAY = 68u,
+        SLANG_TEXTURE_2D_MULTISAMPLE = 130u,
+        SLANG_TEXTURE_2D_MULTISAMPLE_ARRAY = 194u,
+        SLANG_TEXTURE_SUBPASS_MULTISAMPLE = 138u,
+    }
+    public enum SlangScalarType : uint
+    {
+        SLANG_SCALAR_TYPE_NONE = 0u,
+        SLANG_SCALAR_TYPE_VOID = 1u,
+        SLANG_SCALAR_TYPE_BOOL = 2u,
+        SLANG_SCALAR_TYPE_INT32 = 3u,
+        SLANG_SCALAR_TYPE_UINT32 = 4u,
+        SLANG_SCALAR_TYPE_INT64 = 5u,
+        SLANG_SCALAR_TYPE_UINT64 = 6u,
+        SLANG_SCALAR_TYPE_FLOAT16 = 7u,
+        SLANG_SCALAR_TYPE_FLOAT32 = 8u,
+        SLANG_SCALAR_TYPE_FLOAT64 = 9u,
+        SLANG_SCALAR_TYPE_INT8 = 10u,
+        SLANG_SCALAR_TYPE_UINT8 = 11u,
+        SLANG_SCALAR_TYPE_INT16 = 12u,
+        SLANG_SCALAR_TYPE_UINT16 = 13u,
+        SLANG_SCALAR_TYPE_INTPTR = 14u,
+        SLANG_SCALAR_TYPE_UINTPTR = 15u,
+        SLANG_SCALAR_TYPE_BFLOAT16 = 16u,
+        SLANG_SCALAR_TYPE_FLOAT_E4M3 = 17u,
+        SLANG_SCALAR_TYPE_FLOAT_E5M2 = 18u,
+    }
+    public enum SlangStage : uint
+    {
+        SLANG_STAGE_NONE = 0u,
+        SLANG_STAGE_VERTEX = 1u,
+        SLANG_STAGE_HULL = 2u,
+        SLANG_STAGE_DOMAIN = 3u,
+        SLANG_STAGE_GEOMETRY = 4u,
+        SLANG_STAGE_FRAGMENT = 5u,
+        SLANG_STAGE_COMPUTE = 6u,
+        SLANG_STAGE_RAY_GENERATION = 7u,
+        SLANG_STAGE_INTERSECTION = 8u,
+        SLANG_STAGE_ANY_HIT = 9u,
+        SLANG_STAGE_CLOSEST_HIT = 10u,
+        SLANG_STAGE_MISS = 11u,
+        SLANG_STAGE_CALLABLE = 12u,
+        SLANG_STAGE_MESH = 13u,
+        SLANG_STAGE_AMPLIFICATION = 14u,
+        SLANG_STAGE_DISPATCH = 15u,
+        SLANG_STAGE_NODE = 16u,
+        SLANG_STAGE_COUNT = 17u,
+        SLANG_STAGE_PIXEL = 5u,
+    }
+    public enum SlangTypeKind : uint
+    {
+        SLANG_TYPE_KIND_NONE = 0u,
+        SLANG_TYPE_KIND_STRUCT = 1u,
+        SLANG_TYPE_KIND_ARRAY = 2u,
+        SLANG_TYPE_KIND_MATRIX = 3u,
+        SLANG_TYPE_KIND_VECTOR = 4u,
+        SLANG_TYPE_KIND_SCALAR = 5u,
+        SLANG_TYPE_KIND_CONSTANT_BUFFER = 6u,
+        SLANG_TYPE_KIND_RESOURCE = 7u,
+        SLANG_TYPE_KIND_SAMPLER_STATE = 8u,
+        SLANG_TYPE_KIND_TEXTURE_BUFFER = 9u,
+        SLANG_TYPE_KIND_SHADER_STORAGE_BUFFER = 10u,
+        SLANG_TYPE_KIND_PARAMETER_BLOCK = 11u,
+        SLANG_TYPE_KIND_GENERIC_TYPE_PARAMETER = 12u,
+        SLANG_TYPE_KIND_INTERFACE = 13u,
+        SLANG_TYPE_KIND_OUTPUT_STREAM = 14u,
+        SLANG_TYPE_KIND_MESH_OUTPUT = 15u,
+        SLANG_TYPE_KIND_SPECIALIZED = 16u,
+        SLANG_TYPE_KIND_FEEDBACK = 17u,
+        SLANG_TYPE_KIND_POINTER = 18u,
+        SLANG_TYPE_KIND_DYNAMIC_RESOURCE = 19u,
+        SLANG_TYPE_KIND_ENUM = 20u,
+        SLANG_TYPE_KIND_COUNT = 21u,
+    }
+}
+namespace SharpSlang.Reflection
+{
+    public sealed class ArrayLayout : SharpSlang.Reflection.TypeLayout, System.IEquatable<SharpSlang.Reflection.ArrayLayout>
+    {
+        public ArrayLayout() { }
+        public int? ElementCount { get; init; }
+        public required ulong ElementStride { get; init; }
+        public required SharpSlang.Reflection.TypeLayout ElementType { get; init; }
+        public bool IsSpecializationSized { get; init; }
+    }
+    public readonly struct CategoryOffset : System.IEquatable<SharpSlang.Reflection.CategoryOffset>
+    {
+        public CategoryOffset(SharpSlang.Native.SlangParameterCategory Category, ulong Offset, uint Space) { }
+        public SharpSlang.Native.SlangParameterCategory Category { get; init; }
+        public bool IsKnown { get; }
+        public ulong Offset { get; init; }
+        public uint Space { get; init; }
+    }
+    public readonly struct CategorySize : System.IEquatable<SharpSlang.Reflection.CategorySize>
+    {
+        public const ulong Unbounded = 18446744073709551615ul;
+        public const ulong Unknown = 18446744073709551614ul;
+        public CategorySize(SharpSlang.Native.SlangParameterCategory Category, ulong Size) { }
+        public SharpSlang.Native.SlangParameterCategory Category { get; init; }
+        public bool IsKnown { get; }
+        public ulong Size { get; init; }
+    }
+    public sealed class ContainerLayout : SharpSlang.Reflection.TypeLayout, System.IEquatable<SharpSlang.Reflection.ContainerLayout>
+    {
+        public ContainerLayout() { }
+        public required SharpSlang.Reflection.TypeLayout ElementType { get; init; }
+    }
+    [System.Text.Json.Serialization.JsonConverter(typeof(System.Text.Json.Serialization.JsonStringEnumConverter<SharpSlang.Reflection.DeclarationKind>))]
+    public enum DeclarationKind
+    {
+        Unsupported = 0,
+        Module = 1,
+        Struct = 2,
+        Func = 3,
+        Generic = 4,
+        Variable = 5,
+        Namespace = 6,
+        Enum = 7,
+    }
+    public sealed class DeclarationNode : System.IEquatable<SharpSlang.Reflection.DeclarationNode>
+    {
+        public DeclarationNode(string Name, SharpSlang.Reflection.DeclarationKind Kind, System.Collections.Generic.IReadOnlyList<SharpSlang.Reflection.DeclarationNode> Children, System.Collections.Generic.IReadOnlyList<SharpSlang.Reflection.GenericParameter>? GenericParameters = null, SharpSlang.Reflection.FunctionSignature? Function = null, string? QualifiedName = null, System.Collections.Generic.IReadOnlyList<string>? Modifiers = null, string? VariableType = null, string? OuterGeneric = null) { }
+        public System.Collections.Generic.IReadOnlyList<SharpSlang.Reflection.DeclarationNode> Children { get; init; }
+        public SharpSlang.Reflection.FunctionSignature? Function { get; init; }
+        public System.Collections.Generic.IReadOnlyList<SharpSlang.Reflection.GenericParameter>? GenericParameters { get; init; }
+        [System.Text.Json.Serialization.JsonIgnore]
+        public bool IsSynthetic { get; }
+        public SharpSlang.Reflection.DeclarationKind Kind { get; init; }
+        public System.Collections.Generic.IReadOnlyList<string>? Modifiers { get; init; }
+        public string Name { get; init; }
+        public string? OuterGeneric { get; init; }
+        public string? QualifiedName { get; init; }
+        public string? VariableType { get; init; }
+        public System.Collections.Generic.IEnumerable<SharpSlang.Reflection.DeclarationNode> Descendants(SharpSlang.Reflection.DeclarationKind kind) { }
+    }
+    public sealed class DescriptorRange : System.IEquatable<SharpSlang.Reflection.DescriptorRange>
+    {
+        public DescriptorRange(SharpSlang.Native.SlangBindingType BindingType, uint IndexOffset, uint DescriptorCount, SharpSlang.Native.SlangParameterCategory Category, string? Name = null, bool IsUnbounded = false, uint? InputAttachmentIndex = default, SharpSlang.Native.SlangImageFormat ImageFormat = 0, uint? CounterBinding = default, bool IsSpecializable = false, System.Collections.Generic.IReadOnlyList<SharpSlang.Native.SlangStage>? Stages = null, bool IsImplicitGlobalBuffer = false) { }
+        public SharpSlang.Native.SlangBindingType BindingType { get; init; }
+        public SharpSlang.Native.SlangParameterCategory Category { get; init; }
+        public uint? CounterBinding { get; init; }
+        public uint DescriptorCount { get; init; }
+        public SharpSlang.Native.SlangImageFormat ImageFormat { get; init; }
+        public uint IndexOffset { get; init; }
+        public uint? InputAttachmentIndex { get; init; }
+        [System.Text.Json.Serialization.JsonIgnore]
+        public bool IsCounter { get; }
+        public bool IsImplicitGlobalBuffer { get; init; }
+        public bool IsSpecializable { get; init; }
+        public bool IsUnbounded { get; init; }
+        public string? Name { get; init; }
+        public System.Collections.Generic.IReadOnlyList<SharpSlang.Native.SlangStage>? Stages { get; init; }
+    }
+    public sealed class DescriptorSet : System.IEquatable<SharpSlang.Reflection.DescriptorSet>
+    {
+        public DescriptorSet(uint SpaceOffset, System.Collections.Generic.IReadOnlyList<SharpSlang.Reflection.DescriptorRange> Ranges) { }
+        public System.Collections.Generic.IReadOnlyList<SharpSlang.Reflection.DescriptorRange> Ranges { get; init; }
+        public uint SpaceOffset { get; init; }
+    }
+    public sealed class EntryPointLayout : System.IEquatable<SharpSlang.Reflection.EntryPointLayout>
+    {
+        public EntryPointLayout(string Name, SharpSlang.Native.SlangStage Stage, System.Collections.Generic.IReadOnlyList<SharpSlang.Reflection.ShaderParameter> Parameters, SharpSlang.Reflection.ThreadGroupSize? ThreadGroupSize = default, bool UsesAnySampleRateInput = false, SharpSlang.Reflection.TypeLayout? ResultType = null, System.Collections.Generic.IReadOnlyList<SharpSlang.Reflection.ParameterBinding>? ParameterBase = null, ulong UniformSize = 0, string? NameOverride = null, ulong? WaveSize = default, bool HasDefaultConstantBuffer = false, SharpSlang.Reflection.FunctionSignature? Function = null) { }
+        public SharpSlang.Reflection.FunctionSignature? Function { get; init; }
+        public bool HasDefaultConstantBuffer { get; init; }
+        public string Name { get; init; }
+        public string? NameOverride { get; init; }
+        public System.Collections.Generic.IReadOnlyList<SharpSlang.Reflection.ParameterBinding>? ParameterBase { get; init; }
+        public System.Collections.Generic.IReadOnlyList<SharpSlang.Reflection.ShaderParameter> Parameters { get; init; }
+        public SharpSlang.Reflection.TypeLayout? ResultType { get; init; }
+        public SharpSlang.Native.SlangStage Stage { get; init; }
+        public SharpSlang.Reflection.ThreadGroupSize? ThreadGroupSize { get; init; }
+        public ulong UniformSize { get; init; }
+        public bool UsesAnySampleRateInput { get; init; }
+        public ulong? WaveSize { get; init; }
+        public uint BaseOffset(SharpSlang.Native.SlangParameterCategory category) { }
+    }
+    public sealed class FieldLayout : System.IEquatable<SharpSlang.Reflection.FieldLayout>
+    {
+        public FieldLayout(string Name, SharpSlang.Reflection.TypeLayout Type, System.Collections.Generic.IReadOnlyList<SharpSlang.Reflection.CategoryOffset> Offsets, string? Semantic = null, uint SemanticIndex = 0, System.Collections.Generic.IReadOnlyList<SharpSlang.Reflection.UserAttribute>? Attributes = null) { }
+        public System.Collections.Generic.IReadOnlyList<SharpSlang.Reflection.UserAttribute>? Attributes { get; init; }
+        [System.Text.Json.Serialization.JsonIgnore]
+        public bool IsUniformOffsetKnown { get; }
+        public string Name { get; init; }
+        public System.Collections.Generic.IReadOnlyList<SharpSlang.Reflection.CategoryOffset> Offsets { get; init; }
+        public string? Semantic { get; init; }
+        public uint SemanticIndex { get; init; }
+        public SharpSlang.Reflection.TypeLayout Type { get; init; }
+        [System.Text.Json.Serialization.JsonIgnore]
+        public ulong UniformOffset { get; }
+    }
+    public sealed class FragmentOutput : System.IEquatable<SharpSlang.Reflection.FragmentOutput>
+    {
+        public FragmentOutput(uint Location, SharpSlang.Reflection.TypeLayout Type, string Name, string? Semantic = null) { }
+        public uint Location { get; init; }
+        public string Name { get; init; }
+        public string? Semantic { get; init; }
+        public SharpSlang.Reflection.TypeLayout Type { get; init; }
+    }
+    public sealed class FunctionParameter : System.IEquatable<SharpSlang.Reflection.FunctionParameter>
+    {
+        public FunctionParameter(string Name, string Type, SharpSlang.Reflection.ParameterDirection Direction, System.Collections.Generic.IReadOnlyList<SharpSlang.Reflection.UserAttribute>? Attributes = null) { }
+        public System.Collections.Generic.IReadOnlyList<SharpSlang.Reflection.UserAttribute>? Attributes { get; init; }
+        public SharpSlang.Reflection.ParameterDirection Direction { get; init; }
+        public string Name { get; init; }
+        public string Type { get; init; }
+    }
+    public sealed class FunctionSignature : System.IEquatable<SharpSlang.Reflection.FunctionSignature>
+    {
+        public FunctionSignature(string Name, string ResultType, System.Collections.Generic.IReadOnlyList<SharpSlang.Reflection.FunctionParameter> Parameters, System.Collections.Generic.IReadOnlyList<string>? Modifiers = null, System.Collections.Generic.IReadOnlyList<SharpSlang.Reflection.UserAttribute>? Attributes = null, System.Collections.Generic.IReadOnlyList<SharpSlang.Reflection.FunctionSignature>? Overloads = null) { }
+        public System.Collections.Generic.IReadOnlyList<SharpSlang.Reflection.UserAttribute>? Attributes { get; init; }
+        [System.Text.Json.Serialization.JsonIgnore]
+        public bool IsOverloaded { get; }
+        public System.Collections.Generic.IReadOnlyList<string>? Modifiers { get; init; }
+        public string Name { get; init; }
+        public System.Collections.Generic.IReadOnlyList<SharpSlang.Reflection.FunctionSignature>? Overloads { get; init; }
+        public System.Collections.Generic.IReadOnlyList<SharpSlang.Reflection.FunctionParameter> Parameters { get; init; }
+        public string ResultType { get; init; }
+        public override string ToString() { }
+    }
+    public readonly struct GenericArgumentBinding : System.IEquatable<SharpSlang.Reflection.GenericArgumentBinding>
+    {
+        public GenericArgumentBinding(string Parameter, SharpSlang.Reflection.GenericParameterKind Kind, string? Type = null, long? Value = default) { }
+        public SharpSlang.Reflection.GenericParameterKind Kind { get; init; }
+        public string Parameter { get; init; }
+        public string? Type { get; init; }
+        public long? Value { get; init; }
+        public override string ToString() { }
+    }
+    public sealed class GenericParameter : System.IEquatable<SharpSlang.Reflection.GenericParameter>
+    {
+        public GenericParameter(string Name, SharpSlang.Reflection.GenericParameterKind Kind, System.Collections.Generic.IReadOnlyList<string> Constraints) { }
+        public System.Collections.Generic.IReadOnlyList<string> Constraints { get; init; }
+        public SharpSlang.Reflection.GenericParameterKind Kind { get; init; }
+        public string Name { get; init; }
+    }
+    [System.Text.Json.Serialization.JsonConverter(typeof(System.Text.Json.Serialization.JsonStringEnumConverter<SharpSlang.Reflection.GenericParameterKind>))]
+    public enum GenericParameterKind
+    {
+        Type = 0,
+        Value = 1,
+    }
+    [System.Text.Json.Serialization.JsonConverter(typeof(System.Text.Json.Serialization.JsonStringEnumConverter<SharpSlang.Reflection.LayoutKind>))]
+    public enum LayoutKind
+    {
+        Unknown = 0,
+        Scalar = 1,
+        Vector = 2,
+        Matrix = 3,
+        Struct = 4,
+        Array = 5,
+        Resource = 6,
+        SamplerState = 7,
+        ConstantBuffer = 8,
+        ParameterBlock = 9,
+        TextureBuffer = 10,
+        ShaderStorageBuffer = 11,
+        GenericTypeParameter = 12,
+        Interface = 13,
+        Specialized = 14,
+        Feedback = 15,
+        Pointer = 16,
+        DynamicResource = 17,
+    }
+    public sealed class MatrixLayout : SharpSlang.Reflection.TypeLayout, System.IEquatable<SharpSlang.Reflection.MatrixLayout>
+    {
+        public MatrixLayout() { }
+        public required int ColumnCount { get; init; }
+        public required SharpSlang.Native.SlangScalarType ElementType { get; init; }
+        public required SharpSlang.Native.SlangMatrixLayoutMode Mode { get; init; }
+        public required int RowCount { get; init; }
+        public ulong Stride { get; init; }
+        public ulong ComponentOffset(int row, int column) { }
+    }
+    public sealed class OpaqueLayout : SharpSlang.Reflection.TypeLayout, System.IEquatable<SharpSlang.Reflection.OpaqueLayout>
+    {
+        public OpaqueLayout() { }
+    }
+    public readonly struct ParameterBinding : System.IEquatable<SharpSlang.Reflection.ParameterBinding>
+    {
+        public ParameterBinding(SharpSlang.Native.SlangParameterCategory Category, uint Index, uint Space) { }
+        public SharpSlang.Native.SlangParameterCategory Category { get; init; }
+        public uint Index { get; init; }
+        public uint Space { get; init; }
+    }
+    [System.Text.Json.Serialization.JsonConverter(typeof(System.Text.Json.Serialization.JsonStringEnumConverter<SharpSlang.Reflection.ParameterDirection>))]
+    public enum ParameterDirection
+    {
+        In = 0,
+        Out = 1,
+        InOut = 2,
+    }
+    public static class PipelineInterface
+    {
+        public static System.Collections.Generic.IReadOnlyDictionary<uint, string> DescriptorNames(this SharpSlang.Reflection.ProgramLayout layout, uint space) { }
+        public static System.Collections.Generic.IReadOnlyDictionary<uint, string> DescriptorNames(this SharpSlang.Reflection.ProgramLayout layout, uint space, SharpSlang.Native.SlangParameterCategory? category) { }
+        public static System.Collections.Generic.IReadOnlyList<SharpSlang.Reflection.FragmentOutput> FragmentOutputs(this SharpSlang.Reflection.ProgramLayout layout) { }
+        public static System.Collections.Generic.IReadOnlyList<SharpSlang.Reflection.PushConstantBlock> PushConstantBlocks(this SharpSlang.Reflection.ProgramLayout layout) { }
+        public static void RequireEveryParameterIsPlaced(this SharpSlang.Reflection.ProgramLayout layout) { }
+        public static System.Collections.Generic.IReadOnlyList<SharpSlang.Reflection.VertexInput> VertexInputs(this SharpSlang.Reflection.ProgramLayout layout) { }
+    }
+    public sealed class ProgramLayout : System.IEquatable<SharpSlang.Reflection.ProgramLayout>
+    {
+        public ProgramLayout() { }
+        public uint? BindlessSpaceIndex { get; init; }
+        public SharpSlang.Reflection.DeclarationNode? Declarations { get; init; }
+        public required System.Collections.Generic.IReadOnlyList<SharpSlang.Reflection.DescriptorSet> DescriptorSets { get; init; }
+        public required System.Collections.Generic.IReadOnlyList<SharpSlang.Reflection.EntryPointLayout> EntryPoints { get; init; }
+        public required uint GlobalConstantBufferBinding { get; init; }
+        public required ulong GlobalConstantBufferSize { get; init; }
+        public System.Collections.Generic.IReadOnlyList<string> HashedStrings { get; init; }
+        public required System.Collections.Generic.IReadOnlyList<SharpSlang.Reflection.ShaderParameter> Parameters { get; init; }
+        public System.Collections.Generic.IReadOnlyList<SharpSlang.Reflection.SpecializationConstant> SpecializationConstants { get; init; }
+        public System.Collections.Generic.IReadOnlyList<SharpSlang.Reflection.SpecializationParameter> SpecializationParameters { get; init; }
+        public System.Collections.Generic.IReadOnlyList<SharpSlang.Reflection.SubObjectRange> SubObjectRanges { get; init; }
+        public SharpSlang.Reflection.EntryPointLayout? EntryPoint(string name) { }
+        public SharpSlang.Reflection.ShaderParameter? Parameter(string name) { }
+        public SharpSlang.Reflection.SpecializationConstant? SpecializationConstant(string name) { }
+        public string ToJson() { }
+        public static SharpSlang.Reflection.ProgramLayout FromJson(string json) { }
+    }
+    public sealed class PushConstantBlock : System.IEquatable<SharpSlang.Reflection.PushConstantBlock>
+    {
+        public PushConstantBlock(string Name, ulong Size, SharpSlang.Native.SlangStage? Stage = default) { }
+        public string Name { get; init; }
+        public ulong Size { get; init; }
+        public SharpSlang.Native.SlangStage? Stage { get; init; }
+    }
+    public sealed class ResourceLayout : SharpSlang.Reflection.TypeLayout, System.IEquatable<SharpSlang.Reflection.ResourceLayout>
+    {
+        public ResourceLayout() { }
+        public required SharpSlang.Native.SlangResourceAccess Access { get; init; }
+        public ulong ElementStride { get; init; }
+        public SharpSlang.Reflection.TypeLayout? ElementType { get; init; }
+        public SharpSlang.Reflection.TypeLayout? ResultType { get; init; }
+        public required SharpSlang.Native.SlangResourceShape Shape { get; init; }
+    }
+    public sealed class ScalarLayout : SharpSlang.Reflection.TypeLayout, System.IEquatable<SharpSlang.Reflection.ScalarLayout>
+    {
+        public ScalarLayout() { }
+        public required SharpSlang.Native.SlangScalarType ScalarType { get; init; }
+    }
+    public sealed class ShaderParameter : System.IEquatable<SharpSlang.Reflection.ShaderParameter>
+    {
+        public ShaderParameter(string Name, SharpSlang.Reflection.TypeLayout Type, System.Collections.Generic.IReadOnlyList<SharpSlang.Reflection.ParameterBinding> Bindings, string? Semantic = null, uint SemanticIndex = 0, System.Collections.Generic.IReadOnlyList<SharpSlang.Reflection.UserAttribute>? Attributes = null, SharpSlang.Native.SlangStage Stage = 0) { }
+        public System.Collections.Generic.IReadOnlyList<SharpSlang.Reflection.UserAttribute>? Attributes { get; init; }
+        public System.Collections.Generic.IReadOnlyList<SharpSlang.Reflection.ParameterBinding> Bindings { get; init; }
+        [System.Text.Json.Serialization.JsonIgnore]
+        public uint DescriptorSet { get; }
+        [System.Text.Json.Serialization.JsonIgnore]
+        public uint? InputAttachmentIndex { get; }
+        [System.Text.Json.Serialization.JsonIgnore]
+        public bool IsSpecializationConstant { get; }
+        public string Name { get; init; }
+        [System.Text.Json.Serialization.JsonIgnore]
+        public bool OccupiesDescriptorSlot { get; }
+        [System.Text.Json.Serialization.JsonIgnore]
+        public SharpSlang.Reflection.ParameterBinding? PrimaryBinding { get; }
+        public string? Semantic { get; init; }
+        public uint SemanticIndex { get; init; }
+        public SharpSlang.Native.SlangStage Stage { get; init; }
+        public SharpSlang.Reflection.TypeLayout Type { get; init; }
+    }
+    public sealed class SpecializationConstant : System.IEquatable<SharpSlang.Reflection.SpecializationConstant>
+    {
+        public SpecializationConstant(string Name, uint ConstantId, SharpSlang.Native.SlangScalarType ScalarType, long? DefaultInt = default, double? DefaultFloat = default) { }
+        [System.Text.Json.Serialization.JsonIgnore]
+        public uint ByteSize { get; }
+        public uint ConstantId { get; init; }
+        public double? DefaultFloat { get; init; }
+        public long? DefaultInt { get; init; }
+        [System.Text.Json.Serialization.JsonIgnore]
+        public bool IsFloatingPoint { get; }
+        public string Name { get; init; }
+        public SharpSlang.Native.SlangScalarType ScalarType { get; init; }
+    }
+    public sealed class SpecializationParameter : System.IEquatable<SharpSlang.Reflection.SpecializationParameter>
+    {
+        public SpecializationParameter(int Index, string? Name, SharpSlang.Reflection.SpecializationParameterKind Kind, System.Collections.Generic.IReadOnlyList<string> Constraints) { }
+        public System.Collections.Generic.IReadOnlyList<string> Constraints { get; init; }
+        public int Index { get; init; }
+        public SharpSlang.Reflection.SpecializationParameterKind Kind { get; init; }
+        public string? Name { get; init; }
+    }
+    [System.Text.Json.Serialization.JsonConverter(typeof(System.Text.Json.Serialization.JsonStringEnumConverter<SharpSlang.Reflection.SpecializationParameterKind>))]
+    public enum SpecializationParameterKind
+    {
+        Type = 0,
+        Existential = 1,
+    }
+    public sealed class SpecializedType : System.IEquatable<SharpSlang.Reflection.SpecializedType>
+    {
+        public SpecializedType(string Name, System.Collections.Generic.IReadOnlyList<SharpSlang.Reflection.GenericArgumentBinding> Arguments, SharpSlang.Reflection.TypeLayout? Layout, SharpSlang.Reflection.DeclarationKind Kind = 2, SharpSlang.Reflection.FunctionSignature? Function = null) { }
+        public System.Collections.Generic.IReadOnlyList<SharpSlang.Reflection.GenericArgumentBinding> Arguments { get; init; }
+        public SharpSlang.Reflection.FunctionSignature? Function { get; init; }
+        public SharpSlang.Reflection.DeclarationKind Kind { get; init; }
+        public SharpSlang.Reflection.TypeLayout? Layout { get; init; }
+        public string Name { get; init; }
+        public override string ToString() { }
+    }
+    public sealed class StructLayout : SharpSlang.Reflection.TypeLayout, System.IEquatable<SharpSlang.Reflection.StructLayout>
+    {
+        public StructLayout() { }
+        public required System.Collections.Generic.IReadOnlyList<SharpSlang.Reflection.FieldLayout> Fields { get; init; }
+        public SharpSlang.Reflection.FieldLayout? Field(string name) { }
+    }
+    public sealed class SubObjectRange : System.IEquatable<SharpSlang.Reflection.SubObjectRange>
+    {
+        public SubObjectRange(uint BindingRangeIndex, string? Name = null) { }
+        public uint BindingRangeIndex { get; init; }
+        public string? Name { get; init; }
+    }
+    public readonly struct ThreadGroupSize : System.IEquatable<SharpSlang.Reflection.ThreadGroupSize>
+    {
+        public ThreadGroupSize(ulong X, ulong Y, ulong Z) { }
+        public bool IsSpecialized { get; }
+        [System.Runtime.CompilerServices.TupleElementNames(new string[] {
+                "X",
+                "Y",
+                "Z"})]
+        public System.ValueTuple<ulong, ulong, ulong>? Resolved { get; }
+        public ulong X { get; init; }
+        public ulong Y { get; init; }
+        public ulong Z { get; init; }
+        public override string ToString() { }
+    }
+    [System.Text.Json.Serialization.JsonDerivedType(typeof(SharpSlang.Reflection.ArrayLayout), "array")]
+    [System.Text.Json.Serialization.JsonDerivedType(typeof(SharpSlang.Reflection.ContainerLayout), "container")]
+    [System.Text.Json.Serialization.JsonDerivedType(typeof(SharpSlang.Reflection.MatrixLayout), "matrix")]
+    [System.Text.Json.Serialization.JsonDerivedType(typeof(SharpSlang.Reflection.OpaqueLayout), "opaque")]
+    [System.Text.Json.Serialization.JsonDerivedType(typeof(SharpSlang.Reflection.ResourceLayout), "resource")]
+    [System.Text.Json.Serialization.JsonDerivedType(typeof(SharpSlang.Reflection.ScalarLayout), "scalar")]
+    [System.Text.Json.Serialization.JsonDerivedType(typeof(SharpSlang.Reflection.StructLayout), "struct")]
+    [System.Text.Json.Serialization.JsonDerivedType(typeof(SharpSlang.Reflection.VectorLayout), "vector")]
+    [System.Text.Json.Serialization.JsonPolymorphic(TypeDiscriminatorPropertyName="$kind")]
+    public abstract class TypeLayout : System.IEquatable<SharpSlang.Reflection.TypeLayout>
+    {
+        protected TypeLayout() { }
+        public int Alignment { get; init; }
+        public System.Collections.Generic.IReadOnlyList<SharpSlang.Reflection.UserAttribute>? Attributes { get; init; }
+        public uint? GenericParameterIndex { get; init; }
+        public bool HasPendingData { get; init; }
+        [System.Text.Json.Serialization.JsonIgnore]
+        public bool IsUniformSizeKnown { get; }
+        public required SharpSlang.Reflection.LayoutKind Kind { get; init; }
+        public string? Name { get; init; }
+        public System.Collections.Generic.IReadOnlyList<SharpSlang.Reflection.CategorySize> Sizes { get; init; }
+        [System.Text.Json.Serialization.JsonIgnore]
+        public ulong UniformSize { get; }
+    }
+    public sealed class UserAttribute : System.IEquatable<SharpSlang.Reflection.UserAttribute>
+    {
+        public UserAttribute(string Name, System.Collections.Generic.IReadOnlyList<object?> Arguments, System.Collections.Generic.IReadOnlyList<string>? ArgumentTypes = null) { }
+        public System.Collections.Generic.IReadOnlyList<string>? ArgumentTypes { get; init; }
+        public System.Collections.Generic.IReadOnlyList<object?> Arguments { get; init; }
+        public string Name { get; init; }
+    }
+    public sealed class VectorLayout : SharpSlang.Reflection.TypeLayout, System.IEquatable<SharpSlang.Reflection.VectorLayout>
+    {
+        public VectorLayout() { }
+        public required int ElementCount { get; init; }
+        public required SharpSlang.Native.SlangScalarType ElementType { get; init; }
+    }
+    public sealed class VertexInput : System.IEquatable<SharpSlang.Reflection.VertexInput>
+    {
+        public VertexInput(uint Location, SharpSlang.Reflection.TypeLayout Type, uint LocationsConsumed, string Name, string? Semantic = null, uint SemanticIndex = 0) { }
+        public uint Location { get; init; }
+        public uint LocationsConsumed { get; init; }
+        public string Name { get; init; }
+        public string? Semantic { get; init; }
+        public uint SemanticIndex { get; init; }
+        public SharpSlang.Reflection.TypeLayout Type { get; init; }
+    }
+}
+namespace SharpSlang.Spirv
+{
+    public sealed class SpirvEntryPoint : System.IEquatable<SharpSlang.Spirv.SpirvEntryPoint>
+    {
+        public SpirvEntryPoint(SharpSlang.Spirv.SpirvExecutionModel ExecutionModel, string Name, SharpSlang.Spirv.SpirvWorkgroupSize? WorkgroupSize = null) { }
+        public SharpSlang.Spirv.SpirvExecutionModel ExecutionModel { get; init; }
+        public string Name { get; init; }
+        public SharpSlang.Spirv.SpirvWorkgroupSize? WorkgroupSize { get; init; }
+    }
+    [System.Text.Json.Serialization.JsonConverter(typeof(System.Text.Json.Serialization.JsonStringEnumConverter<SharpSlang.Spirv.SpirvExecutionModel>))]
+    public enum SpirvExecutionModel : uint
+    {
+        Vertex = 0u,
+        TessellationControl = 1u,
+        TessellationEvaluation = 2u,
+        Geometry = 3u,
+        Fragment = 4u,
+        GLCompute = 5u,
+        Kernel = 6u,
+        TaskNV = 5267u,
+        MeshNV = 5268u,
+        RayGenerationKHR = 5313u,
+        IntersectionKHR = 5314u,
+        AnyHitKHR = 5315u,
+        ClosestHitKHR = 5316u,
+        MissKHR = 5317u,
+        CallableKHR = 5318u,
+        TaskEXT = 5364u,
+        MeshEXT = 5365u,
+    }
+    public static class SpirvModule
+    {
+        public const uint Magic = 119734787u;
+        public static bool IsSpirv(System.ReadOnlySpan<byte> code) { }
+        public static SharpSlang.Spirv.SpirvModuleInfo Read(System.ReadOnlySpan<byte> code) { }
+        public static SharpSlang.Spirv.SpirvVersion ReadVersion(System.ReadOnlySpan<byte> code) { }
+        public static SharpSlang.Spirv.SpirvEntryPoint SingleEntryPoint(System.ReadOnlySpan<byte> code) { }
+    }
+    public sealed class SpirvModuleInfo : System.IEquatable<SharpSlang.Spirv.SpirvModuleInfo>
+    {
+        public SpirvModuleInfo(SharpSlang.Spirv.SpirvVersion Version, uint Generator, uint Bound, System.Collections.Generic.IReadOnlyList<SharpSlang.Spirv.SpirvEntryPoint> EntryPoints) { }
+        public uint Bound { get; init; }
+        public System.Collections.Generic.IReadOnlyList<SharpSlang.Spirv.SpirvEntryPoint> EntryPoints { get; init; }
+        public uint Generator { get; init; }
+        public SharpSlang.Spirv.SpirvVersion Version { get; init; }
+    }
+    [System.Text.Json.Serialization.JsonConverter(typeof(System.Text.Json.Serialization.JsonStringEnumConverter<SharpSlang.Spirv.SpirvVersion>))]
+    public enum SpirvVersion
+    {
+        Unspecified = 0,
+        V1_0 = 65536,
+        V1_1 = 65792,
+        V1_2 = 66048,
+        V1_3 = 66304,
+        V1_4 = 66560,
+        V1_5 = 66816,
+        V1_6 = 67072,
+    }
+    public static class SpirvVersions
+    {
+        public static SharpSlang.Spirv.SpirvVersion FromProfileName(string? profile) { }
+        public static int Major(this SharpSlang.Spirv.SpirvVersion v) { }
+        public static int Minor(this SharpSlang.Spirv.SpirvVersion v) { }
+        public static string ToDisplayString(this SharpSlang.Spirv.SpirvVersion v) { }
+        public static string? ToProfileName(this SharpSlang.Spirv.SpirvVersion v) { }
+    }
+    public readonly struct SpirvWorkgroupDimension : System.IEquatable<SharpSlang.Spirv.SpirvWorkgroupDimension>
+    {
+        public SpirvWorkgroupDimension(uint Value, uint? SpecializationConstantId = default) { }
+        public bool IsSpecialized { get; }
+        public uint? SpecializationConstantId { get; init; }
+        public uint Value { get; init; }
+        public override string ToString() { }
+    }
+    public sealed class SpirvWorkgroupSize : System.IEquatable<SharpSlang.Spirv.SpirvWorkgroupSize>
+    {
+        public SpirvWorkgroupSize(SharpSlang.Spirv.SpirvWorkgroupDimension X, SharpSlang.Spirv.SpirvWorkgroupDimension Y, SharpSlang.Spirv.SpirvWorkgroupDimension Z) { }
+        public bool IsSpecialized { get; }
+        public SharpSlang.Spirv.SpirvWorkgroupDimension X { get; init; }
+        public SharpSlang.Spirv.SpirvWorkgroupDimension Y { get; init; }
+        public SharpSlang.Spirv.SpirvWorkgroupDimension Z { get; init; }
+        [return: System.Runtime.CompilerServices.TupleElementNames(new string[] {
+                "X",
+                "Y",
+                "Z"})]
+        public System.ValueTuple<uint, uint, uint> Resolve(System.Collections.Generic.IReadOnlyDictionary<uint, uint>? specializationValues = null) { }
+        public override string ToString() { }
+    }
+}

@@ -1,4 +1,4 @@
-namespace PrismSlang.Native;
+namespace SharpSlang.Native;
 
 [NativeTypeName("SlangDeclKindIntegral")]
 public enum SlangDeclKind : uint

@@ -1,4 +1,4 @@
-namespace PrismSlang.Native;
+namespace SharpSlang.Native;
 
 [NativeTypeName("SlangMatrixLayoutModeIntegral")]
 public enum SlangMatrixLayoutMode : uint

@@ -6,18 +6,18 @@
 // testing and leaks or dangles in production. This type collects the configuration safely and
 // marshals it in one scoped block inside SlangSession.Create.
 
-using PrismSlang.Native;
-using PrismSlang.Spirv;
+using SharpSlang.Native;
+using SharpSlang.Spirv;
 
-namespace PrismSlang;
+namespace SharpSlang;
 
 /// <summary>What a compilation target should produce.</summary>
 public sealed class TargetOptions
 {
     /// <summary>
-    /// Output format. Defaults to SPIR-V, PrismEngine's first target. <c>SLANG_DXIL</c> is the
-    /// other one this binding measures, for D3D12 through PrismSlang.NRI; it needs dxc, which the
-    /// <c>PrismSlang.Native.Dxc</c> package copies into the application's output and
+    /// Output format. Defaults to SPIR-V. <c>SLANG_DXIL</c> is the
+    /// other one this binding measures, for D3D12 through SharpSlang.Pipeline.NRI; it needs dxc, which the
+    /// <c>SharpSlang.Dxc</c> package copies into the application's output and
     /// <see cref="SlangGlobalSession.RequireDxc"/> checks at session creation.
     /// </summary>
     public SlangCompileTarget Format { get; init; } = SlangCompileTarget.SLANG_SPIRV;
@@ -27,8 +27,8 @@ public sealed class TargetOptions
     /// because "whatever the compiler felt like" is not a target environment.
     /// </summary>
     /// <remarks>
-    /// A Vulkan device accepts SPIR-V up to a version fixed by its API version
-    /// (<c>VulkanEnvironment.MaxSpirvVersion</c> in PrismSlang.Vulkan maps that); above it,
+    /// A Vulkan device accepts SPIR-V up to a version fixed by its API version (1.0 for Vulkan 1.0,
+    /// 1.3 for 1.1, 1.5 for 1.2, 1.6 from 1.3, per the Vulkan specification); above it,
     /// <c>vkCreateShaderModule</c> fails with nothing useful to say.
     ///
     /// Measured against slang-compiler 2026.21: the profile is the only knob that moves the

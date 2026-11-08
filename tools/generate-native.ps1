@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-  Regenerate the PrismSlang L0 raw interop layer from the Slang headers.
+  Regenerate the SharpSlang L0 raw interop layer from the Slang headers.
 
 .DESCRIPTION
   Runs ClangSharpPInvokeGenerator over slang.h + slang-deprecated.h and applies the post-processing
@@ -33,7 +33,7 @@
 param(
     [string]$SlangVersion,
     [string]$Output,
-    [string]$Namespace = "PrismSlang.Native",
+    [string]$Namespace = "SharpSlang.Native",
     [string]$Library   = "slang-compiler"   # NOT "slang" — renamed in v2025.21, alias dies end of 2026
 )
 
@@ -254,7 +254,7 @@ $guidNames = $guidMatches | ForEach-Object { $_.Groups['name'].Value }
 
 # ICompileRequest predates Slang's COM conversion: it is a plain vtable type with no
 # SLANG_COM_INTERFACE and therefore no IID, by design. It belongs to the 83-function legacy
-# compile-request API that PrismSlang does not bind (docs/design.md §3.3, Tier 4).
+# compile-request API that SharpSlang does not bind (docs/design.md §3.3, Tier 4).
 $noIidByDesign = @('ICompileRequest')
 
 $declaredIfaces = @(Get-ChildItem (Join-Path $Output "I*.cs") | ForEach-Object { $_.BaseName })
@@ -291,6 +291,25 @@ public static class SlangIID
 $($guidLines -join "`r`n")
 }
 "@ | Set-Content (Join-Path $Output "_InterfaceGuids.cs")
+
+# ---------------------------------------------------------------- normalise
+# Last, over every file, so nothing after it can undo it.
+#
+# `using System;` goes: both projects that compile these files (dotnet/SharpSlang.csproj and,
+# for the reader enums, pipeline/SharpSlang.Pipeline.csproj) have ImplicitUsings on, which makes
+# it a global using, and the build's IDE0005 then reports it as unnecessary. Measured with
+# ClangSharpPInvokeGenerator 21.1.8.4 on v2026.21: 33 files carry it, 32 of ClangSharp's and the
+# IID table above. A finding in this layer is fixed here, never by hand.
+#
+# And LF, in every file. ClangSharp writes LF, but Set-Content writes the platform's newline, so on
+# Windows the files this script touched came out CRLF while the rest stayed LF. .gitattributes
+# normalises them on add either way; writing LF here means the working tree is what is committed.
+foreach ($p in @(Get-ChildItem (Join-Path $Output "*.cs"))) {
+    $t = [System.IO.File]::ReadAllText($p.FullName)
+    $n = ($t -replace "`r`n", "`n") -replace '(?m)^using System;\n', ''
+    if (-not $n.EndsWith("`n")) { $n += "`n" }
+    if ($n -ne $t) { [System.IO.File]::WriteAllText($p.FullName, $n, [System.Text.UTF8Encoding]::new($false)) }
+}
 
 # ---------------------------------------------------------------- report
 $files = @(Get-ChildItem (Join-Path $Output "*.cs"))

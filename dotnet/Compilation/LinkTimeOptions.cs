@@ -9,9 +9,9 @@
 // are meaningless at link time. The typed properties below cover the ones a renderer actually
 // varies per link, and RawEntries is the escape hatch for the rest.
 
-using PrismSlang.Native;
+using SharpSlang.Native;
 
-namespace PrismSlang;
+namespace SharpSlang;
 
 /// <summary>A compiler option not covered by <see cref="LinkTimeOptions"/>'s typed properties.</summary>
 /// <param name="Name">The option to set.</param>

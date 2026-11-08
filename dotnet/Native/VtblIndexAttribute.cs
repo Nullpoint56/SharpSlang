@@ -1,7 +1,6 @@
-using System;
 using System.Diagnostics;
 
-namespace PrismSlang.Native;
+namespace SharpSlang.Native;
 
 /// <summary>Defines the vtbl index of a method as it was in the native signature.</summary>
 [AttributeUsage(AttributeTargets.Method, AllowMultiple = false, Inherited = true)]

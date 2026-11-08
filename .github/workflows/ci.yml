@@ -13,19 +13,19 @@ name: CI
 #     the branch. A run started that way does not appear in a pull request's checks, so the report
 #     job posts its outcome on the tested commit as a commit status named "ci", and the pull
 #     request shows it.
-#   * A branch must be up to date with main before it merges, and must have a green run. GitHub
+#   * A branch must be up to date with master before it merges, and must have a green run. GitHub
 #     cannot enforce either on a private Free repository: branch protection and rulesets answer
 #     "Upgrade to GitHub Pro or make this repository public". So the gate refuses to test a branch
-#     that is behind main, which costs one short Linux job rather than a matrix. And the "ci"
+#     that is behind master, which costs one short Linux job rather than a matrix. And the "ci"
 #     status is what a ruleset would require, once the plan allows one ("require status checks",
 #     strict).
-#   * Nothing re-runs on main unless the code differs from what a branch run tested. A push to
-#     main starts this workflow, and the gate skips every job whose result already exists for the
+#   * Nothing re-runs on master unless the code differs from what a branch run tested. A push to
+#     master starts this workflow, and the gate skips every job whose result already exists for the
 #     same tree. For the merge of an up-to-date branch that is all of them. A merge that skipped
 #     its branch run, or that differs from it, is tested here. Documentation-only pushes start
 #     nothing, because the branch run checked them.
-#   * macOS on demand. The osx-arm64 leg is most of a run's cost, and macOS is not an engine
-#     target yet. It runs when a manual run asks for it, and before every release, where
+#   * macOS on demand. The osx-arm64 leg is most of a run's cost. It runs when
+#     a manual run asks for it, and before every release, where
 #     publish.yml calls this workflow with it on.
 #
 # tools/ci/ci-gate.ps1 makes those decisions, and its header lists them. It runs on Linux in
@@ -45,10 +45,10 @@ name: CI
 # release pinned in Directory.Build.props, which also proves the fetch script still works against
 # the current upstream layout.
 on:
-  # main only, and only for what a branch run could not have covered; the gate decides. Markdown
+  # master only, and only for what a branch run could not have covered; the gate decides. Markdown
   # and docs/ changes start nothing here: the docs job of the branch run checked them.
   push:
-    branches: [main]
+    branches: [master]
     paths-ignore: ['**.md', 'docs/**']
   # The only way a branch is tested.
   workflow_dispatch:
@@ -97,6 +97,7 @@ jobs:
       digests: ${{ steps.decide.outputs.digests }}
       bindings: ${{ steps.decide.outputs.bindings }}
       docs: ${{ steps.decide.outputs.docs }}
+      lint: ${{ steps.decide.outputs.lint }}
     steps:
       # A pull request does not list a run started by hand, so a pending status linking to the run
       # shows on it at once that one started. The report job replaces it with the outcome.
@@ -179,7 +180,7 @@ jobs:
   # a code comment cites resolves to a real heading in design.md. The numbered sections are cited
   # from code by bare number, so this is what stops a renumbering from silently orphaning them, and
   # a change that touches no markdown can break it: a § renumbered in a code comment, or a file
-  # renamed out from under PrismSlang.slnx. It was docs.yml plus a step of the linux-x64 leg, and
+  # renamed out from under SharpSlang.slnx. It was docs.yml plus a step of the linux-x64 leg, and
   # is one job here, so a documentation-only branch is still checked by its one manual run while
   # the test legs skip.
   docs:
@@ -192,6 +193,28 @@ jobs:
       - uses: actions/checkout@v7
       - name: Check documentation
         run: bash tools/ci/check-docs.sh
+
+  # The SDK's own analyzers at latest-recommended with the code-style rules in the build, as
+  # errors, and the formatter's check: tools/check.ps1, exactly as a local run does it. No payload
+  # is fetched, because the analyzers need none (the script passes SharpSlangRequireNative=false).
+  # The gate skips it for a documentation-only branch, and for a tree it already passed on.
+  lint:
+    name: lint
+    needs: gate
+    if: needs.gate.outputs.lint == 'run'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '11.0.x'
+          dotnet-quality: preview
+
+      - name: Analyzers and formatting
+        shell: pwsh
+        run: ./tools/check.ps1
 
   test:
     name: test (${{ matrix.rid }})
@@ -215,8 +238,8 @@ jobs:
     # every package and nothing had ever loaded it — a library shipped to a platform on the
     # strength of the RID being spelled correctly. macos-15 is Apple Silicon, so the ARM64 half was
     # already answered by linux-arm64; what is new is the OS: a third allocator, a third dynamic
-    # loader, and the Itanium C++ ABI on a runtime that is not glibc's. No Vulkan there:
-    # VulkanTestDevice finds no loader and the validation tests skip with their reason. It was
+    # loader, and the Itanium C++ ABI on a runtime that is not glibc's. No device test there: the
+    # NRI device tests skip by decision, with the reason (NriFact.cs). It was
     # macos-14 until 2026-11-07, when GitHub refused that image ("The configuration
     # 'macos-14-arm64-us-xl' is not supported") and cancelled the leg in its first second.
     needs: gate
@@ -282,21 +305,23 @@ jobs:
           }
           $found | ForEach-Object { Write-Host ("    {0,-44} {1,8:N1} MB" -f $_.Name, ($_.Length / 1MB)) }
 
-      # A software Vulkan implementation and the validation layers, so VulkanValidationTests runs
-      # rather than skipping. Those tests build real descriptor set layouts, a real pipeline layout
-      # and a real VkPipeline out of the projection and let Khronos judge the result — the only
-      # oracle in the suite that is not ultimately Slang telling us about itself (docs ).
+      # A software Vulkan implementation and the validation layers, so the NRI Vulkan tests run
+      # rather than skipping. Those build real pipeline layouts and pipelines out of the NRI
+      # projection on SharpNRI's validated device and let Khronos judge the result — the only
+      # oracle in the suite that is not ultimately Slang telling us about itself — and
+      # SlangComputeCorpusTests dispatches through them.
       #
-      # Linux only. A Windows runner has no GPU either, but getting the layers there means the SDK
-      # installer, which is a large download for the same three tests these already cover; on
-      # Windows they skip, with the reason printed.
+      # linux-x64 only. linux-arm64 has no libNRI.so (SharpNRI ships none for it), so every test
+      # that would use a Vulkan device skips there by NriFact's reason, and the install would buy
+      # nothing. A Windows runner has no GPU either, and getting the layers there means the SDK
+      # installer; on Windows the Vulkan rows skip, with the reason printed, and D3D12 runs on WARP.
       #
       # mesa-vulkan-drivers carries lavapipe. No VK_DRIVER_FILES is set: it is the only ICD on the
       # runner, so the loader's own discovery finds it, and pinning a path is how this breaks —
       # Mesa renamed the file from lvp_icd.x86_64.json to lvp_icd.json between the version in
       # Ubuntu 24.04's archive and the one in its updates.
       - name: Install lavapipe and the Vulkan validation layers
-        if: startsWith(matrix.rid, 'linux')
+        if: matrix.rid == 'linux-x64'
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq mesa-vulkan-drivers vulkan-validationlayers libvulkan1
@@ -328,12 +353,12 @@ jobs:
       # current Linux binary is inside LunarG's SDK tarball (366 MB), so the library and its
       # manifest are taken out of it once per version and cached; the loader stays Ubuntu's.
       #
-      # VK_ADD_LAYER_PATH puts it ahead of the system layer for every later step, so the Vortice
-      # tests (VulkanValidationTests, VulkanCorpusValidationTests, SlangComputeCorpusTests) are
-      # judged by it on this leg too — one layer per leg, the newer one, which knows more rules.
-      # Measured that way under WSL on Slang 2026.21: the whole suite passed with it in front (740,
-      # 12 skipped, none for the layer), and the validation-layer gate below still counts 5.
-      # linux-arm64 keeps Ubuntu's: the tarball is x86_64 only, and that leg runs no NRI device
+      # VK_ADD_LAYER_PATH puts it ahead of the system layer for every later step, so every Vulkan
+      # test (NriDeviceTests, NriValidationTests, SlangComputeCorpusTests) is judged by it. Measured
+      # that way under WSL (Ubuntu 24.04, lavapipe) on Slang 2026.21 and SharpNRI 191.0.0-beta.4,
+      # on the tree that dropped the Vulkan projection: the whole suite 655 passed, 11 skipped (the
+      # D3D12 and DXIL rows, none for the layer), and the validation-layer gate below counts 6.
+      # linux-arm64 installs no layer: the tarball is x86_64 only, and that leg runs no device
       # test. The version is in the cache key and the fetch step; move them together.
       - name: Cache the Khronos validation layer
         if: matrix.rid == 'linux-x64'
@@ -373,7 +398,7 @@ jobs:
           echo "VK_ADD_LAYER_PATH=$GITHUB_WORKSPACE/obj/vvl/share/vulkan/explicit_layer.d" >> "$GITHUB_ENV"
 
       - name: Build
-        run: dotnet build PrismSlang.slnx -c Release --nologo -warnaserror
+        run: dotnet build SharpSlang.slnx -c Release --nologo -warnaserror
 
       # MALLOC_PERTURB_ makes the allocator the assertion, on every test rather than the few that
       # were written to look for it. glibc fills freshly malloc'd memory with the complement of the
@@ -448,25 +473,19 @@ jobs:
         # The TRX goes to one fixed place, test-results/results.trx, because every "actually ran"
         # gate below counts its classes from this file instead of running them again (see
         # tools/ci/count-tests.ps1). The upload and crash steps search recursively and find it here.
-        run: dotnet test PrismSlang.slnx -c Release --no-build --nologo --blame --logger "trx;LogFileName=results.trx" --results-directory test-results
+        run: dotnet test SharpSlang.slnx -c Release --no-build --nologo --blame --logger "trx;LogFileName=results.trx" --results-directory test-results
 
       # A skipped test is green, so installing lavapipe and never noticing it failed to load would
-      # leave the whole validation harness silently switched off. Two of the three run on any
-      # device; the third needs 64-bit vertex formats, which lavapipe does not offer, and skips
-      # with that reason.
-      # Both linux legs, and both fatal. arm64 reported through `::notice::` instead for its first
-      # runs, because a build going red over lavapipe being unavailable on a new runner would have
-      # been red for a reason unrelated to the port.
+      # leave the whole validation harness silently switched off. NriValidationTests' three shaders
+      # and SlangComputeCorpusTests' three facts all run on lavapipe: 6. The wide 64-bit vertex
+      # test, which skipped on lavapipe when it went through Vulkan directly (it needed
+      # R64G64B64A64 as a vertex format), asks the layer about the module alone now and runs.
       #
-      # It has now answered: `##[notice]2 validation-layer test(s) ran against lavapipe on
-      # linux-arm64` (a0eb587), with the same `lvp_icd.json` and the same 2-of-3 as linux-x64 — the
-      # third needs 64-bit vertex formats lavapipe does not offer and skips with that reason. So the
-      # gate is armed on both.
-      #
-      # That order was the point. A gate turned on before anyone has watched it work is the failure
-      # mode  is about, and a gate that can never fail is the one 's driver was.
+      # linux-x64 only. It was both linux legs while those tests went through Vulkan directly;
+      # through NRI they need libNRI.so, which SharpNRI ships for linux-x64 and not linux-arm64,
+      # where every one of them skips with NriFact's reason.
       - name: The validation-layer tests actually ran
-        if: startsWith(matrix.rid, 'linux')
+        if: matrix.rid == 'linux-x64'
         run: |
           # The count comes from the TRX, not from the console. The first version of this step
           # scraped the one-line "Passed!  - Failed: 0, Passed: 2, ..." summary, which is what the
@@ -485,16 +504,16 @@ jobs:
           # every gate's outcome on the October 2026 runs' TRX files, the skips included.
           #
           # SlangComputeCorpusTests is here too, and needs the same device. It is the only thing
-          # in the suite that executes a shader — 51 of Slang's own compute tests dispatched with
-          # buffers bound where reflection says, compared against the words upstream recorded — so
-          # if lavapipe is missing, the check that offsets and binding indices actually work goes
-          # quiet along with the layers.
+          # in the suite that executes a corpus of shaders — 56 of Slang's own compute tests
+          # dispatched through NRI with resources bound where the projection says, compared against
+          # the words upstream recorded — so if lavapipe is missing, the check that offsets and
+          # binding indices actually work goes quiet along with the layers.
           counts=$(pwsh -NoProfile -File tools/ci/count-tests.ps1 -Trx test-results/results.trx \
-            -Class "VulkanValidationTests,SlangComputeCorpusTests") || { echo "$counts"; exit 1; }
+            -Class "NriValidationTests,SlangComputeCorpusTests") || { echo "$counts"; exit 1; }
           echo "$counts"
           passed=$(echo "$counts" | tail -1 | sed -n 's/.*passed=\([0-9]*\).*/\1/p')
 
-          if [ "${passed:-0}" -lt 5 ]; then
+          if [ "${passed:-0}" -lt 6 ]; then
             echo "::error::only ${passed:-0} device-backed test(s) ran on ${{ matrix.rid }}. lavapipe or the layers did not load, so the only oracle in the suite that is not Slang judging itself is switched off, and nothing dispatches a shader; the skip reason is in the output above."
             exit 1
           fi
@@ -546,9 +565,9 @@ jobs:
       # the whole class off on a run that reports success.
       #
       # This step counts win-x64 and the next one linux-x64, the two legs the NRI device tests run
-      # on (tests/PrismSlang.Tests/NriFact.cs). On linux-arm64 every one of them skips because the
-      # SharpNRI package has no payload for it, and on osx-arm64 by decision, since macOS is not an
-      # engine target yet; each says so in its skip reason.
+      # on (tests/SharpSlang.Tests/NriFact.cs). On linux-arm64 every one of them skips because the
+      # SharpNRI package has no payload for it, and on osx-arm64 by decision; each says so in its skip
+      # reason.
       #
       # What is counted is NONE and D3D12. Hosted Windows has no Vulkan driver, so the tests gated
       # on NRI's Vulkan backend (the 33-case pipeline theory, which xunit reports as one skipped
@@ -561,8 +580,8 @@ jobs:
       #   33  A_pipeline_layout_built_from_the_projection_is_accepted_by_the_none_backend, one
       #       per corpus case: 31 layouts created through SharpNRI's marshalling, and the two
       #       projection refusals (descriptor-kinds, wide-vertex-inputs) asserted by name.
-      #    1  Projected_vertex_formats_agree_with_nris_own_vulkan_conversion_table, a NONE fact
-      #       because nriConvertNRIFormatToVK is a static table in NRI.dll and needs no device.
+      #    1  Projected_formats_are_what_nri_says_the_declared_types_are, a NONE fact
+      #       because nriGetFormatProps and nriConvertNRIFormatToVK are static tables in NRI.dll.
       #    1  Every_declared_refusal_and_exclusion_names_a_shader_that_exists, a plain fact.
       #   33  A_pipeline_built_from_the_dxil_projection_passes_d3d12_validation, one per corpus
       #       case: 25 cases whose pipelines are built and accepted, 5 layouts built with the pipeline out of reach
@@ -614,7 +633,7 @@ jobs:
       #
       #   33  A_pipeline_layout_built_from_the_projection_is_accepted_by_the_none_backend, one
       #       per corpus case, as on win-x64.
-      #    1  Projected_vertex_formats_agree_with_nris_own_vulkan_conversion_table, NRI's static
+      #    1  Projected_formats_are_what_nri_says_the_declared_types_are, NRI's static
       #       format table in libNRI.so.
       #    1  Every_declared_refusal_and_exclusion_names_a_shader_that_exists, a plain fact.
       #   33  A_pipeline_built_from_the_projection_passes_nri_and_vulkan_validation, one per corpus
@@ -632,7 +651,8 @@ jobs:
       # layer — and the loader's own log (VK_LOADER_DEBUG=layer) and the test host's memory map both
       # showing the 1.4.363 library loaded rather than the system one. No validation message at
       # all, error or warning. Measured again the same way with SharpNRI 191.0.0-beta.4 and
-      # SHARPNRI_TEST_SOFTWARE=1: 70 passed, 3 skipped, and the whole suite 740 passed, 12 skipped.
+      # SHARPNRI_TEST_SOFTWARE=1: 70 passed, 3 skipped, and again on the tree that dropped the
+      # Vulkan projection: 70 passed, 3 skipped.
       #
       # Exact rather than a floor, because each way this goes quiet is a different count:
       #   1   libNRI.so stops loading: every gated row skips and the plain fact alone passes.
@@ -713,7 +733,7 @@ jobs:
           MallocScribble: 1
           MallocPreScribble: 1
           MallocNanoZone: 0
-        run: dotnet run --project samples/PrismSlang.Smoke -c Release --no-build
+        run: dotnet run --project samples/SharpSlang.Smoke -c Release --no-build
 
       # A test-host crash reports whatever was on stderr as its "reason", which is never the cause:
       # the first macOS run blamed a Slang warning about an uninitialized variable in a module three
@@ -814,7 +834,7 @@ jobs:
           # A packaging bug once excluded the host RID from the .nupkg: its files matched both the
           # Content and None globs, and Pack="false" won. The package restored cleanly and failed
           # at run time with DllNotFoundException. Cheap to assert, invisible otherwise.
-          dotnet pack dotnet/PrismSlang.csproj -c Release -o pack-check --no-build --nologo
+          dotnet pack dotnet/SharpSlang.csproj -c Release -o pack-check --no-build --nologo
           $nupkg = Get-ChildItem pack-check -Filter *.nupkg | Select-Object -First 1
           if (-not $nupkg) { throw "no package produced" }
 
@@ -890,7 +910,7 @@ jobs:
   # whose skipped jobs prove nothing. Not for publish.yml's call, which reports through its own run.
   report:
     name: report
-    needs: [gate, bindings, docs, test, digests]
+    needs: [gate, bindings, docs, lint, test, digests]
     if: always() && github.event_name == 'workflow_dispatch' && github.workflow == 'CI'
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -906,7 +926,7 @@ jobs:
         run: |
           $needs = $env:NEEDS | ConvertFrom-Json
           $gateOk = $needs.gate.result -eq 'success'
-          $bad = @('bindings', 'docs', 'test', 'digests' | Where-Object { $needs.$_.result -notin 'success', 'skipped' })
+          $bad = @('bindings', 'docs', 'lint', 'test', 'digests' | Where-Object { $needs.$_.result -notin 'success', 'skipped' })
           $state = if ($gateOk -and $bad.Count -eq 0) { 'success' } else { 'failure' }
           $description = if (-not $gateOk) { "gate: $($needs.gate.result)" }
                          elseif ($bad.Count) { ($bad | ForEach-Object { "$($_): $($needs.$_.result)" }) -join ', ' }

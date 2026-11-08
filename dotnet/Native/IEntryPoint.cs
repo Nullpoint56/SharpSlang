@@ -1,7 +1,6 @@
-using System;
 using System.Runtime.CompilerServices;
 
-namespace PrismSlang.Native;
+namespace SharpSlang.Native;
 
 [NativeTypeName("struct IEntryPoint : slang::IComponentType")]
 public unsafe partial struct IEntryPoint

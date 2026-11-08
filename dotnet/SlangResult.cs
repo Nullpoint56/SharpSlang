@@ -11,10 +11,10 @@
 // and emits nothing. The generated layer therefore contains zero result codes, which means it
 // cannot express "did that call succeed?" at all. This file closes that gap by hand.
 //
-// The values are transcribed from slang.h lines 1326-1411. PrismSlangResultTests re-derives them
+// The values are transcribed from slang.h lines 1326-1411. SharpSlangResultTests re-derives them
 // from the pinned header and fails on drift.
 
-namespace PrismSlang;
+namespace SharpSlang;
 
 /// <summary>
 /// <c>SlangResult</c> codes and predicates, transcribed from the preprocessor macros in slang.h.
@@ -25,7 +25,6 @@ public static class SlangResult
 {
     // ---- facilities (slang.h:1343-1361) ----
     private const int FacilityWinGeneral = 0;
-    private const int FacilityWinInterface = 4;
     private const int FacilityWinApi = 7;
     private const int FacilityBase = 0x200;
     private const int FacilityCore = FacilityBase;

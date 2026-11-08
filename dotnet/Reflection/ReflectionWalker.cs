@@ -8,10 +8,10 @@
 // thousand of them at load time — tens of microseconds, once. See docs §4.4 for why that kills the
 // argument for batching this behind a C++ shim.
 
-using PrismSlang.Interop;
-using PrismSlang.Native;
+using SharpSlang.Interop;
+using SharpSlang.Native;
 
-namespace PrismSlang.Reflection;
+namespace SharpSlang.Reflection;
 
 /// <summary>Builds a <see cref="ProgramLayout"/> from a linked program.</summary>
 public static unsafe class ReflectionWalker
@@ -83,7 +83,7 @@ public static unsafe class ReflectionWalker
     /// <para>
     /// The one fact in this snapshot that reflection cannot supply. Slang's global-scope view does
     /// not attribute a parameter to the entry points that use it, which is why
-    /// <c>VulkanProjection</c> reported every stage on every binding for as long as it existed.
+    /// the projections reported every stage on every binding for as long as it existed.
     /// <c>IMetadata</c> knows, per entry point, whether the generated code touches a location — so
     /// asking it once per stage per range produces the attribution the layout view lacks.
     /// </para>
@@ -533,6 +533,8 @@ public static unsafe class ReflectionWalker
         return function is null ? null : ReadFunction(function, expandOverloads: true);
     }
 
+    /// <param name="function">The function to read.</param>
+    /// <param name="expandOverloads">Whether an overloaded name is read as each of its overloads.</param>
     /// <param name="substitute">
     /// A specialized generic whose arguments should be applied to each parameter and to the result
     /// type, or null to report the declaration as written.
@@ -981,7 +983,7 @@ public static unsafe class ReflectionWalker
     /// same on a DXIL target. So a renderer built from the set view bound the buffer at set 0
     /// where the shader read set 1 — and on SPIR-V the reconciliation pass below then added an
     /// <c>UNKNOWN</c> range at the real slot, which the projections refuse, so the symptom there
-    /// was a refusal naming a gap in PrismSlang; on DXIL nothing was added, and D3D12 refused the
+    /// was a refusal naming a gap in SharpSlang; on DXIL nothing was added, and D3D12 refused the
     /// pipeline because its root signature did not cover the register.
     /// </para>
     /// <para>
@@ -1048,6 +1050,8 @@ public static unsafe class ReflectionWalker
     /// Collects the descriptor sets of anything that introduces a register space, and of everything
     /// nested inside it.
     /// </summary>
+    /// <param name="varLayout">The variable whose sub-objects are walked.</param>
+    /// <param name="typeLayout">Its type layout.</param>
     /// <param name="parentSpace">
     /// The space of whatever encloses this. Sub-element offsets are relative, so the absolute space
     /// is the running sum down the chain.
@@ -1071,6 +1075,7 @@ public static unsafe class ReflectionWalker
     /// the same block.
     /// </para>
     /// </remarks>
+    /// <param name="bySpace">The ranges found so far, by space, added to in place.</param>
     private static void CollectSpaces(
         SlangReflectionVariableLayout* varLayout,
         SlangReflectionTypeLayout* typeLayout,
@@ -1144,7 +1149,7 @@ public static unsafe class ReflectionWalker
     /// <para>
     /// The binding type comes from the resource shape. Only the subpass case is mapped, because
     /// only the subpass case is known to go missing; anything else lands as
-    /// <c>SLANG_BINDING_TYPE_UNKNOWN</c>, which <c>VulkanProjection.ToDescriptorType</c> refuses
+    /// <c>SLANG_BINDING_TYPE_UNKNOWN</c>, which <c>NriProjection.ToDescriptorType</c> refuses
     /// loudly. A hole reported as unknown is a bug report; a hole silently given a plausible type
     /// is the class of defect this whole exercise keeps finding.
     /// </para>
@@ -1260,6 +1265,9 @@ public static unsafe class ReflectionWalker
         }
     }
 
+    /// <param name="tl">The type layout whose binding ranges are read.</param>
+    /// <param name="baseSpace">The space its ranges are offset from.</param>
+    /// <param name="bySpace">The ranges found so far, by space, added to in place.</param>
     /// <param name="rebase">
     /// When set, the variable layout whose per-category offsets each range index is relative to.
     /// Null for the global scope, whose ranges are already absolute.
@@ -1550,21 +1558,21 @@ public static unsafe class ReflectionWalker
                 };
 
             case SlangTypeKind.SLANG_TYPE_KIND_MATRIX:
-            {
-                var mode = SlangApi.spReflectionTypeLayout_GetMatrixLayoutMode(tl);
-                var rows = (int)SlangApi.spReflectionType_GetRowCount(type);
-                var columns = (int)SlangApi.spReflectionType_GetColumnCount(type);
-
-                return new MatrixLayout
                 {
-                    Kind = LayoutKind.Matrix, Name = name, Sizes = sizes, Alignment = alignment,
-                    ElementType = ElementScalar(type),
-                    RowCount = rows,
-                    ColumnCount = columns,
-                    Mode = mode,
-                    Stride = MatrixStride(sizes, mode, rows, columns),
-                };
-            }
+                    var mode = SlangApi.spReflectionTypeLayout_GetMatrixLayoutMode(tl);
+                    var rows = (int)SlangApi.spReflectionType_GetRowCount(type);
+                    var columns = (int)SlangApi.spReflectionType_GetColumnCount(type);
+
+                    return new MatrixLayout
+                    {
+                        Kind = LayoutKind.Matrix, Name = name, Sizes = sizes, Alignment = alignment,
+                        ElementType = ElementScalar(type),
+                        RowCount = rows,
+                        ColumnCount = columns,
+                        Mode = mode,
+                        Stride = MatrixStride(sizes, mode, rows, columns),
+                    };
+                }
 
             case SlangTypeKind.SLANG_TYPE_KIND_STRUCT:
                 return new StructLayout
@@ -1578,54 +1586,54 @@ public static unsafe class ReflectionWalker
                 };
 
             case SlangTypeKind.SLANG_TYPE_KIND_ARRAY:
-            {
-                // Ask about the size first, and only ask for a count if the answer was a number.
-                // An array whose length is a specialization constant reports CategorySize.Unknown,
-                // and spReflectionType_GetElementCount access-violates on it — as does
-                // GetSpecializedElementCount, which the C++ header presents as the resolving
-                // version. Measured against slang-compiler 2026.21; see ArrayLayout for the
-                // resource-array case, which has no such signal and cannot be guarded.
-                var specializationSized = sizes.Any(s => !s.IsKnown);
-
-                var count = specializationSized ? 0 : SlangApi.spReflectionType_GetElementCount(type);
-
-                return new ArrayLayout
                 {
-                    Kind = LayoutKind.Array, Name = name, Sizes = sizes, Alignment = alignment,
-                    ElementType = ReadTypeLayout(SlangApi.spReflectionTypeLayout_GetElementTypeLayout(tl), cache),
-                    // 0 is how Slang reports an unbounded array; a real zero-length array is not
-                    // expressible in the language, so the mapping is unambiguous.
-                    ElementCount = specializationSized || count == 0 ? null : (int)count,
-                    IsSpecializationSized = specializationSized,
-                    ElementStride = SlangApi.spReflectionTypeLayout_GetElementStride(
-                        tl, SlangParameterCategory.SLANG_PARAMETER_CATEGORY_UNIFORM),
-                };
-            }
+                    // Ask about the size first, and only ask for a count if the answer was a number.
+                    // An array whose length is a specialization constant reports CategorySize.Unknown,
+                    // and spReflectionType_GetElementCount access-violates on it — as does
+                    // GetSpecializedElementCount, which the C++ header presents as the resolving
+                    // version. Measured against slang-compiler 2026.21; see ArrayLayout for the
+                    // resource-array case, which has no such signal and cannot be guarded.
+                    var specializationSized = sizes.Any(s => !s.IsKnown);
+
+                    var count = specializationSized ? 0 : SlangApi.spReflectionType_GetElementCount(type);
+
+                    return new ArrayLayout
+                    {
+                        Kind = LayoutKind.Array, Name = name, Sizes = sizes, Alignment = alignment,
+                        ElementType = ReadTypeLayout(SlangApi.spReflectionTypeLayout_GetElementTypeLayout(tl), cache),
+                        // 0 is how Slang reports an unbounded array; a real zero-length array is not
+                        // expressible in the language, so the mapping is unambiguous.
+                        ElementCount = specializationSized || count == 0 ? null : (int)count,
+                        IsSpecializationSized = specializationSized,
+                        ElementStride = SlangApi.spReflectionTypeLayout_GetElementStride(
+                            tl, SlangParameterCategory.SLANG_PARAMETER_CATEGORY_UNIFORM),
+                    };
+                }
 
             case SlangTypeKind.SLANG_TYPE_KIND_RESOURCE:
-            {
-                // A StructuredBuffer<T> keeps T's *layout* here — offsets, sizes, alignment — while
-                // GetResourceResultType hands back a bare type with none of it. Reading only the
-                // latter is how a consumer ends up knowing that a buffer holds an Instance and not
-                // how many bytes one is. Measured null on textures, samplers, byte-address and
-                // typed buffers, subpass inputs and acceleration structures, so no shape test is
-                // needed: the resources that have an element layout are exactly the ones that
-                // return one.
-                var elementLayout = SlangApi.spReflectionTypeLayout_GetElementTypeLayout(tl);
-
-                return new ResourceLayout
                 {
-                    Kind = LayoutKind.Resource, Name = name, Sizes = sizes, Alignment = alignment,
-                    Shape = SlangApi.spReflectionType_GetResourceShape(type),
-                    Access = SlangApi.spReflectionType_GetResourceAccess(type),
-                    ResultType = ReadResultType(type, cache),
-                    ElementType = elementLayout is null ? null : ReadTypeLayout(elementLayout, cache),
-                    ElementStride = elementLayout is null
-                        ? 0
-                        : SlangApi.spReflectionTypeLayout_GetStride(
-                            elementLayout, SlangParameterCategory.SLANG_PARAMETER_CATEGORY_UNIFORM),
-                };
-            }
+                    // A StructuredBuffer<T> keeps T's *layout* here — offsets, sizes, alignment — while
+                    // GetResourceResultType hands back a bare type with none of it. Reading only the
+                    // latter is how a consumer ends up knowing that a buffer holds an Instance and not
+                    // how many bytes one is. Measured null on textures, samplers, byte-address and
+                    // typed buffers, subpass inputs and acceleration structures, so no shape test is
+                    // needed: the resources that have an element layout are exactly the ones that
+                    // return one.
+                    var elementLayout = SlangApi.spReflectionTypeLayout_GetElementTypeLayout(tl);
+
+                    return new ResourceLayout
+                    {
+                        Kind = LayoutKind.Resource, Name = name, Sizes = sizes, Alignment = alignment,
+                        Shape = SlangApi.spReflectionType_GetResourceShape(type),
+                        Access = SlangApi.spReflectionType_GetResourceAccess(type),
+                        ResultType = ReadResultType(type),
+                        ElementType = elementLayout is null ? null : ReadTypeLayout(elementLayout, cache),
+                        ElementStride = elementLayout is null
+                            ? 0
+                            : SlangApi.spReflectionTypeLayout_GetStride(
+                                elementLayout, SlangParameterCategory.SLANG_PARAMETER_CATEGORY_UNIFORM),
+                    };
+                }
 
             case SlangTypeKind.SLANG_TYPE_KIND_SAMPLER_STATE:
                 return new OpaqueLayout
@@ -1832,7 +1840,7 @@ public static unsafe class ReflectionWalker
             : SlangApi.spReflectionType_GetScalarType(type);
     }
 
-    private static TypeLayout? ReadResultType(SlangReflectionType* type, Dictionary<nint, TypeLayout> cache)
+    private static TypeLayout? ReadResultType(SlangReflectionType* type)
     {
         var result = SlangApi.spReflectionType_GetResourceResultType(type);
         if (result is null) return null;

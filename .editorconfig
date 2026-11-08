@@ -1,0 +1,166 @@
+# Code style and analyzer policy for every C# file in the repository, hand-written and generated.
+#
+# Built with the .NET SDK's own analyzers at AnalysisLevel latest-recommended and
+# EnforceCodeStyleInBuild (Directory.Build.props), and no analyzer package; tools/check.ps1 and the
+# CI lint job build with warnings as errors and check formatting with
+# `dotnet format whitespace --verify-no-changes`. Preferences that only restate one of two equally
+# good spellings stay silent (the repository's own spelling is written down here so the IDE
+# suggests it); what is enforced is formatting, dead code, explicit accessibility, naming, and the
+# CA correctness, reliability and performance rules. Every exemption below says why it exists.
+#
+# Taken from SharpNRI's .editorconfig, the reference this repository follows, and adapted where
+# SharpSlang's shape differs; each difference is stated where it is made.
+
+root = true
+
+[*]
+charset = utf-8
+# LF, as .gitattributes checks every text file out, so the formatter writes what is committed.
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+[*.{cs,csx}]
+indent_style = space
+indent_size = 4
+
+# ---------------------------------------------------------------- the repository's spelling
+
+csharp_style_namespace_declarations = file_scoped:warning
+csharp_style_var_for_built_in_types = true:silent
+csharp_style_var_when_type_is_apparent = true:silent
+csharp_style_var_elsewhere = true:silent
+csharp_prefer_braces = when_multiline:silent
+csharp_style_expression_bodied_methods = when_on_single_line:silent
+csharp_style_expression_bodied_constructors = when_on_single_line:silent
+csharp_style_expression_bodied_operators = when_on_single_line:silent
+csharp_style_expression_bodied_properties = true:silent
+csharp_style_expression_bodied_accessors = true:silent
+csharp_style_expression_bodied_local_functions = when_on_single_line:silent
+csharp_using_directive_placement = outside_namespace:warning
+dotnet_sort_system_directives_first = true
+dotnet_style_qualification_for_field = false:warning
+dotnet_style_qualification_for_property = false:warning
+dotnet_style_qualification_for_method = false:warning
+dotnet_style_qualification_for_event = false:warning
+dotnet_style_require_accessibility_modifiers = for_non_interface_members:warning
+dotnet_style_predefined_type_for_locals_parameters_members = true:warning
+dotnet_style_predefined_type_for_member_access = true:warning
+dotnet_style_readonly_field = true:warning
+csharp_new_line_before_members_in_object_initializers = false
+csharp_new_line_before_members_in_anonymous_types = false
+csharp_preferred_modifier_order = public,private,protected,internal,file,static,extern,new,virtual,abstract,sealed,override,readonly,unsafe,required,volatile,async:warning
+
+# Equally good spellings, not enforced: object and collection initializers next to explicit field
+# writes (marshalling code writes native structs field by field), auto-properties next to fields a
+# constructor sets, conditional expressions next to if statements, redundant parentheses that group
+# for the reader, explicit tuple names
+dotnet_diagnostic.IDE0008.severity = none
+dotnet_diagnostic.IDE0011.severity = none
+dotnet_diagnostic.IDE0017.severity = silent
+dotnet_diagnostic.IDE0021.severity = silent
+dotnet_diagnostic.IDE0022.severity = silent
+dotnet_diagnostic.IDE0023.severity = silent
+dotnet_diagnostic.IDE0024.severity = silent
+dotnet_diagnostic.IDE0028.severity = silent
+dotnet_diagnostic.IDE0032.severity = silent
+dotnet_diagnostic.IDE0042.severity = silent
+dotnet_diagnostic.IDE0045.severity = silent
+dotnet_diagnostic.IDE0046.severity = silent
+dotnet_diagnostic.IDE0047.severity = silent
+dotnet_diagnostic.IDE0061.severity = silent
+dotnet_diagnostic.IDE0071.severity = silent
+dotnet_diagnostic.IDE0078.severity = silent
+dotnet_diagnostic.IDE0290.severity = silent
+dotnet_diagnostic.IDE0300.severity = silent
+dotnet_diagnostic.IDE0305.severity = silent
+dotnet_diagnostic.IDE0330.severity = silent
+dotnet_diagnostic.IDE0350.severity = silent
+
+# ---------------------------------------------------------------- enforced
+
+dotnet_diagnostic.IDE0005.severity = warning   # unnecessary using
+dotnet_diagnostic.IDE0055.severity = warning   # formatting
+dotnet_diagnostic.IDE0161.severity = warning   # file-scoped namespace
+dotnet_diagnostic.IDE0040.severity = warning   # accessibility modifiers
+dotnet_diagnostic.IDE0036.severity = warning   # modifier order
+dotnet_diagnostic.IDE0044.severity = warning   # readonly field
+dotnet_diagnostic.IDE0051.severity = warning   # unused private member
+dotnet_diagnostic.IDE0052.severity = warning   # private member written, never read
+dotnet_diagnostic.IDE0059.severity = warning   # value assigned, never used
+dotnet_diagnostic.IDE0060.severity = warning   # unused parameter
+dotnet_diagnostic.IDE0062.severity = warning   # local function can be static
+dotnet_diagnostic.IDE0065.severity = warning   # using placement
+dotnet_diagnostic.IDE1006.severity = warning   # naming
+
+# Naming: _camelCase private instance fields. Private statics and constants keep whatever the file
+# uses (PascalCase tables, s_ prefixes); a naming rule cannot tell a lookup table from a field, so
+# those are left to review.
+dotnet_naming_rule.private_statics.symbols = private_statics
+dotnet_naming_rule.private_statics.style = any_name
+dotnet_naming_rule.private_statics.severity = none
+dotnet_naming_symbols.private_statics.applicable_kinds = field
+dotnet_naming_symbols.private_statics.applicable_accessibilities = private
+dotnet_naming_symbols.private_statics.required_modifiers = static
+dotnet_naming_rule.private_consts.symbols = private_consts
+dotnet_naming_rule.private_consts.style = any_name
+dotnet_naming_rule.private_consts.severity = none
+dotnet_naming_symbols.private_consts.applicable_kinds = field
+dotnet_naming_symbols.private_consts.applicable_accessibilities = private
+dotnet_naming_symbols.private_consts.required_modifiers = const
+dotnet_naming_style.any_name.capitalization = camel_case
+dotnet_naming_rule.private_fields.symbols = private_fields
+dotnet_naming_rule.private_fields.style = underscore_camel
+dotnet_naming_rule.private_fields.severity = warning
+dotnet_naming_symbols.private_fields.applicable_kinds = field
+dotnet_naming_symbols.private_fields.applicable_accessibilities = private
+dotnet_naming_style.underscore_camel.capitalization = camel_case
+dotnet_naming_style.underscore_camel.required_prefix = _
+
+# CA rules the binding's shape answers on purpose
+# - CA1711: two public types end in Attribute because that is what they are named upstream:
+#   UserAttribute is Slang's user attribute (slang.h: SlangReflectionUserAttribute), and
+#   ProjectedVertexAttribute is NRI's vertex attribute (NriVertexAttributeDesc). Neither is a .NET
+#   attribute.
+dotnet_diagnostic.CA1711.severity = none
+
+# - IDE0130: the namespaces are not the folders. The layers are folders (Interop, Compilation,
+#   Reflection, Baking, Hosting) of the namespaces the public API is organised by, and the reader
+#   assembly in pipeline/ shares those namespaces with the compiler assembly in dotnet/ so a type
+#   crossing from a cooker to a game loader is named the same on both sides.
+dotnet_diagnostic.IDE0130.severity = none
+
+# ---------------------------------------------------------------- generated: dotnet/Native
+#
+# ClangSharp's output, regenerated by tools/generate-native.ps1 and never edited by hand; a finding
+# here is fixed in the generator. It keeps Slang's names (SLANG_STAGE_VERTEX, spReflection_GetName,
+# lpVtbl), so the naming rules do not apply. Its layout is ClangSharp's, which the regeneration
+# check compares byte for byte, so the formatting rule does not apply either: reformatting it would
+# make every regeneration a diff. Its structs transcribe C structs field by field and many fields
+# are only ever written by Slang through a pointer, which is what CS0169 and CS0649 report. Every
+# other rule applies.
+[dotnet/Native/**.cs]
+dotnet_diagnostic.CA1707.severity = none
+dotnet_diagnostic.IDE1006.severity = none
+dotnet_diagnostic.IDE0055.severity = none
+dotnet_diagnostic.CS0169.severity = none
+dotnet_diagnostic.CS0649.severity = none
+
+# ---------------------------------------------------------------- names a baked package carries
+#
+# SpirvVersion and LayoutKind are serialized by name (JsonStringEnumConverter) into the layout JSON
+# of every baked .pslb, so their member names are part of the file format: renaming V1_5 or
+# Pointer would make every package baked before the rename unreadable. SpirvVersion's members are
+# version numbers, whose dot an identifier cannot hold (CA1707), and LayoutKind.Pointer is Slang's
+# own kind name (slang.h: SLANG_TYPE_KIND_POINTER) (CA1720).
+[pipeline/SpirvModule.cs]
+dotnet_diagnostic.CA1707.severity = none
+
+[pipeline/TypeLayout.cs]
+dotnet_diagnostic.CA1720.severity = none
+
+# ---------------------------------------------------------------- tests
+#
+# Test names are sentences with underscores
+[tests/**.cs]
+dotnet_diagnostic.CA1707.severity = none

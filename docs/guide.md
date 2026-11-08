@@ -1,7 +1,4 @@
-| The same shader, two architectures, different bytes | x64 and ARM64 emit byte-identical SPIR-V within an architecture and differ on shaders using `SV_VertexID`: Slang creates the two builtins it lowers to in the opposite order, so the modules are equivalent and will never compare equal. Windows and Linux agree exactly. Cook on one architecture, or content-address per architecture. |
-| The baked layout is byte-stable, the module is not | `ProgramLayout.ToJson` writes `
-` on every platform on purpose, so a hash over a baked layout is portable. The SPIR-V beside it carries the caveat above. |
-# PrismSlang — Guide
+# SharpSlang — Guide
 
 How to use it: what to type, and what Slang does that will surprise you.
 
@@ -13,11 +10,10 @@ recalled — and the traps flagged along the way are the ones that actually bit 
 ## Contents
 
 - [The two halves](#the-two-halves)
-- [Referencing PrismSlang from source](#referencing-prismslang-from-source)
+- [Referencing SharpSlang from source](#referencing-sharpslang-from-source)
 - [Compiling](#compiling)
 - [Reflecting](#reflecting)
 - [Filling a uniform buffer](#filling-a-uniform-buffer)
-- [Projecting to Vulkan](#projecting-to-vulkan)
 - [Projecting to NRI](#projecting-to-nri)
 - [Targeting D3D12](#targeting-d3d12)
 - [Specialization constants](#specialization-constants)
@@ -40,52 +36,52 @@ recalled — and the traps flagged along the way are the ones that actually bit 
 
 ## The two halves
 
-Reference `PrismSlang` in the tool that cooks shaders. Reference `PrismSlang.Runtime` — and
-`PrismSlang.Vulkan` if you want the pipeline projection — in the game that loads them. The runtime
-half has no native dependency, so a shipped build carries no compiler.
+Reference `SharpSlang` in the tool that cooks shaders. Reference `SharpSlang.Pipeline` — and
+`SharpSlang.Pipeline.NRI` if you want the pipeline projection — in the game that loads them. The
+runtime half has no native dependency, so a shipped build carries no compiler.
 
 ```xml
 <!-- asset pipeline -->
-<PackageReference Include="PrismSlang" Version="0.1.0-alpha" />
-<PackageReference Include="PrismSlang.Vulkan" Version="0.1.0-alpha" />
+<PackageReference Include="SharpSlang" Version="0.1.0-alpha" />
+<PackageReference Include="SharpSlang.Pipeline.NRI" Version="0.1.0-alpha" />
 
 <!-- game -->
-<PackageReference Include="PrismSlang.Runtime" Version="0.1.0-alpha" />
-<PackageReference Include="PrismSlang.Vulkan" Version="0.1.0-alpha" />
+<PackageReference Include="SharpSlang.Pipeline" Version="0.1.0-alpha" />
+<PackageReference Include="SharpSlang.Pipeline.NRI" Version="0.1.0-alpha" />
 ```
 
 `ShaderPackage` — the container, its reader, and the staleness checks — is in the runtime half.
-`ShaderPackageBaker`, which is the only thing that needs a compiler, is in `PrismSlang`.
+`ShaderPackageBaker`, which is the only thing that needs a compiler, is in `SharpSlang`.
 
-## Referencing PrismSlang from source
+## Referencing SharpSlang from source
 
-An engine developed alongside PrismSlang can reference its projects instead of its packages: a
+An engine developed alongside SharpSlang can reference its projects instead of its packages: a
 sibling checkout and `ProjectReference`s, so a change on one side is visible on the other without
 a pack in between.
 
 ```xml
-<!-- the cooker; ../PrismSlang is the checkout -->
-<ProjectReference Include="..\PrismSlang\dotnet\PrismSlang.csproj" />
-<ProjectReference Include="..\PrismSlang\nri\PrismSlang.NRI.csproj" />
+<!-- the cooker; ../SharpSlang is the checkout -->
+<ProjectReference Include="..\SharpSlang\dotnet\SharpSlang.csproj" />
+<ProjectReference Include="..\SharpSlang\pipeline-nri\SharpSlang.Pipeline.NRI.csproj" />
 ```
 
 **Stage the payload in the checkout.** Run `pwsh tools/fetch-native.ps1` there once per Slang pin.
-The reference to `dotnet/PrismSlang.csproj` then copies the host RID's payload flat into the
+The reference to `dotnet/SharpSlang.csproj` then copies the host RID's payload flat into the
 engine's output, beside its own assemblies.
 
 **DXIL takes the targets by hand.** A package's `build/` files do not flow through a project
-reference, so referencing `native/PrismSlang.Native.Dxc.csproj` would copy no dxc. The cooker does
-what the package does: reference Microsoft's package at PrismSlang's `DxcPackageVersion` and import
-the targets file, as `tests/PrismSlang.Tests/PrismSlang.Tests.csproj` does.
+reference, so referencing `dxc/SharpSlang.Dxc.csproj` would copy no dxc. The cooker does
+what the package does: reference Microsoft's package at SharpSlang's `DxcPackageVersion` and import
+the targets file, as `tests/SharpSlang.Tests/SharpSlang.Tests.csproj` does.
 
 ```xml
 <ItemGroup>
   <PackageReference Include="Microsoft.Direct3D.DXC" Version="[1.9.2609.5]" PrivateAssets="all" />
 </ItemGroup>
-<Import Project="..\PrismSlang\native\build\PrismSlang.Native.Dxc.targets" />
+<Import Project="..\SharpSlang\dxc\build\SharpSlang.Dxc.targets" />
 ```
 
-**Both solutions build into PrismSlang's `obj/` and `bin/`.** The engine builds PrismSlang's
+**Both solutions build into SharpSlang's `obj/` and `bin/`.** The engine builds SharpSlang's
 projects in place, so each solution's restore rewrites the other's. With the same target framework
 on both sides that is harmless.
 
@@ -99,8 +95,8 @@ same, measured; on macOS its `@loader_path` rpaths should, and the osx-arm64 tes
 ## Compiling
 
 ```csharp
-using PrismSlang;
-using PrismSlang.Spirv;
+using SharpSlang;
+using SharpSlang.Spirv;
 
 using var global = SlangGlobalSession.Create();
 
@@ -138,14 +134,14 @@ shader. Most HLSL written before the attribute existed is in this shape.
 
 **Pin the SPIR-V version.** `SpirvVersion` defaults to unset, which means Slang picks — measured as
 1.5. A device running Vulkan 1.1 accepts at most SPIR-V 1.3, and above that `vkCreateShaderModule`
-fails with nothing useful to say. `VulkanEnvironment.MaxSpirvVersion(VulkanApiVersion.V1_2)` maps
-the relationship. With a version pinned, `TargetOptions.VerifyEmittedSpirv` (on by default) parses
+fails with nothing useful to say. The Vulkan specification fixes the ceiling per API version: 1.0
+for Vulkan 1.0, 1.3 for 1.1, 1.5 for 1.2, 1.6 from 1.3. With a version pinned, `TargetOptions.VerifyEmittedSpirv` (on by default) parses
 the emitted header and throws if Slang produced something else.
 
 ## Reflecting
 
 ```csharp
-using PrismSlang.Reflection;
+using SharpSlang.Reflection;
 
 ProgramLayout layout = program.Reflect();
 ```
@@ -208,58 +204,19 @@ Arrays have `ElementStride` — a `float2[3]` in a constant buffer strides 16, n
 and a field after an array whose length is a specialization constant has no offset until the
 pipeline is created.
 
-## Projecting to Vulkan
-
-```csharp
-using PrismSlang.Vulkan;
-
-VulkanPipelineLayout vk = layout.ToVulkan();
-```
-
-Everything casts directly to a Vulkan binding's types — the enums mirror the spec's numeric values:
-
-```csharp
-foreach (var set in vk.DescriptorSets)
-foreach (var b in set.Bindings)
-{
-    var binding = new VkDescriptorSetLayoutBinding
-    {
-        binding         = b.Binding,
-        descriptorType  = (VkDescriptorType)b.DescriptorType,
-        descriptorCount = b.IsUnbounded ? myBindlessCap : b.DescriptorCount,
-        stageFlags      = (VkShaderStageFlags)b.StageFlags,
-    };
-}
-```
-
-`IsUnbounded` means the shader declared `Texture2D t[]` and said nothing about how many. Slang's own
-answer for that is `0xFFFFFFFF`, which is not a count and is normalised to 0 here so it cannot reach
-a driver. You choose the cap and declare it with
-`VK_DESCRIPTOR_BINDING_VARIABLE_DESCRIPTOR_COUNT_BIT`.
-
-Also on the layout: `PushConstants`, `VertexInputs`, `FragmentOutputs` (which sizes
-`VkPipelineColorBlendStateCreateInfo::attachmentCount`), `Stages`, and `SpecializationConstants`.
-`VulkanBinding.InputAttachmentIndex` carries the subpass index for a `SubpassInput`, which is a
-different number from the binding and you need both.
-
-`StageFlags` is **conservative** — every stage in the program is reported on every binding, because
-Slang's global-scope reflection does not attribute a parameter to entry points. It over-permits
-rather than omitting a stage that reads the binding; narrow it per pipeline if you care.
-
 ## Projecting to NRI
 
 ```csharp
-using PrismSlang.NRI;
+using SharpSlang.Pipeline.NRI;
 
 NriPipelineProjection nri = layout.ToNri(new NriProjectionOptions { UnboundedArrayCap = 1024 });
 using var pipelineLayout = device.CreatePipelineLayout(nri.Layout);
 ```
 
-`nri.Layout` is a SharpNRI `NriPipelineLayoutDesc`, filled in from the same reading of the snapshot
-as the Vulkan projection: one `NriDescriptorSetDesc` per register space the shader uses, one
+`nri.Layout` is a SharpNRI `NriPipelineLayoutDesc`, filled in from the snapshot: one `NriDescriptorSetDesc` per register space the shader uses, one
 `DescriptorRangeDesc` per binding, one `RootConstantDesc` per push-constant block, and
-`ShaderStages` set to every stage the program has. `PrismSlang.NRI` references `SharpNRI.Descs`
-only — the descs as plain types, no `NRI.dll` — so this runs wherever `PrismSlang.Runtime` does.
+`ShaderStages` set to every stage the program has. `SharpSlang.Pipeline.NRI` references `SharpNRI.Descs`
+only — the descs as plain types, no `NRI.dll` — so this runs wherever `SharpSlang.Pipeline` does.
 
 What NRI's API is indexed by, and the desc cannot carry, is on the projection beside it:
 
@@ -324,7 +281,7 @@ shifts to every binding it builds, assuming the shader compiler was told the sam
 not. State the device's offsets in `NriProjectionOptions.VkBindingOffsets` and the projection refuses
 a non-zero set rather than let the mismatch surface as a wrong texture at draw time.
 
-What NRI has no word for is refused with the construct named, as the Vulkan projection does: a
+What NRI has no word for is refused with the construct named: a
 combined texture sampler (`Sampler2D` — declare a `Texture2D` and a `SamplerState`), an inline
 uniform block, a 64-bit or three-component half vertex attribute (`Format` has none), a second
 push-constant block. NRI also has no specialization constants: a shader that declares them is
@@ -350,7 +307,7 @@ using var dxil = global.CreateSession(new SessionOptions
 ```
 
 **dxc has to be there.** Slang emits DXIL by handing HLSL to dxc, and ships none. Reference
-`PrismSlang.Native.Dxc`, which stages `dxcompiler.dll` and `dxil.dll` in the application's output
+`SharpSlang.Dxc`, which stages `dxcompiler.dll` and `dxil.dll` in the application's output
 for `win-x64`; `CreateSession` refuses a DXIL target without it, naming the package, so the failure
 is at session creation rather than inside the first compile.
 
@@ -392,52 +349,45 @@ does not need either. The thread-group size still comes from reflection on `Proj
 
 ## Specialization constants
 
-Both sides agree on `constant_id` by reading it, rather than hardcoding it twice:
+The snapshot lists every specialization constant with the id the module decorates it with, its
+scalar type, its size and the default the shader declared, so a host reads `constant_id` rather
+than hardcoding it twice:
 
 ```csharp
-VulkanSpecializationInfo info = layout.Pack(new Dictionary<string, object>
+foreach (var c in layout.SpecializationConstants)
 {
-    ["kCascadeCount"] = 4,
-    ["kSoftShadows"]  = true,
-}, includeDefaults: true);
-
-// info.MapEntries -> VkSpecializationMapEntry[], info.Data -> the packed buffer
+    // c.Name, c.ConstantId, c.ScalarType, c.ByteSize, c.DefaultInt or c.DefaultFloat
+}
 ```
 
-The value's type must match the constant's — `Pack` refuses a `double` for an `int` by name and
-type rather than truncating. Watch for `c.IsFloatingPoint ? c.DefaultFloat : c.DefaultInt`, which
-unifies to `double` before boxing and hands `Pack` the wrong type whichever branch is taken.
-
-A name the shader does not declare throws, rather than silently leaving the shader on its default —
-a material referring to a removed constant means the two have drifted.
+NRI has no specialization constants, so on NRI a shader that declares them is specialized at link
+time. The ids are what a host on another API packs its values against.
 
 ## Compute and dispatch
 
 ```csharp
-var stage = vk.Stage("computeMain")!;
-var (x, y, z) = stage.WorkgroupSize!.GroupCountFor(width, height);   // ceil-divided
+var size = nri.Stage("computeMain")!.ThreadGroupSize!.Value;     // [numthreads(x, y, z)]
+var groups = (width + (uint)size.X - 1) / (uint)size.X;           // ceil-divided
 ```
 
-`GroupCountFor` refuses rather than dividing when the workgroup size is **specialized** —
-`[numthreads(kGroupX, 1, 1)]` with a specialization constant means Slang reports `0` for that
-dimension. To dispatch one of those, resolve it against the values you are about to supply:
+Check `IsSpecialized` first: `[numthreads(kGroupX, 1, 1)]` with a specialization constant makes
+Slang report `0` for that dimension, and dividing by it is the bug. The module knows what
+reflection does not — the constant id and the declared default — so resolve it from there:
 
 ```csharp
 var declared = SpirvModule.Read(spirv).EntryPoints[0].WorkgroupSize!;
-var resolved = VulkanWorkgroupSize.From(declared, new Dictionary<uint, uint> { [0] = 128 });
-resolved.GroupCountFor(1920);
+var (x, y, z) = declared.Resolve(new Dictionary<uint, uint> { [0] = 128 });
 ```
 
-`From(size, null)` and `From(size, emptyDictionary)` mean different things on purpose: null is "I
-have not decided", any dictionary is "these are the values", and an absent constant keeps the
-shader's default because that is what Vulkan does with one.
+A constant the dictionary does not supply keeps the shader's default, because that is what Vulkan
+does with one.
 
 ## Baking and loading
 
 In the asset pipeline:
 
 ```csharp
-using PrismSlang.Baking;
+using SharpSlang.Baking;
 
 ShaderPackage package = ShaderPackageBaker.Bake(program, module);   // module, for its imports
 package.WriteToFile("cooked/standard_surface.pslb");
@@ -480,7 +430,7 @@ rebuild the project.
 
 `ReadFrom` has exactly one failure mode — `InvalidDataException` — whatever is wrong with the bytes.
 `Bake` reads its own layout back before returning, and throws `InvalidOperationException` if the
-package could not be loaded again. That is a defect in PrismSlang to report, not an error in the
+package could not be loaded again. That is a defect in SharpSlang to report, not an error in the
 shader.
 
 ## Serving shaders from your own filesystem
@@ -719,9 +669,11 @@ Slang's rule, not a limitation of the binding — `slang.h` says a global sessio
 thread-safe" and that it "and the objects created from it should be externally synchronized when
 shared across threads".
 
-Sharing one across threads without a lock has been measured doing three different things on the
-same machine: an access violation inside `loadModuleFromSource`, a clean `SlangException` out of one
-thread while the others carried on, and — once — nothing at all.
+Sharing one across threads without a lock has been measured doing four different things: an access
+violation inside `loadModuleFromSource`, a clean `SlangException` out of one thread while the others
+carried on, once nothing at all, and once **five of eight threads returning success with SPIR-V
+that differed from a serial compile** (1,492 bytes against 1,436, on a GitHub-hosted Windows runner
+with Slang v2026.21).
 
 **Do not count on the crash to tell you.** The access violation stops the cook, which is the outcome
 you want. The `SlangException` says `load module 'x' failed: SLANG_FAIL`, and that is
@@ -729,11 +681,9 @@ indistinguishable from a shader that genuinely does not compile: a cooker that l
 failure and keeps going will blame the file, ship the rest of the batch, and blame a different file
 next time. Getting this wrong does not reliably announce itself.
 
-What has held across every run is the part that would be unrecoverable — no thread has ever returned
-*success* with bytes that differ from a serial compile. That is what
-`Sharing_one_global_session_across_threads_is_never_silently_wrong` pins, and it is deliberately the
-only thing it pins: the rest is undefined behaviour, and an assertion about how undefined behaviour
-usually goes is a transcript, not a test.
+The last outcome is the unrecoverable one: the shader compiles, nothing is reported, and different
+bytes ship. So there is no safe way to share a global session without a lock, and no test pins any
+outcome of doing it, because no outcome holds on every run. Use one of the two patterns below.
 
 ### Cooking on all your cores
 
@@ -807,10 +757,10 @@ Two halves, and they allocate differently on purpose.
 **Once per shader, in the cooker or at load:** compiling, reflecting, baking, reading a package and
 projecting it. All of it builds trees of records and lists of descs, and all of it is garbage you
 pay once. Measured on a two-stage shader with five descriptors: reading a package parses about
-100 KB, `ToNri` and `ToVulkan` each allocate about 5 KB, `Pack` under 1 KB.
+100 KB, and `ToNri` allocates about 5 KB.
 
 **After load, nothing.** Every property and indexer on a projection, and every lookup on it —
-`Range(name)`, `Set(space)`, `Stage(name)` on both projections, `GroupCountFor` — allocates zero
+`Range(name)`, `Set(space)` and `Stage(name)` — allocates zero
 bytes per call, and `AllocationTests` measures that with `GC.GetAllocatedBytesForCurrentThread` so
 it stays zero. Cache the results anyway: a lookup by name is still a string comparison per range,
 and what a renderer wants per draw is the set index and the range index, which are plain integers
@@ -848,12 +798,14 @@ recognise the shape if you meet a cousin of one.
 | An `AppendStructuredBuffer` costs two descriptors | Slang emits a separate storage buffer for the count, reported as a binding named `counter` and absent from `Parameters`. Build the descriptor set layout from `DescriptorSets`, and pair counters with `CounterBinding` — with both an append and a consume buffer, the two counters have identical names. |
 | A descriptor with no name | Loose global uniforms (`uniform float4 gTint;` at file scope) become a constant buffer nobody declared, so its range has a null `Name`. It is not anonymous, just undeclared — check `DescriptorRange.IsImplicitGlobalBuffer`, and `ProgramLayout.GlobalConstantBufferSize` for its size. |
 | `GetEntryPointIdentityHash` is not a code hash | It is stable and follows the source and the compile options, but the options rather than the code: naming the default optimisation level explicitly emits identical SPIR-V under a different hash. So it does not answer "same shader" across option sets, and nothing says it covers the compiler build. Slang 2026.14.1 had the opposite fault, one hash across optimisation levels whose code differed. Hash `GetEntryPointCodeBytes` to answer "same code". |
-| An unbounded array that is not the last binding | `VK_DESCRIPTOR_BINDING_VARIABLE_DESCRIPTOR_COUNT_BIT` is legal only on a set's highest-numbered binding, and Slang does not arrange for that. Check `VulkanBinding.Binding` against the set before reaching for it; `PARTIALLY_BOUND` with a fixed cap is legal anywhere. |
+| An unbounded array that is not the last binding | `VK_DESCRIPTOR_BINDING_VARIABLE_DESCRIPTOR_COUNT_BIT` is legal only on a set's highest-numbered binding, and Slang does not arrange for that. Check the range's `Desc.baseRegisterIndex` against the rest of its set before reaching for it; `PARTIALLY_BOUND` with a fixed cap is legal anywhere. |
 | The `sample` interpolation modifier | Slang 2026.14.1 emitted `OpDecorate … Sample` without declaring `OpCapability SampleRateShading`, which spirv-val rejects as malformed whatever the device enables. Fixed by 2026.21, which declares the capability, so a device now has to enable `sampleRateShading` for the shader instead. |
 | `ParameterBlocksUseRegisterSpaces` | Byte-for-byte inert on SPIR-V. A `ParameterBlock` takes a space of its own either way. |
-| A threading bug that looks like a bad shader | Sharing a global session across threads sometimes fails as `SLANG_FAIL` on one module instead of crashing. A cooker that logs per-shader failures and continues will blame the file. If a batch reports a failure that passes on its own, suspect the thread pool before the shader. |
+| A threading bug that looks like a bad shader, or no symptom at all | Sharing a global session across threads sometimes fails as `SLANG_FAIL` on one module instead of crashing, and has been measured returning success with different SPIR-V. A cooker that logs per-shader failures and continues will blame the file. Give each thread its own global session, or lock. |
 | Uniform offsets are per target, not per shader | The same `ConstantBuffer<T>` lays out differently on SPIR-V and on D3D — std140 over-aligns a `struct` member and rounds its size up where D3D does neither, so a member can sit at byte 32 on Vulkan and byte 24 on D3D from identical source. Reflect against the target you will run on, and treat a baked layout as belonging to that target. Slang's own `buffer-layout` test compares one expected result across five targets by forcing D3D packing on all of them; nothing here does that, and the numbers differ accordingly. |
 | An entry point Slang cannot find | `FindEntryPoint(name)` returns nothing for a function without a `[shader]` attribute, and `EntryPointCount` counts zero, which reads as "this module has no entry points" rather than "you have not said which stage". Use the overload taking a `SlangStage`. |
+| The same shader, two architectures, different bytes | x64 and ARM64 emit byte-identical SPIR-V within an architecture and differ on shaders using `SV_VertexID`: Slang creates the two builtins it lowers to in the opposite order, so the modules are equivalent and will never compare equal. Windows and Linux agree exactly. Cook on one architecture, or content-address per architecture. |
+| The baked layout is byte-stable, the module is not | `ProgramLayout.ToJson` writes `\n` on every platform on purpose, so a hash over a baked layout is portable. The SPIR-V beside it carries the caveat above. |
 
 Reflection reports what Slang says. Where reflection and the emitted module disagreed, the module
 won, and the row above is what came of it.

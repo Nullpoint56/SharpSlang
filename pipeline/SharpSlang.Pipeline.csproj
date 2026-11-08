@@ -1,0 +1,71 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    SharpSlang.Pipeline — everything a shipped game needs, and nothing that needs the compiler.
+
+    The split exists because the two halves have opposite deployment stories. Compiling a shader
+    needs slang-compiler, which is 36 MB per RID; *reading* a shader that was already compiled needs
+    a container reader, a reflection snapshot and a Vulkan projection, all of which are plain
+    managed data. A game that cooks its shaders offline should reference this and never see the
+    payload — see docs .
+
+    What lives here:
+      ShaderPackage.cs   the container: ReadFrom/WriteTo, staleness checks. Baking a *new* one needs
+                         a LinkedProgram, so ShaderPackageBaker stays on the compiler side.
+      ProgramLayout.cs   the reflection snapshot and everything it exposes.
+      TypeLayout.cs      the type tree.
+      SpirvModule.cs     the emitted-module reader. Byte parsing; it never needed Slang.
+      Native/*.cs        the generated enums the surface above names, listed in
+                         ../NativeReaderEnums.props and compiled ONLY here.
+
+    The test for whether something belongs: does it hold a pointer, or call a Slang function? If
+    yes it stays in SharpSlang. The acceptance test in tests/SharpSlang.Pipeline.Consumer is what
+    keeps that honest — it references this and asserts its own build output has no native payload
+    in it at all.
+  -->
+
+  <Import Project="$(MSBuildThisFileDirectory)..\NativeReaderEnums.props" />
+
+  <PropertyGroup>
+    <TargetFramework>net11.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>SharpSlang</RootNamespace>
+
+    <PackageId>SharpSlang.Pipeline</PackageId>
+    <Version>0.1.0-alpha</Version>
+    <Authors>szombathy-tamas</Authors>
+    <Description>Reads what SharpSlang baked: shader package container, reflection snapshot, and SPIR-V module header. No native dependency — reference this from a shipped game and leave the compiler and its per-platform payload in the asset pipeline. Alpha: not yet load-tested by a shipping game.</Description>
+    <PackageTags>slang;shader;spirv;reflection;shader-package</PackageTags>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <RepositoryType>git</RepositoryType>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="@(SharpSlangReaderEnum)" Link="Native\%(Filename)%(Extension)" />
+
+    <!--
+      Compiled into BOTH assemblies rather than moved, because it is `internal` and every generated
+      declaration is annotated with it. Two internal copies are two distinct types that never meet;
+      moving it would instead mean making it public, which would put a ClangSharp implementation
+      detail on the package's API surface. It is [Conditional("DEBUG")], so a release build emits
+      no reference to it at all.
+    -->
+    <Compile Include="$(MSBuildThisFileDirectory)..\dotnet\Native\NativeTypeNameAttribute.cs"
+             Link="Native\NativeTypeNameAttribute.cs" />
+  </ItemGroup>
+
+  <!--
+    No InternalsVisibleTo for SharpSlang. It was there at first and it does not belong: SharpSlang
+    reaches this assembly through its public surface only, and granting internal access made this
+    assembly's `internal NativeTypeNameAttribute` visible over there, where the generated layer has
+    its own copy — CS0436, on every generated file, promoted to an error by -warnaserror.
+
+    The tests keep it, so a reader-side invariant can be asserted without widening the API to make
+    it assertable.
+  -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="SharpSlang.Tests" />
+  </ItemGroup>
+
+</Project>

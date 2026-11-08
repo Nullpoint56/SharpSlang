@@ -1,4 +1,4 @@
-namespace PrismSlang.Native;
+namespace SharpSlang.Native;
 
 [NativeTypeName("SlangLineDirectiveModeIntegral")]
 public enum SlangLineDirectiveMode : uint

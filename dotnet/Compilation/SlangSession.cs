@@ -7,10 +7,10 @@
 // test that passes.
 
 using System.Runtime.InteropServices;
-using PrismSlang.Interop;
-using PrismSlang.Native;
+using SharpSlang.Interop;
+using SharpSlang.Native;
 
-namespace PrismSlang;
+namespace SharpSlang;
 
 /// <summary>A compilation context: targets, search paths, macros, and the modules loaded into it.</summary>
 public sealed unsafe class SlangSession : SlangObject<ISession>
@@ -246,7 +246,7 @@ public sealed unsafe class SlangSession : SlangObject<ISession>
     /// <remarks>
     /// <para>
     /// Slang's own staleness check for an IR cache entry. Distinct from
-    /// <c>ShaderPackage.IsUpToDate</c>, which is PrismSlang's content-hash check over a baked
+    /// <c>ShaderPackage.IsUpToDate</c>, which is SharpSlang's content-hash check over a baked
     /// <em>shader</em> — this one is about a cached <em>module</em>, one step earlier.
     /// </para>
     /// <para>
@@ -427,6 +427,8 @@ public sealed unsafe class SlangSession : SlangObject<ISession>
     /// Registers that <paramref name="type"/> implements <paramref name="interfaceType"/>, so a
     /// program linking this conformance can dispatch to it dynamically.
     /// </summary>
+    /// <param name="type">The concrete type.</param>
+    /// <param name="interfaceType">The interface it implements.</param>
     /// <param name="conformanceId">
     /// Stable id written into the shader's dynamic-dispatch table. Supply one if the host needs to
     /// select an implementation by id at run time; omit to let Slang assign it.

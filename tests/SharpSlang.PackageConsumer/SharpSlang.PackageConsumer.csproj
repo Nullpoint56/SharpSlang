@@ -1,0 +1,41 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    An app that consumes the packages publish.yml has just packed, the way an engine's shader cooker
+    does: PackageReferences, no RuntimeIdentifier, started from somewhere other than its output.
+
+    Portable on purpose. Without a RuntimeIdentifier the payload stays under
+    runtimes/win-x64/native/ in the output, where .NET finds slang-compiler through deps.json and
+    Windows' own library search never looks — the layout in which every portable Windows consumer
+    lost spirv-opt, and dxc too when started as `dotnet app.dll` from elsewhere, until
+    CompanionLibraries. Nothing in the solution has that layout: its projects reference SharpSlang
+    as a project, which copies the payload flat.
+
+    Not a project in SharpSlang.slnx (its files are listed there, unbuilt), and with its own
+    nuget.config, because it restores from artifacts/ and nothing is there until publish.yml's Pack
+    step has run. As a project it would fail every restore that is not a release. The version is the
+    one just packed, passed in by that step:
+
+      dotnet build tests/SharpSlang.PackageConsumer -c Release -p:SharpSlangPackageVersion=<version>
+  -->
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net11.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="SharpSlang" Version="[$(SharpSlangPackageVersion)]" />
+    <PackageReference Include="SharpSlang.Dxc" Version="[$(SharpSlangPackageVersion)]" />
+  </ItemGroup>
+
+  <!-- Before restore, which would otherwise report an empty version range as an unreadable project. -->
+  <Target Name="SharpSlangConsumerRequireVersion" BeforeTargets="_GenerateRestoreProjectSpec;CollectPackageReferences"
+          Condition="'$(SharpSlangPackageVersion)' == ''">
+    <Error Text="Pass the version of the packages in artifacts/: -p:SharpSlangPackageVersion=&lt;version&gt;. publish.yml takes it from the SharpSlang package it has just packed." />
+  </Target>
+
+</Project>

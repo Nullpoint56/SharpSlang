@@ -9,11 +9,29 @@
 
       tools/generate-native.ps1   default -SlangVersion, and the header cache path
       tools/fetch-native.ps1      which release archive to download per RID
-      dotnet/PrismSlang.csproj    package metadata
+      dotnet/SharpSlang.csproj    package metadata
       tests/                      which header the drift tests parse
 
     Bumping Slang is therefore: change this line, re-run both tools, run the tests, review the diff.
   -->
+
+  <!--
+    Lint, for every project: the SDK's own analyzers and no analyzer package. The CA rules at
+    latest-recommended and the IDE code-style rules in the build, configured in .editorconfig, where
+    every exemption sits with its reason. pwsh tools/check.ps1 and the CI lint job build with
+    warnings as errors and check the formatting with dotnet format whitespace, as tools/check.ps1
+    spells out.
+
+    XML docs on: they ship in the packages for IntelliSense, and with them on the build checks every
+    doc comment, so a malformed one (a cref to nothing, a param that does not exist) fails. A
+    missing one does not (CS1591).
+  -->
+  <PropertyGroup>
+    <AnalysisLevel>latest-recommended</AnalysisLevel>
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+  </PropertyGroup>
 
   <PropertyGroup>
     <SlangVersion>v2026.21</SlangVersion>
@@ -26,14 +44,14 @@
       released only when the descs change. Each package's major is the NRI version: 191.x is NRI
       v191. Read by:
 
-        nri/PrismSlang.NRI.csproj     SharpNRI.Descs, the one package the projection references
-        tests/PrismSlang.Tests        SharpNRI and SharpNRI.Testing
+        pipeline-nri/SharpSlang.Pipeline.NRI.csproj     SharpNRI.Descs, the one package the projection references
+        tests/SharpSlang.Tests        SharpNRI and SharpNRI.Testing
 
       Exact, like the Slang pin, and for a smaller version of the same reason: the descs are a
       transcription of one NRI header revision, so a newer one can move a field. SharpNRI itself
       depends on exactly one SharpNRI.Descs, [191.0.0-beta.1] for 191.0.0-beta.4. A Descs pin here
       that disagrees with it does not fail the restore: measured with 1.0.0-beta.2, the tests'
-      restore warns NU1608 and resolves SharpNRI's Descs for the tests while PrismSlang.NRI builds
+      restore warns NU1608 and resolves SharpNRI's Descs for the tests while SharpSlang.Pipeline.NRI builds
       against the pin. CI's build runs with -warnaserror, which makes that warning the error. And
       NriProjectionTests pins the NRI version every reading reports to the one the projection's
       rules were measured against.
@@ -48,23 +66,23 @@
     <SharpNriDescsPackageVersion>191.0.0-beta.1</SharpNriDescsPackageVersion>
 
     <!--
-      The pinned Microsoft.Direct3D.DXC package, for PrismSlang.Native.Dxc only. Slang compiles to
+      The pinned Microsoft.Direct3D.DXC package, for SharpSlang.Dxc only. Slang compiles to
       DXIL by loading dxc as a downstream compiler, by name, from the library search path — the same
       way it loads slang-glslang — and Slang's own release ships neither dxcompiler.dll nor dxil.dll.
       So a D3D12 consumer either brings dxc itself or takes the opt-in package, which copies it into
-      the application's output, where PrismSlang loads it from before Slang asks for it by name.
+      the application's output, where SharpSlang loads it from before Slang asks for it by name.
 
       That package carries no binary. It depends on Microsoft's own NuGet package of dxc at exactly
       this version and copies the two DLLs out of it; the first version repackaged them from the
       DirectXShaderCompiler GitHub release, and Microsoft's licence terms in that release forbid a
       stand-alone offering of the files, which a payload-only package is. Read by:
 
-        native/PrismSlang.Native.Dxc.csproj          the PackageReference, as an exact range
-        native/build/PrismSlang.Native.Dxc.targets   restated there as the path to copy from, since
+        dxc/SharpSlang.Dxc.csproj          the PackageReference, as an exact range
+        dxc/build/SharpSlang.Dxc.targets   restated there as the path to copy from, since
                                                      NuGet hands a consumer no path property for a
                                                      transitive package; DocumentedFactsTests pins
                                                      the two to each other
-        tests/PrismSlang.Tests                       the same reference and import, so the DXIL
+        tests/SharpSlang.Tests                       the same reference and import, so the DXIL
                                                      tests find dxc beside the compiler
 
       1.9.2609.5 was the newest non-prerelease version on 2026-10-14 (1.10.2605.37-preview is newer

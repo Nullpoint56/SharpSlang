@@ -8,17 +8,15 @@ name: Publish
 # the README's "Status" line cannot disagree; manual runs have no tag and build whatever <Version>
 # says.
 #
-# Five packages, deliberately:
-#   PrismSlang             Slang-neutral. Compilation and reflection.
-#   PrismSlang.Runtime     Reads baked shaders in the shipped game. No compiler, no native payload.
-#   PrismSlang.Vulkan      The Vulkan reading of a reflection snapshot. Opt-in, so a D3D12 or Metal
-#                          consumer never pulls Vulkan concepts in.
-#   PrismSlang.NRI         The NRI (NVIDIA Render Interface) reading of a reflection snapshot, onto
-#                          SharpNRI's descs. Opt-in like the Vulkan one.
-#   PrismSlang.Native.Dxc  Copies Microsoft's dxc into the app's output, where PrismSlang loads it
-#                          for Slang, so Slang can emit DXIL. No binary of its own: a dependency on
-#                          Microsoft.Direct3D.DXC and a targets file that copies from it. Opt-in,
-#                          for D3D12 only.
+# Four packages, deliberately:
+#   SharpSlang               Slang-neutral. Compilation and reflection.
+#   SharpSlang.Pipeline      Reads baked shaders in the shipped game. No compiler, no native payload.
+#   SharpSlang.Pipeline.NRI  The NRI (NVIDIA Render Interface) reading of a reflection snapshot, onto
+#                            SharpNRI's descs. Opt-in.
+#   SharpSlang.Dxc           Copies Microsoft's dxc into the app's output, where SharpSlang loads it
+#                            for Slang, so Slang can emit DXIL. No binary of its own: a dependency on
+#                            Microsoft.Direct3D.DXC and a targets file that copies from it. Opt-in,
+#                            for D3D12 only.
 #
 # Unlike PrismUSD, the native payload is not committed: runtimes/ is gitignored and fetched from
 # the release pinned in Directory.Build.props. So this workflow stages every RID before packing —
@@ -74,8 +72,8 @@ jobs:
         env:
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
-          $projects = 'runtime/PrismSlang.Runtime.csproj', 'dotnet/PrismSlang.csproj', 'vulkan/PrismSlang.Vulkan.csproj',
-                      'nri/PrismSlang.NRI.csproj', 'native/PrismSlang.Native.Dxc.csproj'
+          $projects = 'pipeline/SharpSlang.Pipeline.csproj', 'dotnet/SharpSlang.csproj',
+                      'pipeline-nri/SharpSlang.Pipeline.NRI.csproj', 'dxc/SharpSlang.Dxc.csproj'
           $versions = foreach ($p in $projects) {
             if ((Get-Content $p -Raw) -notmatch '<Version>([^<]+)</Version>') { throw "<Version> not found in $p" }
             [pscustomobject]@{ Project = $p; Version = $Matches[1].Trim() }
@@ -161,9 +159,9 @@ jobs:
           $v = "${{ steps.version.outputs.value }}"
           $buildArgs = @('-c', 'Release', '--nologo', '-warnaserror')
           if ($v) { $buildArgs += "-p:Version=$v" }
-          dotnet build PrismSlang.slnx @buildArgs
+          dotnet build SharpSlang.slnx @buildArgs
           if ($LASTEXITCODE -ne 0) { throw "build failed" }
-          dotnet test PrismSlang.slnx -c Release --no-build --nologo
+          dotnet test SharpSlang.slnx -c Release --no-build --nologo
           if ($LASTEXITCODE -ne 0) { throw "tests failed" }
 
       - name: Pack
@@ -179,7 +177,7 @@ jobs:
           $v = "${{ steps.version.outputs.value }}"
           $extra = @()
           if ($v) { $extra += "-p:Version=$v" }
-          foreach ($proj in @('runtime/PrismSlang.Runtime.csproj', 'dotnet/PrismSlang.csproj', 'vulkan/PrismSlang.Vulkan.csproj', 'nri/PrismSlang.NRI.csproj', 'native/PrismSlang.Native.Dxc.csproj')) {
+          foreach ($proj in @('pipeline/SharpSlang.Pipeline.csproj', 'dotnet/SharpSlang.csproj', 'pipeline-nri/SharpSlang.Pipeline.NRI.csproj', 'dxc/SharpSlang.Dxc.csproj')) {
             dotnet pack $proj -c Release -o artifacts --no-build @extra
             if ($LASTEXITCODE -ne 0) { throw "pack failed for $proj" }
           }
@@ -192,12 +190,12 @@ jobs:
           # failure is worse than a missing file: Slang still compiles, just unoptimised, and says
           # so once per global session on a successful result.
           # The core package is the only one that should carry a payload at all. Matched by an
-          # exact prefix rather than by excluding the others one at a time: PrismSlang.Runtime was
+          # exact prefix rather than by excluding the others one at a time: SharpSlang.Pipeline was
           # added later and would have slipped through a not-like list, and it is precisely the
           # package whose whole purpose is to have no payload.
-          $nupkg = Get-ChildItem artifacts -Filter 'PrismSlang.*.nupkg' |
-                   Where-Object { $_.Name -match '^PrismSlang\.\d' } | Select-Object -First 1
-          if (-not $nupkg) { throw "no PrismSlang core package in artifacts/" }
+          $nupkg = Get-ChildItem artifacts -Filter 'SharpSlang.*.nupkg' |
+                   Where-Object { $_.Name -match '^SharpSlang\.\d' } | Select-Object -First 1
+          if (-not $nupkg) { throw "no SharpSlang core package in artifacts/" }
 
           Add-Type -AssemblyName System.IO.Compression.FileSystem
           $zip = [System.IO.Compression.ZipFile]::OpenRead($nupkg.FullName)
@@ -240,8 +238,8 @@ jobs:
           # here would be a redistribution nobody decided on; a missing targets file would be a
           # dependency that restores cleanly and leaves Slang unable to emit DXIL; a floating
           # dependency would pair the targets' path with a version it does not name.
-          $nupkg = Get-ChildItem artifacts -Filter 'PrismSlang.Native.Dxc.*.nupkg' | Select-Object -First 1
-          if (-not $nupkg) { throw "no PrismSlang.Native.Dxc package in artifacts/" }
+          $nupkg = Get-ChildItem artifacts -Filter 'SharpSlang.Dxc.*.nupkg' | Select-Object -First 1
+          if (-not $nupkg) { throw "no SharpSlang.Dxc package in artifacts/" }
 
           $props = Get-Content Directory.Build.props -Raw
           if ($props -notmatch '<DxcPackageVersion>([^<]+)</DxcPackageVersion>') { throw "DxcPackageVersion not found in Directory.Build.props" }
@@ -250,25 +248,25 @@ jobs:
           Add-Type -AssemblyName System.IO.Compression.FileSystem
           $zip = [System.IO.Compression.ZipFile]::OpenRead($nupkg.FullName)
           try {
-            foreach ($path in @('build/PrismSlang.Native.Dxc.targets', 'THIRD-PARTY-NOTICES.md')) {
+            foreach ($path in @('build/SharpSlang.Dxc.targets', 'THIRD-PARTY-NOTICES.md')) {
               if (-not ($zip.Entries | Where-Object { $_.FullName -eq $path })) {
-                throw "PrismSlang.Native.Dxc is missing $path"
+                throw "SharpSlang.Dxc is missing $path"
               }
             }
 
             $binaries = @($zip.Entries | Where-Object { $_.FullName -like 'runtimes/*' -or $_.FullName -like '*.dll' })
             if ($binaries.Count -gt 0) {
-              throw "PrismSlang.Native.Dxc carries binaries it must not redistribute: $(($binaries | ForEach-Object FullName) -join ', ')"
+              throw "SharpSlang.Dxc carries binaries it must not redistribute: $(($binaries | ForEach-Object FullName) -join ', ')"
             }
 
             $nuspec = $zip.Entries | Where-Object { $_.FullName -like '*.nuspec' } | Select-Object -First 1
             $reader = New-Object System.IO.StreamReader($nuspec.Open())
             try { $text = $reader.ReadToEnd() } finally { $reader.Dispose() }
             if ($text -notmatch "id=`"Microsoft.Direct3D.DXC`" version=`"\[$([regex]::Escape($pinned))\]`"") {
-              throw "PrismSlang.Native.Dxc does not depend on Microsoft.Direct3D.DXC at exactly [$pinned]; the nuspec says:`n$text"
+              throw "SharpSlang.Dxc does not depend on Microsoft.Direct3D.DXC at exactly [$pinned]; the nuspec says:`n$text"
             }
 
-            $targets = $zip.Entries | Where-Object { $_.FullName -eq 'build/PrismSlang.Native.Dxc.targets' }
+            $targets = $zip.Entries | Where-Object { $_.FullName -eq 'build/SharpSlang.Dxc.targets' }
             $reader = New-Object System.IO.StreamReader($targets.Open())
             try { $text = $reader.ReadToEnd() } finally { $reader.Dispose() }
             if ($text -notmatch [regex]::Escape(">$pinned<")) {
@@ -278,13 +276,13 @@ jobs:
             Write-Host "    targets present, depends on Microsoft.Direct3D.DXC [$pinned], no binary carried"
           } finally { $zip.Dispose() }
 
-      # The steps above read the packages; this one uses them. tests/PrismSlang.PackageConsumer is a
-      # portable app, no RuntimeIdentifier, that restores PrismSlang and PrismSlang.Native.Dxc from
+      # The steps above read the packages; this one uses them. tests/SharpSlang.PackageConsumer is a
+      # portable app, no RuntimeIdentifier, that restores SharpSlang and SharpSlang.Dxc from
       # artifacts/ at the version just packed (and Microsoft.Direct3D.DXC from nuget.org), then
       # compiles SPIR-V with the optimiser required and a signed DXIL container. It is started twice
       # from a directory that is not its output: as its apphost, and as `dotnet <dll>`.
       #
-      # That is the layout and the launch nothing else here has. The solution references PrismSlang
+      # That is the layout and the launch nothing else here has. The solution references SharpSlang
       # as a project, which copies the payload flat; a package consumer's portable build keeps it
       # under runtimes/win-x64/native/, which Windows' library search never looks in. Measured on
       # Windows 11 with the 0.1.0-alpha packages, before CompanionLibraries: spirv-opt could not be
@@ -293,17 +291,17 @@ jobs:
       - name: A portable app consuming the packed packages compiles SPIR-V and DXIL
         shell: pwsh
         run: |
-          $core = Get-ChildItem artifacts -Filter 'PrismSlang.*.nupkg' |
-                  Where-Object { $_.Name -match '^PrismSlang\.\d' } | Select-Object -First 1
-          if (-not $core) { throw "no PrismSlang core package in artifacts/" }
-          $version = $core.Name -replace '^PrismSlang\.(.+)\.nupkg$', '$1'
+          $core = Get-ChildItem artifacts -Filter 'SharpSlang.*.nupkg' |
+                  Where-Object { $_.Name -match '^SharpSlang\.\d' } | Select-Object -First 1
+          if (-not $core) { throw "no SharpSlang core package in artifacts/" }
+          $version = $core.Name -replace '^SharpSlang\.(.+)\.nupkg$', '$1'
           Write-Host "consuming the packed $version"
 
           # obj/ holds the consumer's own packages folder (see its nuget.config), emptied so that
           # what restores is what was just packed and never an earlier pack of the same version.
-          $consumer = 'tests/PrismSlang.PackageConsumer'
+          $consumer = 'tests/SharpSlang.PackageConsumer'
           Remove-Item "$consumer/bin", "$consumer/obj" -Recurse -Force -ErrorAction SilentlyContinue
-          dotnet build $consumer -c Release --nologo "-p:PrismSlangPackageVersion=$version"
+          dotnet build $consumer -c Release --nologo "-p:SharpSlangPackageVersion=$version"
           if ($LASTEXITCODE -ne 0) { throw "the consumer did not build against the packed $version" }
 
           $out = (Resolve-Path "$consumer/bin/Release/net11.0").Path
@@ -313,9 +311,9 @@ jobs:
 
           Push-Location $env:RUNNER_TEMP
           try {
-            & "$out/PrismSlang.PackageConsumer.exe"
+            & "$out/SharpSlang.PackageConsumer.exe"
             if ($LASTEXITCODE -ne 0) { throw "the packed packages failed a portable consumer started as its apphost" }
-            dotnet "$out/PrismSlang.PackageConsumer.dll"
+            dotnet "$out/SharpSlang.PackageConsumer.dll"
             if ($LASTEXITCODE -ne 0) { throw "the packed packages failed a portable consumer started as dotnet <dll>" }
           } finally { Pop-Location }
 
@@ -358,7 +356,7 @@ jobs:
         if: github.ref_type == 'tag'
         with:
           tag_name: ${{ github.ref_name }}
-          name: PrismSlang ${{ github.ref_name }}
+          name: SharpSlang ${{ github.ref_name }}
           prerelease: ${{ contains(github.ref_name, '-') }}
           generate_release_notes: true
           fail_on_unmatched_files: true

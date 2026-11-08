@@ -1,4 +1,4 @@
-namespace PrismSlang.Native;
+namespace SharpSlang.Native;
 
 [NativeTypeName("SlangCooperativeMatrixUseIntegral")]
 public enum SlangCooperativeMatrixUse : uint

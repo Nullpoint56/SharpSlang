@@ -1,6 +1,6 @@
 using System.Runtime.CompilerServices;
 
-namespace PrismSlang.Native;
+namespace SharpSlang.Native;
 
 public partial struct SlangUUID
 {
