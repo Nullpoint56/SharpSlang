@@ -35,8 +35,8 @@ public class PipelineLayoutTests
         using var ep = module.FindEntryPoint(entryPoint);
         using var program = session.Link(module, ep);
 
-        var layout = program.Reflect();
-        return new Compiled(layout, layout.ToNri(Capped), program.GetEntryPointCodeBytes(0));
+        var layout = program.Reflect(0);
+        return new Compiled(layout, layout.ToNri(Capped), program.GetEntryPointCodeBytes(0, 0));
     }
 
     /// <summary>Asserts every descriptor the module declares is reported at the same coordinates.</summary>
@@ -451,10 +451,10 @@ public class PipelineLayoutTests
         using var program = session.Link(module, vs, fs);
 
         using var buffer = new MemoryStream();
-        ShaderPackageBaker.Bake(program, Everything).WriteTo(buffer);
+        ShaderPackageBaker.Bake(program, Everything, 0).WriteTo(buffer);
         buffer.Position = 0;
 
-        var reflected = program.Reflect();
+        var reflected = program.Reflect(0);
         var reloaded = ShaderPackage.ReadFrom(buffer).Layout;
         var before = reflected.ToNri(Capped);
         var after = reloaded.ToNri(Capped);

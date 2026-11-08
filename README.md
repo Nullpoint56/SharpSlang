@@ -41,8 +41,8 @@ using var vertex  = module.FindEntryPoint("vertexMain");
 using var pixel   = module.FindEntryPoint("fragmentMain");
 using var program = session.Link(module, vertex, pixel);
 
-var spirv  = program.GetEntryPointCodeBytes(0);
-var layout = program.Reflect();     // descriptor sets, push constants, vertex inputs, byte layouts
+var spirv  = program.GetEntryPointCodeBytes(0, targetIndex: 0);
+var layout = program.Reflect(targetIndex: 0);     // descriptor sets, push constants, vertex inputs, byte layouts
 ```
 
 You also get specialization constants, generics and type conformances, the declaration tree, the
@@ -51,7 +51,7 @@ your own filesystem (an engine VFS or a pack file), and a bake step that writes 
 layout into one file with content hashes over the whole import graph:
 
 ```csharp
-ShaderPackage package = ShaderPackageBaker.Bake(program, module)
+ShaderPackage package = ShaderPackageBaker.Bake(program, module, targetIndex: 0)
     .WithNriProjection(new NriProjectionOptions { UnboundedArrayCap = 1024 });   // optional: NRI descs too
 package.WriteToFile("cooked/standard_surface.pslb");
 
@@ -226,7 +226,7 @@ the only check in the suite that can see a layout error, and the only one that c
 parameter list on a vtable slot nothing has ever called. They skip with instructions where no
 compiler is found; CI has one on every runner.
 
-**1173 tests** run on every leg, against oracles rather than expected values typed
+**1181 tests** run on every leg, against oracles rather than expected values typed
 by hand: the emitted SPIR-V, Slang's own alternate route to each fact, the Khronos validation
 layers and the D3D12 debug layer judging real NRI pipelines built from a **33-shader corpus**, and Slang's own test suite — 31 shaders whose expected reflection the Slang
 team wrote, compared against both `spReflection_ToJson` and this package's projection. It also

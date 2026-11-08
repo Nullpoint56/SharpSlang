@@ -45,7 +45,7 @@ public class SpecializationConstantTests
         using var ep = module.FindEntryPoint("fragmentMain");
         using var program = session.Link(module, ep);
 
-        return new Compiled(program.Reflect(), program.GetEntryPointCodeBytes(0));
+        return new Compiled(program.Reflect(0), program.GetEntryPointCodeBytes(0, 0));
     }
 
     // ---------------------------------------------------------------- ids
@@ -170,7 +170,7 @@ public class SpecializationConstantTests
         using var program = session.Link(module, ep);
 
         using var buffer = new MemoryStream();
-        Baking.ShaderPackageBaker.Bake(program, Shader).WriteTo(buffer);
+        Baking.ShaderPackageBaker.Bake(program, Shader, 0).WriteTo(buffer);
         buffer.Position = 0;
 
         var restored = Baking.ShaderPackage.ReadFrom(buffer).Layout;

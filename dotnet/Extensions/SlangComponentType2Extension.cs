@@ -57,7 +57,7 @@ public sealed unsafe class SlangComponentType2Extension
 
     /// <summary><c>getTargetCompileResult</c>: whole-program code for a target, as a compile result.</summary>
     /// <exception cref="SlangException">Slang refused; its diagnostics are attached.</exception>
-    public SlangCompileResult GetTargetCompileResult(long targetIndex = 0)
+    public SlangCompileResult GetTargetCompileResult(long targetIndex)
     {
         ICompileResult* result = null;
         ISlangBlob* diagnostics = null;
@@ -69,7 +69,7 @@ public sealed unsafe class SlangComponentType2Extension
 
     /// <summary><c>getEntryPointCompileResult</c>: one entry point's code for a target, as a compile result.</summary>
     /// <exception cref="SlangException">Slang refused; its diagnostics are attached.</exception>
-    public SlangCompileResult GetEntryPointCompileResult(long entryPointIndex, long targetIndex = 0)
+    public SlangCompileResult GetEntryPointCompileResult(long entryPointIndex, long targetIndex)
     {
         ICompileResult* result = null;
         ISlangBlob* diagnostics = null;

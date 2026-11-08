@@ -226,7 +226,7 @@ public class SurfaceCoverageTests
             try
             {
                 using var program = session.Link(module, [.. entryPoints]);
-                Collect(program.Reflect(), coverage);
+                Collect(program.Reflect(0), coverage);
             }
             finally
             {

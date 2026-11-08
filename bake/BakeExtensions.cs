@@ -15,7 +15,7 @@ public static class LinkedProgramReflectionExtensions
     /// Walks this program's reflection and returns an immutable snapshot. Safe to keep after the
     /// program is disposed.
     /// </summary>
-    public static ProgramLayout Reflect(this LinkedProgram program, int targetIndex = 0) =>
+    public static ProgramLayout Reflect(this LinkedProgram program, int targetIndex) =>
         ReflectionWalker.Walk(program, targetIndex);
 
     /// <summary>
@@ -49,20 +49,21 @@ public static class LinkedProgramReflectionExtensions
     /// </para>
     /// </remarks>
     /// <param name="program">The linked program whose reflection is asked.</param>
+    /// <param name="targetIndex">Index into the session's target list: the layout is the target's.</param>
     /// <param name="genericName">The generic's declared name, unqualified — <c>Wrapper</c>.</param>
     /// <param name="arguments">One per generic parameter, in declaration order.</param>
     /// <returns>The specialized type, or null if the program has no such generic.</returns>
     /// <exception cref="ArgumentException">An argument was default-constructed, or none were given, or their kinds do not match the generic's.</exception>
     /// <exception cref="Interop.SlangException">Slang refused the specialization; its diagnostics are attached.</exception>
     public static SpecializedType? SpecializeGeneric(
-        this LinkedProgram program, string genericName, params ReadOnlySpan<GenericArgument> arguments)
+        this LinkedProgram program, int targetIndex, string genericName, params ReadOnlySpan<GenericArgument> arguments)
     {
         ArgumentNullException.ThrowIfNull(program);
         ArgumentException.ThrowIfNullOrEmpty(genericName);
         if (arguments.Length == 0)
             throw new ArgumentException("a generic needs at least one argument", nameof(arguments));
 
-        var shader = program.GetLayout(0);
+        var shader = program.GetLayout(targetIndex);
 
         // Both are asked, because a generic is a declaration of some kind with parameters attached
         // and Slang looks the two up through different tables. `struct Wrapper<T>` is only findable
@@ -108,12 +109,12 @@ public static class LinkedProgramReflectionExtensions
     /// <see cref="FunctionSignature.Overloads"/> is populated here and never there.
     /// </para>
     /// </remarks>
-    public static FunctionSignature? FindFunction(this LinkedProgram program, string name)
+    public static FunctionSignature? FindFunction(this LinkedProgram program, int targetIndex, string name)
     {
         ArgumentNullException.ThrowIfNull(program);
         ArgumentException.ThrowIfNullOrEmpty(name);
 
-        var function = program.GetLayout(0).FindFunctionByName(name);
+        var function = program.GetLayout(targetIndex).FindFunctionByName(name);
         return function is null ? null : ReflectionWalker.ReadFunctionSignature(function);
     }
 
@@ -124,13 +125,13 @@ public static class LinkedProgramReflectionExtensions
     /// What a material system asks when it has resolved a concrete type and needs to know whether
     /// that type's <c>shade</c> takes the arguments it is about to pass.
     /// </remarks>
-    public static FunctionSignature? FindFunction(this LinkedProgram program, SlangType type, string name)
+    public static FunctionSignature? FindFunction(this LinkedProgram program, int targetIndex, SlangType type, string name)
     {
         ArgumentNullException.ThrowIfNull(program);
         ArgumentNullException.ThrowIfNull(type);
         ArgumentException.ThrowIfNullOrEmpty(name);
 
-        var function = program.GetLayout(0).FindFunctionByNameInType(type, name);
+        var function = program.GetLayout(targetIndex).FindFunctionByNameInType(type, name);
         return function is null ? null : ReflectionWalker.ReadFunctionSignature(function);
     }
 
@@ -139,7 +140,7 @@ public static class LinkedProgramReflectionExtensions
     /// resolve to, or null if none matches.
     /// </summary>
     /// <remarks>
-    /// The other half of <see cref="FindFunction(LinkedProgram, string)"/>, which reports that a
+    /// The other half of <see cref="FindFunction(LinkedProgram, int, string)"/>, which reports that a
     /// name is overloaded and hands back the candidates. This answers which one a call site gets.
     ///
     /// Two routes exist and both are used, because neither alone is enough. Slang's
@@ -148,12 +149,12 @@ public static class LinkedProgramReflectionExtensions
     /// tried, and the second picks up the case where an overloaded name does not narrow to one.
     /// </remarks>
     public static FunctionSignature? ResolveOverload(
-        this LinkedProgram program, string name, params ReadOnlySpan<SlangType> argumentTypes)
+        this LinkedProgram program, int targetIndex, string name, params ReadOnlySpan<SlangType> argumentTypes)
     {
         ArgumentNullException.ThrowIfNull(program);
         ArgumentException.ThrowIfNullOrEmpty(name);
 
-        var shader = program.GetLayout(0);
+        var shader = program.GetLayout(targetIndex);
         var function = shader.FindFunctionByName(name);
         if (function is null) return null;
 
@@ -227,7 +228,7 @@ public static class LinkedProgramReflectionExtensions
     /// safe to hardcode, on either side of the artifact.
     /// </remarks>
     /// <exception cref="InvalidDataException">The target does not emit SPIR-V, or the module is malformed.</exception>
-    public static SpirvEntryPoint GetSpirvEntryPoint(this LinkedProgram program, int entryPointIndex, int targetIndex = 0)
+    public static SpirvEntryPoint GetSpirvEntryPoint(this LinkedProgram program, int entryPointIndex, int targetIndex)
     {
         ArgumentNullException.ThrowIfNull(program);
         using var code = program.GetEntryPointCode(entryPointIndex, targetIndex);

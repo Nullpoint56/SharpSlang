@@ -582,7 +582,7 @@ public sealed class SlangWalkerCorpusTests(ITestOutputHelper output)
 
             var walk = new Walk(test.ToString());
             using var expected = JsonDocument.Parse(test.ExpectedJson);
-            walk.Program(expected.RootElement, built.Program.Reflect());
+            walk.Program(expected.RootElement, built.Program.Reflect(0));
 
             return new Report(test, null, walk.Comparisons, walk.Diffs, walk.UncheckedKeys);
         }

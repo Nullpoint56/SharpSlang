@@ -19,7 +19,7 @@ public static class ReflectionWalker
     /// <summary>Walks the reflection tree of a linked program for one target.</summary>
     /// <param name="program">A linked program. Must not be disposed.</param>
     /// <param name="targetIndex">Index into the session's target list.</param>
-    public static ProgramLayout Walk(LinkedProgram program, int targetIndex = 0)
+    public static ProgramLayout Walk(LinkedProgram program, int targetIndex)
     {
         ArgumentNullException.ThrowIfNull(program);
 

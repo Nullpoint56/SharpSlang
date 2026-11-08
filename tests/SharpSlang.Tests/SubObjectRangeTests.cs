@@ -39,7 +39,7 @@ public class SubObjectRangeTests(ITestOutputHelper output)
         using var module = session.LoadModuleFromSource("so", "so.slang", Source);
         using var entry = module.FindEntryPoint("fragmentMain");
         using var program = session.Link(module, entry);
-        return program.Reflect();
+        return program.Reflect(0);
     }
 
     [NativeFact]
@@ -116,7 +116,7 @@ public class SubObjectRangeTests(ITestOutputHelper output)
         using var entry = module.FindEntryPoint("fragmentMain");
         using var program = session.Link(module, entry);
 
-        Assert.Empty(program.Reflect().SubObjectRanges);
+        Assert.Empty(program.Reflect(0).SubObjectRanges);
     }
 
     [NativeFact]

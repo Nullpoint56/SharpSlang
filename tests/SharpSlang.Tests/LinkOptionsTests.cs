@@ -32,10 +32,10 @@ public class LinkOptionsTests
         }
         """;
 
-    private static byte[] Compile(LinkTimeOptions? options) => With(options, p => p.GetEntryPointCodeBytes(0));
+    private static byte[] Compile(LinkTimeOptions? options) => With(options, p => p.GetEntryPointCodeBytes(0, 0));
 
     private static byte[] Hash(LinkTimeOptions? options, string source = Shader) =>
-        With(options, p => p.GetEntryPointIdentityHash(0), source);
+        With(options, p => p.GetEntryPointIdentityHash(0, 0), source);
 
     private static T With<T>(
         LinkTimeOptions? options,
@@ -85,10 +85,10 @@ public class LinkOptionsTests
         // byte-identical too. So it is no longer a "same shader" key across option sets, and as a
         // cache key it errs towards a miss. LinkedProgram.GetEntryPointIdentityHash says which
         // way that cuts.
-        var unset = With(null, p => (Hash: p.GetEntryPointIdentityHash(0), Code: p.GetEntryPointCodeBytes(0)));
+        var unset = With(null, p => (Hash: p.GetEntryPointIdentityHash(0, 0), Code: p.GetEntryPointCodeBytes(0, 0)));
         var named = With(
             new LinkTimeOptions { Optimization = SlangOptimizationLevel.SLANG_OPTIMIZATION_LEVEL_DEFAULT },
-            p => (Hash: p.GetEntryPointIdentityHash(0), Code: p.GetEntryPointCodeBytes(0)));
+            p => (Hash: p.GetEntryPointIdentityHash(0, 0), Code: p.GetEntryPointCodeBytes(0, 0)));
 
         Assert.Equal(unset.Code, named.Code);
         Assert.NotEqual(unset.Hash, named.Hash);
@@ -169,7 +169,7 @@ public class LinkOptionsTests
         using var bare = session.Link(module, ep);
         using var empty = session.Link(module, [ep], new LinkOptions { CompilerOptions = new LinkTimeOptions() });
 
-        Assert.Equal(bare.GetEntryPointCodeBytes(0), empty.GetEntryPointCodeBytes(0));
+        Assert.Equal(bare.GetEntryPointCodeBytes(0, 0), empty.GetEntryPointCodeBytes(0, 0));
     }
 
     [NativeFact]
@@ -195,7 +195,7 @@ public class LinkOptionsTests
 
         using var program = session.Link(module, [ep], new LinkOptions
         {
-            SpecializationArguments = [module.RequireType("Lambert")],
+            SpecializationArguments = [module.RequireType(0, "Lambert")],
             CompilerOptions = new LinkTimeOptions
             {
                 Optimization = SlangOptimizationLevel.SLANG_OPTIMIZATION_LEVEL_MAXIMAL,
@@ -203,7 +203,7 @@ public class LinkOptionsTests
         });
 
         Assert.Equal(0, program.SpecializationParameterCount);
-        Assert.NotEmpty(program.GetEntryPointCodeBytes(0));
+        Assert.NotEmpty(program.GetEntryPointCodeBytes(0, 0));
     }
 
     [Fact]

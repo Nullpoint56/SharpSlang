@@ -42,7 +42,7 @@ public class CoreSurfaceTests(ITestOutputHelper output)
         using var entry = module.FindEntryPoint("csFragment");
 
         // The module's own layout finds the type the linked program's does.
-        var fromModule = module.GetLayout().FindTypeByName("CsBlock");
+        var fromModule = module.GetLayout(0).FindTypeByName("CsBlock");
         Assert.NotNull(fromModule);
         Assert.Equal(SlangTypeKind.SLANG_TYPE_KIND_STRUCT, fromModule.Kind);
         Assert.Equal("CsBlock", fromModule.DeclaredName);
@@ -63,7 +63,7 @@ public class CoreSurfaceTests(ITestOutputHelper output)
         Assert.Equal("vector<float,4>", function.ResultType!.FullName);
 
         using var program = session.Link(module, entry);
-        var reflected = program.GetLayout().FindEntryPointByName("csFragment")!;
+        var reflected = program.GetLayout(0).FindEntryPointByName("csFragment")!;
         Assert.Equal(SlangStage.SLANG_STAGE_FRAGMENT, reflected.Stage);
         Assert.Equal(function.Name, reflected.Function!.Name);
         Assert.Equal(function.ParameterCount, reflected.Function.ParameterCount);
@@ -89,7 +89,7 @@ public class CoreSurfaceTests(ITestOutputHelper output)
         using var entry = module.FindEntryPoint("fragmentMain");
         using var program = session.Link(module, entry);
 
-        var shader = program.GetLayout();
+        var shader = program.GetLayout(0);
         var generic = shader.FindTypeByName("CsWrapper")!.GenericContainer;
         Assert.NotNull(generic);
         Assert.Equal(1u, generic.TypeParameterCount);
@@ -113,7 +113,7 @@ public class CoreSurfaceTests(ITestOutputHelper output)
         Assert.Equal("CsWrapper<CsLambert, 3>", type.FullName);
 
         // The same answer the cooker's snapshot gives.
-        var snapshot = program.SpecializeGeneric("CsWrapper", GenericArgument.OfType(lambert), GenericArgument.OfInt(3))!;
+        var snapshot = program.SpecializeGeneric(0, "CsWrapper", GenericArgument.OfType(lambert), GenericArgument.OfInt(3))!;
         Assert.Equal(type.FullName, snapshot.Name);
 
         // The mismatch guard (U3) is the L2 call's, not the cooker's.
@@ -139,7 +139,7 @@ public class CoreSurfaceTests(ITestOutputHelper output)
         Assert.Same(extension, program.ComponentType2);
         Assert.NotEqual(0, extension.NativeHandle);
 
-        using var result = extension.GetEntryPointCompileResult(0);
+        using var result = extension.GetEntryPointCompileResult(0, 0);
         // Measured at v2026.21: two items, the code and a debug-module slot that is empty without
         // separate debug information (SLANG_E_NOT_AVAILABLE, which the binding passes through).
         output.WriteLine($"items: {result.ItemCount}");
@@ -150,14 +150,14 @@ public class CoreSurfaceTests(ITestOutputHelper output)
 
         using (var code = result.GetItemData(0))
         {
-            Assert.Equal(program.GetEntryPointCodeBytes(0), code.ToArray());
+            Assert.Equal(program.GetEntryPointCodeBytes(0, 0), code.ToArray());
         }
 
         // The metadata that came with the compile answers as the entry point's own metadata does,
         // for every binding of the layout, the unused texture included.
-        var layout = program.Reflect();
+        var layout = program.Reflect(0);
         using var fromResult = result.GetMetadata();
-        using var fromProgram = program.GetEntryPointMetadata(0);
+        using var fromProgram = program.GetEntryPointMetadata(0, 0);
         var bindings = layout.Parameters.SelectMany(p => p.Bindings).ToList();
         Assert.NotEmpty(bindings);
         foreach (var b in bindings)
@@ -180,7 +180,7 @@ public class CoreSurfaceTests(ITestOutputHelper output)
         using var result = program.ComponentType2.GetTargetCompileResult(0);
         Assert.True(result.ItemCount >= 1);
         using var code = result.GetItemData(0);
-        using var target = program.GetTargetCode();
+        using var target = program.GetTargetCode(0);
         Assert.Equal(target.ToArray(), code.ToArray());
 
         // The result is a child of the program, and refuses to outlive it.
@@ -198,7 +198,7 @@ public class CoreSurfaceTests(ITestOutputHelper output)
         using var entry = module.FindEntryPoint("csFragment");
         using var program = session.Link(module, entry);
 
-        using var metadata = program.GetEntryPointMetadata(0);
+        using var metadata = program.GetEntryPointMetadata(0, 0);
         var bindless = metadata.TryBindlessResourceMetadata;
         Assert.NotNull(bindless);
         Assert.Same(bindless, metadata.BindlessResourceMetadata);
@@ -206,8 +206,8 @@ public class CoreSurfaceTests(ITestOutputHelper output)
         // The code generator's answer: no heap. The front end's reservation stays put whatever
         // the code uses, as slang.h says of it: measured space 1 on this shader at v2026.21.
         Assert.False(bindless.UsesBindlessResourceHeap);
-        Assert.Equal(1u, program.Reflect().BindlessSpaceIndex);
-        Assert.Equal(1, program.GetLayout().BindlessSpaceIndex);
+        Assert.Equal(1u, program.Reflect(0).BindlessSpaceIndex);
+        Assert.Equal(1, program.GetLayout(0).BindlessSpaceIndex);
     }
 
     [NativeFact]
@@ -228,14 +228,14 @@ public class CoreSurfaceTests(ITestOutputHelper output)
         using var entry = module.FindEntryPoint("csBindless");
         using var program = session.Link(module, entry);
 
-        using var metadata = program.GetEntryPointMetadata(0);
-        var space = program.GetLayout().BindlessSpaceIndex;
+        using var metadata = program.GetEntryPointMetadata(0, 0);
+        var space = program.GetLayout(0).BindlessSpaceIndex;
         var uses = metadata.BindlessResourceMetadata.UsesBindlessResourceHeap;
         output.WriteLine($"bindless space {space}, usesBindlessResourceHeap {uses}");
 
         Assert.True(uses, "a shader reading through a DescriptorHandle reports no bindless heap");
         Assert.True(space >= 0, "a shader reading through a DescriptorHandle reserves no bindless space");
-        Assert.Equal((uint)space, program.Reflect().BindlessSpaceIndex);
+        Assert.Equal((uint)space, program.Reflect(0).BindlessSpaceIndex);
     }
 
     // ---------------------------------------------------------------- no hidden defaults
@@ -260,7 +260,7 @@ public class CoreSurfaceTests(ITestOutputHelper output)
             using var module = session.LoadModuleFromSource("csd", "csd.slang", Compute);
             using var entry = module.FindEntryPoint("csCompute");
             using var program = session.Link(module, entry);
-            var container = program.GetEntryPointCodeBytes(0);
+            var container = program.GetEntryPointCodeBytes(0, 0);
 
             // DXBC: 'DXBC', 16-byte digest, version, size, part count, part offsets.
             Assert.Equal("DXBC"u8.ToArray(), container[..4]);

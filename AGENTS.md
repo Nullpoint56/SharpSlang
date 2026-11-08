@@ -77,7 +77,8 @@ L3  dotnet/Extensions/   one class per optional Slang interface, acquired on fir
                          SlangComponentType2Extension (IComponentType2, queryInterface),
                          SlangBindlessResourceMetadataExtension (IBindlessResourceMetadata, castAs)
 L2  dotnet/Core/         one class per Slang object: SlangGlobalSession, SlangSession, SlangModule,
-                         SlangEntryPoint, LinkedProgram, TypeConformance, SlangMetadata, SlangCompileResult,
+                         SlangEntryPoint, SlangComponentType (unlinked), LinkedProgram,
+                         TypeConformance, SlangMetadata, SlangCompileResult,
                          SlangFileSystem (the host's ISlangFileSystem); Core/Reflection/: SlangShaderReflection,
                          SlangType, SlangTypeLayout, SlangVariable, SlangVariableLayout,
                          SlangEntryPointReflection, SlangFunction, SlangGeneric, SlangDecl,
@@ -109,15 +110,16 @@ it):
 | Type | Slang object | Calls | Desc form | Moved out or changed |
 |---|---|---|---|---|
 | `SlangGlobalSession` | `IGlobalSession` | one per call; `Create` adds the version guard and `RequireSpirvOptimizer` (owner decisions), `CreateSession` asks `RequireDxc` for a DXIL target | `GlobalSessionOptions`: two desc fields plus the two guards' switches | doc only |
-| `SlangSession` | `ISession` | one per call except `Link`, the documented composite of `createCompositeComponentType`, `specialize` and `link`/`linkWithOptions` (kept: the suite and every sample link through it) | `SessionOptions` / `TargetOptions` / `LinkOptions`: `SessionDesc` and `TargetDesc` hold pointer + count (targets, search paths, macros, option entries), so justified | the `sm_6_5` DXIL fallback profile was a default other than the header's: removed (DXIL); `SpirvVersion` was the reader's type: now a desc form in Descs; holds its file system so that one refuses Dispose |
-| `SlangModule`, `SlangEntryPoint` | `IModule`, `IEntryPoint` | one per call; `FindType` is `getLayout(0)` + `findTypeByName` | none | `GetModuleReflection`, `GetLayout`, `FunctionReflection` made public over the L2 reflection objects |
-| `LinkedProgram` | `IComponentType` (linked) | one per call; `FindType`, `IsSubType`, `ToJson` are `getLayout(0)` + one call (kept, beside the L2 reflection objects) | none | `SpecializeGeneric`, `FindFunction` (2), `ResolveOverload` returned the reader's snapshots and `GetSpirvEntryPoint` its SPIR-V reader: now Bake extensions of the same names; `GetLayout` public; the emitted-SPIR-V check reads the two header words itself |
+| `SlangSession` | `ISession` | one per call; `Link` is the documented composite of `CreateCompositeComponentType`, `SlangComponentType.Specialize` and `.Link` / `.LinkWithOptions`, each bound on its own (resolved) | `SessionOptions` / `TargetOptions` / `LinkOptions`: `SessionDesc` and `TargetDesc` hold pointer + count (targets, search paths, macros, option entries), so justified | the `sm_6_5` DXIL fallback profile was a default other than the header's: removed (DXIL); `SpirvVersion` was the reader's type: now a desc form in Descs; holds its file system so that one refuses Dispose |
+| `SlangModule`, `SlangEntryPoint` | `IModule`, `IEntryPoint` | one per call; `FindType(targetIndex, name)` is `getLayout` + `findTypeByName`, the target named (resolved) | none | `GetModuleReflection`, `GetLayout`, `FunctionReflection` made public over the L2 reflection objects |
+| `LinkedProgram` | `IComponentType` (linked) | one per call; `FindType`, `IsSubType`, `ToJson` are `getLayout` + one call with the target named (resolved) | none | `SpecializeGeneric`, `FindFunction` (2), `ResolveOverload` returned the reader's snapshots and `GetSpirvEntryPoint` its SPIR-V reader: now Bake extensions of the same names; `GetLayout` public; the emitted-SPIR-V check reads the two header words itself |
 | `LinkTimeOptions`, `GenericArgument` | `CompilerOptionEntry[]`; the parallel `SlangReflectionGenericArgType[]` / `SlangReflectionGenericArg[]` | n/a | pointer + count: justified | none |
 | `SlangType` | `TypeReflection` | was a handle with `Fields` and `FindAttribute` | none | every `spReflectionType_*` but U1's added; `FindAttribute` (the reader's `UserAttribute`) now a Bake extension; `Fields` reads `getFullName` itself |
 | `TypeConformance` | `ITypeConformance` | one per call | none | none |
 | `SlangMetadata` | `IMetadata` | one per call | none | `UnusedBindings(ProgramLayout)` now a Bake extension |
 | `SlangFileSystem` | `ISlangFileSystem`, host-implemented | thunks | none | `Dispose` freed memory Slang still held for a live session: refuses now (Ownership and lifetime) |
 | `ReflectionWalker`, `ShaderPackageBaker`, `LinkedProgramReflectionExtensions` | none: pipeline logic | n/a | n/a | moved to `bake/`; the walker rebuilt on the L2 reflection objects |
+| `SlangComponentType` (new) | `IComponentType` (composite or specialized, unlinked) | one per call: `Specialize`, `Link`, `LinkWithOptions`, `GetLayout` | none | a session child; holds a native reference on each component until after its own release |
 
 - **The reflection objects** (`Core/Reflection/`) are one class per `slang::*Reflection` type, one
   member per `spReflection*` function: parameterless getters as properties named after Slang's
@@ -128,6 +130,17 @@ it):
   `spReflectionType_GetSpecializedElementCount` and U4's `spReflection_specializeType`; U3's guard
   is `SlangShaderReflection.SpecializeGeneric`'s, a binding guard on the call it protects.
   `SlangType.ElementCount` documents U1 instead (only the layout can tell).
+- **No target is chosen for the caller** (owner, 2026-11-08). Every call that reads one target
+  takes the index, required: `GetEntryPointCode*`, `GetTargetCode`, `GetEntryPointIdentityHash`,
+  `Get*Metadata`, the compile results, `GetLayout`, `FindType`, `RequireType`, `IsSubType`,
+  `ToJson`, and in the cooker `Reflect`, `Walk`, `Bake`, `SpecializeGeneric`, `FindFunction`,
+  `ResolveOverload`, `GetSpirvEntryPoint`. Required rather than refused on a multi-target session:
+  the call then reads as the Slang call it makes and answers the same whatever the session holds,
+  where a single-target rule would make one call succeed or throw by configuration, another rule
+  to know. `slang.h` gives `getLayout` a default of 0 and none of the code getters one; the
+  binding takes neither. With a SPIR-V and a DXIL target the layouts differ per index (a texture is
+  binding 1 on SPIR-V and `t0` on DXIL), and a type found by name is the same `TypeReflection`
+  from either target's layout (v2026.21, `CompositeTests`).
 - **The diagnostics policy stays in L1.** `SlangDiagnostics.Policy` (throw on an error-level
   diagnostic from a successful call) is the guard for U9, where Slang reports degraded output on
   a successful result, and it has to run inside every call that returns a diagnostic blob, which
@@ -608,13 +621,14 @@ the same commands as CI's `lint` job. Descs-version and zero-alloc gates come la
   that skips when `slang-compiler` cannot load, so the spike is what fails a leg whose payload
   stages and does not load.
 - Figures at the split (branch `sharpslang-bake`: the L2 reflection objects, the cooker split out,
-  the stored NRI projection). The workstation (Release; Vulkan with the SDK's 1.4.363 layer and
-  D3D12, the RTX 4070 SUPER; every validator but xcrun): 1141 results, 1134 passed, 7 skipped (the
-  same seven as below), 0 failed. WSL (`verify-linux.sh` in a Linux-filesystem clone made from a
-  bundle, lavapipe, layer 1.4.363 through `VK_ADD_LAYER_PATH`, `SHARPNRI_TEST_SOFTWARE=1`): 917
-  results, 886 passed, 31 skipped (the 26 below and five DXIL or D3D12 rows the branch adds: the
-  DXIL stored-projection theory, its promoted-root-constants fact, the D3D12 stored dispatch and
-  pixel rows, the unprofiled-DXIL shader model), 0 failed. The README count is 1173.
+  the stored NRI projection, Link's steps and the explicit target index). The workstation
+  (Release; Vulkan with the SDK's 1.4.363 layer and D3D12, the RTX 4070 SUPER; every validator but
+  xcrun): 1149 results, 1142 passed, 7 skipped (the same seven as below), 0 failed. WSL
+  (`verify-linux.sh` in a fresh Linux-filesystem clone made from a bundle, lavapipe, layer 1.4.363
+  through `VK_ADD_LAYER_PATH`, `SHARPNRI_TEST_SOFTWARE=1`): 925 results, 893 passed, 32 skipped
+  (the 26 below and six DXIL or D3D12 rows the branch adds: the DXIL stored-projection theory, its
+  promoted-root-constants fact, the D3D12 stored dispatch and pixel rows, the unprofiled-DXIL
+  shader model, the two-target session), 0 failed.
 - Figures with the oracles (`PixelTests`, `TargetValidationTests`; branch `sharpslang-oracles`).
   The workstation (Release; Vulkan with the SDK's 1.4.363 layer and D3D12, the RTX 4070 SUPER;
   every validator but xcrun): 1043 results, 1036 passed, 7 skipped (the three `NativePayloadTests`
@@ -1129,6 +1143,12 @@ in `docs/upstream.md`.
 
 ### Reflection snapshot
 
+- **An unlinked composite reflects**: `SlangComponentType.GetLayout` on the composite of a module
+  and its entry point lays out the same parameters, bindings and entry points as the program linked
+  from it, and Slang's reflection JSON is the same text (v2026.21, `CompositeTests`). Borrowed from
+  the composite, so it throws once the composite is disposed. `createCompositeComponentType`
+  retains each component once itself (measured by reference count); the wrapper takes its own
+  reference too, so disposing a component first never strands the composite.
 - **Reflection pointers are interior pointers** owned by the `IComponentType` that produced them.
   The binding exposes them only through the borrowed reflection objects, which check the owner on
   every read; the walk (`ReflectionWalker`, in the cooker) reads them through those and nothing
@@ -1319,6 +1339,16 @@ in `docs/upstream.md`.
 - **Type conformances**: without `CreateTypeConformance` an implementation reached only through
   dynamic dispatch is not in the program; registering a type that does not implement the interface
   throws.
+- **Link is three calls**: `SlangSession.CreateCompositeComponentType`, `SlangComponentType.Specialize`
+  and `.Link` / `.LinkWithOptions`, each throwing with its own operation name and Slang's text
+  through the L1 policy; `SlangSession.Link` composes them in Slang's order and emits the same bytes
+  (`CompositeTests`). A wrong number of specialization arguments is Slang's `E38025` "wrong number
+  of specialization arguments", reported, not a crash.
+- **A composite linked twice emits its first link's code**: the second `linkWithOptions` on one
+  composite ignores its options (NONE first, then MAXIMAL: the same 1,572 bytes, where a fresh
+  composite at MAXIMAL gives 1,188; v2026.21, workstation). U30. Asserted as wrong by
+  `CompositeTests`; `SlangSession.Link` composes afresh per call, so it never meets it. Caller's
+  rule: one composite per link.
 - **Specialization constants**: `Pack` refuses a value of the wrong type by name;
   `c.IsFloatingPoint ? c.DefaultFloat : c.DefaultInt` unifies to `double` before boxing and hands
   `Pack` the wrong type whichever branch is taken. A name the shader does not declare throws.
@@ -1613,8 +1643,8 @@ CUDA device harness.
   executable has one such mode, `test-adapters`, which only reports adapters (Test runner).
 - **Two in-process questions moved out on suspicion** (`specialized-type-arg-out-of-range`,
   `apply-generic-to-itself`): benign on Windows and Linux, unproven on macOS; asked out of process.
-- **Expected skips.** The workstation skips the `NativePayloadTests` rows for other platforms' binaries (3), the Metal rows (3) and `DxilTests`' session without dxc (1134 passed at the split, 1036 before it; Test runner); before the oracles it skipped only the first three (788 passed at eae435a). WSL skips the D3D12 and
-  DXIL rows, 2 `NativePayloadTests` rows and the validator rows for tools Linux lacks (31 at the split, 886
+- **Expected skips.** The workstation skips the `NativePayloadTests` rows for other platforms' binaries (3), the Metal rows (3) and `DxilTests`' session without dxc (1142 passed at the split, 1036 before it; Test runner); before the oracles it skipped only the first three (788 passed at eae435a). WSL skips the D3D12 and
+  DXIL rows, 2 `NativePayloadTests` rows and the validator rows for tools Linux lacks (32 at the split, 893
   passed; 26 and 825 before it; 682 at eae435a). CI per leg has not run on this tree: the last figures are of the tree
   before the Vulkan projection's removal (run 42422416933 on 9af4412: win-x64 774 passed, 10
   skipped; linux-x64 740, 12; linux-arm64 670, 18; run 42423571989 on 15428be: osx-arm64 632, 24),

@@ -214,7 +214,7 @@ internal static class Cases
                 """);
             using var entry = module.FindEntryPoint("dcMain");
             using var program = session.Link(module, entry);
-            var code = program.GetEntryPointCodeBytes(0);
+            var code = program.GetEntryPointCodeBytes(0, 0);
 
             // A DXBC container: the magic, then a 16-byte digest that is zeros when unsigned.
             var container = code.Length > 20 && code.AsSpan(0, 4).SequenceEqual("DXBC"u8);
@@ -272,7 +272,7 @@ internal static class Cases
             {
                 CompilerOptions = new LinkTimeOptions { Optimization = level },
             });
-            return program.GetEntryPointCodeBytes(0);
+            return program.GetEntryPointCodeBytes(0, 0);
         }
     }
 
@@ -389,7 +389,7 @@ internal static class Cases
         using var vertex = module.FindEntryPoint("tVertex");
         using var fragment = module.FindEntryPoint("tFragment");
         using var program = session.Link(module, vertex, fragment);
-        using var code = program.GetTargetCode();
+        using var code = program.GetTargetCode(0);
         return code.ToArray();
     }
 
@@ -482,7 +482,7 @@ internal static class Cases
 
             var results = RunOnThreads(Threads, index =>
             {
-                using var code = programs[index].GetTargetCode();
+                using var code = programs[index].GetTargetCode(0);
                 return code.ToArray();
             });
 
@@ -1059,7 +1059,7 @@ internal static class Cases
 
         // Reflect() is what walks the binding ranges. Touching the result keeps a future
         // lazier implementation from making this case pass by never asking the question.
-        var layout = program.Reflect();
+        var layout = program.Reflect(0);
         Console.Out.WriteLine(
             $"{layout.DescriptorSets.Count} set(s), "
             + $"{layout.DescriptorSets.Sum(s => s.Ranges.Count)} range(s)");

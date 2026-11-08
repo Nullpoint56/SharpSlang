@@ -303,7 +303,7 @@ public class AssemblySplitTests
 
         // The engine projects at bake time (owner, 2026-11-08): the cooker stores the NRI
         // projection in the package, and the reader-only consumer reads it back.
-        ShaderPackageBaker.Bake(program, Source)
+        ShaderPackageBaker.Bake(program, Source, 0)
             .WithNriProjection(new NriProjectionOptions { UnboundedArrayCap = 64 })
             .WriteToFile(path);
     }

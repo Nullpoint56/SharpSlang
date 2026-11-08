@@ -64,9 +64,9 @@ public sealed class SlangReflectionCorpusTests(ITestOutputHelper output)
             // emit knows. Requesting the code here is what makes those cases comparable at all.
             if (!test.Has("-no-codegen"))
                 for (var i = 0; i < built.EntryPointCount; i++)
-                    built.Program.GetEntryPointCodeBytes(i);
+                    built.Program.GetEntryPointCodeBytes(i, 0);
 
-            var produced = built.Program.ToJson();
+            var produced = built.Program.ToJson(0);
             if (string.IsNullOrWhiteSpace(produced))
                 return new Result(test, Outcome.Threw, "spReflection_ToJson produced nothing");
 

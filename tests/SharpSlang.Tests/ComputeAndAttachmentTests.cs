@@ -24,7 +24,7 @@ public class ComputeAndAttachmentTests
         using var ep = module.FindEntryPoint(entryPoint);
         using var program = session.Link(module, ep);
 
-        return (program.GetEntryPointCodeBytes(0), program.Reflect());
+        return (program.GetEntryPointCodeBytes(0, 0), program.Reflect(0));
     }
 
     /// <summary>Each descriptor the NRI projection describes, by name: its register space and register.</summary>
@@ -160,7 +160,7 @@ public class ComputeAndAttachmentTests
         using var program = session.Link(module, ep);
 
         using var buffer = new MemoryStream();
-        ShaderPackageBaker.Bake(program, SpecializedCompute).WriteTo(buffer);
+        ShaderPackageBaker.Bake(program, SpecializedCompute, 0).WriteTo(buffer);
         buffer.Position = 0;
 
         var size = ShaderPackage.ReadFrom(buffer).EntryPoint("computeMain")!.WorkgroupSize!;
@@ -186,7 +186,7 @@ public class ComputeAndAttachmentTests
         using var program = session.Link(module, ep);
 
         using var buffer = new MemoryStream();
-        ShaderPackageBaker.Bake(program, Source).WriteTo(buffer);
+        ShaderPackageBaker.Bake(program, Source, 0).WriteTo(buffer);
         buffer.Position = 0;
 
         Assert.Null(ShaderPackage.ReadFrom(buffer).EntryPoint("vertexMain")!.WorkgroupSize);

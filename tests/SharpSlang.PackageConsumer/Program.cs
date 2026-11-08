@@ -66,5 +66,5 @@ static byte[] Compile(SlangGlobalSession global, TargetOptions target, string en
     using var module = session.LoadModuleFromSource(entryPoint, $"{entryPoint}.slang", source);
     using var entry = module.FindEntryPoint(entryPoint);
     using var program = session.Link(module, entry);
-    return program.GetEntryPointCodeBytes(0);
+    return program.GetEntryPointCodeBytes(0, 0);
 }

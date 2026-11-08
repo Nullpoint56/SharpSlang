@@ -14,6 +14,10 @@ namespace SharpSlang
         public bool RequirePinnedSlangVersion { get; init; }
         public bool RequireSpirvOptimizer { get; init; }
     }
+    public interface ISlangComponentType
+    {
+        System.IntPtr NativeHandle { get; }
+    }
     public sealed class LinkOptions
     {
         public LinkOptions() { }
@@ -28,23 +32,23 @@ namespace SharpSlang
         public SharpSlang.Native.SlangOptimizationLevel? Optimization { get; init; }
         public System.Collections.Generic.IReadOnlyList<SharpSlang.RawCompilerOption> RawEntries { get; init; }
     }
-    public sealed class LinkedProgram : SharpSlang.Interop.SlangObject<SharpSlang.Native.IComponentType>
+    public sealed class LinkedProgram : SharpSlang.Interop.SlangObject<SharpSlang.Native.IComponentType>, SharpSlang.ISlangComponentType
     {
         public SharpSlang.SlangComponentType2Extension ComponentType2 { get; }
         public System.Collections.Generic.IReadOnlyList<string> EntryPointNames { get; }
         public long SpecializationParameterCount { get; }
         public SharpSlang.SlangComponentType2Extension? TryComponentType2 { get; }
-        public SharpSlang.SlangType? FindType(string name) { }
-        public SharpSlang.Interop.SlangBlob GetEntryPointCode(int entryPointIndex, int targetIndex = 0) { }
-        public byte[] GetEntryPointCodeBytes(int entryPointIndex, int targetIndex = 0) { }
-        public byte[] GetEntryPointCodeBytes(string entryPointName, int targetIndex = 0) { }
-        public byte[] GetEntryPointIdentityHash(int entryPointIndex, int targetIndex = 0) { }
-        public SharpSlang.Reflection.SlangMetadata GetEntryPointMetadata(int entryPointIndex, int targetIndex = 0) { }
-        public SharpSlang.SlangShaderReflection GetLayout(int targetIndex = 0) { }
-        public SharpSlang.Interop.SlangBlob GetTargetCode(int targetIndex = 0) { }
-        public SharpSlang.Reflection.SlangMetadata GetTargetMetadata(int targetIndex = 0) { }
-        public bool IsSubType(SharpSlang.SlangType type, SharpSlang.SlangType baseType) { }
-        public string? ToJson() { }
+        public SharpSlang.SlangType? FindType(int targetIndex, string name) { }
+        public SharpSlang.Interop.SlangBlob GetEntryPointCode(int entryPointIndex, int targetIndex) { }
+        public byte[] GetEntryPointCodeBytes(int entryPointIndex, int targetIndex) { }
+        public byte[] GetEntryPointCodeBytes(string entryPointName, int targetIndex) { }
+        public byte[] GetEntryPointIdentityHash(int entryPointIndex, int targetIndex) { }
+        public SharpSlang.Reflection.SlangMetadata GetEntryPointMetadata(int entryPointIndex, int targetIndex) { }
+        public SharpSlang.SlangShaderReflection GetLayout(int targetIndex) { }
+        public SharpSlang.Interop.SlangBlob GetTargetCode(int targetIndex) { }
+        public SharpSlang.Reflection.SlangMetadata GetTargetMetadata(int targetIndex) { }
+        public bool IsSubType(int targetIndex, SharpSlang.SlangType type, SharpSlang.SlangType baseType) { }
+        public string? ToJson(int targetIndex) { }
     }
     public readonly struct RawCompilerOption : System.IEquatable<SharpSlang.RawCompilerOption>
     {
@@ -83,11 +87,20 @@ namespace SharpSlang
         public SharpSlang.Interop.SlangBlob GetItemData(uint index) { }
         public SharpSlang.Reflection.SlangMetadata GetMetadata() { }
     }
+    public sealed class SlangComponentType : SharpSlang.Interop.SlangObject<SharpSlang.Native.IComponentType>, SharpSlang.ISlangComponentType
+    {
+        public System.Collections.Generic.IReadOnlyList<string> EntryPointNames { get; }
+        public long SpecializationParameterCount { get; }
+        public SharpSlang.SlangShaderReflection GetLayout(int targetIndex) { }
+        public SharpSlang.LinkedProgram Link() { }
+        public SharpSlang.LinkedProgram LinkWithOptions(SharpSlang.LinkTimeOptions options) { }
+        public SharpSlang.SlangComponentType Specialize([System.Runtime.CompilerServices.ParamCollection] [System.Runtime.CompilerServices.ScopedRef] System.ReadOnlySpan<SharpSlang.SlangType> arguments) { }
+    }
     public sealed class SlangComponentType2Extension
     {
         public System.IntPtr NativeHandle { get; }
-        public SharpSlang.SlangCompileResult GetEntryPointCompileResult(long entryPointIndex, long targetIndex = 0) { }
-        public SharpSlang.SlangCompileResult GetTargetCompileResult(long targetIndex = 0) { }
+        public SharpSlang.SlangCompileResult GetEntryPointCompileResult(long entryPointIndex, long targetIndex) { }
+        public SharpSlang.SlangCompileResult GetTargetCompileResult(long targetIndex) { }
     }
     public sealed class SlangDecl : SharpSlang.Interop.SlangReflectionObject
     {
@@ -102,7 +115,7 @@ namespace SharpSlang
         public SharpSlang.SlangModifier? FindModifier(SharpSlang.Native.SlangModifierID id) { }
         public SharpSlang.SlangDecl? GetChild(uint index) { }
     }
-    public sealed class SlangEntryPoint : SharpSlang.Interop.SlangObject<SharpSlang.Native.IEntryPoint>
+    public sealed class SlangEntryPoint : SharpSlang.Interop.SlangObject<SharpSlang.Native.IEntryPoint>, SharpSlang.ISlangComponentType
     {
         public SharpSlang.SlangFunction? FunctionReflection { get; }
         public string Name { get; }
@@ -173,7 +186,7 @@ namespace SharpSlang
         public static void RequirePinnedVersion() { }
     }
     public sealed class SlangModifier : SharpSlang.Interop.SlangReflectionObject { }
-    public sealed class SlangModule : SharpSlang.Interop.SlangObject<SharpSlang.Native.IModule>
+    public sealed class SlangModule : SharpSlang.Interop.SlangObject<SharpSlang.Native.IModule>, SharpSlang.ISlangComponentType
     {
         public string? DeclaredName { get; }
         public System.Collections.Generic.IReadOnlyList<string> DependencyFilePaths { get; }
@@ -184,10 +197,10 @@ namespace SharpSlang
         public SharpSlang.SlangEntryPoint[] EntryPoints() { }
         public SharpSlang.SlangEntryPoint FindEntryPoint(string name) { }
         public SharpSlang.SlangEntryPoint FindEntryPoint(string name, SharpSlang.Native.SlangStage stage) { }
-        public SharpSlang.SlangType? FindType(string name) { }
-        public SharpSlang.SlangShaderReflection GetLayout(int targetIndex = 0) { }
+        public SharpSlang.SlangType? FindType(int targetIndex, string name) { }
+        public SharpSlang.SlangShaderReflection GetLayout(int targetIndex) { }
         public SharpSlang.SlangDecl? GetModuleReflection() { }
-        public SharpSlang.SlangType RequireType(string name) { }
+        public SharpSlang.SlangType RequireType(int targetIndex, string name) { }
         public SharpSlang.Interop.SlangBlob Serialize() { }
         public void WriteToFile(string path) { }
     }
@@ -217,6 +230,7 @@ namespace SharpSlang
     }
     public sealed class SlangSession : SharpSlang.Interop.SlangObject<SharpSlang.Native.ISession>
     {
+        public SharpSlang.SlangComponentType CreateCompositeComponentType([System.Runtime.CompilerServices.ParamCollection] [System.Runtime.CompilerServices.ScopedRef] System.ReadOnlySpan<SharpSlang.ISlangComponentType> components) { }
         public SharpSlang.TypeConformance CreateTypeConformance(SharpSlang.SlangType type, SharpSlang.SlangType interfaceType, int? conformanceId = default) { }
         public bool IsBinaryModuleUpToDate(string modulePath, System.ReadOnlySpan<byte> ir) { }
         public SharpSlang.LinkedProgram Link(SharpSlang.SlangModule module, [System.Runtime.CompilerServices.ParamCollection] [System.Runtime.CompilerServices.ScopedRef] System.ReadOnlySpan<SharpSlang.SlangEntryPoint> entryPoints) { }
@@ -390,7 +404,7 @@ namespace SharpSlang
         public bool UseEntryPointNameInSpirv { get; init; }
         public bool VerifyEmittedSpirv { get; init; }
     }
-    public sealed class TypeConformance : SharpSlang.Interop.SlangObject<SharpSlang.Native.ITypeConformance> { }
+    public sealed class TypeConformance : SharpSlang.Interop.SlangObject<SharpSlang.Native.ITypeConformance>, SharpSlang.ISlangComponentType { }
 }
 namespace SharpSlang.Hosting
 {

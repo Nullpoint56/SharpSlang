@@ -1131,10 +1131,10 @@ public sealed class NriDeviceTests(ITestOutputHelper output)
         try
         {
             using var program = session.Link(module, [.. entryPoints]);
-            var layout = program.Reflect();
+            var layout = program.Reflect(0);
 
             var code = new byte[entryPoints.Count][];
-            for (var i = 0; i < code.Length; i++) code[i] = program.GetEntryPointCodeBytes(i);
+            for (var i = 0; i < code.Length; i++) code[i] = program.GetEntryPointCodeBytes(i, 0);
 
             return new Compiled(layout, code);
         }
@@ -1153,6 +1153,6 @@ public sealed class NriDeviceTests(ITestOutputHelper output)
 
         using var entryPoint = module.FindEntryPoint(entryPointName);
         using var program = session.Link(module, entryPoint);
-        return ShaderPackageBaker.Bake(program, source);
+        return ShaderPackageBaker.Bake(program, source, 0);
     }
 }

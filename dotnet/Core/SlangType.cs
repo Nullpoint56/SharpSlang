@@ -185,7 +185,7 @@ public sealed unsafe class SlangType : SlangReflectionObject
 /// This is what lets a material system ship several <c>IMaterial</c> implementations in one
 /// pipeline and choose between them at run time, rather than compiling a pipeline per material.
 /// </remarks>
-public sealed unsafe class TypeConformance : SlangObject<ITypeConformance>
+public sealed unsafe class TypeConformance : SlangObject<ITypeConformance>, ISlangComponentType
 {
     internal TypeConformance(ITypeConformance* owned, SlangSession owner, string description)
         : base(owned, description, owner) { }

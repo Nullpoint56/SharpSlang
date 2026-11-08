@@ -24,8 +24,8 @@ public class UnknownSizeTests
         using var module = session.LoadModuleFromSource("m", "m.slang", source);
         using var ep = module.FindEntryPoint(entryPoint);
         using var program = session.Link(module, ep);
-        _ = program.GetEntryPointCodeBytes(0);
-        return program.Reflect();
+        _ = program.GetEntryPointCodeBytes(0, 0);
+        return program.Reflect(0);
     }
 
     private const string SpecSized = """

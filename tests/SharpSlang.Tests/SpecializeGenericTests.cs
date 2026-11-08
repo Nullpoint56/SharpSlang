@@ -53,10 +53,10 @@ public class SpecializeGenericTests(ITestOutputHelper output)
         var (global, session, module, program) = Load();
         using (global) using (session) using (module) using (program)
         {
-            var lambert = program.FindType("SgLambert");
+            var lambert = program.FindType(0, "SgLambert");
             Assert.NotNull(lambert);
 
-            var specialized = program.SpecializeGeneric("SgWrapper", GenericArgument.OfType(lambert));
+            var specialized = program.SpecializeGeneric(0, "SgWrapper", GenericArgument.OfType(lambert));
             Assert.NotNull(specialized);
 
             output.WriteLine($"{specialized.Name}  [{string.Join(", ", specialized.Arguments)}]");
@@ -79,9 +79,9 @@ public class SpecializeGenericTests(ITestOutputHelper output)
         using (global) using (session) using (module) using (program)
         {
             var lambert = program.SpecializeGeneric(
-                "SgWrapper", GenericArgument.OfType(program.FindType("SgLambert")!));
+                0, "SgWrapper", GenericArgument.OfType(program.FindType(0, "SgLambert")!));
             var emissive = program.SpecializeGeneric(
-                "SgWrapper", GenericArgument.OfType(program.FindType("SgEmissive")!));
+                0, "SgWrapper", GenericArgument.OfType(program.FindType(0, "SgEmissive")!));
 
             var lambertStruct = Assert.IsType<StructLayout>(lambert!.Layout);
             var emissiveStruct = Assert.IsType<StructLayout>(emissive!.Layout);
@@ -114,8 +114,8 @@ public class SpecializeGenericTests(ITestOutputHelper output)
         var (global, session, module, program) = Load();
         using (global) using (session) using (module) using (program)
         {
-            var four = program.SpecializeGeneric("SgCascades", GenericArgument.OfInt(4));
-            var eight = program.SpecializeGeneric("SgCascades", GenericArgument.OfInt(8));
+            var four = program.SpecializeGeneric(0, "SgCascades", GenericArgument.OfInt(4));
+            var eight = program.SpecializeGeneric(0, "SgCascades", GenericArgument.OfInt(8));
 
             Assert.NotNull(four);
             Assert.NotNull(eight);
@@ -151,7 +151,7 @@ public class SpecializeGenericTests(ITestOutputHelper output)
         using (global) using (session) using (module) using (program)
         {
             var specialized = program.SpecializeGeneric(
-                "sgApply", GenericArgument.OfType(program.FindType("SgEmissive")!));
+                0, "sgApply", GenericArgument.OfType(program.FindType(0, "SgEmissive")!));
 
             Assert.NotNull(specialized);
             output.WriteLine($"{specialized.Kind}: {specialized.Function}");
@@ -177,7 +177,7 @@ public class SpecializeGenericTests(ITestOutputHelper output)
         using (global) using (session) using (module) using (program)
         {
             var specialized = program.SpecializeGeneric(
-                "SgWrapper", GenericArgument.OfType(program.FindType("SgLambert")!));
+                0, "SgWrapper", GenericArgument.OfType(program.FindType(0, "SgLambert")!));
 
             Assert.Equal(DeclarationKind.Struct, specialized!.Kind);
             Assert.Null(specialized.Function);
@@ -198,7 +198,7 @@ public class SpecializeGenericTests(ITestOutputHelper output)
         using (global) using (session) using (module) using (program)
         {
             var specialized = program.SpecializeGeneric(
-                "SgWrapper", GenericArgument.OfType(program.FindType("SgLambert")!));
+                0, "SgWrapper", GenericArgument.OfType(program.FindType(0, "SgLambert")!));
 
             var layout = Assert.IsType<StructLayout>(specialized!.Layout);
             Assert.NotNull(layout.Attributes);
@@ -217,7 +217,7 @@ public class SpecializeGenericTests(ITestOutputHelper output)
         var (global, session, module, program) = Load();
         using (global) using (session) using (module) using (program)
         {
-            var specialized = program.SpecializeGeneric("SgCascades", GenericArgument.OfInt(2));
+            var specialized = program.SpecializeGeneric(0, "SgCascades", GenericArgument.OfInt(2));
             Assert.Null(Assert.IsType<StructLayout>(specialized!.Layout).Attributes);
         }
     }
@@ -230,7 +230,7 @@ public class SpecializeGenericTests(ITestOutputHelper output)
         var (global, session, module, program) = Load();
         using (global) using (session) using (module) using (program)
         {
-            Assert.Null(program.SpecializeGeneric("SgNoSuchThing", GenericArgument.OfInt(1)));
+            Assert.Null(program.SpecializeGeneric(0, "SgNoSuchThing", GenericArgument.OfInt(1)));
         }
     }
 
@@ -244,7 +244,7 @@ public class SpecializeGenericTests(ITestOutputHelper output)
         using (global) using (session) using (module) using (program)
         {
             var e = Assert.Throws<ArgumentException>(
-                () => program.SpecializeGeneric("SgPlain", GenericArgument.OfInt(1)));
+                () => program.SpecializeGeneric(0, "SgPlain", GenericArgument.OfInt(1)));
 
             Assert.Contains("not a generic one", e.Message, StringComparison.Ordinal);
         }
@@ -262,16 +262,16 @@ public class SpecializeGenericTests(ITestOutputHelper output)
         using (global) using (session) using (module) using (program)
         {
             var wrongKind = Assert.Throws<ArgumentException>(
-                () => program.SpecializeGeneric("SgWrapper", GenericArgument.OfInt(3)));
+                () => program.SpecializeGeneric(0, "SgWrapper", GenericArgument.OfInt(3)));
             output.WriteLine(wrongKind.Message);
 
             // Too many, and too few, are the same failure — both reach Slang as a mismatched list.
-            var lambert = program.FindType("SgLambert")!;
+            var lambert = program.FindType(0, "SgLambert")!;
             Assert.Throws<ArgumentException>(() => program.SpecializeGeneric(
-                "SgWrapper", GenericArgument.OfType(lambert), GenericArgument.OfType(lambert)));
+                0, "SgWrapper", GenericArgument.OfType(lambert), GenericArgument.OfType(lambert)));
 
             Assert.Throws<ArgumentException>(
-                () => program.SpecializeGeneric("SgCascades", GenericArgument.OfType(lambert)));
+                () => program.SpecializeGeneric(0, "SgCascades", GenericArgument.OfType(lambert)));
 
             // And the message says what was expected against what arrived, because "invalid
             // argument" would send the caller to read Slang's headers.
@@ -289,10 +289,10 @@ public class SpecializeGenericTests(ITestOutputHelper output)
         using (global) using (session) using (module) using (program)
         {
             Assert.Throws<ArgumentException>(
-                () => program.SpecializeGeneric("SgWrapper", default(GenericArgument)));
+                () => program.SpecializeGeneric(0, "SgWrapper", default(GenericArgument)));
 
             Assert.Throws<ArgumentException>(
-                () => program.SpecializeGeneric("SgWrapper", []));
+                () => program.SpecializeGeneric(0, "SgWrapper", []));
         }
     }
 
@@ -309,7 +309,7 @@ public class SpecializeGenericTests(ITestOutputHelper output)
         using (global) using (session) using (module)
         {
             specialized = program.SpecializeGeneric(
-                "SgWrapper", GenericArgument.OfType(program.FindType("SgLambert")!))!;
+                0, "SgWrapper", GenericArgument.OfType(program.FindType(0, "SgLambert")!))!;
             program.Dispose();
         }
 

@@ -66,7 +66,7 @@ public class ModuleSerializationTests(ITestOutputHelper output)
             using var consumer = session2.LoadModuleFromSource("msuse", "msuse.slang", Consumer);
             using var entry = consumer.FindEntryPoint("fragmentMain");
             using var program = session2.Link(consumer, entry);
-            Assert.NotEmpty(program.GetEntryPointCodeBytes(0));
+            Assert.NotEmpty(program.GetEntryPointCodeBytes(0, 0));
         }
     }
 

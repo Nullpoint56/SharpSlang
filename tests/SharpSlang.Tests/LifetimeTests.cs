@@ -95,10 +95,10 @@ public class LifetimeTests
         var ep = module.FindEntryPoint("fragmentMain");
         var program = session.Link(module, ep);
 
-        var layout = program.GetLayout();
+        var layout = program.GetLayout(0);
         program.Dispose();
-        Assert.Throws<ObjectDisposedException>(() => program.GetEntryPointCodeBytes(0));
-        Assert.Throws<ObjectDisposedException>(() => program.Reflect());
+        Assert.Throws<ObjectDisposedException>(() => program.GetEntryPointCodeBytes(0, 0));
+        Assert.Throws<ObjectDisposedException>(() => program.Reflect(0));
 
         // The program's reflection is borrowed from it, so it throws too rather than reading
         // freed memory (SlangReflectionObject).
@@ -134,7 +134,7 @@ public class LifetimeTests
         using var ep = module.FindEntryPoint("fragmentMain");
         using var program = session.Link(module, ep);
 
-        var blob = program.GetTargetCode();
+        var blob = program.GetTargetCode(0);
         Assert.True(blob.ToArray().Length > 0);
 
         blob.Dispose();
@@ -252,7 +252,7 @@ public class LifetimeTests
         var module = session.LoadModuleFromSource("m", "m.slang", Source);
         var ep = module.FindEntryPoint("fragmentMain");
         var program = session.Link(module, ep);
-        var code = program.GetEntryPointCode(0);
+        var code = program.GetEntryPointCode(0, 0);
 
         Assert.Equal(1, global.LiveChildren);    // the session
         Assert.Equal(2, session.LiveChildren);   // the module and the program
@@ -268,7 +268,7 @@ public class LifetimeTests
 
         // Still whole: everything that refused still compiles.
         using (var again = module.FindEntryPoint("fragmentMain")) Assert.Equal("fragmentMain", again.Name);
-        Assert.True(SpirvModule.IsSpirv(program.GetEntryPointCodeBytes(0)));
+        Assert.True(SpirvModule.IsSpirv(program.GetEntryPointCodeBytes(0, 0)));
         Assert.True(global.IsDownstreamCompilerAvailable(SharpSlang.Native.SlangPassThrough.SLANG_PASS_THROUGH_SPIRV_OPT));
 
         code.Dispose();
@@ -324,8 +324,8 @@ public class LifetimeTests
         Assert.NotEqual(0, program.NativeHandle);
 
         // Two reads of the same reflection object are two wrappers over one pointer, equal.
-        var first = program.GetLayout().GetParameterByIndex(0)!;
-        var second = program.GetLayout().GetParameterByIndex(0)!;
+        var first = program.GetLayout(0).GetParameterByIndex(0)!;
+        var second = program.GetLayout(0).GetParameterByIndex(0)!;
         Assert.NotSame(first, second);
         Assert.Equal(first, second);
         Assert.Equal(first.NativeHandle, second.NativeHandle);
@@ -335,8 +335,8 @@ public class LifetimeTests
         unsafe
         {
             // The raw door agrees with the wrapper.
-            var raw = SharpSlang.Native.SlangApi.spReflection_GetParameterCount((SharpSlang.Native.SlangProgramLayout*)program.GetLayout().NativeHandle);
-            Assert.Equal(program.GetLayout().ParameterCount, raw);
+            var raw = SharpSlang.Native.SlangApi.spReflection_GetParameterCount((SharpSlang.Native.SlangProgramLayout*)program.GetLayout(0).NativeHandle);
+            Assert.Equal(program.GetLayout(0).ParameterCount, raw);
         }
     }
 
@@ -373,7 +373,7 @@ public class LifetimeTests
             using var module = session.LoadModuleFromSource("m", "m.slang", Source);
             using var ep = module.FindEntryPoint("fragmentMain");
             using var program = session.Link(module, ep);
-            using var code = program.GetTargetCode();
+            using var code = program.GetTargetCode(0);
             Assert.NotEmpty(code.ToArray());
         }
 
@@ -401,8 +401,8 @@ public class LifetimeTests
 
         using (program)
         {
-            Assert.True(SpirvModule.IsSpirv(program.GetEntryPointCodeBytes(0)));
-            Assert.NotEmpty(program.Reflect().Parameters);
+            Assert.True(SpirvModule.IsSpirv(program.GetEntryPointCodeBytes(0, 0)));
+            Assert.NotEmpty(program.Reflect(0).Parameters);
         }
     }
 
@@ -419,7 +419,7 @@ public class LifetimeTests
         using (var ep = module.FindEntryPoint("fragmentMain"))
         using (var program = session.Link(module, ep))
         {
-            layout = program.Reflect();
+            layout = program.Reflect(0);
         }
 
         GC.Collect();
@@ -455,7 +455,7 @@ public class LifetimeTests
         using var ep = module.FindEntryPoint("fragmentMain");
         using var program = session.Link(module, ep);
 
-        Assert.True(SpirvModule.IsSpirv(program.GetEntryPointCodeBytes(0)));
+        Assert.True(SpirvModule.IsSpirv(program.GetEntryPointCodeBytes(0, 0)));
 
         [MethodImpl(MethodImplOptions.NoInlining)]
         static void Abandon()
@@ -467,7 +467,7 @@ public class LifetimeTests
             var program = session.Link(module, ep);
 
             // Touch everything so nothing is optimised away, then let all of it go.
-            Assert.True(program.GetEntryPointCodeBytes(0).Length > 0);
+            Assert.True(program.GetEntryPointCodeBytes(0, 0).Length > 0);
         }
     }
 
@@ -517,7 +517,7 @@ public class LifetimeTests
             using var module = session.LoadModuleFromSource("m", "m.slang", Source);
             using var ep = module.FindEntryPoint("fragmentMain");
             using var program = session.Link(module, ep);
-            Assert.True(program.GetEntryPointCodeBytes(0).Length > 0);
+            Assert.True(program.GetEntryPointCodeBytes(0, 0).Length > 0);
         }
     }
 
@@ -538,7 +538,7 @@ public class LifetimeTests
         using (var ep = second.FindEntryPoint("fragmentMain"))
         using (var program = session.Link(second, ep))
         {
-            Assert.True(program.GetEntryPointCodeBytes(0).Length > 0);
+            Assert.True(program.GetEntryPointCodeBytes(0, 0).Length > 0);
         }
 
         second.Dispose();

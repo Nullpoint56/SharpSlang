@@ -24,7 +24,7 @@ public static class ShaderPackageBaker
     /// <param name="program">A linked program.</param>
     /// <param name="source">The source it was compiled from, hashed for staleness checks.</param>
     /// <param name="targetIndex">Index into the session's target list.</param>
-    public static ShaderPackage Bake(LinkedProgram program, string source, int targetIndex = 0) =>
+    public static ShaderPackage Bake(LinkedProgram program, string source, int targetIndex) =>
         Bake(program, source, dependencies: [], targetIndex);
 
     /// <summary>
@@ -41,7 +41,7 @@ public static class ShaderPackageBaker
     /// file leaves a bake claiming to be current after a module it imports has changed, and the
     /// symptom is a shader running the version before last.
     /// </remarks>
-    public static ShaderPackage Bake(LinkedProgram program, SlangModule module, int targetIndex = 0)
+    public static ShaderPackage Bake(LinkedProgram program, SlangModule module, int targetIndex)
     {
         ArgumentNullException.ThrowIfNull(module);
 

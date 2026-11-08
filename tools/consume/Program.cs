@@ -60,13 +60,13 @@ try
     using (var entry = module.FindEntryPoint("fragmentMain"))
     using (var program = session.Link(module, entry))
     {
-        var spirv = program.GetEntryPointCodeBytes(0);
+        var spirv = program.GetEntryPointCodeBytes(0, 0);
         if (spirv.Length >= 20 && BitConverter.ToUInt32(spirv, 0) == 0x07230203) Report("PASS", "SPIR-V", $"{spirv.Length} bytes, spirv-opt required");
         else Report("FAIL", "SPIR-V", "the SPIR-V target produced something that is not a SPIR-V module");
 #if CONSUME_BAKE
         if (args.Length > 0)
         {
-            ShaderPackageBaker.Bake(program, Fragment).WriteToFile(args[0]);
+            ShaderPackageBaker.Bake(program, Fragment, 0).WriteToFile(args[0]);
             Report("PASS", "bake", $"wrote {args[0]} for the reader run");
         }
 #endif
@@ -85,7 +85,7 @@ try
         using var module = session.LoadModuleFromSource("csMain", "csMain.slang", Compute);
         using var entry = module.FindEntryPoint("csMain");
         using var program = session.Link(module, entry);
-        var dxil = program.GetEntryPointCodeBytes(0);
+        var dxil = program.GetEntryPointCodeBytes(0, 0);
         // A DXBC container, signed: the 16 bytes after the magic are zeros when it is not
         if (dxil.Length < 20 || !dxil.AsSpan(0, 4).SequenceEqual("DXBC"u8)) Report("FAIL", "DXIL", "not a DXBC container");
         else if (!dxil.AsSpan(4, 16).ContainsAnyExcept((byte)0)) Report("FAIL", "DXIL", "the container is unsigned");

@@ -27,7 +27,7 @@ public class AppendCounterTests(ITestOutputHelper output)
         using var module = session.LoadModuleFromSource("ab", "ab.slang", shaderCase.Source);
         using var entry = module.FindEntryPoint("abCompute");
         using var program = session.Link(module, entry);
-        return program.Reflect();
+        return program.Reflect(0);
     }
 
     [NativeFact]
@@ -133,7 +133,7 @@ public class AppendCounterTests(ITestOutputHelper output)
         using var entry = module.FindEntryPoint("ncCompute");
         using var program = session.Link(module, entry);
 
-        var layout = program.Reflect();
+        var layout = program.Reflect(0);
         Assert.All(layout.DescriptorSets.SelectMany(s => s.Ranges), r => Assert.Null(r.CounterBinding));
     }
 
@@ -153,7 +153,7 @@ public class AppendCounterTests(ITestOutputHelper output)
         var scope = program.GetLayout(0).GlobalParamsTypeLayout!;
 
         var count = scope.BindingRangeCount;
-        var projected = program.Reflect().DescriptorSets.SelectMany(s => s.Ranges).ToList();
+        var projected = program.Reflect(0).DescriptorSets.SelectMany(s => s.Ranges).ToList();
 
         for (long b = 0; b < count; b++)
         {

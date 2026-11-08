@@ -137,8 +137,8 @@ using var vertex  = module.FindEntryPoint("vertexMain");
 using var pixel   = module.FindEntryPoint("fragmentMain");
 using var program = session.Link(module, vertex, pixel);
 
-byte[] vertexSpirv = program.GetEntryPointCodeBytes(0);
-byte[] pixelSpirv  = program.GetEntryPointCodeBytes(1);
+byte[] vertexSpirv = program.GetEntryPointCodeBytes(0, targetIndex: 0);
+byte[] pixelSpirv  = program.GetEntryPointCodeBytes(1, targetIndex: 0);
 ```
 
 `LoadModuleFromSource(name, path, source)` compiles a string instead, for generated shaders.
@@ -163,12 +163,31 @@ fails with nothing useful to say. The Vulkan specification fixes the ceiling per
 for Vulkan 1.0, 1.3 for 1.1, 1.5 for 1.2, 1.6 from 1.3. With a version pinned, `TargetOptions.VerifyEmittedSpirv` (on by default) parses
 the emitted header and throws if Slang produced something else.
 
+**Name the target.** Every call that reads one target of a session takes its index, as Slang's
+own `getEntryPointCode` and `getTargetCode` do: index 0 is the first target in
+`SessionOptions.Targets`. Nothing picks it for you, so a session with a SPIR-V and a DXIL target
+gets the answer for the target it asks about.
+
+**Link's three steps, one at a time.** `session.Link(module, entryPoints, options)` is
+`CreateCompositeComponentType`, then `Specialize` when there are specialization arguments, then
+`Link` or `LinkWithOptions`, each available on its own when a program needs another order or wants
+to reflect the composite before linking it:
+
+```csharp
+using var composite = session.CreateCompositeComponentType(module, vertex, pixel);
+using var specialized = composite.Specialize(module.RequireType(0, "Lambert"));
+using var program = specialized.Link();
+```
+
+Link a composite once. Linked a second time, Slang hands back the first link's code and ignores the
+second link's options; compose afresh for each variant, as `session.Link` does.
+
 ## Reflecting
 
 ```csharp
 using SharpSlang.Reflection;
 
-ProgramLayout layout = program.Reflect();   // SharpSlang.Pipeline.Bake
+ProgramLayout layout = program.Reflect(targetIndex: 0);   // SharpSlang.Pipeline.Bake
 ```
 
 `ProgramLayout` is an **immutable managed snapshot**, not a proxy. It stays valid after the program,
@@ -193,7 +212,7 @@ owns it — a `ParameterBlock` takes a space of its own and nothing else in the 
 it is. Empty for a shader whose parameters are all bound directly.
 
 **Slang's own reflection, one for one.** `Reflect()` is built on the binding's reflection objects,
-which are public: `program.GetLayout()` is Slang's `ShaderReflection` as `SlangShaderReflection`,
+which are public: `program.GetLayout(targetIndex)` is Slang's `ShaderReflection` as `SlangShaderReflection`,
 and from it `SlangTypeLayout`, `SlangVariableLayout`, `SlangEntryPointReflection`, `SlangFunction`
 and the rest, one member per `spReflection*` function under Slang's own names. They borrow from the
 program: read one after the program is disposed and it throws `ObjectDisposedException`. Reach
@@ -201,7 +220,7 @@ for them for a question the snapshot does not answer; `NativeHandle` on each is 
 `spReflection*` functions take.
 
 ```csharp
-var scope = program.GetLayout().GlobalParamsTypeLayout!;
+var scope = program.GetLayout(0).GlobalParamsTypeLayout!;
 for (long b = 0; b < scope.BindingRangeCount; b++)
     Console.WriteLine($"{scope.GetBindingRangeLeafVariable(b)?.Name}: {scope.GetBindingRangeType(b)}");
 ```
@@ -262,7 +281,7 @@ the descs back instead of projecting:
 
 ```csharp
 // In the cooker, after baking:
-ShaderPackageBaker.Bake(program, module)
+ShaderPackageBaker.Bake(program, module, targetIndex: 0)
     .WithNriProjection(new NriProjectionOptions { UnboundedArrayCap = 1024 })
     .WriteToFile("cooked/standard_surface.pslb");
 
@@ -453,7 +472,7 @@ In the asset pipeline:
 ```csharp
 using SharpSlang.Baking;
 
-ShaderPackage package = ShaderPackageBaker.Bake(program, module);   // module, for its imports
+ShaderPackage package = ShaderPackageBaker.Bake(program, module, targetIndex: 0);   // module, for its imports
 package.WriteToFile("cooked/standard_surface.pslb");
 ```
 
@@ -564,8 +583,8 @@ which is what a material system needs to check a candidate against a hook.
 foreach (var d in module.ReflectDeclarations().Descendants(DeclarationKind.Func))
     Console.WriteLine(d.Function);      // vector<float,3> shade(Surface s, out float occlusion)
 
-var fn = program.FindFunction("shade");                 // by name, across the linked program
-var m  = program.FindFunction(surfaceType, "tinted");   // a method on a type
+var fn = program.FindFunction(0, "shade");              // by name, across the linked program
+var m  = program.FindFunction(0, surfaceType, "tinted");// a method on a type
 ```
 
 Two things to know before matching on strings:
@@ -579,7 +598,7 @@ Two things to know before matching on strings:
 To pick between overloads, hand Slang the call's argument types:
 
 ```csharp
-var chosen = program.ResolveOverload("blend", program.FindType("Lambert")!, floatType);
+var chosen = program.ResolveOverload(0, "blend", program.FindType(0, "Lambert")!, floatType);
 ```
 
 Types and their tags come off the same objects: `SlangType.Fields` lists a struct's members
@@ -608,9 +627,9 @@ using var program = session.Link(module, [vertex, fragment], new LinkOptions
 the module never named:
 
 ```csharp
-var material = module.RequireType("IMaterial");           // FindType returns null instead
-using var lambert  = session.CreateTypeConformance(module.RequireType("Lambert"),  material, 0);
-using var emissive = session.CreateTypeConformance(module.RequireType("Emissive"), material, 1);
+var material = module.RequireType(0, "IMaterial");        // FindType returns null instead
+using var lambert  = session.CreateTypeConformance(module.RequireType(0, "Lambert"),  material, 0);
+using var emissive = session.CreateTypeConformance(module.RequireType(0, "Emissive"), material, 1);
 ```
 
 The trailing id is the value written into the shader's dynamic-dispatch table, so a host selecting
@@ -644,12 +663,12 @@ session per configuration.
 which is what a material system needs after it picks an implementation.
 
 ```csharp
-var specialized = program.SpecializeGeneric("Wrapper", GenericArgument.OfType(lambert));
+var specialized = program.SpecializeGeneric(0, "Wrapper", GenericArgument.OfType(lambert));
 // specialized.Name       -> "Wrapper<Lambert>"
 // specialized.Arguments  -> [T = Lambert]
 // specialized.Layout     -> field offsets, sizes, strides — a snapshot, so it outlives the program
 
-var cascades = program.SpecializeGeneric("Cascades", GenericArgument.OfInt(4));   // Cascades<4>
+var cascades = program.SpecializeGeneric(0, "Cascades", GenericArgument.OfInt(4));   // Cascades<4>
 ```
 
 Value generics are only reachable this way: `LinkOptions.SpecializationArguments` specializes the
@@ -668,7 +687,7 @@ Reflection reports the shader's interface, which includes parameters the emitted
 `IMetadata` is the only thing that knows the difference, and the answer differs per stage.
 
 ```csharp
-using var metadata = program.GetEntryPointMetadata(entryPointIndex);
+using var metadata = program.GetEntryPointMetadata(entryPointIndex, targetIndex);
 foreach (var b in metadata.UnusedBindings(layout))      // SharpSlang.Pipeline.Bake
     log.Info($"{b.Category} set {b.Space} binding {b.Index} is declared but never read");
 ```
@@ -761,7 +780,7 @@ using var program = session.Link(module, entry);
   everything above it, because Slang does not on its own (`IModule` does *not* retain `ISession`),
   so no order can destroy an object under a live one.
 - **Reflection objects borrow.** A `SlangTypeLayout` or any other reflection object from
-  `GetLayout()` throws `ObjectDisposedException` once its program is disposed; there is nothing to
+  `GetLayout(targetIndex)` throws `ObjectDisposedException` once its program is disposed; there is nothing to
   dispose on it.
 - **Double dispose is a no-op**, including concurrently.
 - **Use after dispose throws** `ObjectDisposedException` rather than dereferencing.
@@ -844,7 +863,7 @@ lock (gate)                                     // front end: one at a time
 
 Parallel.ForEach(programs, p =>                 // back end: parallel
 {
-    using var code = p.GetTargetCode();
+    using var code = p.GetTargetCode(0);
     Write(code.ToArray());
 });
 ```

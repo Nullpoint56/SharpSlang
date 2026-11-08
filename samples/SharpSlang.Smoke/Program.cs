@@ -71,7 +71,7 @@ try
     var failures = 0;
     for (var i = 0; i < program.EntryPointNames.Count; i++)
     {
-        using var code = program.GetEntryPointCode(i);
+        using var code = program.GetEntryPointCode(i, 0);
         if (!Validate(code.Span, program.EntryPointNames[i])) failures++;
     }
 
@@ -82,7 +82,7 @@ try
     Console.WriteLine($"    {"slang",-14} {"in module",-14} note");
     for (var i = 0; i < program.EntryPointNames.Count; i++)
     {
-        var ep = program.GetSpirvEntryPoint(i);
+        var ep = program.GetSpirvEntryPoint(i, 0);
         var note = ep.Name == program.EntryPointNames[i]
             ? ""
             : "<- this is what goes in VkPipelineShaderStageCreateInfo::pName";
@@ -90,7 +90,7 @@ try
     }
 
     // Tier 1 — walk the reflection. The snapshot is immutable managed data and outlives `program`.
-    var layout = program.Reflect();
+    var layout = program.Reflect(0);
 
     Console.WriteLine("\n  parameters:");
     foreach (var p in layout.Parameters)

@@ -95,7 +95,7 @@ public class DownstreamCompilerTests
         {
             CompilerOptions = new LinkTimeOptions { Optimization = level },
         });
-        return program.GetEntryPointCodeBytes(0);
+        return program.GetEntryPointCodeBytes(0, 0);
     }
 
     [NativeFact]

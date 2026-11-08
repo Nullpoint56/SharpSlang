@@ -57,7 +57,7 @@ public class OptionEffectTests
         using var module = session.LoadModuleFromSource("m", "m.slang", Source);
         using var ep = module.FindEntryPoint("fragmentMain");
         using var program = session.Link(module, ep);
-        return (program.GetEntryPointCodeBytes(0), program.Reflect());
+        return (program.GetEntryPointCodeBytes(0, 0), program.Reflect(0));
     }
 
     private static (byte[] Code, ProgramLayout Layout) WithTarget(TargetOptions target) =>

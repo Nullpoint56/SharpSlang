@@ -182,7 +182,7 @@ public class SpirvModuleTests
         using var vs = module.FindEntryPoint("vertexMain");
         using var program = session.Link(module, vs);
 
-        var code = program.GetEntryPointCodeBytes(0);
+        var code = program.GetEntryPointCodeBytes(0, 0);
 
         Assert.True(SpirvModule.IsSpirv(code));
         var info = SpirvModule.Read(code);

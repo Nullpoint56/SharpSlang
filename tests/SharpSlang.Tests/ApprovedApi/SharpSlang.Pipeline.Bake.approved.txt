@@ -2,8 +2,8 @@ namespace SharpSlang.Baking
 {
     public static class ShaderPackageBaker
     {
-        public static SharpSlang.Baking.ShaderPackage Bake(SharpSlang.LinkedProgram program, SharpSlang.SlangModule module, int targetIndex = 0) { }
-        public static SharpSlang.Baking.ShaderPackage Bake(SharpSlang.LinkedProgram program, string source, int targetIndex = 0) { }
+        public static SharpSlang.Baking.ShaderPackage Bake(SharpSlang.LinkedProgram program, SharpSlang.SlangModule module, int targetIndex) { }
+        public static SharpSlang.Baking.ShaderPackage Bake(SharpSlang.LinkedProgram program, string source, int targetIndex) { }
     }
 }
 namespace SharpSlang
@@ -11,13 +11,13 @@ namespace SharpSlang
     public static class LinkedProgramReflectionExtensions
     {
         public static SharpSlang.Reflection.UserAttribute? FindAttribute(this SharpSlang.SlangType type, string name) { }
-        public static SharpSlang.Reflection.FunctionSignature? FindFunction(this SharpSlang.LinkedProgram program, string name) { }
-        public static SharpSlang.Reflection.FunctionSignature? FindFunction(this SharpSlang.LinkedProgram program, SharpSlang.SlangType type, string name) { }
-        public static SharpSlang.Spirv.SpirvEntryPoint GetSpirvEntryPoint(this SharpSlang.LinkedProgram program, int entryPointIndex, int targetIndex = 0) { }
-        public static SharpSlang.Reflection.ProgramLayout Reflect(this SharpSlang.LinkedProgram program, int targetIndex = 0) { }
+        public static SharpSlang.Reflection.FunctionSignature? FindFunction(this SharpSlang.LinkedProgram program, int targetIndex, string name) { }
+        public static SharpSlang.Reflection.FunctionSignature? FindFunction(this SharpSlang.LinkedProgram program, int targetIndex, SharpSlang.SlangType type, string name) { }
+        public static SharpSlang.Spirv.SpirvEntryPoint GetSpirvEntryPoint(this SharpSlang.LinkedProgram program, int entryPointIndex, int targetIndex) { }
+        public static SharpSlang.Reflection.ProgramLayout Reflect(this SharpSlang.LinkedProgram program, int targetIndex) { }
         public static SharpSlang.Reflection.DeclarationNode ReflectDeclarations(this SharpSlang.SlangModule module) { }
-        public static SharpSlang.Reflection.FunctionSignature? ResolveOverload(this SharpSlang.LinkedProgram program, string name, [System.Runtime.CompilerServices.ParamCollection] [System.Runtime.CompilerServices.ScopedRef] System.ReadOnlySpan<SharpSlang.SlangType> argumentTypes) { }
-        public static SharpSlang.Reflection.SpecializedType? SpecializeGeneric(this SharpSlang.LinkedProgram program, string genericName, [System.Runtime.CompilerServices.ParamCollection] [System.Runtime.CompilerServices.ScopedRef] System.ReadOnlySpan<SharpSlang.GenericArgument> arguments) { }
+        public static SharpSlang.Reflection.FunctionSignature? ResolveOverload(this SharpSlang.LinkedProgram program, int targetIndex, string name, [System.Runtime.CompilerServices.ParamCollection] [System.Runtime.CompilerServices.ScopedRef] System.ReadOnlySpan<SharpSlang.SlangType> argumentTypes) { }
+        public static SharpSlang.Reflection.SpecializedType? SpecializeGeneric(this SharpSlang.LinkedProgram program, int targetIndex, string genericName, [System.Runtime.CompilerServices.ParamCollection] [System.Runtime.CompilerServices.ScopedRef] System.ReadOnlySpan<SharpSlang.GenericArgument> arguments) { }
         public static System.Collections.Generic.IReadOnlyList<SharpSlang.Reflection.ParameterBinding> UnusedBindings(this SharpSlang.Reflection.SlangMetadata metadata, SharpSlang.Reflection.ProgramLayout layout) { }
     }
 }
@@ -25,7 +25,7 @@ namespace SharpSlang.Reflection
 {
     public static class ReflectionWalker
     {
-        public static SharpSlang.Reflection.ProgramLayout Walk(SharpSlang.LinkedProgram program, int targetIndex = 0) { }
+        public static SharpSlang.Reflection.ProgramLayout Walk(SharpSlang.LinkedProgram program, int targetIndex) { }
         public static SharpSlang.Reflection.DeclarationNode WalkDeclarations(SharpSlang.SlangModule module) { }
     }
 }

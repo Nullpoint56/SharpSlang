@@ -57,7 +57,7 @@ public class ReflectionTests
         try
         {
             using var program = session.Link(module, eps);
-            return program.Reflect();
+            return program.Reflect(0);
         }
         finally
         {
@@ -117,7 +117,7 @@ public class ReflectionTests
             using var vs = module.FindEntryPoint("vertexMain");
             using var program = session.Link(module, vs);
 
-            var block = (ContainerLayout)program.Reflect().Parameter("u")!.Type;
+            var block = (ContainerLayout)program.Reflect(0).Parameter("u")!.Type;
             return (MatrixLayout)((StructLayout)block.ElementType).Field("mvp")!.Type;
         }
 
@@ -216,7 +216,7 @@ public class ReflectionTests
             using var fs = module.FindEntryPoint("fragmentMain");
             using var program = session.Link(module, fs);
 
-            var layout = program.Reflect();
+            var layout = program.Reflect(0);
             Assert.Equal(LayoutKind.ParameterBlock, layout.Parameter("a")!.Type.Kind);
             Assert.Equal(LayoutKind.ParameterBlock, layout.Parameter("b")!.Type.Kind);
             return layout.Parameters.Select(p => p.DescriptorSet).ToArray();
@@ -432,7 +432,7 @@ public class ReflectionTests
         using var ep = module.FindEntryPoint("guFragment");
         using var program = session.Link(module, ep);
 
-        var layout = program.Reflect();
+        var layout = program.Reflect(0);
         var ranges = layout.DescriptorSets.SelectMany(s => s.Ranges).ToList();
         var implicitBuffer = Assert.Single(ranges, r => r.IsImplicitGlobalBuffer);
 
@@ -467,7 +467,7 @@ public class ReflectionTests
         using var ep = module.FindEntryPoint("ngFragment");
         using var program = session.Link(module, ep);
 
-        var layout = program.Reflect();
+        var layout = program.Reflect(0);
         Assert.Equal(0ul, layout.GlobalConstantBufferSize);
         Assert.DoesNotContain(
             layout.DescriptorSets.SelectMany(s => s.Ranges), r => r.IsImplicitGlobalBuffer);

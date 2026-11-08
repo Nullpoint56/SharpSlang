@@ -86,7 +86,7 @@ public class SecondOpinionTests(ITestOutputHelper output)
         // ShaderParameter.PrimaryBinding, which the walk builds from the variable layout's
         // per-category offsets. Different entry points into the same data.
         using var loaded = Load();
-        var layout = loaded.Program.Reflect();
+        var layout = loaded.Program.Reflect(0);
 
         var count = loaded.Shader.ParameterCount;
         Assert.Equal((int)count, layout.Parameters.Count);
@@ -113,7 +113,7 @@ public class SecondOpinionTests(ITestOutputHelper output)
         // The projection reads the format from the binding range. The variable layout answers the
         // same question about the same declaration, and is the route not taken.
         using var loaded = Load();
-        var layout = loaded.Program.Reflect();
+        var layout = loaded.Program.Reflect(0);
 
         var count = loaded.Shader.ParameterCount;
         for (uint i = 0; i < count; i++)
@@ -139,7 +139,7 @@ public class SecondOpinionTests(ITestOutputHelper output)
     public void Everything_findable_by_name_is_the_thing_the_snapshot_enumerated()
     {
         using var loaded = Load();
-        var layout = loaded.Program.Reflect();
+        var layout = loaded.Program.Reflect(0);
 
         // Entry points.
         foreach (var entryPoint in layout.EntryPoints)
@@ -153,7 +153,7 @@ public class SecondOpinionTests(ITestOutputHelper output)
         Assert.Null(loaded.Shader.FindEntryPointByName("soNoSuchEntryPoint"));
 
         // A field of a struct, by name, against the index the layout walk used.
-        var block = loaded.Program.FindType("SoBlock");
+        var block = loaded.Program.FindType(0, "SoBlock");
         Assert.NotNull(block);
 
         var buffer = layout.Parameters.Single(p => p.Name == "soBuffer");
@@ -193,9 +193,9 @@ public class SecondOpinionTests(ITestOutputHelper output)
         // with no layout. The snapshot's StructLayout.Fields is the same declaration with offsets.
         // Same names, same order, or one of the two views is walking something else.
         using var loaded = Load();
-        var layout = loaded.Program.Reflect();
+        var layout = loaded.Program.Reflect(0);
 
-        var block = loaded.Program.FindType("SoBlock");
+        var block = loaded.Program.FindType(0, "SoBlock");
         Assert.NotNull(block);
 
         var element = Assert.IsType<StructLayout>(
@@ -213,7 +213,7 @@ public class SecondOpinionTests(ITestOutputHelper output)
     {
         using var loaded = Load();
 
-        var block = loaded.Program.FindType("SoBlock");
+        var block = loaded.Program.FindType(0, "SoBlock");
         Assert.NotNull(block);
 
         var found = block.FindAttribute("SoTag");
@@ -229,7 +229,7 @@ public class SecondOpinionTests(ITestOutputHelper output)
     public void The_remaining_layout_queries_answer_and_agree()
     {
         using var loaded = Load();
-        var layout = loaded.Program.Reflect();
+        var layout = loaded.Program.Reflect(0);
 
         var globalVarLayout = loaded.Shader.GlobalParamsVarLayout;
         Assert.True(globalVarLayout is not null, "the global scope has no variable layout");
@@ -293,7 +293,7 @@ public class SecondOpinionTests(ITestOutputHelper output)
         // — which is what linking is for. Pinned so that "always false" is a measurement rather
         // than an assumption nobody rechecked.
         using var loaded = Load();
-        var layout = loaded.Program.Reflect();
+        var layout = loaded.Program.Reflect(0);
 
         Assert.All(layout.DescriptorSets.SelectMany(s => s.Ranges),
             r => Assert.False(r.IsSpecializable));
@@ -309,7 +309,7 @@ public class SecondOpinionTests(ITestOutputHelper output)
     public void A_varying_reports_the_stage_it_belongs_to_and_a_global_does_not()
     {
         using var loaded = Load();
-        var layout = loaded.Program.Reflect();
+        var layout = loaded.Program.Reflect(0);
 
         // Globals are not attributed to a stage.
         Assert.All(layout.Parameters, p => Assert.Equal(SlangStage.SLANG_STAGE_NONE, p.Stage));
@@ -435,7 +435,7 @@ public class SecondOpinionTests(ITestOutputHelper output)
         // different claims and only the second is a measurement. If any of them starts answering,
         // this fails and the projection has something new to carry.
         using var loaded = Load();
-        var layout = loaded.Program.Reflect();
+        var layout = loaded.Program.Reflect(0);
 
         var scope = loaded.Shader.GlobalParamsTypeLayout!;
 
@@ -453,7 +453,7 @@ public class SecondOpinionTests(ITestOutputHelper output)
         }
 
         // 3-4. Specialized type arguments, on a type that has them in its own name.
-        var block = loaded.Program.FindType("SoBlock");
+        var block = loaded.Program.FindType(0, "SoBlock");
         Assert.NotNull(block);
         // Only the count, in-process. Asking for argument 0 of a list of length 0 is an
         // out-of-range read, and this test used to do exactly that on the reasoning that Windows
@@ -510,12 +510,12 @@ public class SecondOpinionTests(ITestOutputHelper output)
         // — and null works. Worth having: it is the one view of a program that is Slang's own
         // formatting rather than this package's reading, which is what belongs in a bug report.
         using var loaded = Load();
-        var json = loaded.Program.ToJson();
+        var json = loaded.Program.ToJson(0);
 
         Assert.False(string.IsNullOrWhiteSpace(json), "spReflection_ToJson produced nothing");
         output.WriteLine(json![..Math.Min(400, json.Length)]);
 
-        foreach (var parameter in loaded.Program.Reflect().Parameters)
+        foreach (var parameter in loaded.Program.Reflect(0).Parameters)
             Assert.Contains($"\"{parameter.Name}\"", json, StringComparison.Ordinal);
 
         // The program's convenience and the reflection object's call are one call.

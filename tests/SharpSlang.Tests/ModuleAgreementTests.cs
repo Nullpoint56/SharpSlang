@@ -50,9 +50,9 @@ public class ModuleAgreementTests
         try
         {
             using var program = session.Link(module, [.. entryPoints]);
-            using var blob = program.GetTargetCode();
+            using var blob = program.GetTargetCode(0);
             var code = blob.ToArray();
-            var layout = program.Reflect();
+            var layout = program.Reflect(0);
 
             // Varyings come from the individual stage's own module. The whole-program module holds
             // every stage's inputs and outputs at once, and the layout describes only the vertex
@@ -63,7 +63,7 @@ public class ModuleAgreementTests
             {
                 var stage = layout.EntryPoints[i].Stage;
                 if (stage is SlangStage.SLANG_STAGE_VERTEX or SlangStage.SLANG_STAGE_FRAGMENT)
-                    varyings[stage] = program.GetEntryPointCodeBytes(i);
+                    varyings[stage] = program.GetEntryPointCodeBytes(i, 0);
             }
 
             var fromModule = ModuleFacts(code, varyings);
@@ -381,7 +381,7 @@ public class ModuleAgreementTests
 
             for (var i = 0; i < entryPoints.Count; i++)
             {
-                var code = program.GetEntryPointCodeBytes(i);
+                var code = program.GetEntryPointCodeBytes(i, 0);
                 if (!Decorations(code).Contains(SampleDecoration)) continue;
 
                 Assert.Contains(SampleRateShadingCapability, Capabilities(code));
@@ -424,7 +424,7 @@ public class ModuleAgreementTests
         using var entryPoint = module.FindEntryPoint(Assert.Single(shaderCase.EntryPoints));
         using var program = session.Link(module, entryPoint);
 
-        Assert.Empty(SpirvDecorations.InputStructsWithMemberOffsets(program.GetEntryPointCodeBytes(0)));
+        Assert.Empty(SpirvDecorations.InputStructsWithMemberOffsets(program.GetEntryPointCodeBytes(0, 0)));
     }
 
     /// <summary><c>Capability::SampleRateShading</c>.</summary>

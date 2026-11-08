@@ -6,7 +6,7 @@ using SharpSlang.Native;
 namespace SharpSlang;
 
 /// <summary>A compiled Slang module.</summary>
-public sealed unsafe class SlangModule : SlangObject<IModule>
+public sealed unsafe class SlangModule : SlangObject<IModule>, ISlangComponentType
 {
     /// <param name="borrowed">
     /// A module pointer from <c>ISession::loadModule*</c>. Note: <em>borrowed</em>, not owned.
@@ -239,12 +239,14 @@ public sealed unsafe class SlangModule : SlangObject<IModule>
     /// The result borrows from this module's reflection and is invalid once the module is
     /// disposed. Use it to build specialisation arguments or type conformances.
     /// </remarks>
-    public SlangType? FindType(string name)
+    /// <param name="targetIndex">Index into the session's target list, whose layout is asked.</param>
+    /// <param name="name">The type's name.</param>
+    public SlangType? FindType(int targetIndex, string name)
     {
         ArgumentException.ThrowIfNullOrEmpty(name);
 
         ISlangBlob* diagnostics = null;
-        var layout = Ptr->getLayout(0, &diagnostics);
+        var layout = Ptr->getLayout(targetIndex, &diagnostics);
         Diagnostics.ThrowIfNull(layout, $"IModule::getLayout for '{Name}'", diagnostics);
 
         using Utf8.Scoped n = new(name);
@@ -253,8 +255,8 @@ public sealed unsafe class SlangModule : SlangObject<IModule>
     }
 
     /// <summary>Finds a named type, or throws naming what was searched for.</summary>
-    public SlangType RequireType(string name) =>
-        FindType(name) ?? throw new SlangException(
+    public SlangType RequireType(int targetIndex, string name) =>
+        FindType(targetIndex, name) ?? throw new SlangException(
             SlangResult.NotFound, $"type '{name}' not found in module '{Name}'", null);
 
     /// <summary>
@@ -269,7 +271,7 @@ public sealed unsafe class SlangModule : SlangObject<IModule>
     /// any link. Borrowed from the module.
     /// </summary>
     /// <exception cref="SlangException">Slang produced no layout; its diagnostics are attached.</exception>
-    public SlangShaderReflection GetLayout(int targetIndex = 0)
+    public SlangShaderReflection GetLayout(int targetIndex)
     {
         ISlangBlob* diagnostics = null;
         var layout = Ptr->getLayout(targetIndex, &diagnostics);
@@ -281,7 +283,7 @@ public sealed unsafe class SlangModule : SlangObject<IModule>
 }
 
 /// <summary>A shader entry point within a module.</summary>
-public sealed unsafe class SlangEntryPoint : SlangObject<IEntryPoint>
+public sealed unsafe class SlangEntryPoint : SlangObject<IEntryPoint>, ISlangComponentType
 {
     internal SlangEntryPoint(IEntryPoint* owned, string name, SlangModule owner)
         : base(owned, $"SlangEntryPoint('{name}')", owner) => Name = name;

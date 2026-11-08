@@ -66,15 +66,15 @@ public sealed class SlangComputeCorpusTests(ITestOutputHelper output)
             using var entryPoint = module.FindEntryPoint("computeMain", SlangStage.SLANG_STAGE_COMPUTE);
 
             using var program = session.Link(module, entryPoint);
-            var projection = program.Reflect().ToNri();
-            var spirv = program.GetEntryPointCodeBytes(0);
+            var projection = program.Reflect(0).ToNri();
+            var spirv = program.GetEntryPointCodeBytes(0, 0);
 
             var device = fixture.Device;
             using var layout = device.CreatePipelineLayout(projection.Layout);
             using var pipeline = device.CreateComputePipeline(new NriComputePipelineDesc
             {
                 PipelineLayout = layout,
-                Shader = new NriShaderDesc(StageBits.COMPUTE_SHADER, spirv, program.GetSpirvEntryPoint(0).Name),
+                Shader = new NriShaderDesc(StageBits.COMPUTE_SHADER, spirv, program.GetSpirvEntryPoint(0, 0).Name),
             });
 
             var result = Execute(test, projection, layout, pipeline, device);

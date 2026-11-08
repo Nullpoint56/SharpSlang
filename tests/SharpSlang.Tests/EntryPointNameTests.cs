@@ -49,8 +49,8 @@ public class EntryPointNameTests
 
         Assert.Equal(["vertexMain", "fragmentMain"], program.EntryPointNames);
 
-        var v = program.GetSpirvEntryPoint(0);
-        var f = program.GetSpirvEntryPoint(1);
+        var v = program.GetSpirvEntryPoint(0, 0);
+        var f = program.GetSpirvEntryPoint(1, 0);
 
         Assert.Equal("main", v.Name);
         Assert.Equal("main", f.Name);
@@ -70,8 +70,8 @@ public class EntryPointNameTests
         using var fs = module.FindEntryPoint("fragmentMain");
         using var program = session.Link(module, vs, fs);
 
-        Assert.Equal("vertexMain", program.GetSpirvEntryPoint(0).Name);
-        Assert.Equal("fragmentMain", program.GetSpirvEntryPoint(1).Name);
+        Assert.Equal("vertexMain", program.GetSpirvEntryPoint(0, 0).Name);
+        Assert.Equal("fragmentMain", program.GetSpirvEntryPoint(1, 0).Name);
     }
 
     [NativeFact]
@@ -94,7 +94,7 @@ public class EntryPointNameTests
             },
         });
 
-        Assert.Equal("main", program.GetSpirvEntryPoint(0).Name);
+        Assert.Equal("main", program.GetSpirvEntryPoint(0, 0).Name);
     }
 
     [NativeFact]
@@ -109,7 +109,7 @@ public class EntryPointNameTests
         using var fs = module.FindEntryPoint("fragmentMain");
         using var program = session.Link(module, vs, fs);
 
-        using var whole = program.GetTargetCode();
+        using var whole = program.GetTargetCode(0);
         var info = SpirvModule.Read(whole.Span);
 
         Assert.Equal(["vertexMain", "fragmentMain"], info.EntryPoints.Select(e => e.Name));
@@ -127,7 +127,7 @@ public class EntryPointNameTests
         using var fs = module.FindEntryPoint("fragmentMain");
         using var program = session.Link(module, vs, fs);
 
-        var package = ShaderPackageBaker.Bake(program, TwoStages);
+        var package = ShaderPackageBaker.Bake(program, TwoStages, 0);
 
         var baked = package.EntryPoint("vertexMain")!;
         Assert.Equal("vertexMain", baked.Name);              // how the asset pipeline finds it
@@ -145,7 +145,7 @@ public class EntryPointNameTests
         using var fs = module.FindEntryPoint("fragmentMain");
         using var program = session.Link(module, fs);
 
-        var package = ShaderPackageBaker.Bake(program, TwoStages);
+        var package = ShaderPackageBaker.Bake(program, TwoStages, 0);
         Assert.Equal("fragmentMain", package.EntryPoint("fragmentMain")!.ModuleEntryPointName);
     }
 
@@ -163,7 +163,7 @@ public class EntryPointNameTests
             using var fs = module.FindEntryPoint("fragmentMain");
             using var program = session.Link(module, vs, fs);
 
-            var package = ShaderPackageBaker.Bake(program, TwoStages);
+            var package = ShaderPackageBaker.Bake(program, TwoStages, 0);
 
             foreach (var e in package.EntryPoints)
             {
@@ -184,7 +184,7 @@ public class EntryPointNameTests
         using var program = session.Link(module, vs);
 
         using var buffer = new MemoryStream();
-        ShaderPackageBaker.Bake(program, TwoStages).WriteTo(buffer);
+        ShaderPackageBaker.Bake(program, TwoStages, 0).WriteTo(buffer);
         buffer.Position = 0;
 
         var restored = ShaderPackage.ReadFrom(buffer).EntryPoint("vertexMain")!;

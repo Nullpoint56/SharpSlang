@@ -55,7 +55,7 @@ public class CompilationTests
 
         foreach (var (name, index) in program.EntryPointNames.Select((n, i) => (n, i)))
         {
-            var spirv = program.GetEntryPointCodeBytes(index);
+            var spirv = program.GetEntryPointCodeBytes(index, 0);
 
             Assert.True(spirv.Length >= 20, $"{name}: implausibly short output");
             Assert.True(spirv.Length % 4 == 0, $"{name}: not a whole number of SPIR-V words");
@@ -101,11 +101,11 @@ public class CompilationTests
         using var vs = module.FindEntryPoint("vertexMain");
         using var program = session.Link(module, vs);
 
-        var byName = program.GetEntryPointCodeBytes("vertexMain");
-        var byIndex = program.GetEntryPointCodeBytes(0);
+        var byName = program.GetEntryPointCodeBytes("vertexMain", 0);
+        var byIndex = program.GetEntryPointCodeBytes(0, 0);
         Assert.Equal(byIndex, byName);
 
-        var ex = Assert.Throws<ArgumentException>(() => program.GetEntryPointCodeBytes("nope"));
+        var ex = Assert.Throws<ArgumentException>(() => program.GetEntryPointCodeBytes("nope", 0));
         Assert.Contains("vertexMain", ex.Message);
     }
 
@@ -181,7 +181,7 @@ public class CompilationTests
         using var module = session.LoadModuleFromSource("m", "m.slang", Conditional);
         using var fs = module.FindEntryPoint("fragmentMain");
         using var program = session.Link(module, fs);
-        Assert.NotEmpty(program.GetEntryPointCodeBytes(0));
+        Assert.NotEmpty(program.GetEntryPointCodeBytes(0, 0));
     }
 
     [NativeTheory]
@@ -199,7 +199,7 @@ public class CompilationTests
         using var vs = module.FindEntryPoint("vertexMain");
         using var program = session.Link(module, vs);
 
-        Assert.NotEmpty(program.GetEntryPointCodeBytes(0));
+        Assert.NotEmpty(program.GetEntryPointCodeBytes(0, 0));
     }
 
     [NativeFact]
@@ -219,7 +219,7 @@ public class CompilationTests
             using var module = session.LoadModuleFromSource("t", "t.slang", GoodShader);
             using var vs = module.FindEntryPoint("vertexMain");
             using var program = session.Link(module, vs);
-            return program.GetEntryPointCodeBytes(0);
+            return program.GetEntryPointCodeBytes(0, 0);
         }
 
         Assert.NotEqual(
@@ -265,7 +265,7 @@ public class CompilationTests
         using var vs = module.FindEntryPoint("vertexMain");
         using var program = session.Link(module, vs);
 
-        var blob = program.GetEntryPointCode(0);
+        var blob = program.GetEntryPointCode(0, 0);
         var copy = blob.ToArray();
         Assert.NotEmpty(copy);
         blob.Dispose();
@@ -331,7 +331,7 @@ public class CompilationTests
             using var module = session.LoadModuleFromSource($"m{i}", "m.slang", GoodShader);
             using var vs = module.FindEntryPoint("vertexMain");
             using var program = session.Link(module, vs);
-            Assert.NotEmpty(program.GetEntryPointCodeBytes(0));
+            Assert.NotEmpty(program.GetEntryPointCodeBytes(0, 0));
         }
     }
 

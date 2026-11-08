@@ -241,6 +241,7 @@ public abstract unsafe class SlangObject : IDisposable
 
         BeforeRelease();
         ((ISlangUnknown*)p)->release();
+        AfterRelease();
 
         // Ours, taken in the constructor. Nearest-first and after this object's own release, so an
         // ancestor is never destroyed while a descendant's release is still running through it —
@@ -259,6 +260,13 @@ public abstract unsafe class SlangObject : IDisposable
     /// optional interfaces took (L3), so the object is never destroyed after its ancestors.
     /// </summary>
     private protected virtual void BeforeRelease() { }
+
+    /// <summary>
+    /// Runs once, after this wrapper's own release and before its ancestors': where a wrapper gives
+    /// back references it took on objects it was made from, which must outlive it and not its
+    /// session (a composite's components).
+    /// </summary>
+    private protected virtual void AfterRelease() { }
 
     /// <summary>Runs once, after the native references are released.</summary>
     private protected virtual void OnReleased() { }

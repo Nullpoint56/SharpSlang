@@ -11,7 +11,7 @@ namespace SharpSlang;
 /// A composed and linked program. Code generation and reflection both require linking first,
 /// because that is when cross-module references and specialisation are resolved.
 /// </summary>
-public sealed unsafe class LinkedProgram : SlangObject<IComponentType>
+public sealed unsafe class LinkedProgram : SlangObject<IComponentType>, ISlangComponentType
 {
     private readonly string[] _entryPointNames;
     private readonly IReadOnlyList<TargetOptions> _targets;
@@ -44,16 +44,18 @@ public sealed unsafe class LinkedProgram : SlangObject<IComponentType>
     public long SpecializationParameterCount => Ptr->getSpecializationParamCount();
 
     /// <summary>
-    /// Finds a named type in this program's reflection, or null: <see cref="GetLayout"/>(0)'s
+    /// Finds a named type in this program's reflection, or null: <see cref="GetLayout"/>'s
     /// <see cref="SlangShaderReflection.FindTypeByName"/>, keeping the name it was asked by.
     /// Borrows from the program.
     /// </summary>
-    public SlangType? FindType(string name)
+    /// <param name="targetIndex">Index into the session's target list, whose layout is asked.</param>
+    /// <param name="name">The type's name.</param>
+    public SlangType? FindType(int targetIndex, string name)
     {
         ArgumentException.ThrowIfNullOrEmpty(name);
 
         ISlangBlob* diagnostics = null;
-        var layout = Ptr->getLayout(0, &diagnostics);
+        var layout = Ptr->getLayout(targetIndex, &diagnostics);
         Diagnostics.ThrowIfNull(layout, "IComponentType::getLayout", diagnostics);
 
         using Utf8.Scoped n = new(name);
@@ -69,7 +71,7 @@ public sealed unsafe class LinkedProgram : SlangObject<IComponentType>
     /// <see cref="SlangMetadata"/> for why that is not a property of the reflection snapshot.
     /// </remarks>
     /// <param name="targetIndex">Index into the session's target list.</param>
-    public SlangMetadata GetTargetMetadata(int targetIndex = 0)
+    public SlangMetadata GetTargetMetadata(int targetIndex)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(targetIndex);
 
@@ -89,7 +91,7 @@ public sealed unsafe class LinkedProgram : SlangObject<IComponentType>
     /// A binding read by the fragment stage and not by the vertex stage is used by the program and
     /// unused by one of its stages, and only this call can tell them apart.
     /// </remarks>
-    public SlangMetadata GetEntryPointMetadata(int entryPointIndex, int targetIndex = 0)
+    public SlangMetadata GetEntryPointMetadata(int entryPointIndex, int targetIndex)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(entryPointIndex);
         ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(entryPointIndex, _entryPointNames.Length);
@@ -105,29 +107,29 @@ public sealed unsafe class LinkedProgram : SlangObject<IComponentType>
     }
 
     /// <summary>
-    /// Slang's own reflection dump for this program, as JSON: <see cref="GetLayout"/>(0)'s
-    /// <see cref="SlangShaderReflection.ToJson"/>.
+    /// Slang's own reflection dump for this program, for one target, as JSON:
+    /// <see cref="GetLayout"/>'s <see cref="SlangShaderReflection.ToJson"/>.
     /// </summary>
     /// <remarks>
     /// The same text <c>slangc -reflection-json</c> writes: the only view that is Slang's own
     /// formatting, a second opinion in a bug report.
     /// </remarks>
     /// <returns>The JSON, or null if Slang produced none.</returns>
-    public string? ToJson() => GetLayout(0).ToJson();
+    public string? ToJson(int targetIndex) => GetLayout(targetIndex).ToJson();
 
     /// <summary>
     /// Whether <paramref name="type"/> is a subtype of <paramref name="baseType"/> — i.e. whether
-    /// a concrete type satisfies an interface: <see cref="GetLayout"/>(0)'s
-    /// <see cref="SlangShaderReflection.IsSubType"/>. Use before creating a conformance to fail
+    /// a concrete type satisfies an interface: <see cref="GetLayout"/>'s
+    /// <see cref="SlangShaderReflection.IsSubType"/> for one target. Use before creating a conformance to fail
     /// with a clear message rather than a Slang diagnostic.
     /// </summary>
-    public bool IsSubType(SlangType type, SlangType baseType) => GetLayout(0).IsSubType(type, baseType);
+    public bool IsSubType(int targetIndex, SlangType type, SlangType baseType) => GetLayout(targetIndex).IsSubType(type, baseType);
 
     /// <summary>Generated code for one entry point, for the given target.</summary>
     /// <param name="entryPointIndex">Index into <see cref="EntryPointNames"/>.</param>
     /// <param name="targetIndex">Index into the session's target list.</param>
     /// <returns>An owned blob; dispose it, or use <see cref="GetEntryPointCodeBytes(int, int)"/>.</returns>
-    public SlangBlob GetEntryPointCode(int entryPointIndex, int targetIndex = 0)
+    public SlangBlob GetEntryPointCode(int entryPointIndex, int targetIndex)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(entryPointIndex);
         ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(entryPointIndex, _entryPointNames.Length);
@@ -178,7 +180,7 @@ public sealed unsafe class LinkedProgram : SlangObject<IComponentType>
     /// </remarks>
     /// <param name="entryPointIndex">Index into <see cref="EntryPointNames"/>.</param>
     /// <param name="targetIndex">Index into the session's target list.</param>
-    public byte[] GetEntryPointIdentityHash(int entryPointIndex, int targetIndex = 0)
+    public byte[] GetEntryPointIdentityHash(int entryPointIndex, int targetIndex)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(entryPointIndex);
         ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(entryPointIndex, _entryPointNames.Length);
@@ -212,14 +214,14 @@ public sealed unsafe class LinkedProgram : SlangObject<IComponentType>
     }
 
     /// <summary>Generated code for one entry point, copied into a managed array.</summary>
-    public byte[] GetEntryPointCodeBytes(int entryPointIndex, int targetIndex = 0)
+    public byte[] GetEntryPointCodeBytes(int entryPointIndex, int targetIndex)
     {
         using var blob = GetEntryPointCode(entryPointIndex, targetIndex);
         return blob.ToArray();
     }
 
     /// <summary>Generated code for one entry point, resolved by name.</summary>
-    public byte[] GetEntryPointCodeBytes(string entryPointName, int targetIndex = 0)
+    public byte[] GetEntryPointCodeBytes(string entryPointName, int targetIndex)
     {
         var i = Array.IndexOf(_entryPointNames, entryPointName);
         if (i < 0)
@@ -233,7 +235,7 @@ public sealed unsafe class LinkedProgram : SlangObject<IComponentType>
     /// Whole-program code for a target, rather than per entry point. Requires the target to have
     /// been created with whole-program generation; most Vulkan use wants per-entry-point instead.
     /// </summary>
-    public SlangBlob GetTargetCode(int targetIndex = 0)
+    public SlangBlob GetTargetCode(int targetIndex)
     {
         ISlangBlob* code = null;
         ISlangBlob* diagnostics = null;
@@ -303,7 +305,7 @@ public sealed unsafe class LinkedProgram : SlangObject<IComponentType>
     /// </remarks>
     /// <param name="targetIndex">Index into the session's target list.</param>
     /// <exception cref="SlangException">Slang produced no layout; its diagnostics are attached.</exception>
-    public SlangShaderReflection GetLayout(int targetIndex = 0)
+    public SlangShaderReflection GetLayout(int targetIndex)
     {
         ISlangBlob* diagnostics = null;
         var layout = Ptr->getLayout(targetIndex, &diagnostics);

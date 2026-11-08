@@ -51,7 +51,7 @@ public class MetadataTests(ITestOutputHelper output)
             using var fragment = module.FindEntryPoint("mdFragment");
             using var program = session.Link(module, vertex, fragment);
 
-            var layout = program.Reflect();
+            var layout = program.Reflect(0);
             Assert.Contains(layout.Parameters, p => p.Name == "mdUnread");
         }
     }
@@ -66,8 +66,8 @@ public class MetadataTests(ITestOutputHelper output)
             using var fragment = module.FindEntryPoint("mdFragment");
             using var program = session.Link(module, vertex, fragment);
 
-            var layout = program.Reflect();
-            using var metadata = program.GetTargetMetadata();
+            var layout = program.Reflect(0);
+            using var metadata = program.GetTargetMetadata(0);
 
             var unused = metadata.UnusedBindings(layout);
             foreach (var b in unused) output.WriteLine($"unused: {b.Category} space {b.Space} index {b.Index}");
@@ -96,13 +96,13 @@ public class MetadataTests(ITestOutputHelper output)
             using var fragment = module.FindEntryPoint("mdFragment");
             using var program = session.Link(module, vertex, fragment);
 
-            var layout = program.Reflect();
+            var layout = program.Reflect(0);
             var read = layout.Parameters.Single(p => p.Name == "mdRead").PrimaryBinding;
             Assert.NotNull(read);
 
-            using var whole = program.GetTargetMetadata();
-            using var vertexOnly = program.GetEntryPointMetadata(0);
-            using var fragmentOnly = program.GetEntryPointMetadata(1);
+            using var whole = program.GetTargetMetadata(0);
+            using var vertexOnly = program.GetEntryPointMetadata(0, 0);
+            using var fragmentOnly = program.GetEntryPointMetadata(1, 0);
 
             Assert.True(whole.IsUsed(read.Value.Category, read.Value.Space, read.Value.Index));
             Assert.True(fragmentOnly.IsUsed(read.Value.Category, read.Value.Space, read.Value.Index));
@@ -128,7 +128,7 @@ public class MetadataTests(ITestOutputHelper output)
         {
             using var fragment = module.FindEntryPoint("mdFragment");
             using var program = session.Link(module, fragment);
-            using var metadata = program.GetTargetMetadata();
+            using var metadata = program.GetTargetMetadata(0);
 
             Assert.False(metadata.IsUsed(
                 SlangParameterCategory.SLANG_PARAMETER_CATEGORY_DESCRIPTOR_TABLE_SLOT, 7, 99));
@@ -145,7 +145,7 @@ public class MetadataTests(ITestOutputHelper output)
         {
             using var fragment = module.FindEntryPoint("mdFragment");
             var program = session.Link(module, fragment);
-            var metadata = program.GetTargetMetadata();
+            var metadata = program.GetTargetMetadata(0);
 
             Assert.Throws<InvalidOperationException>(program.Dispose);
             metadata.Dispose();

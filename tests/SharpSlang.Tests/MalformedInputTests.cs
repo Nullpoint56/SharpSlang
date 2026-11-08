@@ -33,7 +33,7 @@ public class MalformedInputTests
             """);
         using var ep = module.FindEntryPoint("fragmentMain");
         using var program = session.Link(module, ep);
-        return program.GetEntryPointCodeBytes(0);
+        return program.GetEntryPointCodeBytes(0, 0);
     }
 
     /// <summary>A tiny deterministic generator. Not cryptographic and not meant to be.</summary>
@@ -174,7 +174,7 @@ public class MalformedInputTests
         using var program = session.Link(module, ep);
 
         using var buffer = new MemoryStream();
-        ShaderPackageBaker.Bake(program, Source).WriteTo(buffer);
+        ShaderPackageBaker.Bake(program, Source, 0).WriteTo(buffer);
         return buffer.ToArray();
     }
 
