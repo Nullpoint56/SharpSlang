@@ -41,6 +41,7 @@
     <File Path="tools/ci/packages.psd1" />
     <File Path="tools/ci/Packages.psm1" />
     <File Path="tools/ci/check-packages.ps1" />
+    <File Path="tools/ci/descs-version.ps1" />
   </Folder>
   <Folder Name="/.github/">
     <File Path=".github/workflows/ci.yml" />
