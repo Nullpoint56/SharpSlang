@@ -187,11 +187,12 @@ public class UnknownSizeTests
         Assert.Contains("specialization constant", e.Message, StringComparison.Ordinal);
     }
 
-    [NativeFact]
+    [ReleasePayloadFact("U5")]
     public void A_parameter_the_layout_cannot_place_is_named_in_the_refusal()
     {
         // The general invariant, stated on its own: a parameter with no binding of any kind is in
-        // the shader and in no part of the pipeline layout, whatever the reason.
+        // the shader and in no part of the pipeline layout, whatever the reason. Slang's release
+        // drops this buffer's binding (U5); patch 0016 keeps it, so the refusal is release-only.
         const string Source = """
             [vk::constant_id(0)] const int kCount = 2;
             struct Block { float4x4 transforms[kCount]; };

@@ -353,6 +353,16 @@
       "test": null,
       "state": "unpatched",
       "verified": "v2026.21"
+    },
+    {
+      "id": "U33",
+      "title": "A top-level parameter block's sub-object range reports space offset 0",
+      "area": "reflection",
+      "kind": "Slang defect",
+      "patch": "0019-parameter-block-space-offset.patch",
+      "test": "SecondOpinionTests.A_top_level_parameter_blocks_sub_object_range_reports_its_space",
+      "state": "patched",
+      "verified": "v2026.21"
     }
   ]
 }

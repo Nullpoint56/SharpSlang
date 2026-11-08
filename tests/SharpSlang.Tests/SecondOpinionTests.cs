@@ -427,6 +427,52 @@ public class SecondOpinionTests(ITestOutputHelper output)
         // happened to the first macOS run.
     }
 
+    [ReleasePayloadFact("U33")]
+    public void A_top_level_parameter_blocks_sub_object_range_reports_space_0()
+    {
+        // U33, asserted as wrong on Slang's release: every top-level parameter block's sub-object
+        // range reports space offset 0, whatever space the block is in.
+        var spaces = BlockSpaces();
+        Assert.Equal([0L, 0L], spaces);
+    }
+
+    [PatchedFact("U33")]
+    public void A_top_level_parameter_blocks_sub_object_range_reports_its_space()
+    {
+        // U33, patched (0019): the space offset is the space the block occupies, the same number its
+        // descriptor set reports.
+        Assert.Equal([1L, 2L], BlockSpaces());
+    }
+
+    /// <summary>The space offsets of two top-level parameter blocks beside a loose global, in order.</summary>
+    private List<long> BlockSpaces()
+    {
+        const string Blocks = """
+            struct SoMaterial { float4 tint; Texture2D albedo; };
+            Texture2D soLoose;
+            ParameterBlock<SoMaterial> soFirst;
+            ParameterBlock<SoMaterial> soSecond;
+            SamplerState soSamp;
+
+            [shader("fragment")]
+            float4 soFragment(float2 uv : TEXCOORD0) : SV_Target
+            {
+                return soLoose.Sample(soSamp, uv) + soFirst.tint + soFirst.albedo.Sample(soSamp, uv)
+                     + soSecond.tint + soSecond.albedo.Sample(soSamp, uv);
+            }
+            """;
+        using var global = SlangGlobalSession.Create();
+        using var session = global.CreateSession(new SessionOptions { Targets = [new TargetOptions()] });
+        using var module = session.LoadModuleFromSource("sob", "sob.slang", Blocks);
+        using var entry = module.FindEntryPoint("soFragment");
+        using var program = session.Link(module, entry);
+        var scope = program.GetLayout(0).GlobalParamsTypeLayout!;
+        var spaces = new List<long>();
+        for (long i = 0; i < scope.SubObjectRangeCount; i++)
+            spaces.Add(scope.GetSubObjectRangeSpaceOffset(i));
+        output.WriteLine("sub-object range spaces: " + string.Join(", ", spaces));
+        return spaces;
+    }
     [NativeFact]
     public void The_calls_that_report_nothing_are_pinned_reporting_nothing()
     {
@@ -449,7 +495,6 @@ public class SecondOpinionTests(ITestOutputHelper output)
                 "getSubObjectRangeOffset now carries a variable; SubObjectRange can take its name "
                 + "from there instead of from the binding range");
 
-            Assert.Equal(0, scope.GetSubObjectRangeSpaceOffset(i));
         }
 
         // 3-4. Specialized type arguments, on a type that has them in its own name.

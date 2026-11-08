@@ -5,6 +5,8 @@
 // ignores most of it, so a binding that plumbed the options nowhere would pass any test that only
 // checked "it still compiles".
 
+using SharpSlang.Interop;
+using SharpSlang.Spirv;
 using SharpSlang.Native;
 
 namespace SharpSlang.Tests;

@@ -1,0 +1,102 @@
+Report a top-level parameter block's space in its sub-object range.
+
+ExtendedTypeLayoutContext (source/slang/slang-reflection-api.cpp) records, for each parameter
+group, a sub-object range whose spaceOffset spReflectionTypeLayout_getSubObjectRangeSpaceOffset
+returns. A parameter block that starts a space of its own is laid out with
+LayoutResourceKind::RegisterSpace, and a nested one with SubElementRegisterSpace, but the range's
+spaceOffset is read only for the nested kind. Every top-level parameter block therefore reports
+space offset 0: two ParameterBlock globals beside a loose global, which occupy spaces 1 and 2,
+both report 0.
+
+This reads the variable's index for whichever of the two kinds the block is laid out with. A
+regression test is added as tools/slang-unit-test/unit-test-parameter-block-space-offset.cpp.
+
+Measured on v2026.21 (win-x64): 0 and 0 for blocks in spaces 1 and 2.
+diff --git a/source/slang/slang-reflection-api.cpp b/source/slang/slang-reflection-api.cpp
+index 9f83ff5fd..234ece0ea 100644
+--- a/source/slang/slang-reflection-api.cpp
++++ b/source/slang/slang-reflection-api.cpp
+@@ -2238,10 +2238,15 @@ struct ExtendedTypeLayoutContext
+             subObjectRange.bindingRangeIndex = bindingRangeIndex;
+             subObjectRange.offsetVarLayout = createOffsetVarLayout(typeLayout, path);
+             subObjectRange.spaceOffset = 0;
+-            if (kind == LayoutResourceKind::SubElementRegisterSpace && path.primary)
++            // A parameter block that starts a space of its own is laid out under `RegisterSpace` (above),
++            // a nested one under `SubElementRegisterSpace`; either way its space is the variable's
++            // index for that kind. Reading only the nested kind reported 0 for every top-level block.
++            //
++            if ((kind == LayoutResourceKind::SubElementRegisterSpace ||
++                 kind == LayoutResourceKind::RegisterSpace) &&
++                path.primary)
+             {
+-                if (auto resInfo = path.primary->var->FindResourceInfo(
+-                        LayoutResourceKind::SubElementRegisterSpace))
++                if (auto resInfo = path.primary->var->FindResourceInfo(kind))
+                 {
+                     subObjectRange.spaceOffset = resInfo->index;
+                 }
+diff --git a/tools/slang-unit-test/unit-test-parameter-block-space-offset.cpp b/tools/slang-unit-test/unit-test-parameter-block-space-offset.cpp
+new file mode 100644
+index 000000000..5dc164aae
+--- /dev/null
++++ b/tools/slang-unit-test/unit-test-parameter-block-space-offset.cpp
+@@ -0,0 +1,58 @@
++// unit-test-parameter-block-space-offset.cpp
++
++#include "slang-com-ptr.h"
++#include "slang.h"
++#include "unit-test/slang-unit-test.h"
++
++using namespace Slang;
++
++// A top-level parameter block's sub-object range reports the space the block occupies.
++
++SLANG_UNIT_TEST(parameterBlockSpaceOffset)
++{
++    const char* source = R"(
++        struct Material { float4 tint; Texture2D albedo; };
++        Texture2D loose;
++        ParameterBlock<Material> first;
++        ParameterBlock<Material> second;
++        SamplerState samp;
++
++        [shader("fragment")]
++        float4 fragmentMain(float2 uv : TEXCOORD0) : SV_Target
++        {
++            return loose.Sample(samp, uv) + first.tint + first.albedo.Sample(samp, uv) +
++                   second.tint + second.albedo.Sample(samp, uv);
++        }
++        )";
++
++    ComPtr<slang::IGlobalSession> globalSession;
++    SLANG_CHECK_ABORT(
++        slang_createGlobalSession(SLANG_API_VERSION, globalSession.writeRef()) == SLANG_OK);
++
++    slang::TargetDesc targetDesc = {};
++    targetDesc.format = SLANG_SPIRV;
++    targetDesc.profile = globalSession->findProfile("spirv_1_5");
++
++    slang::SessionDesc sessionDesc = {};
++    sessionDesc.targetCount = 1;
++    sessionDesc.targets = &targetDesc;
++
++    ComPtr<slang::ISession> session;
++    SLANG_CHECK_ABORT(globalSession->createSession(sessionDesc, session.writeRef()) == SLANG_OK);
++
++    ComPtr<slang::IBlob> diagnostics;
++    auto module = session->loadModuleFromSourceString(
++        "parameterBlockSpaceOffset",
++        "parameterBlockSpaceOffset.slang",
++        source,
++        diagnostics.writeRef());
++    SLANG_CHECK_ABORT(module != nullptr);
++
++    auto layout = module->getLayout(0, diagnostics.writeRef());
++    SLANG_CHECK_ABORT(layout != nullptr);
++    auto globals = layout->getGlobalParamsTypeLayout();
++    SLANG_CHECK_ABORT(globals != nullptr);
++    SLANG_CHECK_ABORT(globals->getSubObjectRangeCount() == 2);
++    SLANG_CHECK(globals->getSubObjectRangeSpaceOffset(0) == 1);
++    SLANG_CHECK(globals->getSubObjectRangeSpaceOffset(1) == 2);
++}
+\ No newline at end of file

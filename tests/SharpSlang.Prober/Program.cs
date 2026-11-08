@@ -274,7 +274,11 @@ internal static class Cases
             Console.Out.WriteLine($"    loaded      (not listable here: {e.GetType().Name})");
         }
 
-        static byte[] CompileSpirv(SlangGlobalSession global, SlangOptimizationLevel level)
+    }
+
+    /// <summary>The heavy fragment shader DownstreamCompilerTests measured, as SPIR-V at <paramref name="level"/>.</summary>
+    private static byte[] CompileSpirv(SlangGlobalSession global, SlangOptimizationLevel level)
+    {
         {
             using var session = global.CreateSession(new SessionOptions { Targets = [new TargetOptions()] });
             using var module = session.LoadModuleFromSource($"dc{level}", $"dc{level}.slang", """
