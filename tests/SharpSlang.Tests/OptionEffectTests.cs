@@ -247,6 +247,8 @@ public class OptionEffectTests
             + "from managed code",
         ["SessionOptions.Targets"] = "the list the other target options are read from; every test "
             + "here sets it",
+        ["SessionOptions.ExperimentalFeatures"] = "covered by StandardModuleTests: without it Slang "
+            + "refuses every standard module (E00104), with it each one imports",
         ["TargetOptions.ParameterBlocksUseRegisterSpaces"] = "measured byte-for-byte inert on a "
             + "SPIR-V target: a ParameterBlock takes a register space of its own either way. It "
             + "has a test of its own asserting exactly that, so a release that starts honouring "

@@ -61,6 +61,7 @@ namespace SharpSlang
     {
         public SessionOptions() { }
         public bool AllowGlslSyntax { get; init; }
+        public bool ExperimentalFeatures { get; init; }
         public SharpSlang.Hosting.SlangFileSystem? FileSystem { get; init; }
         public SharpSlang.Native.SlangMatrixLayoutMode MatrixLayout { get; init; }
         public System.Collections.Generic.IReadOnlyDictionary<string, string> PreprocessorMacros { get; init; }

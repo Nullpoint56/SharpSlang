@@ -404,4 +404,23 @@ public class CompilationTests
             new GlobalSessionOptions { RequirePinnedSlangVersion = false });
         Assert.NotNull(global);
     }
+
+    [NativeFact]
+    public void A_second_module_from_source_at_the_same_path_ends_in_an_internal_assert()
+    {
+        // U31, asserted as wrong: two modules of different names loaded from source under one path
+        // in one session. The second load fails with Slang's own assertion text and no diagnostic
+        // code (v2026.21, win-x64). When Slang reports it as a diagnostic, or loads both, this
+        // fails: drop the caller's rule in AGENTS.md#compilation-linking-and-diagnostics.
+        const string Source = """[shader("compute")] [numthreads(1, 1, 1)] void main() {}""";
+        using var global = SlangGlobalSession.Create();
+        using var session = global.CreateSession(new SessionOptions());
+        using var first = session.LoadModuleFromSource("first", "shared.slang", Source);
+
+        var e = Assert.Throws<SlangException>(() => session.LoadModuleFromSource("second", "shared.slang", Source));
+        Assert.Contains("assert failure: slang-dictionary.h(325): The key already exists in Dictionary.", e.Message, StringComparison.Ordinal);
+
+        // Another path is fine
+        using var other = session.LoadModuleFromSource("second", "other.slang", Source);
+    }
 }

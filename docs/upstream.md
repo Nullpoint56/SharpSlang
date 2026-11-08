@@ -46,6 +46,8 @@ natural form is an issue.
 | U27 | Metal: an unbounded resource array is written as a flexible array member | Metal that does not compile | after investigation | not filed |
 | U28 | Metal: a matrix vertex input at one `[[attribute]]` | Metal that does not compile | after investigation | not filed |
 | U29 | Metal: an array of device pointers as a kernel input | Metal that does not compile | after investigation | not filed |
+| U30 | A component type linked a second time ignores the second link's options | wrong output | after investigation | not filed |
+| U31 | A second module loaded from source at an already-used path ends in an internal assert | reporting | yes | not filed |
 
 Related upstream items found while checking whether these were known: the layout-query robustness
 work [#8964](https://github.com/shader-slang/slang/issues/8964),
@@ -776,3 +778,20 @@ first link's: `SLANG_OPTIMIZATION_LEVEL_NONE` first and `MAXIMAL` second both em
 
 **Measurement.** v2026.21, Windows (the workstation), `CompositeTests.Linking_with_options_one_call_at_a_time_emits_what_Link_emits`,
 which asserts the wrong answer so a fix fails it. Filed: no.
+
+## U31 — A second module loaded from source at an already-used path ends in an internal assert
+
+**Observed.** In one `ISession`, `loadModuleFromSourceString("first", "shared.slang", src)` succeeds
+and `loadModuleFromSourceString("second", "shared.slang", src)` returns null with the diagnostic text
+`assert failure: slang-dictionary.h(325): The key already exists in Dictionary.` and no diagnostic
+code. `Linkage::loadParsedModule` adds the module to `mapPathToLoadedModule` under the path's
+unique identity with `Dictionary::add` (`source/slang/slang-session.cpp:1255`), which asserts on a
+key that is already there (`source/core/slang-dictionary.h:322-325`). With another path the second
+module loads.
+
+**Expected.** A diagnostic naming the path the session already holds a module for, or both modules
+loaded.
+
+**Measurement.** v2026.21, Windows (the workstation),
+`CompilationTests.A_second_module_from_source_at_the_same_path_ends_in_an_internal_assert`, which
+asserts the wrong answer so a fix fails it. Filed: no.
