@@ -325,9 +325,9 @@
       "title": "A component type linked a second time ignores the second link's options",
       "area": "linking",
       "kind": "Slang defect",
-      "patch": null,
-      "test": "CompositeTests.Linking_with_options_one_call_at_a_time_emits_what_Link_emits",
-      "state": "unpatched",
+      "patch": "0008-link-with-options-owns-its-options.patch",
+      "test": "CompositeTests.A_composite_linked_a_second_time_emits_what_its_second_links_options_say",
+      "state": "patched",
       "verified": "v2026.21"
     },
     {

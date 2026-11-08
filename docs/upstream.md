@@ -53,7 +53,7 @@ archive, which CI tests until the switch (`AGENTS.md`, Decisions), has none of t
 | U27 | Metal: an unbounded resource array is written as a flexible array member | Metal | Slang defect |  | `TargetValidationTests.Metal_compiles_to_air` | unpatched | [#11970](https://github.com/shader-slang/slang/issues/11970) | v2026.21 |
 | U28 | Metal: a matrix vertex input at one `[[attribute]]` | Metal | Slang defect |  | `TargetValidationTests.Metal_compiles_to_air` | unpatched |  | v2026.21 |
 | U29 | Metal: an array of device pointers as a kernel input | Metal | Slang defect |  | `TargetValidationTests.Slang_compute_corpus_metal_compiles_to_air` | unpatched |  | v2026.21 |
-| U30 | A component type linked a second time ignores the second link's options | linking | Slang defect |  | `CompositeTests.Linking_with_options_one_call_at_a_time_emits_what_Link_emits` | unpatched |  | v2026.21 |
+| U30 | A component type linked a second time ignores the second link's options | linking | Slang defect | `0008-link-with-options-owns-its-options.patch` | `CompositeTests.A_composite_linked_a_second_time_emits_what_its_second_links_options_say` | patched |  | v2026.21 |
 | U31 | A second module loaded from source at an already-used path ends in an internal assert | diagnostics | Slang defect | `0005-module-path-already-loaded.patch` | `CompilationTests.A_second_module_from_source_at_the_same_path_is_diagnosed_naming_the_path` | patched |  | v2026.21 |
 <!-- patch-registry:end -->
 
