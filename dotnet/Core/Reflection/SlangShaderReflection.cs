@@ -120,8 +120,8 @@ public sealed unsafe class SlangShaderReflection : SlangReflectionObject
     /// osx-arm64 reports <c>E30060</c> and still returns a non-null generic (v2026.21, the prober,
     /// all four legs; U3, AGENTS.md#reflection-snapshot). The residue: a generic mixing type and
     /// value parameters reports them as two lists, so their order is not checkable. Patch 0004
-    /// makes Slang diagnose both and return null in a payload built from source; the check stays
-    /// while the packages carry the release (AGENTS.md#patches).
+    /// makes Slang diagnose both and return null in a payload built from source; the check stays,
+    /// because Slang's release payload, which has the defect, is staged too (AGENTS.md#patches).
     /// </remarks>
     /// <exception cref="ArgumentException">
     /// No arguments, a default-constructed one, or a count of type or value arguments the generic

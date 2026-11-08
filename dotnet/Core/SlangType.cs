@@ -78,8 +78,8 @@ public sealed unsafe class SlangType : SlangReflectionObject
     /// <c>slang.h</c> documents <c>SLANG_UNKNOWN_SIZE</c> for that case. The type alone cannot
     /// tell; its layout can: ask <see cref="SlangTypeLayout.GetSize"/> first and do not call this
     /// when it is unknown (AGENTS.md#sizes-slang-does-not-know). An unbounded array reports 0.
-    /// Patch 0002 makes it <c>SLANG_UNKNOWN_SIZE</c> in a payload built from source; the release,
-    /// which the packages carry, still ends the process, so the rule stands (AGENTS.md#patches).
+    /// Patch 0002 makes it <c>SLANG_UNKNOWN_SIZE</c> in a payload built from source; Slang's release
+    /// payload, which is staged too, still ends the process, so the rule stands (AGENTS.md#patches).
     /// </remarks>
     public ulong ElementCount => SlangApi.spReflectionType_GetElementCount(Ptr);
 
