@@ -791,17 +791,35 @@ packages).
 
 ## Patches
 
-| Patch | What | Why |
+| Patch | Defect | What |
 |---|---|---|
 | (none) | | |
 
-The set is empty. `slang/` is Slang at the pinned tag and `tools/build-native.ps1` builds it with
-`patches/` applied (Native build), but CI still stages Slang's prebuilt release, which cannot be
-patched; a patch therefore takes effect only once CI builds from source. Until then Slang defects
-are guarded in the binding and recorded in `docs/upstream.md`, where the entries marked "patch
-candidate" are the first work. The format is in `patches/README.md`. `slang/` is never edited or
-staged by path; its pointer moves only by `git update-index --cacheinfo 160000,<commit>,slang`.
+Every Slang defect in `docs/upstream.md` gets a patch, test first, and the registry says what became
+of each (owner, 2026-11-08: "All of them and we roll a registry of them so we can clearly see if they
+are patched or not on the next release or upstream them from a fork"). `slang/` is Slang at the
+pinned tag and `tools/build-native.ps1` builds it with `patches/` applied (Native build). The format
+is in `patches/README.md`. `slang/` is never edited or staged by path; its pointer moves only by
+`git update-index --cacheinfo 160000,<commit>,slang`.
 
+- **The registry is `docs/upstream.json`**, one entry per defect, and the single source of truth:
+  `docs/upstream.md`'s index is generated from it (`pwsh tools/ci/patch-registry.ps1 -Write`).
+  Fields: `id` (U and a number, as in Oddities and caveats), `title`, `area`, `kind` (`Slang
+  defect`, `Slang documentation defect`, `not a defect`), `patch` (the file in `patches/`, or null),
+  `test` (`Class.Method`, the test that holds the entry), `state`, and `verified` (the Slang version
+  it was last measured against). States: `patched` (our build carries the patch), `fixed upstream in
+  vYYYY.RR` (no patch, or the patch dropped), `filed: <issue or PR URL>` and `upstream PR from fork:
+  <PR URL>` (the patch still carried), `not patchable: <reason>`, and `unpatched` (recorded, no patch
+  yet). An entry that carries a patch names its test and is verified against the pin.
+- **The checker, `tools/ci/patch-registry.ps1`**, runs in lint (`tools/check.ps1 -Lint`) and, the
+  registry half only, in `tools/ci/check-docs.sh`, since a change to `docs/` alone does not run lint
+  (the gate counts `docs/upstream.json` as a change with a result: the tests read it). It fails on a
+  patch with no entry, an entry naming a missing patch, a carried entry with no test or one not in
+  `tests/`, a patch with no prose header, an index that differs from the registry, and a patch that
+  does not apply to the pinned tag in name order, alone, or that the `-C0` reverse check would not
+  recognise once all are applied. It takes the files the patches touch from `slang/`'s object store
+  when that has the pinned commit, otherwise from raw.githubusercontent.com (cached in
+  `obj/slang-patch-base/`), so lint needs no submodule.
 - **U4 must be patched, test first, before Linux builds from source.** The prober test asserts the
   release's SIGSEGV; the same sources built with GCC 13 return a non-null type instead, so the test
   fails on a source-built Linux payload (Reflection snapshot). The cause is in U4.
@@ -814,7 +832,6 @@ staged by path; its pointer moves only by `git update-index --cacheinfo 160000,<
 - **Re-cutting on a new tag.** Apply in order onto the tag in a scratch clone, re-cut each with the
   earlier ones committed, check order, alone and the `-C0` reverse check; drop the ones the tag
   carries, each test passing without its patch.
-
 ---
 
 ## Decisions

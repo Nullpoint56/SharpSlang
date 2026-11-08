@@ -10,44 +10,52 @@ Measured against Slang **v2026.21** (tag commit e73d2689) unless an entry says v
 numbers are v2026.21's. "All four platforms" means win-x64, linux-x64, linux-arm64 and osx-arm64 on
 GitHub-hosted runners (windows-latest, ubuntu-24.04, ubuntu-24.04-arm, macos-15).
 
-A **patch candidate** is an entry whose fix is small and local enough to carry as a patch once this
-repository builds Slang from source; each would go test first (red against the unpatched build).
-The rest are behaviour or documentation questions whose fix is the maintainers' call, so the
-natural form is an issue.
+**The index below is the patch registry**, generated from `docs/upstream.json`, which is the single
+source of truth (`pwsh tools/ci/patch-registry.ps1 -Write`; lint fails when they differ). Per defect:
+the area, the kind (Slang defect, Slang documentation defect, not a defect), the patch in `patches/`
+that carries the fix, the test that holds it, the state, and the Slang version it was last verified
+against. The states: `patched` (our build carries the patch), `fixed upstream in vYYYY.RR` (no patch,
+or the patch dropped), `filed: <URL>` and `upstream PR from fork: <URL>` (the patch still carried),
+`not patchable: <reason>`, and `unpatched` (recorded, no patch yet). Every defect gets a patch, test
+first (owner, 2026-11-08); the order and the procedure are in `AGENTS.md` under Patches. A patch
+reaches users only in a payload built from source: Slang's own release, which CI and the packages
+carry until the switch (`AGENTS.md`, Decisions), has none of them.
 
-| # | Defect | Kind | Patch candidate | Status |
-|---|---|---|---|---|
-| U1 | `spReflectionType_GetElementCount` / `GetSpecializedElementCount` crash on an array sized by a link-time constant | crash | yes | not filed |
-| U2 | `getBindingRangeCount` throws a C++ exception through `extern "C"` for a resource array sized by a link-time constant | crash | yes | not filed |
-| U3 | `spReflection_specializeGeneric` access-violates on a mismatched argument list | crash | yes | not filed |
-| U4 | `spReflection_specializeType` on a non-generic type segfaults on Linux (an assert that removes its own check) | crash | yes | not filed |
-| U5 | A constant buffer whose block holds only link-time-sized arrays gets no binding | wrong layout | after investigation | not filed |
-| U6 | A 64-bit 3/4-component vertex input is given one location; Vulkan requires two | invalid SPIR-V | yes | not filed |
-| U7 | `sample` interpolation without `SampleRateShading` | invalid SPIR-V | n/a | fixed upstream by v2026.21 (reported by others as #12441); held by a test |
-| U8 | `float4x4` vertex input with a member `Offset` decoration | invalid SPIR-V | n/a | fixed upstream by v2026.21; held by a test |
-| U9 | A missing `slang-glslang` is an error diagnostic on a successful result, reported once per global session | reporting | no | not filed |
-| U10 | Windows: downstream libraries are not looked up in the compiler's own directory | loading | yes | not filed |
-| U11 | Two public functions have C++ linkage | header | yes (ABI-breaking for C++ callers) | not filed |
-| U12 | `ISession::loadModule*` returns a borrowed reference; the header does not say so | documentation | yes | not filed |
-| U13 | Releasing a session's last reference from `~Linkage` destroys the global session inside it | crash (macOS) | after re-measurement | not filed |
-| U14 | `isBinaryModuleUpToDate` answers from the session's file cache | wrong answer | no | not filed |
-| U15 | Reflection queries that answer nothing, and facts reflection does not carry | reflection gaps | no | not filed |
-| U16 | `linkWithOptions` silently ignores most compiler options | silent no-op | no | not filed (re-measure first) |
-| U17 | SPIR-V for `SV_VertexID` differs between x86-64 and aarch64 builds | determinism | after investigation | not filed |
-| U18 | GLSL: a hull shader's patch-constant function returns its struct with a bare `return;` | invalid GLSL | yes | not filed |
-| U19 | GLSL: a domain shader's per-vertex input is sized by the patch, which GLSL forbids | invalid GLSL | yes | not filed |
-| U20 | WGSL: a `const` is initialised from an `override` | invalid WGSL | yes | not filed |
-| U21 | WGSL: a matrix vertex input is written at one `@location` | invalid WGSL | after investigation | not filed |
-| U22 | WGSL: arrays of textures and samplers are written as `binding_array` with no `enable` | non-portable WGSL | after investigation | not filed (confirm against the specification and Tint first) |
-| U23 | An internal error where a diagnostic belongs: `double` on WGSL and Metal, varyings on CPU and CUDA, append buffers on C++ | reporting | yes | not filed |
-| U24 | C++: the prelude has no vector arithmetic or comparison for `half` | C++ that does not compile | yes | not filed |
-| U25 | WGSL: 64-bit integers are written as `u64`, which WGSL does not have | invalid WGSL | after investigation | not filed |
-| U26 | Metal: a texture read is called with an overload Metal does not declare | Metal that does not compile | after investigation | not filed |
-| U27 | Metal: an unbounded resource array is written as a flexible array member | Metal that does not compile | after investigation | not filed |
-| U28 | Metal: a matrix vertex input at one `[[attribute]]` | Metal that does not compile | after investigation | not filed |
-| U29 | Metal: an array of device pointers as a kernel input | Metal that does not compile | after investigation | not filed |
-| U30 | A component type linked a second time ignores the second link's options | wrong output | after investigation | not filed |
-| U31 | A second module loaded from source at an already-used path ends in an internal assert | reporting | yes | not filed |
+<!-- patch-registry:begin (generated from docs/upstream.json by tools/ci/patch-registry.ps1 -Write; do not edit) -->
+| # | Defect | Area | Kind | Patch | Test | State | Verified |
+|---|---|---|---|---|---|---|---|
+| U1 | `spReflectionType_GetElementCount` / `GetSpecializedElementCount` crash on an array sized by a link-time constant | reflection | Slang defect |  | `ProberTests.The_resolving_element_count_is_the_one_call_the_library_will_not_make` | unpatched | v2026.21 |
+| U2 | `getBindingRangeCount` throws a C++ exception through `extern "C"` for a resource array sized by a link-time constant | reflection | Slang defect |  | `ProberTests.A_specialization_sized_resource_array_never_reflects_successfully` | unpatched | v2026.21 |
+| U3 | `spReflection_specializeGeneric` access-violates on a mismatched argument list | reflection | Slang defect |  | `ProberTests.A_mismatched_generic_argument_kind_crashes_on_two_platforms_and_diagnoses_on_the_third` | unpatched | v2026.21 |
+| U4 | `spReflection_specializeType` on a non-generic type segfaults on Linux (an assert that removes its own check) | reflection | Slang defect |  | `ProberTests.Specializing_a_non_generic_type_segfaults_only_on_Linux` | unpatched | v2026.21 |
+| U5 | A constant buffer whose block holds only link-time-sized arrays gets no binding | reflection | Slang defect |  | `UnknownSizeTests.A_buffer_with_no_fixed_size_is_refused_rather_than_dropped` | unpatched | v2026.21 |
+| U6 | A 64-bit 3/4-component vertex input is given one location; Vulkan requires two | SPIR-V | Slang defect |  | `NriValidationTests.A_wide_64_bit_vertex_attribute_really_does_consume_two_locations` | unpatched | v2026.21 |
+| U7 | `sample` interpolation without `SampleRateShading` (reported by others as #12441) | SPIR-V | Slang defect |  | `ModuleAgreementTests.The_sample_interpolation_modifier_declares_SampleRateShading` | fixed upstream in v2026.21 | v2026.21 |
+| U8 | `float4x4` vertex input with a member `Offset` decoration | SPIR-V | Slang defect |  | `ModuleAgreementTests.A_matrix_vertex_input_carries_no_member_Offset` | fixed upstream in v2026.21 | v2026.21 |
+| U9 | A missing `slang-glslang` is an error diagnostic on a successful result, reported once per global session | diagnostics | Slang defect |  | `DownstreamCompilerTests.Requiring_the_optimiser_is_the_default_and_succeeds_on_a_correct_payload` | unpatched | v2026.14.1 |
+| U10 | Windows: downstream libraries are not looked up in the compiler's own directory | loading | Slang defect |  | `ProberTests.Launched_by_dotnet_from_another_directory_the_compiler_still_finds_its_companions` | unpatched | v2026.14.1 |
+| U11 | Two public functions have C++ linkage | API header | Slang defect |  | `NativeExportTests.No_entry_point_is_bound_by_a_C_plus_plus_mangling` | unpatched | v2026.21 |
+| U12 | `ISession::loadModule*` returns a borrowed reference; the header does not say so | API header | Slang documentation defect |  | `LifetimeTests.A_module_can_be_disposed_and_loaded_again` | unpatched | v2026.21 |
+| U13 | Releasing a session's last reference from `~Linkage` destroys the global session inside it | lifetime | Slang defect |  | `LifetimeTests.The_global_session_is_never_destroyed_from_inside_the_linkage` | unpatched | v2026.14.1 |
+| U14 | `isBinaryModuleUpToDate` answers from the session's file cache | modules | Slang defect |  | `ModuleSerializationTests.The_staleness_check_answers_from_the_sessions_file_cache_not_from_disk` | unpatched | v2026.21 |
+| U15 | Reflection queries that answer nothing, and facts reflection does not carry | reflection | Slang defect |  | `SecondOpinionTests.The_calls_that_report_nothing_are_pinned_reporting_nothing` | unpatched | v2026.21 |
+| U16 | `linkWithOptions` silently ignores most compiler options | linking | Slang defect |  | `LinkOptionsTests.The_identity_hash_moves_with_an_option_that_changes_nothing` | unpatched | v2026.14.1 |
+| U17 | SPIR-V for `SV_VertexID` differs between x86-64 and aarch64 builds | SPIR-V | Slang defect |  | `SpirvDigestTests.The_corpus_compiles_deterministically_and_records_a_digest_for_every_shader` | unpatched | v2026.21 |
+| U18 | GLSL: a hull shader's patch-constant function returns its struct with a bare `return;` | GLSL | Slang defect |  | `TargetValidationTests.Glsl_compiles_with_glslang` | unpatched | v2026.21 |
+| U19 | GLSL: a domain shader's per-vertex input is sized by the patch, which GLSL forbids | GLSL | Slang defect |  | `TargetValidationTests.Glsl_compiles_with_glslang` | unpatched | v2026.21 |
+| U20 | WGSL: a `const` is initialised from an `override` | WGSL | Slang defect |  | `TargetValidationTests.Wgsl_passes_naga` | unpatched | v2026.21 |
+| U21 | WGSL: a matrix vertex input is written at one `@location` | WGSL | Slang defect |  | `TargetValidationTests.Wgsl_passes_naga` | unpatched | v2026.21 |
+| U22 | WGSL: arrays of textures and samplers are written as `binding_array` with no `enable` | WGSL | Slang defect |  | `TargetValidationTests.Wgsl_passes_naga` | unpatched | v2026.21 |
+| U23 | An internal error where a diagnostic belongs: `double` on WGSL and Metal, varyings on CPU and CUDA, append buffers on C++ | diagnostics | Slang defect |  | `TargetValidationTests.Wgsl_passes_naga` | unpatched | v2026.21 |
+| U24 | C++: the prelude has no vector arithmetic or comparison for `half` | C++ | Slang defect |  | `TargetValidationTests.Slang_compute_corpus_cpp_compiles_with_the_host_compiler` | unpatched | v2026.21 |
+| U25 | WGSL: 64-bit integers are written as `u64`, which WGSL does not have | WGSL | Slang defect |  | `TargetValidationTests.Slang_compute_corpus_wgsl_passes_naga` | unpatched | v2026.21 |
+| U26 | Metal: a texture read is called with an overload Metal does not declare | Metal | Slang defect |  | `TargetValidationTests.Metal_compiles_to_air` | unpatched | v2026.21 |
+| U27 | Metal: an unbounded resource array is written as a flexible array member | Metal | Slang defect |  | `TargetValidationTests.Metal_compiles_to_air` | unpatched | v2026.21 |
+| U28 | Metal: a matrix vertex input at one `[[attribute]]` | Metal | Slang defect |  | `TargetValidationTests.Metal_compiles_to_air` | unpatched | v2026.21 |
+| U29 | Metal: an array of device pointers as a kernel input | Metal | Slang defect |  | `TargetValidationTests.Slang_compute_corpus_metal_compiles_to_air` | unpatched | v2026.21 |
+| U30 | A component type linked a second time ignores the second link's options | linking | Slang defect |  | `CompositeTests.Linking_with_options_one_call_at_a_time_emits_what_Link_emits` | unpatched | v2026.21 |
+| U31 | A second module loaded from source at an already-used path ends in an internal assert | diagnostics | Slang defect |  | `CompilationTests.A_second_module_from_source_at_the_same_path_ends_in_an_internal_assert` | unpatched | v2026.21 |
+<!-- patch-registry:end -->
 
 Related upstream items found while checking whether these were known: the layout-query robustness
 work [#8964](https://github.com/shader-slang/slang/issues/8964),

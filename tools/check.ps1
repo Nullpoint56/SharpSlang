@@ -12,7 +12,9 @@
     lint: the SDK's own analyzers (AnalysisLevel latest-recommended and EnforceCodeStyleInBuild,
     set in Directory.Build.props and configured in .editorconfig) in a Release build with warnings
     as errors, the formatter's check, and tools/ci/descs-version.ps1: SharpSlang.Descs and the
-    reader may not change their sources under a version already on nuget.org. Lint needs no native
+    reader may not change their sources under a version already on nuget.org; and
+    tools/ci/patch-registry.ps1: docs/upstream.json against patches/, the tests and
+    docs/upstream.md, and every patch applying to the pinned tag (AGENTS.md#patches). Lint needs no native
     payload: SharpSlangRequireNative=false turns off the build's SHARPSLANG001 error about a
     missing one. descs-version needs the history back to the published commit and asks nuget.org.
 
@@ -64,6 +66,9 @@ try {
 
         try { & (Join-Path $PSScriptRoot "ci/descs-version.ps1") }
         catch { $failed += "lint: descs version ($($_.Exception.Message))" }
+
+        try { & (Join-Path $PSScriptRoot "ci/patch-registry.ps1") }
+        catch { $failed += "lint: patch registry ($($_.Exception.Message))" }
     }
 
     if ($ZeroAlloc) {
