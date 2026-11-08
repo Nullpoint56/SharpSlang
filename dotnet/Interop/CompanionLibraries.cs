@@ -82,6 +82,10 @@ internal static unsafe class CompanionLibraries
     {
         if (!OperatingSystem.IsWindows()) return;
 
+        // Test-only: the measurement of Slang's own search (U10, AGENTS.md#patches) needs the
+        // preload out of the way. Not for applications.
+        if (Environment.GetEnvironmentVariable("SHARPSLANG_TEST_NO_COMPANION_PRELOAD") == "1") return;
+
         lock (Gate)
         {
             if (_done) return;

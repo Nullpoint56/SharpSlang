@@ -92,7 +92,7 @@ public class ProberTests(ITestOutputHelper output)
     /// working directory is whatever the caller says. Windows searches both for a library loaded by
     /// bare name and neither is where the prober and its payload are.
     /// </remarks>
-    private static Outcome RunUnderMuxer(string probe, string proberDirectory, string workingDirectory)
+    private static Outcome RunUnderMuxer(string probe, string proberDirectory, string workingDirectory, bool withoutPreload = false)
     {
         var dll = Path.Combine(proberDirectory, "SharpSlang.Prober.dll");
         Assert.True(File.Exists(dll), $"the prober is not built at {dll}.");
@@ -107,6 +107,7 @@ public class ProberTests(ITestOutputHelper output)
 
         info.ArgumentList.Add(dll);
         info.ArgumentList.Add(probe);
+        if (withoutPreload) info.Environment["SHARPSLANG_TEST_NO_COMPANION_PRELOAD"] = "1";
 
         return Execute(info, probe);
     }
@@ -752,6 +753,24 @@ public class ProberTests(ITestOutputHelper output)
         }
     }
 
+    [PatchedFact("U10")]
+    public void Slang_finds_its_companions_beside_itself_without_the_bindings_preload()
+    {
+        // U10, patched (0015): with CompanionLibraries' preload turned off, Slang's own bare-name
+        // load falls back to its own directory on Windows, so the launch from elsewhere still gets
+        // spirv-opt. Elsewhere the payload's rpaths always did this.
+        var elsewhere = Directory.CreateTempSubdirectory("sharpslang-elsewhere-");
+        try
+        {
+            var outcome = RunUnderMuxer("downstream-compilers", ProberDirectory(), elsewhere.FullName, withoutPreload: true);
+            output.WriteLine(outcome.ToString());
+            Assert.Equal(0, outcome.ExitCode);
+        }
+        finally
+        {
+            elsewhere.Delete(recursive: true);
+        }
+    }
     [NativeFact]
     public void Launched_by_dotnet_from_another_directory_the_compiler_still_finds_its_companions()
     {

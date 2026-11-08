@@ -100,10 +100,10 @@
       "title": "Windows: downstream libraries are not looked up in the compiler's own directory",
       "area": "loading",
       "kind": "Slang defect",
-      "patch": null,
-      "test": "ProberTests.Launched_by_dotnet_from_another_directory_the_compiler_still_finds_its_companions",
-      "state": "unpatched",
-      "verified": "v2026.14.1"
+      "patch": "0015-windows-load-beside-the-compiler.patch",
+      "test": "ProberTests.Slang_finds_its_companions_beside_itself_without_the_bindings_preload",
+      "state": "patched",
+      "verified": "v2026.21"
     },
     {
       "id": "U11",
@@ -112,7 +112,7 @@
       "kind": "Slang defect",
       "patch": null,
       "test": "NativeExportTests.No_entry_point_is_bound_by_a_C_plus_plus_mangling",
-      "state": "unpatched",
+      "state": "not patchable: the fix gives both functions C linkage, which renames their exported symbols and breaks every C++ binary linked against them; keeping the old mangled export beside a C one needs a second declaration of the same name with another linkage, which C++ does not allow in one program without linker aliasing",
       "verified": "v2026.21"
     },
     {
