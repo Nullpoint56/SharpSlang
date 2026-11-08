@@ -28,11 +28,17 @@
     <File Path="tools/fetch-native.ps1" />
     <File Path="tools/generate-native.ps1" />
     <File Path="tools/.editorconfig" />
+    <File Path="tools/coverage.ps1" />
   </Folder>
   <!-- The standalone tools, as files: each builds outside the solution (its script builds it). -->
   <Folder Name="/tools/apidiff/">
     <File Path="tools/apidiff/ApiDiff.csproj" />
     <File Path="tools/apidiff/Program.cs" />
+  </Folder>
+  <Folder Name="/tools/coverage/">
+    <File Path="tools/coverage/coverage.psd1" />
+    <File Path="tools/coverage/BoundSurface/BoundSurface.csproj" />
+    <File Path="tools/coverage/BoundSurface/Program.cs" />
   </Folder>
   <Folder Name="/tools/ci/">
     <File Path="tools/ci/check-docs.sh" />
