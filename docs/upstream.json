@@ -160,10 +160,10 @@
       "title": "`linkWithOptions` silently ignores most compiler options",
       "area": "linking",
       "kind": "Slang defect",
-      "patch": null,
-      "test": "LinkOptionsTests.The_identity_hash_moves_with_an_option_that_changes_nothing",
-      "state": "unpatched",
-      "verified": "v2026.14.1"
+      "patch": "0018-link-time-options.patch",
+      "test": "LinkOptionsTests.A_link_time_option_takes_effect_or_says_it_cannot",
+      "state": "patched",
+      "verified": "v2026.21"
     },
     {
       "id": "U17",
