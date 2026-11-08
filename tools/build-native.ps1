@@ -90,6 +90,8 @@
     CMAKE_MSVC_RUNTIME_LIBRARY (Windows)     static   MultiThreaded, as Slang's own "default" preset
     CMAKE_OSX_DEPLOYMENT_TARGET (macOS)      15.0     .NET 11's oldest macOS, as SharpNRI
     CMAKE_OSX_ARCHITECTURES (macOS)          arm64
+    CMAKE_BUILD_WITH_INSTALL_RPATH (not      ON       the staged libraries carry the release's RPATH;
+      Windows)                                        the build tree's has an empty entry (see $opt)
 
   Configure-time downloads with these options, measured on win-x64 and linux-x64: only DXC, by
   slang/cmake/FetchDXC.cmake through FetchContent into _build/<rid>/_deps/dxc-src, SHA-256 pinned
@@ -283,6 +285,11 @@ foreach ($dep in "LZ4", "MINIZ", "UNORDERED_DENSE", "VULKAN_HEADERS", "SPIRV_HEA
     $opt["SLANG_OVERRIDE_$($dep)_PATH"] = "OFF"
 }
 if ($targetLinux) { $opt.SLANG_ENABLE_XLIB = "OFF" }   # auto_option() on Linux only; a plain variable elsewhere
+# The libraries are staged from the build tree, and CMake's build-tree RPATH is Slang's
+# "$ORIGIN/../lib;$ORIGIN" plus an empty entry (measured: RUNPATH "$ORIGIN/../lib:$ORIGIN:" on
+# linux-x64), which glibc expands to paths relative to the working directory, so a library there
+# would be found first. The install RPATH, which the release carries, is exactly Slang's two entries.
+if (-not $targetWindows) { $opt.CMAKE_BUILD_WITH_INSTALL_RPATH = "ON" }
 $on = { param($n) $opt.Contains($n) -and $opt[$n] -eq "ON" }
 
 # Cache entries Slang derives itself, or that its dependencies declare: accounted for, not passed.
@@ -477,7 +484,8 @@ if ($targetWindows) {
         if (Compare-Object ($needed | Sort-Object) ($expectedNeeded | Sort-Object)) { throw "$($kv.Key) NEEDED is not exactly $($expectedNeeded -join ', ')" }
         # dotnet/Interop/CompanionLibraries.cs relies on it: glibc's dlopen of a bare name searches the
         # calling object's DT_RUNPATH, which is how Slang finds slang-glslang beside itself.
-        if ($runpath -notmatch '(^|:)\$ORIGIN(:|$)') { throw "$($kv.Key) has no `$ORIGIN in its RUNPATH ('$runpath')" }
+        # Exactly Slang's install RPATH: an empty entry would search the working directory.
+        if ($runpath -cne '$ORIGIN/../lib:$ORIGIN') { throw "$($kv.Key) RUNPATH is '$runpath', not exactly `$ORIGIN/../lib:`$ORIGIN" }
     }
 } else {
     # UNVERIFIED: written without a Mac. The system only: libc++ and libSystem, plus the library's own
@@ -491,6 +499,14 @@ if ($targetWindows) {
         $buildVersion = @(otool -l $file | Select-String -Pattern '^\s*(minos|sdk)\s' | ForEach-Object { $_.Line.Trim() })
         Write-Host "    build version: $($buildVersion -join ', ')"
         if ($buildVersion -notcontains "minos 15.0") { throw "$($kv.Key) is not built for macOS 15.0 ($($buildVersion -join ', '))" }
+        # The release's LC_RPATHs (read from its v2026.21 archive): how Slang's dlopen of a leaf name
+        # finds slang-glslang beside the compiler.
+        $loadCommands = @(otool -l $file)
+        $rpaths = @(for ($i = 0; $i -lt $loadCommands.Count; $i++) {
+            if ($loadCommands[$i] -match '^\s*cmd LC_RPATH$' -and $loadCommands[$i + 2] -match '^\s*path (\S+) \(offset') { $Matches[1] }
+        })
+        Write-Host "    rpaths: $($rpaths -join ', ')"
+        if (($rpaths -join ',') -cne '@loader_path/../lib,@loader_path') { throw "$($kv.Key) LC_RPATHs are not exactly @loader_path/../lib, @loader_path" }
     }
 }
 

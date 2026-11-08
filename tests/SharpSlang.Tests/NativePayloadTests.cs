@@ -220,8 +220,9 @@ public sealed class NativePayloadTests
         {
             var (needed, runpath) = ReadElfDynamic(Path.Combine(NativeDir, library));
             AssertSameNames(ElfNeeded, needed, $"{library} DT_NEEDED", StringComparer.Ordinal);
-            Assert.True(runpath is not null && runpath.Split(':').Contains("$ORIGIN"),
-                $"{library} DT_RUNPATH is '{runpath}', without $ORIGIN");
+            // Exactly: an empty entry, which CMake's build-tree RPATH carries, makes glibc search the
+            // working directory too (measured with LD_DEBUG=libs).
+            Assert.Equal("$ORIGIN/../lib:$ORIGIN", runpath);
         }
     }
 
@@ -275,7 +276,7 @@ public sealed class NativePayloadTests
         {
             var (dylibs, rpaths) = ReadMachOLoadCommands(Path.Combine(NativeDir, library));
             AssertSameNames(MachODylibs, dylibs, $"{library} LC_LOAD_DYLIB", StringComparer.Ordinal);
-            Assert.Contains("@loader_path", rpaths);
+            Assert.Equal(new[] { "@loader_path/../lib", "@loader_path" }, rpaths);
         }
     }
 
