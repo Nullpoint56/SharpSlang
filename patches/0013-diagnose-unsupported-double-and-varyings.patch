@@ -1,0 +1,220 @@
+Diagnose double on WGSL and Metal, and varying parameters on targets without them.
+
+Two constructs a target cannot express end compilation with an internal error rather than a
+diagnostic naming them:
+
+- the WGSL and Metal emitters reach SLANG_UNEXPECTED("'double' type emitted") for a double type,
+  or a double literal on WGSL (source/slang/slang-emit-wgsl.cpp, source/slang/slang-emit-metal.cpp),
+  which surfaces as E99997 "Slang compilation aborted due to an exception of class
+  Slang::InternalError";
+- legalizing the varying parameters of a vertex or fragment entry point for the C++ and CUDA
+  targets reports Diagnostics::Unimplemented, E99999 "unimplemented feature in Slang compiler:
+  this target doesn't support this system-defined (user-defined) varying parameter"
+  (source/slang/slang-ir-legalize-varying-params.cpp).
+
+This adds two errors and reports them instead: E56110 type-not-supported-on-target, naming the
+type and the target, and E56111 varying-parameter-not-supported-on-target, naming whether the
+parameter is system-defined or user-defined. The emitters write f32 or float in place of the
+type so that the text stays well formed until compilation stops on the error. A regression test
+is added as tools/slang-unit-test/unit-test-unsupported-construct-diagnosed.cpp.
+
+Measured on v2026.21 (win-x64): E99997 for a double4 vertex input, double members of a constant
+buffer and tests/compute/bitcast-64bit.slang on WGSL and Metal; E99999 for fragment and vertex
+entry points on the C++ and CUDA targets.
+diff --git a/source/slang/slang-diagnostics.lua b/source/slang/slang-diagnostics.lua
+index 1d7fa801b..8aab09cee 100644
+--- a/source/slang/slang-diagnostics.lua
++++ b/source/slang/slang-diagnostics.lua
+@@ -6301,6 +6301,20 @@ err(
+     span { loc = "location", message = "arrays of resource types (e.g., 'StructuredBuffer', 'RWStructuredBuffer', 'ByteAddressBuffer') are not supported in WGSL." }
+ )
+ 
++err(
++    "type-not-supported-on-target",
++    56110,
++    "the '~typeName' type is not supported for the '~target' target",
++    span { loc = "location", message = "the '~typeName' type is not supported for the '~target' target." }
++)
++
++err(
++    "varying-parameter-not-supported-on-target",
++    56111,
++    "this target does not support ~kind varying parameters",
++    span { loc = "location", message = "this target does not support ~kind varying parameters, so an entry point for a rasterization stage cannot be compiled for it." }
++)
++
+ err(
+     "storage-texture-access-mode-not-supported-in-wgsl",
+     56106,
+diff --git a/source/slang/slang-emit-metal.cpp b/source/slang/slang-emit-metal.cpp
+index 0caaaf1e9..2794b3410 100644
+--- a/source/slang/slang-emit-metal.cpp
++++ b/source/slang/slang-emit-metal.cpp
+@@ -1369,7 +1369,13 @@ void MetalSourceEmitter::emitSimpleTypeImpl(IRType* type)
+         return;
+ 
+     case kIROp_DoubleType:
+-        SLANG_UNEXPECTED("'double' type emitted");
++        // Metal has no 64-bit floating-point type. A shader using `double` is diagnosed, and `float`
++        // keeps the text being emitted well formed until compilation stops on the error.
++        getSink()->diagnose(Diagnostics::TypeNotSupportedOnTarget{
++            .typeName = "double",
++            .target = "Metal",
++            .location = SourceLoc()});
++        m_writer->emit("float");
+         return;
+     case kIROp_VectorType:
+         {
+diff --git a/source/slang/slang-emit-wgsl.cpp b/source/slang/slang-emit-wgsl.cpp
+index fe85432f2..2db02f18d 100644
+--- a/source/slang/slang-emit-wgsl.cpp
++++ b/source/slang/slang-emit-wgsl.cpp
+@@ -563,8 +563,13 @@ void WGSLSourceEmitter::emitSimpleTypeImpl(IRType* type)
+         m_writer->emit("f32");
+         break;
+     case kIROp_DoubleType:
+-        // There is no "f64" type in WGSL
+-        SLANG_UNEXPECTED("'double' type emitted");
++        // There is no "f64" type in WGSL. A shader using `double` is diagnosed, and `f32` keeps the
++        // text being emitted well formed until compilation stops on the error.
++        getSink()->diagnose(Diagnostics::TypeNotSupportedOnTarget{
++            .typeName = "double",
++            .target = "WGSL",
++            .location = SourceLoc()});
++        m_writer->emit("f32");
+         break;
+     case kIROp_Int8Type:
+     case kIROp_UInt8Type:
+@@ -1251,8 +1256,14 @@ void WGSLSourceEmitter::emitSimpleValueImpl(IRInst* inst)
+ 
+                 case BaseType::Double:
+                     {
+-                        // There is not "f64" in WGSL
+-                        SLANG_UNEXPECTED("'double' type emitted");
++                        // There is not "f64" in WGSL: diagnosed as for the type, and written as an f32
++                        // literal until compilation stops on the error.
++                        getSink()->diagnose(Diagnostics::TypeNotSupportedOnTarget{
++                            .typeName = "double",
++                            .target = "WGSL",
++                            .location = litInst->sourceLoc});
++                        m_writer->emit(litInst->value.floatVal);
++                        m_writer->emit("f");
+                     }
+                     break;
+                 }
+diff --git a/source/slang/slang-ir-legalize-varying-params.cpp b/source/slang/slang-ir-legalize-varying-params.cpp
+index 24d59498a..e55a90d7c 100644
+--- a/source/slang/slang-ir-legalize-varying-params.cpp
++++ b/source/slang/slang-ir-legalize-varying-params.cpp
+@@ -1063,8 +1063,8 @@ protected:
+     {
+         SLANG_UNUSED(info);
+ 
+-        m_sink->diagnose(Diagnostics::Unimplemented{
+-            .feature = "this target doesn't support this system-defined varying parameter",
++        m_sink->diagnose(Diagnostics::VaryingParameterNotSupportedOnTarget{
++            .kind = "system-defined",
+             .location = getUnsupportedVaryingDiagnosticLoc()});
+ 
+         return LegalizedVaryingVal();
+@@ -1074,8 +1074,8 @@ protected:
+     {
+         SLANG_UNUSED(info);
+ 
+-        m_sink->diagnose(Diagnostics::Unimplemented{
+-            .feature = "this target doesn't support this user-defined varying parameter",
++        m_sink->diagnose(Diagnostics::VaryingParameterNotSupportedOnTarget{
++            .kind = "user-defined",
+             .location = getUnsupportedVaryingDiagnosticLoc()});
+ 
+         return LegalizedVaryingVal();
+diff --git a/tools/slang-unit-test/unit-test-unsupported-construct-diagnosed.cpp b/tools/slang-unit-test/unit-test-unsupported-construct-diagnosed.cpp
+new file mode 100644
+index 000000000..603627e8e
+--- /dev/null
++++ b/tools/slang-unit-test/unit-test-unsupported-construct-diagnosed.cpp
+@@ -0,0 +1,83 @@
++// unit-test-unsupported-construct-diagnosed.cpp
++
++#include "slang-com-ptr.h"
++#include "slang.h"
++#include "unit-test/slang-unit-test.h"
++
++using namespace Slang;
++
++// A construct a target cannot express should end compilation with a diagnostic naming it, not with
++// an internal error: `double` on WGSL and Metal (E56110), and a rasterization stage's varying
++// parameters on the C++ target (E56111).
++
++static void checkDiagnosed(
++    slang::IGlobalSession* globalSession,
++    SlangCompileTarget format,
++    const char* source,
++    const char* entryPointName,
++    const char* expectedCode)
++{
++    slang::TargetDesc targetDesc = {};
++    targetDesc.format = format;
++
++    slang::SessionDesc sessionDesc = {};
++    sessionDesc.targetCount = 1;
++    sessionDesc.targets = &targetDesc;
++
++    ComPtr<slang::ISession> session;
++    SLANG_CHECK_ABORT(globalSession->createSession(sessionDesc, session.writeRef()) == SLANG_OK);
++
++    ComPtr<slang::IBlob> diagnostics;
++    auto module = session->loadModuleFromSourceString(
++        "unsupportedConstructDiagnosed",
++        "unsupportedConstructDiagnosed.slang",
++        source,
++        diagnostics.writeRef());
++    SLANG_CHECK_ABORT(module != nullptr);
++
++    ComPtr<slang::IEntryPoint> entryPoint;
++    SLANG_CHECK_ABORT(
++        SLANG_SUCCEEDED(module->findEntryPointByName(entryPointName, entryPoint.writeRef())));
++    slang::IComponentType* components[] = {module, entryPoint};
++    ComPtr<slang::IComponentType> program;
++    SLANG_CHECK_ABORT(SLANG_SUCCEEDED(session->createCompositeComponentType(
++        components,
++        2,
++        program.writeRef(),
++        diagnostics.writeRef())));
++    ComPtr<slang::IComponentType> linked;
++    SLANG_CHECK_ABORT(SLANG_SUCCEEDED(program->link(linked.writeRef(), diagnostics.writeRef())));
++
++    ComPtr<slang::IBlob> code;
++    diagnostics = nullptr;
++    auto result = linked->getEntryPointCode(0, 0, code.writeRef(), diagnostics.writeRef());
++    SLANG_CHECK(SLANG_FAILED(result));
++    SLANG_CHECK_ABORT(diagnostics != nullptr);
++    auto text = UnownedStringSlice(
++        (const char*)diagnostics->getBufferPointer(),
++        diagnostics->getBufferSize());
++    SLANG_CHECK(text.indexOf(UnownedStringSlice(expectedCode)) != -1);
++    SLANG_CHECK(text.indexOf(UnownedStringSlice("E9999")) == -1);
++}
++
++SLANG_UNIT_TEST(unsupportedConstructDiagnosed)
++{
++    ComPtr<slang::IGlobalSession> globalSession;
++    SLANG_CHECK_ABORT(
++        slang_createGlobalSession(SLANG_API_VERSION, globalSession.writeRef()) == SLANG_OK);
++
++    const char* doubleSource = R"(
++        RWStructuredBuffer<double> result;
++        [shader("compute")]
++        [numthreads(1, 1, 1)]
++        void computeMain() { result[0] = 1.0l; }
++        )";
++    checkDiagnosed(globalSession, SLANG_WGSL, doubleSource, "computeMain", "56110");
++    checkDiagnosed(globalSession, SLANG_METAL, doubleSource, "computeMain", "56110");
++
++    const char* fragmentSource = R"(
++        [shader("fragment")]
++        float4 fragmentMain(float4 position : SV_Position) : SV_Target { return position; }
++        )";
++    checkDiagnosed(globalSession, SLANG_CPP_SOURCE, fragmentSource, "fragmentMain", "56111");
++}
+\ No newline at end of file

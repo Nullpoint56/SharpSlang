@@ -46,7 +46,7 @@ archive, which CI tests until the switch (`AGENTS.md`, Decisions), has none of t
 | U20 | WGSL: a `const` is initialised from an `override` | WGSL | Slang defect | `0012-wgsl-override-not-const.patch` | `TargetValidationTests.Wgsl_a_value_computed_from_a_specialization_constant_is_not_const` | patched | [#14285](https://github.com/shader-slang/slang/issues/14285) | v2026.21 |
 | U21 | WGSL: a matrix vertex input is written at one `@location` | WGSL | Slang defect |  | `TargetValidationTests.Wgsl_passes_naga` | unpatched | [#13736](https://github.com/shader-slang/slang/issues/13736) | v2026.21 |
 | U22 | WGSL: arrays of textures and samplers are written as `binding_array` with no `enable` | WGSL | Slang defect |  | `TargetValidationTests.Wgsl_passes_naga` | unpatched |  | v2026.21 |
-| U23 | An internal error where a diagnostic belongs: `double` on WGSL and Metal, varyings on CPU and CUDA, append buffers on C++ | diagnostics | Slang defect |  | `TargetValidationTests.Wgsl_passes_naga` | unpatched | [#10232](https://github.com/shader-slang/slang/issues/10232) | v2026.21 |
+| U23 | An internal error where a diagnostic belongs: double on WGSL and Metal, varyings on CPU and CUDA | diagnostics | Slang defect | `0013-diagnose-unsupported-double-and-varyings.patch` | `TargetValidationTests.A_construct_the_target_cannot_express_is_diagnosed_not_an_internal_error` | patched | [#10232](https://github.com/shader-slang/slang/issues/10232) | v2026.21 |
 | U24 | C++: the prelude has no vector arithmetic or comparison for `half` | C++ | Slang defect | `0011-cpp-prelude-half-vector-ops.patch` | `TargetValidationTests.Cpp_half_vector_arithmetic_and_comparison_compile` | patched | [#14037](https://github.com/shader-slang/slang/issues/14037), [#14194](https://github.com/shader-slang/slang/issues/14194) | v2026.21 |
 | U25 | WGSL: 64-bit integers are written as `u64`, which WGSL does not have | WGSL | Slang defect |  | `TargetValidationTests.Slang_compute_corpus_wgsl_passes_naga` | unpatched | [#13914](https://github.com/shader-slang/slang/issues/13914) | v2026.21 |
 | U26 | Metal: a texture read is called with an overload Metal does not declare | Metal | Slang defect |  | `TargetValidationTests.Metal_compiles_to_air` | unpatched |  | v2026.21 |
@@ -55,6 +55,7 @@ archive, which CI tests until the switch (`AGENTS.md`, Decisions), has none of t
 | U29 | Metal: an array of device pointers as a kernel input | Metal | Slang defect |  | `TargetValidationTests.Slang_compute_corpus_metal_compiles_to_air` | unpatched |  | v2026.21 |
 | U30 | A component type linked a second time ignores the second link's options | linking | Slang defect | `0008-link-with-options-owns-its-options.patch` | `CompositeTests.A_composite_linked_a_second_time_emits_what_its_second_links_options_say` | patched |  | v2026.21 |
 | U31 | A second module loaded from source at an already-used path ends in an internal assert | diagnostics | Slang defect | `0005-module-path-already-loaded.patch` | `CompilationTests.A_second_module_from_source_at_the_same_path_is_diagnosed_naming_the_path` | patched |  | v2026.21 |
+| U32 | C++: an append or consume structured buffer ends in an internal error | C++ output | Slang defect |  |  | unpatched |  | v2026.21 |
 <!-- patch-registry:end -->
 
 Related upstream items found while checking whether these were known: the layout-query robustness

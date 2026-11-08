@@ -239,12 +239,12 @@
     },
     {
       "id": "U23",
-      "title": "An internal error where a diagnostic belongs: `double` on WGSL and Metal, varyings on CPU and CUDA, append buffers on C++",
+      "title": "An internal error where a diagnostic belongs: double on WGSL and Metal, varyings on CPU and CUDA",
       "area": "diagnostics",
       "kind": "Slang defect",
-      "patch": null,
-      "test": "TargetValidationTests.Wgsl_passes_naga",
-      "state": "unpatched",
+      "patch": "0013-diagnose-unsupported-double-and-varyings.patch",
+      "test": "TargetValidationTests.A_construct_the_target_cannot_express_is_diagnosed_not_an_internal_error",
+      "state": "patched",
       "verified": "v2026.21",
       "upstream": [
         "#10232"
@@ -338,6 +338,16 @@
       "patch": "0005-module-path-already-loaded.patch",
       "test": "CompilationTests.A_second_module_from_source_at_the_same_path_is_diagnosed_naming_the_path",
       "state": "patched",
+      "verified": "v2026.21"
+    },
+    {
+      "id": "U32",
+      "title": "C++: an append or consume structured buffer ends in an internal error",
+      "area": "C++ output",
+      "kind": "Slang defect",
+      "patch": null,
+      "test": null,
+      "state": "unpatched",
       "verified": "v2026.21"
     }
   ]

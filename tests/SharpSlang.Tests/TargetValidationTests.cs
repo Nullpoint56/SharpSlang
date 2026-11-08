@@ -34,13 +34,13 @@ public sealed class TargetValidationTests(ITestOutputHelper output)
 
     /// <summary>What a declared entry expects: the outcome, words its message must contain, and why.</summary>
     /// <summary>A declared outcome. <paramref name="FixedBy"/> names the defect whose patch makes the row
-    /// <see cref="Outcome.Valid"/> on a payload built with that patch (AGENTS.md#patches).</summary>
-    public sealed record Expected(Outcome Outcome, string Words, string Reason, string? FixedBy = null)
+    /// <see cref="Outcome.Valid"/> on a payload built with that patch, or, with <paramref name="FixedWords"/>, the same outcome in those words (AGENTS.md#patches).</summary>
+    public sealed record Expected(Outcome Outcome, string Words, string Reason, string? FixedBy = null, string? FixedWords = null)
     {
         /// <summary>What the staged payload should produce: <see cref="Outcome.Valid"/> where it carries the fix.</summary>
         public Expected ForStagedPayload() =>
             FixedBy is not null && PatchRegistry.PatchFor(FixedBy) is { } patch && StagedPayload.Carries(patch)
-                ? new Expected(Outcome.Valid, "", $"patched ({FixedBy})")
+                ? (FixedWords is null ? new Expected(Outcome.Valid, "", $"patched ({FixedBy})") : new Expected(Outcome, FixedWords, $"patched ({FixedBy})"))
                 : this;
     }
 
@@ -235,7 +235,7 @@ public sealed class TargetValidationTests(ITestOutputHelper output)
                 .ToList();
             foreach (var e in emitted)
             {
-                var expected = Declared.For(target.Name).GetValueOrDefault(e.Key);
+                var expected = Declared.For(target.Name).GetValueOrDefault(e.Key)?.ForStagedPayload();
                 var refusedNow = e.Refusal is not null;
                 var declaredRefused = expected?.Outcome == Outcome.SlangRefuses;
                 if (refusedNow != declaredRefused
@@ -313,6 +313,27 @@ public sealed class TargetValidationTests(ITestOutputHelper output)
     public void Wgsl_a_value_computed_from_a_specialization_constant_is_not_const() =>
         RequirePatchedCaseValid("wgsl", "specialization-constants/scFragment", Validator.Naga);
 
+    [PatchedFact("U23")]
+    public void A_construct_the_target_cannot_express_is_diagnosed_not_an_internal_error()
+    {
+        // U23, patched (0013): double on WGSL and Metal is E56110, and a rasterization stage's
+        // varyings on the C++ and CUDA targets are E56111, each a diagnostic rather than an internal
+        // error.
+        using var global = SlangGlobalSession.Create();
+        foreach (var (target, key, words) in new[]
+                 {
+                     ("wgsl", "wide-scalars/wsFragment", "56110"),
+                     ("metal", "wide-scalars/wsFragment", "56110"),
+                     ("cpp", "system-values/svFragment", "56111"),
+                     ("cuda", "vertex-interface/viVertex", "56111"),
+                 })
+        {
+            var e = EmitCase(global, ShaderCorpus.Case(key.Split('/')[0]), TargetNamed(target).Options()).Single(x => x.Key == key);
+            Assert.True(e.Refusal is not null, $"{target} {key}: compiled");
+            Assert.Contains(words, e.Refusal, StringComparison.Ordinal);
+            Assert.DoesNotContain("E9999", e.Refusal, StringComparison.Ordinal);
+        }
+    }
     [PatchedFact("U24")]
     public void Cpp_half_vector_arithmetic_and_comparison_compile() =>
         RequirePatchedComputeValid("cpp", Validator.HostCxx, "compute:half-vector-calc.slang", "compute:half-vector-compare.slang");
@@ -540,7 +561,7 @@ public sealed class TargetValidationTests(ITestOutputHelper output)
                 new(Outcome.SlangRefuses, NotInStage, NoStageForTarget)),
             (["mesh/msMesh"], new(Outcome.SlangRefuses, "mesh output must be assigned as whole struct", "Metal writes a mesh vertex whole; Slang diagnoses a per-member write (E56104)")),
             (["wide-vertex-inputs/wvVertex", "wide-scalars/wsFragment", "scalar-widths/swFragment", "compute:bitcast-64bit.slang"],
-                new(Outcome.SlangRefuses, "'double' type emitted", "Metal has no double; Slang ends with an InternalError, E99997, instead of a diagnostic (U23)")),
+                new(Outcome.SlangRefuses, "'double' type emitted", "Metal has no double; Slang ends with an InternalError, E99997, instead of a diagnostic (U23)", FixedBy: "U23", FixedWords: "56110")),
             // Measured by xcrun metal on the GitHub-hosted macos-15 runner, run 42475073038
             // (2026-11-08, Slang v2026.21): the first time these rows met Apple's compiler.
             (["descriptor-kinds/dkFragment"], new(Outcome.ValidatorRejects, "no matching member function for call to 'read'", "U26: Slang calls a texture read overload Metal does not declare")),
@@ -556,7 +577,7 @@ public sealed class TargetValidationTests(ITestOutputHelper output)
                 new(Outcome.SlangRefuses, NotInStage, NoStageForTarget)),
             (["compute-specialized/csCompute"], new(Outcome.SlangRefuses, SpecializedNumthreads, NoSpecializedNumthreads)),
             (["wide-vertex-inputs/wvVertex", "wide-scalars/wsFragment", "scalar-widths/swFragment"],
-                new(Outcome.SlangRefuses, "'double' type emitted", "WGSL has no f64; Slang ends with an InternalError, E99997, instead of a diagnostic (U23)")),
+                new(Outcome.SlangRefuses, "'double' type emitted", "WGSL has no f64; Slang ends with an InternalError, E99997, instead of a diagnostic (U23)", FixedBy: "U23", FixedWords: "56110")),
             (["system-values/svVertex", "system-values/svFragment"], new(Outcome.SlangRefuses, "system value semantic", "WGSL has no such builtin; Slang diagnoses it (E55202)")),
             (["descriptor-arrays/daFragment", "buffer-arrays/baFragment"],
                 new(Outcome.ValidatorRejects, "the `wgpu_binding_array` enable extension is not enabled", "U22: binding_array is not WGSL; naga takes it only behind its own enable, which Slang does not write")),
@@ -565,7 +586,7 @@ public sealed class TargetValidationTests(ITestOutputHelper output)
             (["push-constants/pcFragment"], new(Outcome.ValidatorRejects, "unknown language extension `immediate_address_space`", "naga 30.0.1 does not know the language extension Slang requires for push constants; not judged as a Slang defect")),
             (["wave-ops/woCompute"], new(Outcome.ValidatorRejects, "the `subgroups` enable-extension is not yet supported", "naga 30.0.1 does not implement WGSL's subgroups extension; not judged as a Slang defect")),
             (["compute:atomics-groupshared.slang", "compute:atomics.slang"], new(Outcome.SlangRefuses, NotInStage, NoStageForTarget)),
-            (["compute:bitcast-64bit.slang"], new(Outcome.SlangRefuses, "'double' type emitted", "WGSL has no f64; Slang ends with an InternalError, E99997, instead of a diagnostic (U23)")),
+            (["compute:bitcast-64bit.slang"], new(Outcome.SlangRefuses, "'double' type emitted", "WGSL has no f64; Slang ends with an InternalError, E99997, instead of a diagnostic (U23)", FixedBy: "U23", FixedWords: "56110")),
             (["compute:byte-address-buffer-64bit.slang"], new(Outcome.ValidatorRejects, "automatic conversions cannot convert elements of `u64` to `u32`", "U25: WGSL has no 64-bit integer, and Slang writes u64 into it")),
             (["compute:half-rw-texture-convert.slang", "compute:half-rw-texture-convert2.slang"],
                 new(Outcome.SlangRefuses, "does not support 'read_write' access for storage textures in WGSL", "WGSL has no read-write rgba16float storage texture; Slang diagnoses it (E56106)")),
@@ -574,8 +595,8 @@ public sealed class TargetValidationTests(ITestOutputHelper output)
         public static readonly Dictionary<string, Expected> Cuda = Table(
             (["descriptor-kinds/dkFragment", "subpass-inputs/siFragment", "tessellation/teHull", "tessellation/teDomain", "geometry/gsGeometry",
               "mesh/msMesh", "amplification/asAmplification"], new(Outcome.SlangRefuses, NotInStage, NoStageForTarget)),
-            (Fragments, new(Outcome.SlangRefuses, SystemVarying, NoRasterStage)),
-            (UserVaryings, new(Outcome.SlangRefuses, UserVarying, NoRasterStage)),
+            (Fragments, new(Outcome.SlangRefuses, SystemVarying, NoRasterStage, FixedBy: "U23", FixedWords: "56111")),
+            (UserVaryings, new(Outcome.SlangRefuses, UserVarying, NoRasterStage, FixedBy: "U23", FixedWords: "56111")),
             (["ray-tracing/rtRayGen", "ray-tracing/rtClosestHit", "ray-tracing/rtAnyHit", "ray-tracing/rtIntersection", "ray-tracing/rtMiss"],
                 new(Outcome.ValidatorRejects, "identifier \"optix", "CUDA ray tracing is OptiX: the source calls OptiX device functions, whose header is the OptiX SDK's, not the CUDA toolkit's")));
 
@@ -584,8 +605,8 @@ public sealed class TargetValidationTests(ITestOutputHelper output)
               "mesh/msMesh", "amplification/asAmplification", .. RayTracing, "wave-ops/woCompute", "atomics/atCompute"],
                 new(Outcome.SlangRefuses, NotInStage, NoStageForTarget)),
             (["compute-specialized/csCompute"], new(Outcome.SlangRefuses, SpecializedNumthreads, NoSpecializedNumthreads)),
-            (Fragments, new(Outcome.SlangRefuses, SystemVarying, NoRasterStage)),
-            (UserVaryings, new(Outcome.SlangRefuses, UserVarying, NoRasterStage)),
+            (Fragments, new(Outcome.SlangRefuses, SystemVarying, NoRasterStage, FixedBy: "U23", FixedWords: "56111")),
+            (UserVaryings, new(Outcome.SlangRefuses, UserVarying, NoRasterStage, FixedBy: "U23", FixedWords: "56111")),
             (["append-buffers/abCompute"], new(Outcome.SlangRefuses, "unexpected IR opcode during code emit", "U23: append and consume buffers on the C++ target end in an internal error, E99999")),
             (["compute:atomics-groupshared.slang", "compute:atomics.slang", "compute:groupshared.slang", "compute:half-rw-texture-convert2.slang"],
                 new(Outcome.SlangRefuses, NotInStage, NoStageForTarget)),
