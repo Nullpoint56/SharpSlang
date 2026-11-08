@@ -57,9 +57,9 @@
       "title": "A 64-bit 3/4-component vertex input is given one location; Vulkan requires two",
       "area": "SPIR-V",
       "kind": "Slang defect",
-      "patch": null,
-      "test": "NriValidationTests.A_wide_64_bit_vertex_attribute_really_does_consume_two_locations",
-      "state": "unpatched",
+      "patch": "0014-wide-vertex-input-two-locations.patch",
+      "test": "NriValidationTests.A_wide_64_bit_vertex_input_is_given_two_locations",
+      "state": "patched",
       "verified": "v2026.21",
       "upstream": [
         "#13427"

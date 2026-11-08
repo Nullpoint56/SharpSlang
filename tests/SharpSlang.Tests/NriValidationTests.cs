@@ -124,9 +124,37 @@ public sealed class NriValidationTests(ITestOutputHelper output)
 
     // ---------------------------------------------------------------- the open question
 
+    [PatchedFact("U6")]
+    public void A_wide_64_bit_vertex_input_is_given_two_locations()
+    {
+        // U6, patched (0014): Slang gives a three- or four-component 64-bit vector two locations,
+        // so the input after it starts at 3, in the module and in reflection alike.
+        const string Source = """
+            struct VIn
+            {
+                float3  position : POSITION;
+                double4 wide     : TEXCOORD0;
+                float2  after    : TEXCOORD1;
+            };
+
+            [shader("vertex")]
+            float4 vertexMain(VIn v) : SV_Position
+            { return float4(v.position, 1) + (float)v.wide.x + float4(v.after, 0, 0); }
+            """;
+
+        var compiled = NriDeviceTests.Compile("w", Source, ["vertexMain"], new TargetOptions());
+        var locations = SpirvDecorations.InputLocations(compiled.Code[0]);
+        Assert.Equal(1u, locations["wide"]);
+        Assert.Equal(3u, locations["after"]);
+    }
+
     [NriVulkanFact]
     public void A_wide_64_bit_vertex_attribute_really_does_consume_two_locations()
     {
+        // U6 on Slang's release: the numbering below is the release's. A payload carrying patch
+        // 0014 numbers it correctly, which A_wide_64_bit_vertex_input_is_given_two_locations holds.
+        Assert.SkipWhen(StagedPayload.IsBuild && PatchRegistry.PatchFor("U6") is { } fix && StagedPayload.Carries(fix),
+            "patch U6 applied: the module numbers the 64-bit input correctly");
         // Vulkan gives a three- or four-component 64-bit vector two consecutive locations; Slang
         // assigns it one and decorates the module to match, so reflection and the module agree
         // with each other and disagree with the specification as read here. PipelineInterface

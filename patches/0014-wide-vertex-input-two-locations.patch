@@ -1,0 +1,135 @@
+Lay out a three- or four-component 64-bit vector varying in two locations for GLSL and SPIR-V.
+
+DefaultVaryingLayoutRulesImpl::GetVectorLayout (source/slang/slang-type-layout.cpp) gives every
+vector one varying slot, with a TODO noting that vectors of double may need other handling. The
+Vulkan specification ("Location Assignment") and GLSL 4.60 (4.4.1) give a three- or
+four-component vector of a 64-bit type two consecutive locations. For a vertex input
+`float3 position; double4 wide; float2 after;` Slang assigns locations 0, 1 and 2, decorates the
+SPIR-V to match, and reports the same in reflection; with the validation layer,
+vkCreateShaderModule reports VUID-StandaloneSpirv-OpEntryPoint-08721, "conflicting input location
+assignment at location 2, component 0".
+
+This gives GLSLVaryingLayoutRulesImpl, used for the GLSL and SPIR-V targets, a GetVectorLayout
+that returns two slots for a 64-bit vector of more than two components. A regression test is
+added as tools/slang-unit-test/unit-test-wide-vertex-input-locations.cpp. This is Slang issue
+#13427.
+
+Measured on v2026.21: locations 0, 1, 2 for the inputs above, in the module and in reflection, on
+all four platforms.
+diff --git a/source/slang/slang-type-layout.cpp b/source/slang/slang-type-layout.cpp
+index 3b6cfd40f..1af403475 100644
+--- a/source/slang/slang-type-layout.cpp
++++ b/source/slang/slang-type-layout.cpp
+@@ -1051,6 +1051,28 @@ struct GLSLVaryingLayoutRulesImpl : DefaultVaryingLayoutRulesImpl
+         : DefaultVaryingLayoutRulesImpl(kind)
+     {
+     }
++
++    SimpleLayoutInfo GetVectorLayout(
++        BaseType elementType,
++        SimpleLayoutInfo elementInfo,
++        size_t elementCount) override
++    {
++        // A three- or four-component vector of a 64-bit type consumes two consecutive locations
++        // ("Location Assignment" in the Vulkan specification; GLSL 4.60 4.4.1).
++        //
++        switch (elementType)
++        {
++        case BaseType::Double:
++        case BaseType::Int64:
++        case BaseType::UInt64:
++            if (elementCount > 2)
++                return SimpleLayoutInfo(getKind(), 2);
++            break;
++        default:
++            break;
++        }
++        return DefaultVaryingLayoutRulesImpl::GetVectorLayout(elementType, elementInfo, elementCount);
++    }
+ };
+ 
+ struct HLSLVaryingLayoutRulesImpl : DefaultVaryingLayoutRulesImpl
+diff --git a/tools/slang-unit-test/unit-test-wide-vertex-input-locations.cpp b/tools/slang-unit-test/unit-test-wide-vertex-input-locations.cpp
+new file mode 100644
+index 000000000..3c28d0beb
+--- /dev/null
++++ b/tools/slang-unit-test/unit-test-wide-vertex-input-locations.cpp
+@@ -0,0 +1,77 @@
++// unit-test-wide-vertex-input-locations.cpp
++
++#include "slang-com-ptr.h"
++#include "slang.h"
++#include "unit-test/slang-unit-test.h"
++
++using namespace Slang;
++
++// A three- or four-component vector of a 64-bit type consumes two locations on Vulkan, so the
++// vertex input that follows a double4 must be laid out two locations after it.
++
++SLANG_UNIT_TEST(wideVertexInputLocations)
++{
++    const char* source = R"(
++        struct VIn
++        {
++            float3  position : POSITION;
++            double4 wide     : TEXCOORD0;
++            float2  after    : TEXCOORD1;
++        };
++
++        [shader("vertex")]
++        float4 vertexMain(VIn v) : SV_Position
++        {
++            return float4(v.position, 1) + (float)v.wide.x + float4(v.after, 0, 0);
++        }
++        )";
++
++    ComPtr<slang::IGlobalSession> globalSession;
++    SLANG_CHECK_ABORT(
++        slang_createGlobalSession(SLANG_API_VERSION, globalSession.writeRef()) == SLANG_OK);
++
++    slang::TargetDesc targetDesc = {};
++    targetDesc.format = SLANG_SPIRV;
++    targetDesc.profile = globalSession->findProfile("spirv_1_5");
++
++    slang::SessionDesc sessionDesc = {};
++    sessionDesc.targetCount = 1;
++    sessionDesc.targets = &targetDesc;
++
++    ComPtr<slang::ISession> session;
++    SLANG_CHECK_ABORT(globalSession->createSession(sessionDesc, session.writeRef()) == SLANG_OK);
++
++    ComPtr<slang::IBlob> diagnostics;
++    auto module = session->loadModuleFromSourceString(
++        "wideVertexInputLocations",
++        "wideVertexInputLocations.slang",
++        source,
++        diagnostics.writeRef());
++    SLANG_CHECK_ABORT(module != nullptr);
++
++    ComPtr<slang::IEntryPoint> entryPoint;
++    SLANG_CHECK_ABORT(
++        SLANG_SUCCEEDED(module->findEntryPointByName("vertexMain", entryPoint.writeRef())));
++    slang::IComponentType* components[] = {module, entryPoint};
++    ComPtr<slang::IComponentType> program;
++    SLANG_CHECK_ABORT(SLANG_SUCCEEDED(session->createCompositeComponentType(
++        components,
++        2,
++        program.writeRef(),
++        diagnostics.writeRef())));
++
++    auto layout = program->getLayout(0, diagnostics.writeRef());
++    SLANG_CHECK_ABORT(layout != nullptr);
++    auto entryPointLayout = layout->getEntryPointByIndex(0);
++    SLANG_CHECK_ABORT(entryPointLayout != nullptr);
++    auto param = entryPointLayout->getParameterByIndex(0);
++    SLANG_CHECK_ABORT(param != nullptr);
++    auto structLayout = param->getTypeLayout();
++    SLANG_CHECK_ABORT(structLayout != nullptr && structLayout->getFieldCount() == 3);
++
++    auto location = [&](unsigned index)
++    { return structLayout->getFieldByIndex(index)->getOffset(SLANG_PARAMETER_CATEGORY_VARYING_INPUT); };
++    SLANG_CHECK(location(0) == 0);
++    SLANG_CHECK(location(1) == 1);
++    SLANG_CHECK(location(2) == 3);
++}
+\ No newline at end of file
