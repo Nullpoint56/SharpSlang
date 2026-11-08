@@ -50,6 +50,13 @@
   GLIBC_2.38 and GLIBCXX_3.4.32 where the pin, Slang's release, is 2.34 and 3.4.29. For local test
   builds only; NativePayloadTests fails on such a payload unless SHARPSLANG_ALLOW_NEWER_GLIBC=1.
 
+.PARAMETER WithoutPatches
+  Build Slang as the tag has it: reverse any applied patch in slang/ (last first), apply none, and
+  build into _build/<rid>-unpatched/, so the patched tree is kept. The staged payload records no
+  patches in payload.json, so a test of patched behaviour runs, and fails, against it. For running a
+  patch's test red and for the Slang-bump check (tools/ci/patch-registry.ps1 -Bump); never a payload
+  to pack (AGENTS.md#patches).
+
 .PARAMETER Configuration
   CMake configuration. Release by default.
 
@@ -64,6 +71,7 @@ param(
     [string]$StandardModules = "All",
     [switch]$WithGlslModule,
     [switch]$AllowNewerGlibc,
+    [switch]$WithoutPatches,
     [string]$Configuration = "Release",
     [switch]$Clean
 )
@@ -133,6 +141,19 @@ Write-Host "==> Slang $SlangVersion ($head), $Rid, $Configuration"
 
 # ------------------------------------------------------------------------------------------ 2. patches
 $patches = @(Get-ChildItem (Join-Path $root "patches") -Filter "*.patch" -File -ErrorAction SilentlyContinue | Sort-Object Name)
+if ($WithoutPatches) {
+    # Last first, so each reverse applies onto the tree it was applied to.
+    Write-Host "==> patches: none (-WithoutPatches)"
+    foreach ($p in @($patches | Sort-Object Name -Descending)) {
+        git -C $slang apply --check --reverse -C0 $p.FullName 2>$null
+        if ($LASTEXITCODE -ne 0) { continue }
+        Invoke-Native "git apply --reverse $($p.Name)" { git -C $slang apply --reverse -C0 $p.FullName }
+        Write-Host "    $($p.Name): reversed"
+    }
+    $dirty = @(git -C $slang status --porcelain --untracked-files=no)
+    if ($dirty) { throw "slang/ still differs from $SlangVersion after reversing the patches:`n$($dirty -join "`n")" }
+    $patches = @()
+}
 $sha = [System.Security.Cryptography.SHA256]::Create()
 function Get-Hash([string]$Text) { [Convert]::ToHexString($sha.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($Text))).Substring(0, 16) }
 $patchHashInput = [System.Text.StringBuilder]::new()
@@ -141,7 +162,7 @@ foreach ($p in $patches) {
 }
 $patchHash = Get-Hash $patchHashInput.ToString()
 
-Write-Host "==> patches: $($patches.Count)"
+if (-not $WithoutPatches) { Write-Host "==> patches: $($patches.Count)" }
 foreach ($p in $patches) {
     git -C $slang apply --check --reverse -C0 $p.FullName 2>$null  # -C0: a later patch may change a line within this one's context
     if ($LASTEXITCODE -eq 0) { Write-Host "    $($p.Name): already applied, skipped"; continue }
@@ -278,7 +299,7 @@ Write-Host "    ninja:    $((ninja --version) -join '')"
 Write-Host "    python:   $python"
 
 # ------------------------------------------------------------------------------------------ configure
-$build = Join-Path $root "_build" $Rid
+$build = Join-Path $root "_build" $(if ($WithoutPatches) { "$Rid-unpatched" } else { $Rid })
 $deps  = Join-Path $build "_deps"
 if ($Clean -and (Test-Path $build)) { Remove-Item $build -Recurse -Force -Confirm:$false }
 
@@ -514,6 +535,22 @@ if (& $on SLANG_ENABLE_SLANG_GLSLANG) {
 }
 if ((& $on SLANG_ENABLE_MIMALLOC) -or (& $on SLANG_ENABLE_SPIRV_TOOLS_MIMALLOC)) { $notices["mimalloc-LICENSE.txt"] = "external/mimalloc/LICENSE" }
 foreach ($kv in $notices.GetEnumerator()) { Stage (Join-Path $slang $kv.Value) "third-party-notices/$($kv.Key)" }
+
+# Where the payload came from, beside native/ and not packed (dotnet/SharpSlang.csproj packs native/
+# and the licences only): a build of the tag, the patches applied in order with their hashes, and the
+# hash of the compiler staged. The tests that assert patched behaviour read it (AGENTS.md#patches);
+# fetch-native.ps1 writes the same file for Slang's release.
+$compilerName = @($libs.Keys)[0]
+$provenance = [ordered]@{
+    source   = "build"
+    slang    = $SlangVersion
+    commit   = $head
+    rid      = $Rid
+    patches  = @($patches | ForEach-Object { [ordered]@{ file = $_.Name; sha256 = [Convert]::ToHexString($sha.ComputeHash([System.IO.File]::ReadAllBytes($_.FullName))).ToLowerInvariant() } })
+    compiler = [ordered]@{ file = "native/$compilerName"; sha256 = (Get-FileHash -Algorithm SHA256 (Join-Path $native $compilerName)).Hash.ToLowerInvariant() }
+}
+[System.IO.File]::WriteAllText((Join-Path $stageRoot "payload.json"), ($provenance | ConvertTo-Json -Depth 4) + "`n")
+$staged.Add("payload.json")
 
 # Everything else the build wrote beside the libraries: debug info (the symbol zips' input), import
 # libraries, the unstaged GLSL module, DXC, which Slang fetched but which the application brings,

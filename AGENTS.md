@@ -517,6 +517,7 @@ command; `-p:SharpSlangRequireNative=false` skips that (lint does).
 | `-StandardModules` | `All` (default, the release's set) or `WithoutNeuralNumerics` (Native packages); staging only |
 | `-WithGlslModule` | also stage `slang-glsl-module` (GLSL source input) |
 | `-AllowNewerGlibc` | Linux: stage a build above the pinned glibc floor instead of failing, for local test builds (Pin and payload) |
+| `-WithoutPatches` | reverse any applied patch, apply none, build into `_build/<rid>-unpatched/`: the payload a patch's test runs red against, and the Slang-bump check's (Patches); never one to pack |
 | `-Configuration` | CMake configuration, `Release` by default |
 | `-Clean` | delete `_build/<rid>/`, downloads included, before configuring |
 
@@ -820,6 +821,13 @@ is in `patches/README.md`. `slang/` is never edited or staged by path; its point
   recognise once all are applied. It takes the files the patches touch from `slang/`'s object store
   when that has the pinned commit, otherwise from raw.githubusercontent.com (cached in
   `obj/slang-patch-base/`), so lint needs no submodule.
+- **A patch reaches only a payload built from source.** Slang's release has none, so the tests that
+  assert a patched answer know which payload they run against, from `runtimes/<rid>/payload.json`
+  (Pin and payload; `tests/SharpSlang.Tests/PatchedFact.cs`). `[PatchedFact("U4")]` asserts the right
+  answer and skips on the release with "official Slang release payload; patch U4 not applied"; it
+  runs on every source build, one built `-WithoutPatches` included, which is how it is run red.
+  `[ReleasePayloadFact("U4")]` asserts the release's wrong answer as wrong, so the release that fixes
+  it fails and names the binding's guard to revisit; it skips on a source build.
 - **U4 must be patched, test first, before Linux builds from source.** The prober test asserts the
   release's SIGSEGV; the same sources built with GCC 13 return a non-null type instead, so the test
   fails on a source-built Linux payload (Reflection snapshot). The cause is in U4.
@@ -1082,6 +1090,13 @@ in `docs/upstream.md`.
   `A_handler_registered_after_SharpSlangs_still_runs` holds the chain. The other flat exports throw
   the runtime's own exception. `CompanionLibraries.Preload` resolves the compiler the way the
   DllImports do and, when that fails, preloads nothing and leaves the failure to the explained call.
+- **The payload says where it came from**: `runtimes/<rid>/payload.json`, beside `native/` and not
+  packed. `fetch-native.ps1` writes `source: release` and the archive; `build-native.ps1` writes
+  `source: build`, the Slang commit and each patch applied with its SHA-256; both the SHA-256 of the
+  compiler staged. `NativePayloadTests` requires it, the compiler's hash to match the staged file and
+  the copies in the test and prober output directories, and a build's patch list to be exactly
+  `patches/` (a build from before a patch was added, or `-WithoutPatches`, fails there). The tests of
+  patched behaviour run or skip by it (Patches).
 - **The library is `slang-compiler`** (renamed from `slang` in v2025.21 because the S-Lang library of
   that name is preinstalled on Linux distributions). The `slang.dll` proxy and the Unix symlinks are
   removed upstream at the end of 2026; the binding has bound `slang-compiler` throughout.

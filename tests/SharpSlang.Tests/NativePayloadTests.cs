@@ -9,7 +9,9 @@
 //
 //   runtimes/<rid>/native/   slang-compiler, slang-glslang, slang-standard-module-<version>/
 //   runtimes/<rid>/          LICENSE.txt, LICENSES/, third-party-notices/ (outside native/, which
-//                            NuGet copies flat into the application's output)
+//                            NuGet copies flat into the application's output), and payload.json,
+//                            which says where the payload came from and is not packed
+//                            (AGENTS.md#patches)
 //
 // The standard modules are build-native.ps1 -StandardModules All, the default and what the official
 // release carries; a payload staged with WithoutNeuralNumerics fails here, naming the missing files.
@@ -111,6 +113,7 @@ public sealed class NativePayloadTests
         $"native/{Glslang}",
         .. StandardModuleFiles.Select(f => $"native/slang-standard-module-{Version}/{f}"),
         .. Licences,
+        "payload.json",
     ];
 
     private static string? SkipReason(string? os) =>
@@ -140,6 +143,59 @@ public sealed class NativePayloadTests
 
         Assert.True(missing.Count == 0 && extra.Count == 0,
             $"{StageRoot}: missing or empty {string.Join(", ", missing)}; staged but not in the contract {string.Join(", ", extra)}");
+    }
+
+    [PayloadFact]
+    public void The_payload_says_where_it_came_from()
+    {
+        // payload.json, written by fetch-native.ps1 (Slang's release) and build-native.ps1 (the
+        // submodule with patches/ applied). The tests of patched behaviour run or skip by it
+        // (PatchedFact.cs), so a stale or hand-copied payload has to fail here rather than make them
+        // skip or run against the wrong library.
+        Assert.True(StagedPayload.Source is "release" or "build",
+            $"{StagedPayload.FilePath}: source is '{StagedPayload.Source ?? "(no file)"}'. Restage with tools/fetch-native.ps1 or tools/build-native.ps1.");
+
+        var compiler = StagedPayload.Compiler!.Value;
+        Assert.Equal($"native/{Compiler}", compiler.File);
+        Assert.True(Sha256(Path.Combine(StageRoot, compiler.File)) == compiler.Sha256,
+            $"{StagedPayload.FilePath} describes another {Compiler} than the one staged beside it");
+
+        var expected = StagedPayload.IsBuild
+            ? Directory.EnumerateFiles(Path.Combine(SlangHeader.RepoRoot(), "patches"), "*.patch")
+                .Order(StringComparer.Ordinal)
+                .Select(p => (Path.GetFileName(p), Sha256(p)))
+                .ToList()
+            : [];
+        Assert.True(expected.SequenceEqual(StagedPayload.Patches),
+            $"the payload was built with the patches [{string.Join(", ", StagedPayload.Patches.Select(p => p.File))}] "
+            + $"and patches/ holds [{string.Join(", ", expected.Select(p => p.Item1))}]: it was staged before patches/ "
+            + $"changed, or with build-native.ps1 -WithoutPatches. Run: pwsh tools/build-native.ps1 -Rid {Rid}");
+    }
+
+    [PayloadFact]
+    public void The_library_under_test_is_the_one_staged()
+    {
+        // The build copies native/ into the test's and the prober's output directories; the
+        // payload.json beside the staged copy is what the patched-behaviour tests read. A payload
+        // restaged without a rebuild would leave them reading one library's description and loading
+        // another.
+        var staged = StagedPayload.Compiler!.Value.Sha256;
+        var prober = typeof(NativePayloadTests).Assembly
+            .GetCustomAttributes<AssemblyMetadataAttribute>()
+            .Single(a => a.Key == "ProberOutput").Value!;
+        foreach (var dir in new[] { AppContext.BaseDirectory, prober })
+        {
+            var copy = Path.Combine(dir, Compiler);
+            Assert.True(File.Exists(copy), $"no {Compiler} in {dir}");
+            Assert.True(Sha256(copy) == staged,
+                $"{copy} is not the {Compiler} staged in {StageRoot}: rebuild the tests after staging");
+        }
+    }
+
+    private static string Sha256(string path)
+    {
+        using var stream = File.OpenRead(path);
+        return Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(stream));
     }
 
     [PayloadFact]
