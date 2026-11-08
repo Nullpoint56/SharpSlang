@@ -848,6 +848,15 @@ is in `patches/README.md`. `slang/` is never edited or staged by path; its point
   longer applies is re-cut (below). Then `build-native.ps1` restages the patched payload, the full
   suite runs, every carried entry's `verified` moves to the new tag, and `-Write` regenerates the
   index.
+- **Batch 1 (U4, U1, U2, U3; patches 0001-0004), verified at 2b4231a.** Red against the unpatched
+  build, green against the patched one, each test: win-x64 (MSVC 19.44; U4 null with no diagnostic,
+  U1 and U2 an `SEHException`, U3 0xC0000005) and linux-x64 under WSL (GCC 13.3, `-AllowNewerGlibc`;
+  U4 a non-null type, U1 and U2 SIGABRT, U3 SIGSEGV), the Linux red run being `patch-registry.ps1
+  -Bump`, which reported all four red. The workstation's full suite (Release; the RTX 4070 SUPER,
+  every validator but xcrun): with the patched build 1168 results, 1155 passed, 13 skipped (the
+  seven of Test runner and the six release-payload facts), 0 failed; with Slang's release payload
+  1168, 1156 passed, 12 skipped (the seven and the five patched facts), 0 failed. Under WSL the
+  touched classes (`ProberTests`, `UnknownSizeTests`, `NativePayloadTests`): 41, 32 passed, 9 skipped.
 - **Each patch carries Slang's own regression test** under `tools/slang-unit-test/` (`SLANG_UNIT_TEST`),
   as their contribution guide asks. `build-native.ps1` builds no tests (`SLANG_ENABLE_TESTS` OFF), so
   those tests are compiled and run only by Slang's CI on a fork PR; the binding's prober tests are
@@ -1124,7 +1133,11 @@ in `docs/upstream.md`.
   compiler staged. `NativePayloadTests` requires it, the compiler's hash to match the staged file and
   the copies in the test and prober output directories, and a build's patch list to be exactly
   `patches/` (a build from before a patch was added, or `-WithoutPatches`, fails there). The tests of
-  patched behaviour run or skip by it (Patches).
+  patched behaviour run or skip by it (Patches). A payload copied into `runtimes/<rid>/` with its old
+  timestamps is not copied into the output directories by an incremental build: the tests then load
+  the previous library, and `The_library_under_test_is_the_one_staged` fails naming it (measured
+  swapping a patched and the release payload on win-x64). `fetch-native.ps1` stages the archive's
+  timestamps, so after a source build run the next build with `--no-incremental`.
 - **The library is `slang-compiler`** (renamed from `slang` in v2025.21 because the S-Lang library of
   that name is preinstalled on Linux distributions). The `slang.dll` proxy and the Unix symlinks are
   removed upstream at the end of 2026; the binding has bound `slang-compiler` throughout.
