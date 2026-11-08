@@ -131,6 +131,12 @@ jobs:
     name: regen
     needs: gate
     if: needs.gate.outputs.regen == 'run'
+    # A called workflow's jobs get at most the caller job's permissions; without these the run
+    # failed at startup (startup_failure, run 42493835801), because the called gate reads runs and PRs.
+    permissions:
+      contents: read
+      actions: read
+      pull-requests: read
     uses: ./.github/workflows/regen.yml
     with:
       decided: true
@@ -142,6 +148,12 @@ jobs:
     name: checks
     needs: gate
     if: needs.gate.outputs.lint == 'run' || needs.gate.outputs.zero_alloc == 'run'
+    # A called workflow's jobs get at most the caller job's permissions; without these the run
+    # failed at startup (startup_failure, run 42493835801), because the called gate reads runs and PRs.
+    permissions:
+      contents: read
+      actions: read
+      pull-requests: read
     uses: ./.github/workflows/checks.yml
     with:
       decided: true
