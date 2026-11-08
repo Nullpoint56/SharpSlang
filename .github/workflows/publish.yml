@@ -123,6 +123,8 @@ jobs:
 
       - name: Stage native payloads for every supported RID
         shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}   # only for the API fallback route; see fetch-native.ps1
         run: |
           # Staged from Windows for all RIDs. fetch-native.ps1 copies the real versioned library
           # and synthesises the plain-named alias, because Expand-Archive cannot create the

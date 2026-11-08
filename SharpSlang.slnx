@@ -19,7 +19,11 @@
   <Folder Name="/docs/releases/">
     <File Path="docs/releases/README.md" />
   </Folder>
+  <Folder Name="/patches/">
+    <File Path="patches/README.md" />
+  </Folder>
   <Folder Name="/tools/">
+    <File Path="tools/build-native.ps1" />
     <File Path="tools/check.ps1" />
     <File Path="tools/fetch-native.ps1" />
     <File Path="tools/generate-native.ps1" />
@@ -32,6 +36,7 @@
     <File Path="tools/ci/cross-arch-differences.txt" />
     <File Path="tools/ci/spirv-worddiff.py" />
     <File Path="tools/ci/macos-backtrace.sh" />
+    <File Path="tools/ci/native-payload-key.ps1" />
     <File Path="tools/ci/verify-linux.sh" />
   </Folder>
   <Folder Name="/.github/">

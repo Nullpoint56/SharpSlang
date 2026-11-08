@@ -69,8 +69,33 @@ if ($Force -and (Test-Path $archive)) { Remove-Item $archive -Force -Confirm:$fa
 if (-not (Test-Path $archive)) {
     $url = "https://github.com/shader-slang/slang/releases/download/$SlangVersion/$asset"
     Write-Host "==> downloading $asset"
-    try { Invoke-WebRequest -Uri $url -OutFile $archive }
-    catch { throw "failed to download $url`n  Check that release $SlangVersion publishes an asset named '$asset'.`n  $_" }
+    # Two routes to the same bytes. On 2026-11-08 the release-download URL of
+    # slang-2026.21-windows-x86_64.zip answered 504 Gateway Time-out on every try, from this
+    # workstation and from two CI legs, while the REST API's asset endpoint served the same asset
+    # (id 707632302) with 200. So the plain URL is tried twice, then the API route. A token, when
+    # the environment has one (GH_TOKEN or GITHUB_TOKEN in CI), only raises the API's rate limit.
+    $partial = "$archive.partial"
+    $errors = [System.Collections.Generic.List[string]]::new()
+    foreach ($try in 1..2) {
+        try { Invoke-WebRequest -Uri $url -OutFile $partial -TimeoutSec 600; break }
+        catch { $errors.Add("$url (try $try): $($_.Exception.Message)"); Remove-Item $partial -ErrorAction SilentlyContinue }
+    }
+    if (-not (Test-Path $partial)) {
+        $headers = @{ 'User-Agent' = 'sharpslang-fetch-native' }
+        $token = if ($env:GH_TOKEN) { $env:GH_TOKEN } else { $env:GITHUB_TOKEN }
+        if ($token) { $headers.Authorization = "Bearer $token" }
+        try {
+            $release = Invoke-RestMethod -Uri "https://api.github.com/repos/shader-slang/slang/releases/tags/$SlangVersion" -Headers $headers
+            $entry = $release.assets | Where-Object name -eq $asset | Select-Object -First 1
+            if (-not $entry) { throw "release $SlangVersion has no asset named '$asset'" }
+            Invoke-WebRequest -Uri $entry.url -Headers ($headers + @{ Accept = 'application/octet-stream' }) -OutFile $partial -TimeoutSec 600
+        }
+        catch { $errors.Add("API asset route: $($_.Exception.Message)"); Remove-Item $partial -ErrorAction SilentlyContinue }
+    }
+    if (-not (Test-Path $partial)) {
+        throw "failed to download $asset`n  Check that release $SlangVersion publishes an asset named '$asset'.`n  " + ($errors -join "`n  ")
+    }
+    Move-Item $partial $archive -Force
 }
 Write-Host ("    archive {0:N1} MB" -f ((Get-Item $archive).Length / 1MB))
 
@@ -185,6 +210,22 @@ foreach ($item in @(@{ From = 'LICENSE'; To = 'LICENSE.txt' }, @{ From = 'LICENS
 
     Copy-Item $source (Join-Path $licenceRoot $item.To) -Recurse
     Write-Host ("    {0,-40} {1,8}" -f $item.To, "(licence)")
+}
+
+# And the notices of what Slang links statically (cmark, glslang, lz4, miniz, spirv-tools,
+# unordered_dense, and mimalloc on Windows), which the release carries in third-party-notices/
+# because their licences require them in a binary redistribution. Given a .txt extension for the
+# reason above; tools/build-native.ps1 stages the same files from the sources under the same names.
+$noticeDir = Join-Path $staged 'third-party-notices'
+if (Test-Path $noticeDir) {
+    New-Item -ItemType Directory -Force -Path (Join-Path $licenceRoot 'third-party-notices') | Out-Null
+    foreach ($n in Get-ChildItem $noticeDir -File) {
+        $to = if ($n.Extension -eq '.txt') { $n.Name } else { "$($n.Name).txt" }
+        Copy-Item $n.FullName (Join-Path $licenceRoot 'third-party-notices' $to)
+    }
+    Write-Host ("    {0,-40} {1,8}" -f 'third-party-notices', "(licence)")
+} else {
+    Write-Warning "no third-party-notices in the $Rid distribution - the release layout changed"
 }
 
 $total = (Get-ChildItem $dest -Recurse -File | Measure-Object Length -Sum).Sum

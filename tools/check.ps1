@@ -7,7 +7,7 @@
     set in Directory.Build.props and configured in .editorconfig) in a Release build with warnings
     as errors, then the formatter's check. The same commands as the lint job of
     .github/workflows/ci.yml. Lint needs no native payload: SharpSlangRequireNative=false turns off
-    the build's warning about a missing one.
+    the build's SHARPSLANG001 error about a missing one.
 
     dotnet/Native is ClangSharp's output and is left out of the formatter, as .editorconfig leaves it
     out of IDE0055: its layout is the generator's, which the bindings job compares byte for byte.

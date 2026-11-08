@@ -26,3 +26,7 @@ LICENSE         text eol=lf
 
 # Baked shader packages are binary; never let EOL conversion near them.
 *.pslb    binary
+
+# Patches against slang/ apply with `git apply` exactly as written, so their bytes, line endings
+# included, are the point; no conversion either way.
+patches/*.patch -text

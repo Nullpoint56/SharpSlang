@@ -121,13 +121,25 @@
   </ItemGroup>
 
   <!--
-    SharpSlangRequireNative=false turns the warning off, for a build that only lints: the analyzers
-    need no payload, and with warnings as errors (tools/check.ps1, the CI lint job) the warning
-    would fail a lint run on a machine that never fetched one.
+    The native library is built, never committed. Without it a build from source succeeds and the
+    first SlangGlobalSession.Create fails with a DllNotFoundException in the consumer, far from the
+    cause; so the build stops here instead, naming the directory and the command, as SharpNRI's
+    SHARPNRI001 does. Packages are unaffected: they carry the payload.
+    -p:SharpSlangRequireNative=false builds anyway: a build that only lints (tools/check.ps1, the
+    CI lint job), whose analyzers need no payload, or managed-only work on a RID without one.
+    tools/fetch-native.ps1 stages the same layout from Slang's release until CI builds from source.
   -->
-  <Target Name="SharpSlangWarnIfNoNative" BeforeTargets="Build"
-          Condition="'$(SharpSlangRequireNative)' != 'false' And !Exists('$(MSBuildThisFileDirectory)..\runtimes\$(SharpSlangRid)\native')">
-    <Warning Text="No native payload for '$(SharpSlangRid)'. Run: pwsh tools/fetch-native.ps1 -Rid $(SharpSlangRid)" />
+  <PropertyGroup>
+    <SharpSlangNativeDir>$(MSBuildThisFileDirectory)..\runtimes\$(SharpSlangRid)\native\</SharpSlangNativeDir>
+  </PropertyGroup>
+
+  <Target Name="SharpSlangRequireNative" BeforeTargets="Build"
+          Condition="'$(SharpSlangRequireNative)' != 'false'
+                     and !Exists('$(SharpSlangNativeDir)slang-compiler.dll')
+                     and !Exists('$(SharpSlangNativeDir)libslang-compiler.so')
+                     and !Exists('$(SharpSlangNativeDir)libslang-compiler.dylib')">
+    <Error Code="SHARPSLANG001"
+           Text="The Slang native library for '$(SharpSlangRid)' is not built: $([System.IO.Path]::GetFullPath('$(SharpSlangNativeDir)')) has no slang-compiler.dll, libslang-compiler.so or libslang-compiler.dylib. In the repository run: git submodule update --init --recursive slang, then pwsh tools/build-native.ps1 -Rid $(SharpSlangRid). (-p:SharpSlangRequireNative=false skips this check.)" />
   </Target>
 
 </Project>

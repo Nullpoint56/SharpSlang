@@ -288,6 +288,8 @@ jobs:
 
       - name: Fetch native payload
         shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}   # only for the API fallback route; see fetch-native.ps1
         run: ./tools/fetch-native.ps1 -Rid ${{ matrix.rid }} -Profile Spirv
 
       - name: Payload carries the SPIR-V optimiser
@@ -853,6 +855,74 @@ jobs:
               throw "package has no slang-glslang under $prefix - shaders would compile unoptimised"
             }
           } finally { $zip.Dispose() }
+
+  # The payload built from the slang/ submodule (tools/build-native.ps1), cached. NOT IN USE: the
+  # test job above still stages Slang's release with fetch-native.ps1, and this job is skipped,
+  # costing nothing, unless the repository variable SHARPSLANG_NATIVE_FROM_SOURCE is 'true', which
+  # it is not. It is here so the cache design is reviewed with the code it serves; nothing uses the
+  # payload it would save.
+  #
+  # The payload is a function of its inputs, so it is built once per input set, not per run: the key
+  # is the git object ids of the slang/ pointer, patches/, the build script, the props, the notices
+  # and this file (tools/ci/native-payload-key.ps1), the same on every OS. A hit restores
+  # runtimes/<rid>/ in seconds and no Slang source is fetched. A miss fetches the submodule, builds,
+  # and saves the payload right after the build, before any test runs, so a red test run still
+  # leaves the next run a cached payload. Build times are in AGENTS.md#native-build (workstation,
+  # clean trees); none is measured on a runner yet, so the timeout is several times a 4-vCPU
+  # estimate from them (Ninja edge time / 4, plus the serial LTO link and core-module steps).
+  #
+  # Switching over moves these steps into the test job in place of "Fetch native payload" (inline,
+  # so a hit costs no extra job minute), adds the key to the gate's outputs, and drops the
+  # fetch-native cache.
+  native-from-source:
+    name: native payload from source (${{ matrix.rid }})
+    needs: gate
+    if: vars.SHARPSLANG_NATIVE_FROM_SOURCE == 'true' && needs.gate.outputs.legs != '[]'
+    # Linux on Ubuntu 22.04, not the test legs' 24.04: the host's glibc and libstdc++ set the oldest
+    # Linux the payload loads on, and 22.04 gives Slang's release floor, GLIBC_2.34 and GLIBCXX_3.4.29
+    # (Directory.Build.props, LinuxGlibcFloor); a 24.04 build needs 2.38 and 3.4.32, and build-native.ps1
+    # refuses it. The payload is then tested on 24.04 like the release's.
+    runs-on: ${{ fromJSON('{"win-x64":"windows-latest","linux-x64":"ubuntu-22.04","linux-arm64":"ubuntu-22.04-arm","osx-arm64":"macos-15"}')[matrix.rid] }}
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        rid: ${{ fromJSON(needs.gate.outputs.legs) }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Payload cache key
+        id: key
+        shell: pwsh
+        run: ./tools/ci/native-payload-key.ps1 | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
+      - name: Restore native payload
+        id: payload
+        uses: actions/cache/restore@v6
+        with:
+          path: runtimes/${{ matrix.rid }}
+          key: slang-native-${{ matrix.rid }}-${{ steps.key.outputs.key }}
+
+      # Slang and its own submodules (external/, about 1.4 GB checked out), only on a miss.
+      - name: Fetch the Slang submodule
+        if: steps.payload.outputs.cache-hit != 'true'
+        run: git -c submodule.fetchJobs=8 submodule update --init --recursive slang
+
+      - name: Install Ninja
+        if: steps.payload.outputs.cache-hit != 'true' && !startsWith(matrix.rid, 'win')
+        run: command -v ninja || { if [ "$RUNNER_OS" = macOS ]; then brew install ninja; else sudo apt-get install -y -qq ninja-build; fi; }
+
+      - name: Build native payload
+        if: steps.payload.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: ./tools/build-native.ps1 -Rid ${{ matrix.rid }}
+
+      - name: Save native payload
+        if: steps.payload.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: runtimes/${{ matrix.rid }}
+          key: slang-native-${{ matrix.rid }}-${{ steps.key.outputs.key }}
 
   # The only check here that compares the runners against each other rather than against a claim.
   #

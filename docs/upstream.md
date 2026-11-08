@@ -20,7 +20,7 @@ natural form is an issue.
 | U1 | `spReflectionType_GetElementCount` / `GetSpecializedElementCount` crash on an array sized by a link-time constant | crash | yes | not filed |
 | U2 | `getBindingRangeCount` throws a C++ exception through `extern "C"` for a resource array sized by a link-time constant | crash | yes | not filed |
 | U3 | `spReflection_specializeGeneric` access-violates on a mismatched argument list | crash | yes | not filed |
-| U4 | `spReflection_specializeType` on a non-generic type segfaults on Linux | crash | yes | not filed |
+| U4 | `spReflection_specializeType` on a non-generic type segfaults on Linux (an assert that removes its own check) | crash | yes | not filed |
 | U5 | A constant buffer whose block holds only link-time-sized arrays gets no binding | wrong layout | after investigation | not filed |
 | U6 | A 64-bit 3/4-component vertex input is given one location; Vulkan requires two | invalid SPIR-V | yes | not filed |
 | U7 | `sample` interpolation without `SampleRateShading` | invalid SPIR-V | n/a | fixed upstream by v2026.21 (reported by others as #12441); held by a test |
@@ -174,7 +174,25 @@ argument, returns null on Windows and macOS (no diagnostics) and segfaults on Li
 
 **Expected.** Null and a diagnostic on every platform.
 
-**Measurement.** v2026.21, all four platforms, through a child process.
+**Cause.** `Linkage::specializeType` (`source/slang/slang-check-shader.cpp`) asserts that the
+parameter count matches and then checks the same condition:
+
+```cpp
+SLANG_ASSERT(specializationParams.getCount() == argCount);   // 4087
+if (specializationParams.getCount() != argCount)             // 4088
+    return nullptr;                                          // 4089
+```
+
+In a build without `_DEBUG`, `SLANG_ASSERT(x)` is `SLANG_ASSUME(x)` (`source/core/slang-common.h:371`),
+so the compiler may treat the condition as true and remove the check after it. A non-generic type
+collects no specialization parameters, the count is 0 against an `argCount` of 1, and the loop
+below reads `specializationParams[0]` of an empty list. What happens next is the compiler's: the
+GCC 11 build of the release segfaults, the MSVC build returns null, and the same sources built with
+GCC 13.3 (Ubuntu 24.04) return a non-null specialized type with no diagnostic. Turning the assert
+into a plain check, or keeping only the `if`, makes every build return null.
+
+**Measurement.** v2026.21, all four platforms, through a child process; the GCC 13.3 build of the
+tag measured the same way on linux-x64.
 
 **Repro.**
 

@@ -29,14 +29,17 @@ DOCS=(README.md THIRD-PARTY-NOTICES.md AGENTS.md docs/guide.md docs/upstream.md 
 
 # The source files whose comments cite documents. obj/ is excluded and must stay excluded:
 # fetch-native.ps1 stages Slang's own release there, user-guide markdown included, and scanning it
-# would have this script grading upstream's prose. tools/ci/*.txt and *.py are scanned too: their
-# comments carry citations like any other.
+# would have this script grading upstream's prose. So are slang/ (the submodule, checked out for a
+# native build) and _build/ (its build trees): Slang's own documents cite their own numbered
+# sections (measured). tools/ci/*.txt and *.py are scanned too: their comments carry citations like
+# any other.
 cited_in_code() {
     grep -rhoE "$1" \
         --include='*.cs' --include='*.csproj' --include='*.props' --include='*.targets' \
         --include='*.ps1' --include='*.sh' --include='*.yml' --include='*.md' \
         --include='*.txt' --include='*.py' \
-        --exclude-dir=obj --exclude-dir=bin --exclude-dir=runtimes --exclude-dir=.git . 2>/dev/null
+        --exclude-dir=obj --exclude-dir=bin --exclude-dir=runtimes --exclude-dir=.git \
+        --exclude-dir=slang --exclude-dir=_build . 2>/dev/null
 }
 
 # GitHub's anchor rule, near enough: lowercase, drop anything that is not alphanumeric, space or
