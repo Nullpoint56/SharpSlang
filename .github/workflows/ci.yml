@@ -878,7 +878,11 @@ jobs:
     name: native payload from source (${{ matrix.rid }})
     needs: gate
     if: vars.SHARPSLANG_NATIVE_FROM_SOURCE == 'true' && needs.gate.outputs.legs != '[]'
-    runs-on: ${{ fromJSON('{"win-x64":"windows-latest","linux-x64":"ubuntu-24.04","linux-arm64":"ubuntu-24.04-arm","osx-arm64":"macos-15"}')[matrix.rid] }}
+    # Linux on Ubuntu 22.04, not the test legs' 24.04: the host's glibc and libstdc++ set the oldest
+    # Linux the payload loads on, and 22.04 gives Slang's release floor, GLIBC_2.34 and GLIBCXX_3.4.29
+    # (Directory.Build.props, LinuxGlibcFloor); a 24.04 build needs 2.38 and 3.4.32, and build-native.ps1
+    # refuses it. The payload is then tested on 24.04 like the release's.
+    runs-on: ${{ fromJSON('{"win-x64":"windows-latest","linux-x64":"ubuntu-22.04","linux-arm64":"ubuntu-22.04-arm","osx-arm64":"macos-15"}')[matrix.rid] }}
     timeout-minutes: 120
     strategy:
       fail-fast: false

@@ -226,6 +226,87 @@ public sealed class NativePayloadTests
         }
     }
 
+    // The oldest glibc and libstdc++ a library loads with are the newest GLIBC_ and GLIBCXX_ versions
+    // its version-needs section names. Directory.Build.props pins Slang's release (2.34 and 3.4.29
+    // on linux-x64 and linux-arm64 at v2026.21); a build on Ubuntu 24.04 needs 2.38 and 3.4.32 and
+    // would not load on 22.04, so CI builds Linux on ubuntu-22.04. A local test build on a newer
+    // host (build-native.ps1 -AllowNewerGlibc) is let through only with SHARPSLANG_ALLOW_NEWER_GLIBC=1.
+    private sealed class GlibcFloorFactAttribute : FactAttribute
+    {
+        public GlibcFloorFactAttribute()
+        {
+            Skip = SkipReason("linux");
+            if (Skip is null && Environment.GetEnvironmentVariable("SHARPSLANG_ALLOW_NEWER_GLIBC") == "1")
+                Skip = "SHARPSLANG_ALLOW_NEWER_GLIBC=1: a local test payload, its glibc floor not checked";
+        }
+    }
+
+    [GlibcFloorFact]
+    public void Each_library_loads_on_the_glibc_and_libstdcxx_the_pin_promises()
+    {
+        var props = File.ReadAllText(Path.Combine(SlangHeader.RepoRoot(), "Directory.Build.props"));
+        System.Version Pin(string name) => System.Version.Parse(System.Text.RegularExpressions.Regex.Match(props, $"<{name}>([^<]+)</{name}>").Groups[1].Value.Trim());
+        var floor = new Dictionary<string, System.Version> { ["GLIBC"] = Pin("LinuxGlibcFloor"), ["GLIBCXX"] = Pin("LinuxGlibcxxFloor") };
+
+        var above = new List<string>();
+        foreach (var library in new[] { Compiler, Glslang })
+        {
+            var needs = ReadElfVersionNeeds(Path.Combine(NativeDir, library));
+            foreach (var (prefix, pinned) in floor)
+            {
+                var newest = needs
+                    .Where(n => n.StartsWith(prefix + "_", StringComparison.Ordinal) && System.Version.TryParse(n[(prefix.Length + 1)..], out _))
+                    .Select(n => System.Version.Parse(n[(prefix.Length + 1)..]))
+                    .DefaultIfEmpty(new System.Version(0, 0))
+                    .Max()!;
+                if (newest > pinned) above.Add($"{library} needs {prefix}_{newest}, the pin is {prefix}_{pinned}");
+            }
+        }
+
+        Assert.True(above.Count == 0,
+            "the staged Linux payload needs a newer glibc or libstdc++ than Directory.Build.props pins "
+            + $"(LinuxGlibcFloor, LinuxGlibcxxFloor), so it would not load where the pin promises: {string.Join("; ", above)}. "
+            + "The build host sets it; build on Ubuntu 22.04 as CI does. A local test build on a newer host "
+            + "passes with SHARPSLANG_ALLOW_NEWER_GLIBC=1.");
+    }
+
+    // SHT_GNU_verneed (0x6ffffffe): sh_info Elf64_Verneed records (vn_cnt at +2, vn_aux at +8,
+    // vn_next at +12), each with vn_cnt Elf64_Vernaux records (vna_name at +8, vna_next at +12),
+    // names in the string table sh_link names.
+    private static List<string> ReadElfVersionNeeds(string path)
+    {
+        var elf = File.ReadAllBytes(path);
+        var shoff = (long)BinaryPrimitives.ReadUInt64LittleEndian(elf.AsSpan(0x28));
+        var shentsize = BinaryPrimitives.ReadUInt16LittleEndian(elf.AsSpan(0x3A));
+        var shnum = BinaryPrimitives.ReadUInt16LittleEndian(elf.AsSpan(0x3C));
+        Span<byte> Section(int i) => elf.AsSpan((int)(shoff + i * shentsize), shentsize);
+
+        var names = new List<string>();
+        for (var i = 0; i < shnum; i++)
+        {
+            if (BinaryPrimitives.ReadUInt32LittleEndian(Section(i)[4..]) != 0x6ffffffe) continue;
+            var offset = (int)BinaryPrimitives.ReadUInt64LittleEndian(Section(i)[24..]);
+            var link = (int)BinaryPrimitives.ReadUInt32LittleEndian(Section(i)[40..]);
+            var count = (int)BinaryPrimitives.ReadUInt32LittleEndian(Section(i)[44..]);
+            var strtab = (int)BinaryPrimitives.ReadUInt64LittleEndian(Section(link)[24..]);
+            string Str(int at) => Encoding.ASCII.GetString(elf, strtab + at, Array.IndexOf(elf, (byte)0, strtab + at) - (strtab + at));
+
+            for (int n = 0, need = offset; n < count; n++)
+            {
+                var auxCount = BinaryPrimitives.ReadUInt16LittleEndian(elf.AsSpan(need + 2));
+                var aux = need + (int)BinaryPrimitives.ReadUInt32LittleEndian(elf.AsSpan(need + 8));
+                for (var a = 0; a < auxCount; a++)
+                {
+                    names.Add(Str((int)BinaryPrimitives.ReadUInt32LittleEndian(elf.AsSpan(aux + 8))));
+                    aux += (int)BinaryPrimitives.ReadUInt32LittleEndian(elf.AsSpan(aux + 12));
+                }
+                need += (int)BinaryPrimitives.ReadUInt32LittleEndian(elf.AsSpan(need + 12));
+            }
+            return names;
+        }
+        throw new InvalidDataException($"{path} has no SHT_GNU_verneed section");
+    }
+
     // ELF64 little-endian: the section headers, the SHT_DYNAMIC section, and the string table its
     // sh_link names. DT_NEEDED = 1, DT_RUNPATH = 29; each entry is a 16-byte tag/value pair.
     private static (List<string> Needed, string? Runpath) ReadElfDynamic(string path)
@@ -269,6 +350,8 @@ public sealed class NativePayloadTests
     // has not run on a Mac.
     private static readonly string[] MachODylibs = ["/usr/lib/libc++.1.dylib", "/usr/lib/libSystem.B.dylib"];
 
+    private static readonly string[] MachORpaths = ["@loader_path/../lib", "@loader_path"];
+
     [PayloadFact("osx")]
     public void Each_library_links_exactly_the_system_and_searches_its_own_directory()
     {
@@ -276,7 +359,7 @@ public sealed class NativePayloadTests
         {
             var (dylibs, rpaths) = ReadMachOLoadCommands(Path.Combine(NativeDir, library));
             AssertSameNames(MachODylibs, dylibs, $"{library} LC_LOAD_DYLIB", StringComparer.Ordinal);
-            Assert.Equal(new[] { "@loader_path/../lib", "@loader_path" }, rpaths);
+            Assert.Equal(MachORpaths, rpaths);
         }
     }
 

@@ -117,6 +117,12 @@
   Also stage slang-glsl-module (GLSL source input), as fetch-native.ps1 -Profile Glsl did. Off by
   default, like the payload CI and the packages carry.
 
+.PARAMETER AllowNewerGlibc
+  Linux: stage a build whose libraries need a newer GLIBC_ or GLIBCXX_ than Directory.Build.props
+  pins (LinuxGlibcFloor, LinuxGlibcxxFloor) instead of failing. A build on Ubuntu 24.04 needs
+  GLIBC_2.38 and GLIBCXX_3.4.32 where the pin, Slang's release, is 2.34 and 3.4.29. For local test
+  builds only; NativePayloadTests fails on such a payload unless SHARPSLANG_ALLOW_NEWER_GLIBC=1.
+
 .PARAMETER Configuration
   CMake configuration. Release by default.
 
@@ -130,6 +136,7 @@ param(
     [ValidateSet("All", "WithoutNeuralNumerics")]
     [string]$StandardModules = "All",
     [switch]$WithGlslModule,
+    [switch]$AllowNewerGlibc,
     [string]$Configuration = "Release",
     [switch]$Clean
 )
@@ -472,20 +479,40 @@ if ($targetWindows) {
 } elseif ($targetLinux) {
     $loader = if ($targetArm64) { "ld-linux-aarch64.so.1" } else { "ld-linux-x86-64.so.2" }
     $expectedNeeded = @("libstdc++.so.6", "libm.so.6", "libgcc_s.so.1", "libc.so.6", $loader)
+    # The newest GLIBC_ / GLIBCXX_ version a library's version-needs section names: the oldest glibc
+    # and libstdc++ it loads with. NativePayloadTests reads the same section.
+    function Get-Newest([string[]]$VersionNeeds, [string]$Prefix) {
+        $VersionNeeds | ForEach-Object { if ($_ -match "Name: $($Prefix)_(\d+(\.\d+)+)\b") { [version]$Matches[1] } } | Sort-Object | Select-Object -Last 1
+    }
+    $floor = [ordered]@{ GLIBC = [version]"0.0"; GLIBCXX = [version]"0.0" }
     foreach ($kv in $libs.GetEnumerator()) {
         $file = Join-Path $out $kv.Value
         $dyn = @(readelf -d $file)
         $needed = @($dyn | ForEach-Object { if ($_ -match '\(NEEDED\)\s+Shared library: \[(.+)\]') { $Matches[1] } })
         $runpath = @($dyn | ForEach-Object { if ($_ -match '\(RUNPATH\)\s+Library runpath: \[(.+)\]') { $Matches[1] } }) -join ""
-        # The newest glibc and libstdc++ symbol versions the library binds: the oldest system it loads on.
-        $versions = @(objdump -T $file | Select-String -Pattern 'GLIBC_[0-9.]+|GLIBCXX_[0-9.]+' -AllMatches | ForEach-Object { $_.Matches.Value } | Sort-Object -Unique)
-        $newest = { param($prefix) $versions | Where-Object { $_ -match "^$($prefix)_" } | Sort-Object { [version](($_ -split '_')[1] + $(if (($_ -split '_')[1] -notmatch '\.') { '.0' })) } | Select-Object -Last 1 }
-        Write-Host "==> $($kv.Key) NEEDED: $($needed -join ', '); RUNPATH $runpath; newest $(& $newest 'GLIBC'), $(& $newest 'GLIBCXX')"
+        $versionNeeds = @(readelf -V --wide $file)
+        $glibc = Get-Newest $versionNeeds "GLIBC"; $glibcxx = Get-Newest $versionNeeds "GLIBCXX"
+        if ($glibc -gt $floor.GLIBC) { $floor.GLIBC = $glibc }
+        if ($glibcxx -gt $floor.GLIBCXX) { $floor.GLIBCXX = $glibcxx }
+        Write-Host "==> $($kv.Key) NEEDED: $($needed -join ', '); RUNPATH $runpath; needs GLIBC_$glibc, GLIBCXX_$glibcxx"
         if (Compare-Object ($needed | Sort-Object) ($expectedNeeded | Sort-Object)) { throw "$($kv.Key) NEEDED is not exactly $($expectedNeeded -join ', ')" }
         # dotnet/Interop/CompanionLibraries.cs relies on it: glibc's dlopen of a bare name searches the
         # calling object's DT_RUNPATH, which is how Slang finds slang-glslang beside itself.
         # Exactly Slang's install RPATH: an empty entry would search the working directory.
         if ($runpath -cne '$ORIGIN/../lib:$ORIGIN') { throw "$($kv.Key) RUNPATH is '$runpath', not exactly `$ORIGIN/../lib:`$ORIGIN" }
+    }
+    # The floor this build produced, against the one Directory.Build.props pins (the release's).
+    $pinned = [ordered]@{}
+    foreach ($p in @(@("GLIBC", "LinuxGlibcFloor"), @("GLIBCXX", "LinuxGlibcxxFloor"))) {
+        if ($props -notmatch "<$($p[1])>([^<]+)</$($p[1])>") { throw "$($p[1]) not found in Directory.Build.props" }
+        $pinned[$p[0]] = [version]$Matches[1].Trim()
+    }
+    Write-Host "==> glibc floor of this build: GLIBC_$($floor.GLIBC), GLIBCXX_$($floor.GLIBCXX) (pinned: GLIBC_$($pinned.GLIBC), GLIBCXX_$($pinned.GLIBCXX))"
+    $above = @($floor.Keys | Where-Object { $floor[$_] -gt $pinned[$_] } | ForEach-Object { "$($_)_$($floor[$_]) > $($_)_$($pinned[$_])" })
+    if ($above) {
+        $why = "the payload needs $($above -join ' and '), newer than Directory.Build.props pins (LinuxGlibcFloor, LinuxGlibcxxFloor), so it would not load on the distributions the pin promises. The build host's glibc and libstdc++ set it: build on Ubuntu 22.04 (glibc 2.35, GCC 11), as CI does"
+        if (-not $AllowNewerGlibc) { throw "$why. For a local test build only, pass -AllowNewerGlibc; NativePayloadTests then fails on it unless SHARPSLANG_ALLOW_NEWER_GLIBC=1." }
+        Write-Warning "$why. Staged anyway (-AllowNewerGlibc): a local test build, not one to pack."
     }
 } else {
     # UNVERIFIED: written without a Mac. The system only: libc++ and libSystem, plus the library's own

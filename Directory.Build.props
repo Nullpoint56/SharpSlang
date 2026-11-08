@@ -94,6 +94,19 @@
       Bumping it is: change this line and the one in the targets file, restore, run the DXIL tests.
     -->
     <DxcPackageVersion>1.9.2609.5</DxcPackageVersion>
+
+    <!--
+      The newest glibc and libstdc++ symbol versions the Linux payload may need: the oldest Linux
+      it loads on. Slang's own v2026.21 release, built on Ubuntu 22.04, needs exactly these on
+      linux-x64 and linux-arm64 (read from each library's version-needs section). A build on Ubuntu
+      24.04 needs GLIBC_2.38 and GLIBCXX_3.4.32 (__isoc23_strtol, std::ios_base_library_init) and
+      would not load on 22.04 or Debian 12, so Linux payloads are built on ubuntu-22.04. Read by
+      tools/build-native.ps1, which refuses a build above them unless -AllowNewerGlibc, and by
+      NativePayloadTests, which fails on a staged library above them. Raising them is a decision:
+      it drops the distributions below.
+    -->
+    <LinuxGlibcFloor>2.34</LinuxGlibcFloor>
+    <LinuxGlibcxxFloor>3.4.29</LinuxGlibcxxFloor>
   </PropertyGroup>
 
 </Project>
