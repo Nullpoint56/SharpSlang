@@ -19,7 +19,7 @@
 
 namespace SharpSlang.Tests;
 
-public sealed class SlangReflectionCorpusTests(Xunit.Abstractions.ITestOutputHelper output)
+public sealed class SlangReflectionCorpusTests(ITestOutputHelper output)
 {
     /// <summary>What happened when one directive was reproduced through the binding.</summary>
     private enum Outcome

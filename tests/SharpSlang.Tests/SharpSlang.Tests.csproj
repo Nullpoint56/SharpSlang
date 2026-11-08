@@ -13,6 +13,8 @@
     <Nullable>enable</Nullable>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <IsPackable>false</IsPackable>
+    <!-- A Microsoft.Testing.Platform executable (xunit.v3): global.json makes dotnet test use it. -->
+    <OutputType>Exe</OutputType>
     <AssemblyName>SharpSlang.Tests</AssemblyName>
   </PropertyGroup>
 
@@ -41,10 +43,45 @@
     <Using Include="Xunit" />
   </ItemGroup>
 
+  <!--
+    Tests run one at a time: xunit.runner.json turns off collection and assembly parallelism.
+
+    Not a performance oversight. Two kinds of state in this suite are process-global and cannot be
+    scoped to a test:
+
+      * SlangDiagnostics.Policy and .Handler. Slang's diagnostics are per-call, with no session
+        object to hang a policy off, so redirecting them is necessarily a static. Two collections
+        running concurrently would see each other's handlers: a test asserting "exactly one warning"
+        would intermittently see zero or two, depending on what else happened to compile.
+
+      * The Slang compiler itself. Several tests measure emitted byte sizes to prove an option took
+        effect, and Slang caches downstream-compiler state per process.
+
+    Serialising costs a couple of seconds on a suite that already spends most of its time in the
+    native compiler. A flaky test costs more than that the first time someone has to decide whether
+    to believe it. (It was [assembly: CollectionBehavior(DisableTestParallelization = true)], which
+    xunit.v3 refuses.)
+  -->
   <ItemGroup>
-    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
-    <PackageReference Include="xunit" Version="2.9.2" />
-    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
+    <Content Include="xunit.runner.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <!--
+    tools/coverage.ps1 builds with -p:SharpSlangCoverage=true and collects test coverage through
+    this extension (dotnet test with coverage, cobertura). Off otherwise: Microsoft .NET Library
+    licence, test-only, not shipped, and no native collector for every RID.
+  -->
+  <ItemGroup Condition="'$(SharpSlangCoverage)' == 'true'">
+    <PackageReference Include="Microsoft.Testing.Extensions.CodeCoverage" Version="18.12.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!--
+      xunit.v3 on Microsoft.Testing.Platform, which the coverage collection of tools/coverage.ps1 needs;
+      xunit.runner.visualstudio keeps the IDE's test explorer.
+    -->
+    <PackageReference Include="xunit.v3" Version="4.0.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="4.0.1" />
 
     <!--
       Renders an assembly's public surface as C#. The packages carry a semver promise the moment

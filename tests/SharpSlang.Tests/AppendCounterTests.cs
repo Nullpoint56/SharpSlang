@@ -16,7 +16,7 @@ using SharpSlang.Reflection;
 
 namespace SharpSlang.Tests;
 
-public class AppendCounterTests(Xunit.Abstractions.ITestOutputHelper output)
+public class AppendCounterTests(ITestOutputHelper output)
 {
     private static ProgramLayout Reflect()
     {

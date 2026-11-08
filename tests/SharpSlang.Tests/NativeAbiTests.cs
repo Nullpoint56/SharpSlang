@@ -39,7 +39,8 @@ namespace SharpSlang.Tests;
 /// <summary>A fact needing a C++ compiler; says where to get one when there is none.</summary>
 public sealed class AbiFactAttribute : FactAttribute
 {
-    public AbiFactAttribute()
+    public AbiFactAttribute([CallerFilePath] string? sourceFilePath = null, [CallerLineNumber] int sourceLineNumber = -1)
+        : base(sourceFilePath, sourceLineNumber)
     {
         if (NativeAbi.Compiler is null) Skip = NativeAbi.Unavailable;
     }
@@ -154,7 +155,7 @@ public static class NativeAbi
     }
 }
 
-public sealed partial class NativeAbiTests(Xunit.Abstractions.ITestOutputHelper output)
+public sealed partial class NativeAbiTests(ITestOutputHelper output)
 {
     // ---------------------------------------------------------------- what to probe
 

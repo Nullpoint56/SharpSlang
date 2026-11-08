@@ -4,12 +4,15 @@
 // machine where tools/fetch-native.ps1 has not run they must skip with a message that says what to
 // do — not fail with a DllNotFoundException that reads like a broken build.
 
+using System.Runtime.CompilerServices;
+
 namespace SharpSlang.Tests;
 
 /// <summary>A fact that is skipped, with an actionable reason, when the native payload is absent.</summary>
 public sealed class NativeFactAttribute : FactAttribute
 {
-    public NativeFactAttribute()
+    public NativeFactAttribute([CallerFilePath] string? sourceFilePath = null, [CallerLineNumber] int sourceLineNumber = -1)
+        : base(sourceFilePath, sourceLineNumber)
     {
         if (!SlangNative.Available) Skip = SlangNative.SkipReason;
     }
@@ -18,7 +21,8 @@ public sealed class NativeFactAttribute : FactAttribute
 /// <summary>A theory that is skipped, with an actionable reason, when the native payload is absent.</summary>
 public sealed class NativeTheoryAttribute : TheoryAttribute
 {
-    public NativeTheoryAttribute()
+    public NativeTheoryAttribute([CallerFilePath] string? sourceFilePath = null, [CallerLineNumber] int sourceLineNumber = -1)
+        : base(sourceFilePath, sourceLineNumber)
     {
         if (!SlangNative.Available) Skip = SlangNative.SkipReason;
     }

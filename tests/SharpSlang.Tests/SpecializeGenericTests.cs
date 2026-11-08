@@ -12,7 +12,7 @@ using SharpSlang.Reflection;
 
 namespace SharpSlang.Tests;
 
-public class SpecializeGenericTests(Xunit.Abstractions.ITestOutputHelper output)
+public class SpecializeGenericTests(ITestOutputHelper output)
 {
     private const string Source = """
         interface ISgMaterial { float3 shade(float3 albedo); }

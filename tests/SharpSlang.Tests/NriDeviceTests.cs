@@ -43,7 +43,7 @@ using SharpSlang.Spirv;
 
 namespace SharpSlang.Tests;
 
-public sealed class NriDeviceTests(Xunit.Abstractions.ITestOutputHelper output)
+public sealed class NriDeviceTests(ITestOutputHelper output)
 {
     /// <summary>
     /// The cap every test hands the projection, so <c>descriptor-arrays</c>' unbounded texture

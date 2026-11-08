@@ -25,7 +25,7 @@ using SharpSlang.Reflection;
 
 namespace SharpSlang.Tests;
 
-public sealed class SlangWalkerCorpusTests(Xunit.Abstractions.ITestOutputHelper output)
+public sealed class SlangWalkerCorpusTests(ITestOutputHelper output)
 {
     /// <summary>One place the projection disagrees with Slang's recorded reflection.</summary>
     private sealed record Diff(string Path, string Expected, string Actual)

@@ -11,7 +11,7 @@ using SharpSlang.Reflection;
 
 namespace SharpSlang.Tests;
 
-public class MetadataTests(Xunit.Abstractions.ITestOutputHelper output)
+public class MetadataTests(ITestOutputHelper output)
 {
     // Two textures and two samplers. The fragment stage reads one pair; the vertex stage reads
     // neither. `mdUnread` is referenced by nothing at all.

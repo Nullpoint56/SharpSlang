@@ -25,7 +25,7 @@ using System.Text.RegularExpressions;
 
 namespace SharpSlang.Tests;
 
-public partial class VtableOrderTests(Xunit.Abstractions.ITestOutputHelper output)
+public partial class VtableOrderTests(ITestOutputHelper output)
 {
     /// <summary>One generated vtable method: the slot it claims, the slot it calls, and its name.</summary>
     private sealed record Slot(int Attribute, int Dispatch, string Name);

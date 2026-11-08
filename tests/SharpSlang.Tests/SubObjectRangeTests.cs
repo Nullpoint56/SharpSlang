@@ -10,7 +10,7 @@ using SharpSlang.Reflection;
 
 namespace SharpSlang.Tests;
 
-public class SubObjectRangeTests(Xunit.Abstractions.ITestOutputHelper output)
+public class SubObjectRangeTests(ITestOutputHelper output)
 {
     private const string Source = """
         struct SoMaterial { float4 tint; };

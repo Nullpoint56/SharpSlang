@@ -19,7 +19,7 @@ using SharpSlang.Reflection;
 
 namespace SharpSlang.Tests;
 
-public unsafe class SecondOpinionTests(Xunit.Abstractions.ITestOutputHelper output)
+public unsafe class SecondOpinionTests(ITestOutputHelper output)
 {
     private const string Source = """
         [__AttributeUsage(_AttributeTargets.Struct)]
