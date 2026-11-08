@@ -787,7 +787,9 @@ public class ProberTests(ITestOutputHelper output)
     {
         // U10, patched (0015): with CompanionLibraries' preload turned off, Slang's own bare-name
         // load falls back to its own directory on Windows, so the launch from elsewhere still gets
-        // spirv-opt. Elsewhere the payload's rpaths always did this.
+        // spirv-opt. Elsewhere the payload's rpaths always did this, so the test has nothing to say
+        // there and skips: a pass off Windows would read as the release carrying the fix.
+        Assert.SkipUnless(OperatingSystem.IsWindows(), "U10 is Windows' library search; Linux and macOS find the companions by rpath with or without the patch");
         var elsewhere = Directory.CreateTempSubdirectory("sharpslang-elsewhere-");
         try
         {

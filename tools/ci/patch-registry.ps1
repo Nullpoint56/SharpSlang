@@ -282,8 +282,10 @@ if ($Bump) {
     foreach ($e in ($entries | Where-Object { $_.patch -and $carrying -contains (Get-StateName $_.state) })) {
         $out = @(& $exe -noColor -method "SharpSlang.Tests.$($e.test)" 2>&1 | ForEach-Object { "$_" })
         $summary = @($out | Where-Object { $_ -match 'Total: \d+' }) | Select-Object -Last 1
-        $verdict = if ($summary -match 'Total: 1, Errors: 0, Failed: 0, Skipped: 0') { "GREEN without the patch: the tag carries the fix; drop $($e.patch) and set the state to 'fixed upstream in <tag>'" }
-                   elseif ($summary -match 'Failed: 1') { "red without the patch: keep $($e.patch)" }
+        # A theory's rows count one result each: red when any fails, green when all ran and passed.
+        $counts = if ($summary -match 'Total: (\d+), Errors: (\d+), Failed: (\d+), Skipped: (\d+)') { [int[]]$Matches[1..4] } else { $null }
+        $verdict = if ($counts -and $counts[0] -gt 0 -and $counts[1] + $counts[2] + $counts[3] -eq 0) { "GREEN without the patch: the tag carries the fix; drop $($e.patch) and set the state to 'fixed upstream in <tag>'" }
+                   elseif ($counts -and $counts[2] -gt 0) { "red without the patch: keep $($e.patch)" }
                    else { "no verdict (skipped or did not run): $summary" }
         Write-Host ("    {0,-4} {1}" -f $e.id, $verdict)
     }

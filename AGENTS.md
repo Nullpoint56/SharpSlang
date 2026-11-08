@@ -880,6 +880,16 @@ is in `patches/README.md`. `slang/` is never edited or staged by path; its point
   seven of Test runner and the six release-payload facts), 0 failed; with Slang's release payload
   1168, 1156 passed, 12 skipped (the seven and the five patched facts), 0 failed. Under WSL the
   touched classes (`ProberTests`, `UnknownSizeTests`, `NativePayloadTests`): 41, 32 passed, 9 skipped.
+- **Batch 2 (patches 0005-0022: U31, U14, U12, U30, U18, U19, U24, U20, U23, U6, U10, U5, U9, U16,
+  U33, U32, U17, U34), verified at f7bf3b0.** The scope is the owner's: the moderate and large
+  defects, the rest known issues (U13, U15, U21, U26-U29, U35). Red on win-x64: all 22 registry
+  tests (23 results, a theory counting twice) fail against `-WithoutPatches`. The workstation's full
+  suite: with the patched build 1190 results, 1168 passed, 22 skipped, 0 failed; with Slang's release
+  payload 1190, 1159 passed, 31 skipped, 0 failed. Three were found only by running the batch:
+  0013's first E56111 was an ordinary error, after which the C++ varying legalization dereferenced
+  the empty value it went on with (an access violation in the test host); 0010's first form unsized
+  the array in the IR, which two later passes read the size of; 0019's first form never ran for a
+  top-level block. U34 and U35 were hidden behind U18 and U19.
 - **Each patch carries Slang's own regression test** under `tools/slang-unit-test/` (`SLANG_UNIT_TEST`),
   as their contribution guide asks. `build-native.ps1` builds no tests (`SLANG_ENABLE_TESTS` OFF), so
   those tests are compiled and run only by Slang's CI on a fork PR; the binding's prober tests are
