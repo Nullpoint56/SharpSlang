@@ -234,8 +234,12 @@
       "kind": "Slang defect",
       "patch": null,
       "test": "TargetValidationTests.Wgsl_passes_naga",
-      "state": "unpatched",
-      "verified": "v2026.21"
+      "state": "not patchable: binding_array is not in the WGSL specification; naga takes it behind enable wgpu_binding_array and Tint behind requires sized_binding_array, so no one text is valid for both, and choosing a WGSL dialect is a Slang design decision (Slang #13914 proposes one)",
+      "verified": "v2026.21",
+      "upstream": [
+        "#13708",
+        "#13914"
+      ]
     },
     {
       "id": "U23",
@@ -271,7 +275,7 @@
       "kind": "Slang defect",
       "patch": null,
       "test": "TargetValidationTests.Slang_compute_corpus_wgsl_passes_naga",
-      "state": "unpatched",
+      "state": "not patchable: WGSL has no 64-bit integer; diagnosing u64 breaks the naga users Slang emits it for, and keeping it breaks Tint, so the fix is the WGSL dialect choice Slang #13914 proposes, which is the maintainers' design decision",
       "verified": "v2026.21",
       "upstream": [
         "#13914"
