@@ -32,7 +32,9 @@ try {
         if ($LASTEXITCODE -ne 0) { throw "dotnet format failed to apply the formatting" }
     }
 
-    dotnet build SharpSlang.slnx -c Release -warnaserror -p:SharpSlangRequireNative=false -nologo -v q
+    # --no-incremental: an up-to-date build skips the compiler, and with it every analyzer, so a
+    # second run after a failing one reported "all checks passed" (measured 2026-11-08).
+    dotnet build SharpSlang.slnx -c Release --no-incremental -warnaserror -p:SharpSlangRequireNative=false -nologo -v q
     if ($LASTEXITCODE -ne 0) { $failed += "lint: analyzers" }
 
     dotnet format whitespace SharpSlang.slnx --exclude dotnet/Native --verify-no-changes

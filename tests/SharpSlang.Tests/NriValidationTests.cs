@@ -19,7 +19,7 @@ using SharpSlang.Reflection;
 
 namespace SharpSlang.Tests;
 
-public sealed class NriValidationTests(Xunit.Abstractions.ITestOutputHelper output)
+public sealed class NriValidationTests(ITestOutputHelper output)
 {
     private const string Material = """
         struct Material { float3 tint; float gloss; float4x4 transform; float3x3 normalMatrix; };

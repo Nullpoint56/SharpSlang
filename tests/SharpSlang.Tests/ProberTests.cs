@@ -21,7 +21,7 @@ using System.Text.RegularExpressions;
 
 namespace SharpSlang.Tests;
 
-public class ProberTests(Xunit.Abstractions.ITestOutputHelper output)
+public class ProberTests(ITestOutputHelper output)
 {
     private sealed record Outcome(int ExitCode, string Stdout, string Stderr)
     {
@@ -49,8 +49,9 @@ public class ProberTests(Xunit.Abstractions.ITestOutputHelper output)
         // The apphost, not `dotnet exec`. The obvious spelling was
         // `Environment.ProcessPath exec SharpSlang.Prober.dll`, on the reasoning that the child
         // should use the same runtime as the runner — but under `dotnet test` the current process
-        // is testhost.exe, which does not take `exec`, and every probe came back 0x80008083. Both
-        // control cases caught it, which is what they are for.
+        // was testhost.exe on VSTest, and is the SharpSlang.Tests executable itself on the test
+        // platform; neither takes `exec`, and every probe came back 0x80008083. Both control cases
+        // caught it, which is what they are for.
         var host = Path.Combine(
             ProberDirectory(),
             OperatingSystem.IsWindows() ? "SharpSlang.Prober.exe" : "SharpSlang.Prober");
@@ -112,8 +113,8 @@ public class ProberTests(Xunit.Abstractions.ITestOutputHelper output)
 
     /// <summary>The dotnet host that owns the runtime this test is running on.</summary>
     /// <remarks>
-    /// Not <c>Environment.ProcessPath</c>, which under `dotnet test` on Windows is testhost.exe, the
-    /// mistake Run's comment records. The shared runtime sits at
+    /// Not <c>Environment.ProcessPath</c>, which under `dotnet test` is the test executable (it was
+    /// testhost.exe on VSTest), the mistake Run's comment records. The shared runtime sits at
     /// <c>&lt;root&gt;/shared/Microsoft.NETCore.App/&lt;version&gt;/</c> and the host at the root,
     /// so the child runs on the same runtime as the runner without a PATH lookup that could find
     /// another one.

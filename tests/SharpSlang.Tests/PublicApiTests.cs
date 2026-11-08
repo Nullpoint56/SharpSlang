@@ -17,7 +17,7 @@ using PublicApiGenerator;
 
 namespace SharpSlang.Tests;
 
-public class PublicApiTests(Xunit.Abstractions.ITestOutputHelper output)
+public class PublicApiTests(ITestOutputHelper output)
 {
     private static readonly ApiGeneratorOptions Options = new()
     {
@@ -89,8 +89,8 @@ public class PublicApiTests(Xunit.Abstractions.ITestOutputHelper output)
             $"{name}'s public surface differs from {Path.GetFileName(path)}:\n"
             + string.Join("\n", differences)
             + $"\n\n    approved {a.Length} lines, actual {b.Length} lines."
-            + "\n    If the change is intended: SHARPSLANG_APPROVE_API=1 dotnet test --filter "
-            + "PublicApiTests, then read the diff.");
+            + "\n    If the change is intended: SHARPSLANG_APPROVE_API=1 dotnet test --filter-class "
+            + "SharpSlang.Tests.PublicApiTests, then read the diff.");
     }
 
     [Fact]

@@ -11,6 +11,7 @@
     <File Path=".gitattributes" />
     <File Path=".editorconfig" />
     <File Path="nuget.config" />
+    <File Path="global.json" />
   </Folder>
   <Folder Name="/docs/">
     <File Path="docs/guide.md" />
@@ -27,6 +28,26 @@
     <File Path="tools/check.ps1" />
     <File Path="tools/fetch-native.ps1" />
     <File Path="tools/generate-native.ps1" />
+    <File Path="tools/.editorconfig" />
+    <File Path="tools/coverage.ps1" />
+  </Folder>
+  <!-- The standalone tools, as files: each builds outside the solution (its script builds it). -->
+  <Folder Name="/tools/apidiff/">
+    <File Path="tools/apidiff/ApiDiff.csproj" />
+    <File Path="tools/apidiff/Program.cs" />
+  </Folder>
+  <Folder Name="/tools/coverage/">
+    <File Path="tools/coverage/coverage.psd1" />
+    <File Path="tools/coverage/BoundSurface/BoundSurface.csproj" />
+    <File Path="tools/coverage/BoundSurface/Program.cs" />
+  </Folder>
+  <Folder Name="/tools/consume/">
+    <File Path="tools/consume/consume.ps1" />
+    <File Path="tools/consume/SharpSlang.Consume.csproj" />
+    <File Path="tools/consume/Program.cs" />
+    <File Path="tools/consume/nuget.config" />
+    <File Path="tools/consume/Directory.Build.props" />
+    <File Path="tools/consume/Directory.Build.targets" />
   </Folder>
   <Folder Name="/tools/ci/">
     <File Path="tools/ci/check-docs.sh" />
@@ -38,6 +59,12 @@
     <File Path="tools/ci/macos-backtrace.sh" />
     <File Path="tools/ci/native-payload-key.ps1" />
     <File Path="tools/ci/verify-linux.sh" />
+    <File Path="tools/ci/packages.psd1" />
+    <File Path="tools/ci/Packages.psm1" />
+    <File Path="tools/ci/check-packages.ps1" />
+    <File Path="tools/ci/descs-version.ps1" />
+    <File Path="tools/ci/api-changes.ps1" />
+    <File Path="tools/ci/release-body.ps1" />
   </Folder>
   <Folder Name="/.github/">
     <File Path=".github/workflows/ci.yml" />

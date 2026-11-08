@@ -13,7 +13,7 @@ using SharpSlang.Interop;
 
 namespace SharpSlang.Tests;
 
-public class ModuleSerializationTests(Xunit.Abstractions.ITestOutputHelper output)
+public class ModuleSerializationTests(ITestOutputHelper output)
 {
     private const string Library = """
         struct MsSurface { float3 albedo; float roughness; };

@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    The bound-surface half of tools/coverage.ps1: which of Slang's functions the binding's own code
+    calls (the flat exports of the one DllImport file, and the vtable slots of Slang's COM-style
+    interfaces), and which native struct fields its API reaches. Reads the built assemblies and
+    their PDBs; tools/coverage/coverage.psd1 names them. Not in the solution; built and run by the
+    script. The analyzers are the SDK's own at latest-recommended (tools/.editorconfig), as for
+    the shipped projects.
+  -->
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net11.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <AnalysisLevel>latest-recommended</AnalysisLevel>
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+  </PropertyGroup>
+
+</Project>

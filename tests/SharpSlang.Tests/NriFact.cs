@@ -24,6 +24,7 @@
 // And gates for dxc, which the DXIL tests need whether or not a device is involved. Those are
 // measurements, not decisions: dxc is either beside slang-compiler or it is not.
 
+using System.Runtime.CompilerServices;
 using SharpNRI.Native;
 using SharpNRI.Testing;
 using Architecture = System.Runtime.InteropServices.Architecture; // not NRI's GPU architecture enum
@@ -34,7 +35,8 @@ namespace SharpSlang.Tests;
 /// <summary>A fact needing NRI's NONE backend: the library loadable, nothing else.</summary>
 public sealed class NriNoneFactAttribute : FactAttribute
 {
-    public NriNoneFactAttribute()
+    public NriNoneFactAttribute([CallerFilePath] string? sourceFilePath = null, [CallerLineNumber] int sourceLineNumber = -1)
+        : base(sourceFilePath, sourceLineNumber)
     {
         if (NriNative.Unavailable(GraphicsAPI.NONE) is { } reason) Skip = reason;
     }
@@ -43,7 +45,8 @@ public sealed class NriNoneFactAttribute : FactAttribute
 /// <summary>The theory counterpart.</summary>
 public sealed class NriNoneTheoryAttribute : TheoryAttribute
 {
-    public NriNoneTheoryAttribute()
+    public NriNoneTheoryAttribute([CallerFilePath] string? sourceFilePath = null, [CallerLineNumber] int sourceLineNumber = -1)
+        : base(sourceFilePath, sourceLineNumber)
     {
         if (NriNative.Unavailable(GraphicsAPI.NONE) is { } reason) Skip = reason;
     }
@@ -52,7 +55,8 @@ public sealed class NriNoneTheoryAttribute : TheoryAttribute
 /// <summary>A fact needing NRI's Vulkan backend on a real or software device, with validation.</summary>
 public sealed class NriVulkanFactAttribute : FactAttribute
 {
-    public NriVulkanFactAttribute()
+    public NriVulkanFactAttribute([CallerFilePath] string? sourceFilePath = null, [CallerLineNumber] int sourceLineNumber = -1)
+        : base(sourceFilePath, sourceLineNumber)
     {
         if (NriNative.Unavailable(GraphicsAPI.VK) is { } reason) Skip = reason;
     }
@@ -61,7 +65,8 @@ public sealed class NriVulkanFactAttribute : FactAttribute
 /// <summary>The theory counterpart.</summary>
 public sealed class NriVulkanTheoryAttribute : TheoryAttribute
 {
-    public NriVulkanTheoryAttribute()
+    public NriVulkanTheoryAttribute([CallerFilePath] string? sourceFilePath = null, [CallerLineNumber] int sourceLineNumber = -1)
+        : base(sourceFilePath, sourceLineNumber)
     {
         if (NriNative.Unavailable(GraphicsAPI.VK) is { } reason) Skip = reason;
     }
@@ -80,7 +85,8 @@ public sealed class NriVulkanTheoryAttribute : TheoryAttribute
 /// </remarks>
 public sealed class NriD3D12FactAttribute : FactAttribute
 {
-    public NriD3D12FactAttribute()
+    public NriD3D12FactAttribute([CallerFilePath] string? sourceFilePath = null, [CallerLineNumber] int sourceLineNumber = -1)
+        : base(sourceFilePath, sourceLineNumber)
     {
         if ((NriNative.Unavailable(GraphicsAPI.D3D12) ?? DxcNative.Unavailable) is { } reason) Skip = reason;
     }
@@ -89,7 +95,8 @@ public sealed class NriD3D12FactAttribute : FactAttribute
 /// <summary>The theory counterpart.</summary>
 public sealed class NriD3D12TheoryAttribute : TheoryAttribute
 {
-    public NriD3D12TheoryAttribute()
+    public NriD3D12TheoryAttribute([CallerFilePath] string? sourceFilePath = null, [CallerLineNumber] int sourceLineNumber = -1)
+        : base(sourceFilePath, sourceLineNumber)
     {
         if ((NriNative.Unavailable(GraphicsAPI.D3D12) ?? DxcNative.Unavailable) is { } reason) Skip = reason;
     }
@@ -104,7 +111,8 @@ public sealed class NriD3D12TheoryAttribute : TheoryAttribute
 /// </remarks>
 public sealed class DxcFactAttribute : FactAttribute
 {
-    public DxcFactAttribute()
+    public DxcFactAttribute([CallerFilePath] string? sourceFilePath = null, [CallerLineNumber] int sourceLineNumber = -1)
+        : base(sourceFilePath, sourceLineNumber)
     {
         if (DxcNative.Unavailable is { } reason) Skip = reason;
     }
@@ -113,7 +121,8 @@ public sealed class DxcFactAttribute : FactAttribute
 /// <summary>The theory counterpart.</summary>
 public sealed class DxcTheoryAttribute : TheoryAttribute
 {
-    public DxcTheoryAttribute()
+    public DxcTheoryAttribute([CallerFilePath] string? sourceFilePath = null, [CallerLineNumber] int sourceLineNumber = -1)
+        : base(sourceFilePath, sourceLineNumber)
     {
         if (DxcNative.Unavailable is { } reason) Skip = reason;
     }

@@ -58,21 +58,27 @@ echo "===== TESTS ====="
 # why MALLOC_CHECK_ is not here with it.
 export MALLOC_PERTURB_=165
 
-# A test-host crash is the signal this script exists to catch, so grep for it explicitly:
-# the runner can report "Passed!" for the tests that completed before the process died.
-out="$("$DOTNET" test SharpSlang.slnx --no-build --nologo -v q 2>&1)"
+# A test-host crash is the signal this script exists to catch. The suite is a
+# Microsoft.Testing.Platform application (xunit.v3, global.json), whose summary is "Test run
+# summary: Passed!|Failed!" and the totals; a host that dies reports "error: 1" and a non-zero exit
+# code with no failed test at all, so the exit code decides, not the words. The TRX and the
+# platform's diagnostic log (which names a test that was running when the host died) are kept
+# beside the console log.
+out="$("$DOTNET" test --solution SharpSlang.slnx --no-build --report-xunit-trx --report-xunit-trx-filename results.trx \
+    --results-directory "$logs/verify-test-results" --diagnostic --diagnostic-output-directory "$logs/verify-test-results/diagnostics" 2>&1)"
+test_status=$?
 printf '%s\n' "$out" > "$logs/verify-tests.log"
-printf '%s\n' "$out" | grep -E 'Passed!|Failed!|crashed|Aborted'
+printf '%s\n' "$out" | grep -E 'Test run summary|^  (total|failed|succeeded|skipped|error): |crashed|Aborted|exit code'
 
 # The names too, when there are any. Filtering to the summary meant a failure here reported
 # "linux-x64: FAILED" and nothing else, and finding out which test it was took four more runs —
 # the same instrumentation gap as before, in the script written to catch that class of problem.
-if printf '%s\n' "$out" | grep -qE '\[FAIL\]|^  Failed '; then
+if printf '%s\n' "$out" | grep -qE '^\s*failed '; then
     echo "--- failing tests:"
-    printf '%s\n' "$out" | grep -E '^  Failed |^  Error Message|^  Assert' | head -40
+    printf '%s\n' "$out" | grep -E -A3 '^\s*failed ' | head -60
 fi
 
-if printf '%s\n' "$out" | grep -qE 'crashed|Aborted|Failed!'; then status=1; fi
+if [[ $test_status -ne 0 ]] || printf '%s\n' "$out" | grep -qE 'crashed|Aborted|Failed!'; then status=1; fi
 
 echo "===== SPIKE ====="
 "$DOTNET" run --project samples/SharpSlang.Smoke --no-build 2>&1 | tee "$logs/verify-spike.log"

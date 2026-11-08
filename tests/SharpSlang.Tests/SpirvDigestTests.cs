@@ -28,7 +28,7 @@ using SharpSlang.Reflection;
 
 namespace SharpSlang.Tests;
 
-public class SpirvDigestTests(Xunit.Abstractions.ITestOutputHelper output)
+public class SpirvDigestTests(ITestOutputHelper output)
 {
     // Two files, because the two halves of a cooked artifact turned out to obey different rules.
     // Every leg agrees on the layout; the module is identical between operating systems and differs

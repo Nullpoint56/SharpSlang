@@ -453,7 +453,7 @@ jobs:
         # runner for the six-hour default: the push-triggered win-x64 run of the .NET 11 migration
         # went quiet one minute in, on a commit whose other run had finished in under three, and
         # was cancelled by hand at twenty-two. The bound turns the next one into a failure with
-        # the --blame sequence file intact, which the step below reads to name the test.
+        # the diagnostic log intact, which the step below reads to name the test.
         timeout-minutes: 20
         env:
           # For SlangTestCorpus's one GitHub API call, so a cache miss does not spend the runner
@@ -465,16 +465,20 @@ jobs:
           MallocScribble: 1
           MallocPreScribble: 1
           MallocNanoZone: 0
-        # --blame writes a Sequence.xml naming the test that was executing when the host died, and
-        # deletes it again if the run completes — so it costs nothing on a green run and is the
-        # difference between knowing the crasher and inferring it from test ordering on a different
-        # platform. Reached for after two macOS runs were diagnosed by guesswork; it is the tool
-        # that exists for this and should have been the first move.
+        # The suite is a Microsoft.Testing.Platform application (xunit.v3; global.json selects the
+        # platform for dotnet test), so the VSTest switches are gone. --blame wrote a Sequence.xml
+        # naming the test that was executing when the host died, reached for after two macOS runs
+        # were diagnosed by guesswork; its replacement is the platform's diagnostic log, which
+        # records each test as it starts (InProgressTestNodeStateProperty) and is written as the
+        # run goes, so a host that dies or is killed leaves the running test's name in it. Measured
+        # with a test that calls Environment.FailFast: no TRX, and the diagnostic log names it.
         #
         # The TRX goes to one fixed place, test-results/results.trx, because every "actually ran"
         # gate below counts its classes from this file instead of running them again (see
-        # tools/ci/count-tests.ps1). The upload and crash steps search recursively and find it here.
-        run: dotnet test SharpSlang.slnx -c Release --no-build --nologo --blame --logger "trx;LogFileName=results.trx" --results-directory test-results
+        # tools/ci/count-tests.ps1). xunit.v3 writes it (--report-xunit-trx) with the same
+        # UnitTestResult testName and outcome the gates read. The upload and crash steps search
+        # recursively and find it here.
+        run: dotnet test --solution SharpSlang.slnx -c Release --no-build --report-xunit-trx --report-xunit-trx-filename results.trx --results-directory test-results --diagnostic --diagnostic-output-directory test-results/diagnostics
 
       # A skipped test is green, so installing lavapipe and never noticing it failed to load would
       # leave the whole validation harness silently switched off. NriValidationTests' three shaders
@@ -748,20 +752,34 @@ jobs:
         if: failure()
         shell: pwsh
         run: |
-          # --blame's sequence file names the test that was executing when the host died — or when
-          # the step's timeout killed it. It only exists when the run did not finish, which is
-          # exactly when it is wanted, and it is read before the TRX because a timed-out run has no
-          # TRX at all: the logger writes that file at the end, and the first win-x64 hang on .NET
-          # 11 was cancelled with twenty minutes of silence and nothing to say which test it was in.
-          $seq = Get-ChildItem -Recurse -Filter '*.Sequence.xml' -ErrorAction SilentlyContinue |
-                 Select-Object -First 1
-          if ($seq) {
-            Write-Host "=== the host died, or was killed, during:"
-            ([xml](Get-Content $seq.FullName)).TestSequence.Test |
-              ForEach-Object { Write-Host ("    {0}.{1}" -f $_.source, $_.fullyQualifiedName) }
+          # The platform's diagnostic log names the test that was executing when the host died — or
+          # when the step's timeout killed it: every test's start is a TestNodeUpdateMessage with
+          # InProgressTestNodeStateProperty, written as it happens. It is read before the TRX
+          # because a crashed or timed-out run has no TRX at all: the reporter writes that file at
+          # the end, and the first win-x64 hang on .NET 11 was cancelled with twenty minutes of
+          # silence and nothing to say which test it was in. A test whose start is the last thing
+          # logged for it, with no result after, is the one that was running.
+          $diag = Get-ChildItem test-results/diagnostics -Recurse -Filter '*.diag' -ErrorAction SilentlyContinue |
+                  Sort-Object LastWriteTime | Select-Object -Last 1
+          if ($diag) {
+            $last = [ordered]@{}
+            foreach ($line in Select-String -Path $diag.FullName -Pattern 'TestNodeUpdateMessage') {
+              if ($line.Line -match 'TestNode = TestNode \{ Uid = TestNodeUid \{ Value = (\S+) \}, DisplayName = (.+?), Properties = \[') {
+                $uid = $Matches[1]; $name = $Matches[2]
+                $last.Remove($uid)
+                $last[$uid] = [pscustomobject]@{ Name = $name; Running = $line.Line.Contains('InProgressTestNodeStateProperty') }
+              }
+            }
+            $running = @($last.Values | Where-Object Running)
+            if ($running) {
+              Write-Host "=== the host died, or was killed, during:"
+              $running | ForEach-Object { Write-Host "    $($_.Name)" }
+            } else {
+              Write-Host "the diagnostic log has no test left running: the host did not die inside a test."
+            }
             Write-Host ""
           } else {
-            Write-Host "no --blame sequence file: the host did not crash, or did not get that far."
+            Write-Host "no diagnostic log: the run did not get far enough to write one."
           }
 
           $trx = Get-ChildItem -Recurse -Filter results.trx -ErrorAction SilentlyContinue |

@@ -29,7 +29,7 @@ using SharpSlang.Reflection;
 
 namespace SharpSlang.Tests;
 
-public sealed class DxilTests(Xunit.Abstractions.ITestOutputHelper output)
+public sealed class DxilTests(ITestOutputHelper output)
 {
     /// <summary>Why a corpus case does not compile to DXIL: the reason, and a fragment of dxc's own words.</summary>
     internal sealed record NotDxil(string Reason, string Diagnostic);

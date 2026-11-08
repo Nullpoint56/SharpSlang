@@ -21,6 +21,29 @@ namespace SharpSlang.Tests;
 
 public class DocumentedFactsTests
 {
+    // The rows one data attribute gives a theory: one per InlineData, and as many as the member a
+    // MemberData names yields. Another kind fails, so it is taught here rather than miscounted.
+    private static int Rows(MethodInfo method, Xunit.v3.DataAttribute data)
+    {
+        switch (data)
+        {
+            case InlineDataAttribute:
+                return 1;
+            case MemberDataAttribute member:
+                const BindingFlags flags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static | BindingFlags.FlattenHierarchy;
+                var source = member.MemberType ?? method.DeclaringType!;
+                var value = source.GetProperty(member.MemberName, flags)?.GetValue(null)
+                    ?? source.GetField(member.MemberName, flags)?.GetValue(null)
+                    ?? source.GetMethod(member.MemberName, flags)?.Invoke(null, member.Arguments);
+                Assert.True(value is System.Collections.IEnumerable,
+                    $"{method.DeclaringType!.Name}.{method.Name}: MemberData({member.MemberName}) on {source.Name} yields no rows");
+                return ((System.Collections.IEnumerable)value!).Cast<object>().Count();
+            default:
+                Assert.Fail($"{method.DeclaringType!.Name}.{method.Name}: {data.GetType().Name} is not counted; teach Rows about it");
+                return 0;
+        }
+    }
+
     private static string Read(string relative) =>
         File.ReadAllText(Path.Combine(RepoRoot(), relative));
 
@@ -75,10 +98,16 @@ public class DocumentedFactsTests
     [Fact]
     public void The_test_count_the_readme_states_is_the_test_count()
     {
-        // Cases, not methods — a theory with 28 rows is 28 tests, which is what the runner reports.
-        // This is the one number here that moves on an ordinary commit, and enforcing it is a
-        // deliberate trade: adding a test also means editing one line of README, in exchange for a
-        // headline figure that is never quietly wrong. The failure below prints the number to paste.
+        // Cases, not methods — a theory with 28 rows is 28 tests, which is what the runner reports:
+        // every fact once and every data row of a theory once, the total `dotnet test` prints on a
+        // machine where nothing skips (a skipped theory is one result, not one per row). This is
+        // the one number here that moves on an ordinary commit, and enforcing it is a deliberate
+        // trade: adding a test also means editing one line of README, in exchange for a headline
+        // figure that is never quietly wrong. The failure below prints the number to paste.
+        //
+        // The rows are counted from the data attributes themselves, not through xunit.v3's
+        // DataAttribute.GetData: called outside a test run it returns no row for any MemberData
+        // (measured: 468 of the 761 cases the runner ran, every MemberData theory at 0).
         var count = 0;
 
         foreach (var type in typeof(DocumentedFactsTests).Assembly.GetTypes())
@@ -89,8 +118,7 @@ public class DocumentedFactsTests
             {
                 // TheoryAttribute derives from FactAttribute, so theories are asked about first.
                 if (method.GetCustomAttribute<TheoryAttribute>() is not null)
-                    count += method.GetCustomAttributes<Xunit.Sdk.DataAttribute>()
-                                   .Sum(d => d.GetData(method).Count());
+                    count += method.GetCustomAttributes<Xunit.v3.DataAttribute>().Sum(d => Rows(method, d));
                 else if (method.GetCustomAttribute<FactAttribute>() is not null)
                     count += 1;
             }

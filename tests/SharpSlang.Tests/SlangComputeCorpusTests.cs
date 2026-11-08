@@ -27,7 +27,7 @@ using SharpSlang.Reflection;
 
 namespace SharpSlang.Tests;
 
-public sealed class SlangComputeCorpusTests(Xunit.Abstractions.ITestOutputHelper output)
+public sealed class SlangComputeCorpusTests(ITestOutputHelper output)
 {
     /// <summary>What happened to one case.</summary>
     private enum Outcome { Matched, Differed, OutOfReach, Threw, Invalid }
