@@ -176,9 +176,16 @@ public sealed class ShaderPackage
         };
     }
 
-    /// <summary>Code for one entry point by name, or null.</summary>
-    public BakedEntryPoint? EntryPoint(string name) =>
-        EntryPoints.FirstOrDefault(e => string.Equals(e.Name, name, StringComparison.Ordinal));
+    /// <summary>Code for one entry point by name, or null. A loop: allocates nothing.</summary>
+    public BakedEntryPoint? EntryPoint(string name)
+    {
+        for (var i = 0; i < EntryPoints.Count; i++)
+        {
+            if (string.Equals(EntryPoints[i].Name, name, StringComparison.Ordinal)) return EntryPoints[i];
+        }
+
+        return null;
+    }
 
     /// <summary>SHA-256 of a shader source, in the same form as <see cref="SourceHash"/>.</summary>
     public static byte[] HashSource(string source) =>

@@ -1,0 +1,144 @@
+name: checks
+
+# lint and zero-alloc, the two quick checks a merge requires besides the suite, as
+# tools/check.ps1 runs them locally (AGENTS.md#lint, AGENTS.md#pipeline-baking-packages-allocation).
+#
+#   * Alone: Actions > checks > Run workflow on a branch, to iterate on a style or allocation fix
+#     for a Linux minute or two instead of the whole matrix. Never by itself: no push trigger.
+#   * Inside ci.yml, which calls this file as its "checks" job, so one manual CI run covers a branch
+#     and the job definitions exist once. ci.yml's gate has decided by then (inputs.decided), and
+#     this file's own gate is skipped.
+#
+# A job passed here counts for ci.yml: the gate matches "lint" and "zero-alloc" by name across both
+# workflows (tools/ci/ci-gate.ps1), so a branch whose checks passed alone does not pay for them again
+# in its CI run. The two never run on one head at once: each gate refuses while the other workflow
+# runs on the commit (the template's rule; AGENTS.md#actions-budget). This workflow posts no commit
+# status: "ci" is the one a merge waits for, posted by ci.yml's report job.
+on:
+  workflow_dispatch:
+    inputs:
+      lint:
+        description: 'lint: analyzers as errors, the formatter, the descs version'
+        type: boolean
+        default: true
+      zero_alloc:
+        description: 'zero-alloc: the allocation tests alone'
+        type: boolean
+        default: true
+      force:
+        description: 'Run even if this tree already passed'
+        type: boolean
+        default: false
+  workflow_call:
+    inputs:
+      decided:
+        description: "The caller's gate decided; this file's gate does not run"
+        type: boolean
+        default: false
+      lint:
+        type: string
+        default: 'run'
+      zero_alloc:
+        type: string
+        default: 'run'
+
+permissions:
+  contents: read
+
+# Not ci-<ref>: called from ci.yml, a shared group would cancel the caller.
+concurrency:
+  group: checks-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DOTNET_NOLOGO: '1'
+  DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+
+jobs:
+  gate:
+    name: gate
+    if: ${{ !inputs.decided }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5       # 9-46 s measured for ci.yml's gate (24 runs, 2026-11-07/08)
+    permissions:
+      contents: read
+      actions: read          # earlier runs and their jobs; the runs on this commit
+      pull-requests: read    # the pull requests a commit belongs to
+    outputs:
+      lint: ${{ steps.decide.outputs.lint }}
+      zero_alloc: ${{ steps.decide.outputs.zero_alloc }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Decide
+        id: decide
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GATE_WORKFLOW: checks
+          GATE_FORCE: ${{ inputs.force }}
+          GATE_LINT: ${{ inputs.lint }}
+          GATE_ZERO_ALLOC: ${{ inputs.zero_alloc }}
+        run: ./tools/ci/ci-gate.ps1
+
+  # The SDK's own analyzers as errors, the formatter's check and the descs version, exactly as
+  # tools/check.ps1 -Lint does it. No payload: the analyzers need none.
+  lint:
+    name: lint
+    needs: gate
+    if: ${{ !cancelled() && (inputs.decided && inputs.lint == 'run' || needs.gate.outputs.lint == 'run') }}
+    runs-on: ubuntu-24.04
+    # 55-83 s measured (12 runs of ci.yml's lint, 2026-11-07/08), before the descs version, which
+    # is git and two nuget.org requests.
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0     # descs-version.ps1 diffs against the commit a published version names
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '11.0.x'
+          dotnet-quality: preview
+
+      - name: Analyzers, formatting, descs version
+        shell: pwsh
+        run: ./tools/check.ps1 -Lint
+
+  # AllocationTests and AllocationCoverageTests alone, as tools/check.ps1 -ZeroAlloc runs them: the
+  # measured loops at 0 managed bytes and 0 host allocations, and every per-frame member of the
+  # reader and the NRI projection in one of them. On linux-x64, where SharpNRI ships libNRI.so for
+  # the NONE frame. The payload comes from the linux-x64 leg's cache, under the same key.
+  zero-alloc:
+    name: zero-alloc
+    needs: gate
+    if: ${{ !cancelled() && (inputs.decided && inputs.zero_alloc == 'run' || needs.gate.outputs.zero_alloc == 'run') }}
+    runs-on: ubuntu-24.04
+    # Not measured on a runner yet: setup, a cached payload and a build of the test project are
+    # about 2 minutes on the test legs (Build 40-58 s, setup 12-22 s), and the two classes 1.2 s on
+    # the workstation. A few times that.
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '11.0.x'
+          dotnet-quality: preview
+
+      - name: Slang payload
+        uses: ./.github/actions/slang-payload
+        with:
+          rid: linux-x64
+          source: release
+          token: ${{ github.token }}
+
+      - name: Zero-allocation loops
+        shell: pwsh
+        run: ./tools/check.ps1 -ZeroAlloc
+
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: zero-alloc-results
+          path: test-results/zero-alloc.trx
+          if-no-files-found: ignore

@@ -22,7 +22,7 @@ _build/
 # TRX from the filtered validation-layer run in CI (ci.yml). A build artefact, not a result.
 vulkan-results/
 
-# Packed packages. publish.yml packs into artifacts/ and tools/consume restores from there, so
+# Packed packages. A local pack into artifacts/, which tools/consume restores from, so
 # rehearsing those steps locally leaves them behind.
 artifacts/
 

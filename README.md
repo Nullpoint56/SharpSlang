@@ -185,15 +185,17 @@ shader construct that caused it.
 
 | RID | CI | Notes |
 |---|---|---|
-| `win-x64` | `windows-latest` | D3D12 on WARP, the pixel test included; DXIL and HLSL judged by dxc |
+| `win-x64` | `windows-2025-vs2026` | D3D12 on WARP, the pixel test included; DXIL and HLSL judged by dxc |
 | `linux-x64` | `ubuntu-24.04` | also runs the NRI Vulkan device tests on lavapipe, under the Khronos validation layer, the pixel test included; SPIR-V, GLSL and WGSL judged by spirv-val, glslang and naga |
 | `linux-arm64` | `ubuntu-24.04-arm` | the only leg exercising ARM64 calling conventions; its SPIR-V judged by spirv-val |
-| `osx-arm64` | `macos-15` | the only leg on a non-glibc allocator and loader; Metal judged by `xcrun metal`; on demand and before every release |
+| `osx-arm64` | `macos-15` | the only leg on a non-glibc allocator and loader; Metal judged by `xcrun metal`; on demand and weekly |
 
 Windows and both Linux legs run the full suite when CI is started by hand on a branch, which is
 the only way a branch is tested, and on master only for code that no branch run has already passed.
-The macOS leg runs when a manual run asks for it, and before every release, because a macOS minute
-costs ten times a Linux one. All four ship in the `SharpSlang` package. The NRI device tests, which
+The macOS leg runs when a manual run asks for it, and once a week on master, because a macOS minute
+costs ten times a Linux one. The `SharpSlang` package carries the first three; the macOS library is
+a zip on each GitHub release, attached when a macOS runner turns up, since nothing in a release
+waits for one. The NRI device tests, which
 are every test that builds a pipeline or dispatches a shader, run on `win-x64` and `linux-x64`;
 `linux-arm64` skips them because SharpNRI ships no library for it, and macOS by decision. The
 projection tests that need no device run everywhere. The Vulkan half needs a Khronos validation layer as new as the
@@ -212,7 +214,7 @@ the payload fetch and the binding regeneration, because Slang's ABI is not stabl
 pwsh tools/fetch-native.ps1 -Rid win-x64 -Profile Spirv   # stage the pinned Slang payload
 dotnet build SharpSlang.slnx -c Release
 dotnet test  SharpSlang.slnx -c Release
-pwsh tools/check.ps1                                     # lint: analyzers and formatting, as CI runs it
+pwsh tools/check.ps1                                     # lint and zero allocation, as CI runs them
 dotnet run --project samples/SharpSlang.Smoke -c Release  # source -> SPIR-V, end to end
 ```
 
@@ -230,7 +232,7 @@ the only check in the suite that can see a layout error, and the only one that c
 parameter list on a vtable slot nothing has ever called. They skip with instructions where no
 compiler is found; CI has one on every runner.
 
-**1187 tests** run on every leg, against oracles rather than expected values typed
+**1193 tests** run on every leg, against oracles rather than expected values typed
 by hand: the emitted SPIR-V, Slang's own alternate route to each fact, the Khronos validation
 layers and the D3D12 debug layer judging real NRI pipelines built from a **33-shader corpus**, and Slang's own test suite — 31 shaders whose expected reflection the Slang
 team wrote, compared against both `spReflection_ToJson` and this package's projection. It also

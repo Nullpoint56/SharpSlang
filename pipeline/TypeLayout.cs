@@ -313,9 +313,19 @@ public sealed record StructLayout : TypeLayout
 {
     public required IReadOnlyList<FieldLayout> Fields { get; init; }
 
-    /// <summary>Finds a field by name, or null. Ordinal comparison, as Slang is case-sensitive.</summary>
-    public FieldLayout? Field(string name) =>
-        Fields.FirstOrDefault(f => string.Equals(f.Name, name, StringComparison.Ordinal));
+    /// <summary>
+    /// Finds a field by name, or null. Ordinal comparison, as Slang is case-sensitive. A loop:
+    /// allocates nothing.
+    /// </summary>
+    public FieldLayout? Field(string name)
+    {
+        for (var i = 0; i < Fields.Count; i++)
+        {
+            if (string.Equals(Fields[i].Name, name, StringComparison.Ordinal)) return Fields[i];
+        }
+
+        return null;
+    }
 }
 
 /// <summary>An array. <see cref="ElementCount"/> is null when the length is not a fixed number.</summary>

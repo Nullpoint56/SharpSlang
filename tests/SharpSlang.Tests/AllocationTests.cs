@@ -28,8 +28,10 @@
 using System.Runtime.CompilerServices;
 using SharpNRI;
 using SharpNRI.Native;
-using SharpNRI.Testing;
+using SharpSlang.Native;
 using SharpSlang.Pipeline.NRI;
+using SharpSlang.Reflection;
+using SharpSlang.Spirv;
 
 namespace SharpSlang.Tests;
 
@@ -63,28 +65,36 @@ public class AllocationTests
         return (GC.GetAllocatedBytesForCurrentThread() - before) / (double)iterations;
     }
 
-    private static void AssertZero(string what, Action action)
+    /// <summary>
+    /// Measures one loop. Its body is a local function named Frame...: AllocationCoverageTests reads
+    /// the IL of exactly those, so every public member a game calls after load is in one of them or
+    /// named there as not per-frame. The message names the members the loop calls.
+    /// </summary>
+    private static void AssertZero(string what, Action frame)
     {
-        var bytes = BytesPerCall(action);
+        var bytes = BytesPerCall(frame);
         Assert.True(bytes == 0, $"{what} allocates {bytes:N0} bytes per call; an engine may call it per draw, and it must allocate nothing.");
+    }
+
+    /// <summary>
+    /// Keeps a value a loop read, without boxing it: the first version of these tests passed a
+    /// DescriptorRangeDesc to GC.KeepAlive(object) and reported 40 bytes the library never allocated.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static void Keep<T>(T value) => Kept<T>.Value = value;
+
+    private static class Kept<T>
+    {
+        // Internal rather than private: a value written only to be kept is the point of a sink,
+        // and IDE0052 reports a private field nothing reads.
+        internal static T? Value;
     }
 
     [NativeFact]
     public void Lookups_on_a_projection_allocate_nothing()
     {
         var layout = NriProjectionTests.Reflect(Shader, "vertexMain", "fragmentMain");
-        var nri = layout.ToNri();
-
-        AssertZero("NriPipelineProjection.Range(name)", () => nri.Range("albedo"));
-        AssertZero("NriPipelineProjection.Range(name) for a miss", () => nri.Range("nothing"));
-        AssertZero("NriPipelineProjection.Set(space)", () => nri.Set(2));
-        AssertZero("NriPipelineProjection.Stage(name)", () => nri.Stage("fragmentMain"));
-        AssertZero("ProjectedDescriptorSet.Range(name)", () => nri.DescriptorSets[0].Range("outBuffer"));
-        // Read into a typed sink rather than GC.KeepAlive(object): the first version of this
-        // test boxed the DescriptorRangeDesc struct into that parameter and reported 40 bytes the
-        // library never allocated.
-        AssertZero("indexing the projected ranges", () => Sink = nri.DescriptorSets[0].Ranges[1].Desc.descriptorNum);
-        AssertZero("reading the layout's stage mask", () => Sink = (uint)nri.Layout.ShaderStages);
+        ProjectionLookups(layout, layout.ToNri());
     }
 
     [NativeFact]
@@ -93,15 +103,163 @@ public class AllocationTests
         // The projection a game reads back from the package's NRI section (stored at bake time)
         // rather than computes: the same lookups, the same zero (AGENTS.md#pipeline-baking-packages-allocation).
         var layout = NriProjectionTests.Reflect(Shader, "vertexMain", "fragmentMain");
-        var nri = NriPackageTests.ThroughBytes(NriPackageTests.Package(layout).WithNriProjection()).ReadNriProjection()!;
+        var package = NriPackageTests.ThroughBytes(NriPackageTests.Package(layout).WithNriProjection());
+        var nri = package.ReadNriProjection()!;
+        ProjectionLookups(package.Layout, nri);
 
-        AssertZero("NriPipelineProjection.Range(name)", () => nri.Range("albedo"));
-        AssertZero("NriPipelineProjection.Range(name) for a miss", () => nri.Range("nothing"));
-        AssertZero("NriPipelineProjection.Set(space)", () => nri.Set(2));
-        AssertZero("NriPipelineProjection.Stage(name)", () => nri.Stage("fragmentMain"));
-        AssertZero("ProjectedDescriptorSet.Range(name)", () => nri.DescriptorSets[0].Range("outBuffer"));
-        AssertZero("indexing the projected ranges", () => Sink = nri.DescriptorSets[0].Ranges[1].Desc.descriptorNum);
-        AssertZero("reading the layout's stage mask", () => Sink = (uint)nri.Layout.ShaderStages);
+        void FramePackage()
+        {
+            Keep(package.Section(NriPackage.SectionName));
+            Keep(package.Section("nothing"));
+        }
+
+        Assert.NotNull(package.Section(NriPackage.SectionName));
+        AssertZero("ShaderPackage.Section, by name", FramePackage);
+    }
+
+    private static void ProjectionLookups(ProgramLayout layout, NriPipelineProjection nri)
+    {
+        var position = layout.VertexInputs()[0].Type;
+
+        void FrameLookups()
+        {
+            Keep(nri.Range("albedo"));
+            Keep(nri.Range("nothing"));
+            Keep(nri.Set(2));
+            Keep(nri.Stage("fragmentMain"));
+            Keep(nri.DescriptorSets[0].Range("outBuffer"));
+            Keep(nri.DescriptorSets[0].Ranges[1].Desc.descriptorNum);
+            Keep(nri.Layout.ShaderStages);
+        }
+
+        // The projection's static conversions, which a renderer may apply to a reflected value as
+        // it binds: pure functions of an enum or a layout.
+        void FrameConversions()
+        {
+            Keep(NriProjection.ToDescriptorType(SlangBindingType.SLANG_BINDING_TYPE_TEXTURE));
+            Keep(NriProjection.ToStage(SlangStage.SLANG_STAGE_FRAGMENT));
+            Keep(NriProjection.ToVertexFormat(position));
+        }
+
+        Assert.NotNull(nri.Range("albedo"));
+        AssertZero("the NRI projection's lookups (Range, Set, Stage, ProjectedDescriptorSet.Range) and reads", FrameLookups);
+        AssertZero("NriProjection.ToDescriptorType, ToStage, ToVertexFormat", FrameConversions);
+    }
+
+    /// <summary>
+    /// What a renderer reads off a loaded reflection snapshot while it fills a constant buffer and
+    /// dispatches: the uniform offsets and sizes, a matrix component, the parameters, entry points
+    /// and specialization constants by name, the thread-group size, and the SPIR-V header.
+    /// </summary>
+    private const string LayoutShader = """
+        struct Light { float4x4 transform; float3 color; float intensity; };
+        ConstantBuffer<Light> light;
+        RWStructuredBuffer<float4> output;
+        Texture2D<float4> shadow;
+        [vk::constant_id(3)] const int kTaps = 4;
+        [vk::constant_id(4)] const float kScale = 0.5;
+
+        [shader("compute")]
+        [numthreads(8, 4, 1)]
+        void main(uint3 id : SV_DispatchThreadID)
+        {
+            float4 v = mul(light.transform, float4(light.color * light.intensity, 1.0));
+            for (int i = 0; i < kTaps; i++) v += shadow.Load(int3(i, 0, 0)) * kScale;
+            output[id.x] = v;
+        }
+        """;
+
+    [NativeFact]
+    public void Reads_of_a_layout_loaded_from_a_package_allocate_nothing()
+    {
+        // The snapshot as a game has it: baked, written, read back.
+        var package = NriPackageTests.ThroughBytes(NriDeviceTests.Bake(LayoutShader, "main"));
+        var layout = package.Layout;
+        var entryPoint = package.EntryPoints[0];
+        var parameter = layout.Parameter("light") ?? throw new InvalidOperationException("no parameter named light");
+        var element = (parameter.Type as ContainerLayout)?.ElementType as StructLayout
+            ?? throw new InvalidOperationException($"light is a {parameter.Type.GetType().Name}, not a constant buffer of a struct");
+        var field = element.Field("transform") ?? throw new InvalidOperationException("no field named transform");
+        var matrix = (MatrixLayout)field.Type;
+        var range = layout.DescriptorSets[0].Ranges[0];
+        var constant = layout.SpecializationConstant("kTaps") ?? throw new InvalidOperationException("no specialization constant kTaps");
+        var main = layout.EntryPoint("main") ?? throw new InvalidOperationException("no entry point main");
+        var size = main.ThreadGroupSize ?? throw new InvalidOperationException("no thread-group size");
+        var function = main.Function;
+        var workgroup = entryPoint.WorkgroupSize ?? throw new InvalidOperationException("the baked entry point has no workgroup size");
+        var code = entryPoint.Code;
+        var offset = field.Offsets[0];
+        var footprint = element.Sizes[0];
+
+        void FrameLookups()
+        {
+            Keep(layout.Parameter("light"));
+            Keep(layout.Parameter("nothing"));
+            Keep(layout.EntryPoint("main"));
+            Keep(layout.SpecializationConstant("kTaps"));
+            Keep(element.Field("color"));
+            Keep(package.EntryPoint("main"));
+        }
+
+        void FrameUniforms()
+        {
+            Keep(field.UniformOffset);
+            Keep(field.IsUniformOffsetKnown);
+            Keep(element.UniformSize);
+            Keep(element.IsUniformSizeKnown);
+            Keep(matrix.ComponentOffset(2, 3));
+            Keep(offset.IsKnown);
+            Keep(footprint.IsKnown);
+        }
+
+        void FrameParameters()
+        {
+            Keep(parameter.DescriptorSet);
+            Keep(parameter.PrimaryBinding);
+            Keep(parameter.OccupiesDescriptorSlot);
+            Keep(parameter.IsSpecializationConstant);
+            Keep(parameter.InputAttachmentIndex);
+            Keep(range.IsCounter);
+            Keep(constant.ByteSize);
+            Keep(constant.IsFloatingPoint);
+            Keep(function?.IsOverloaded);
+        }
+
+        void FrameDispatch()
+        {
+            Keep(size.IsSpecialized);
+            Keep(size.Resolved);
+            Keep(main.BaseOffset(SlangParameterCategory.SLANG_PARAMETER_CATEGORY_DESCRIPTOR_TABLE_SLOT));
+            Keep(workgroup.IsSpecialized);
+            Keep(workgroup.X.IsSpecialized);
+            Keep(workgroup.Resolve());
+            Keep(SpirvModule.IsSpirv(code));
+            Keep(SpirvModule.ReadVersion(code));
+        }
+
+        Assert.Equal((8ul, 4ul, 1ul), size.Resolved);
+        Assert.Equal((8u, 4u, 1u), workgroup.Resolve());
+        Assert.True(field.IsUniformOffsetKnown);
+        Assert.NotNull(package.EntryPoint("main"));
+        AssertZero("ProgramLayout.Parameter, EntryPoint, SpecializationConstant, StructLayout.Field and ShaderPackage.EntryPoint, by name", FrameLookups);
+        AssertZero("the uniform offsets and sizes (FieldLayout, TypeLayout, MatrixLayout.ComponentOffset, CategoryOffset, CategorySize)", FrameUniforms);
+        AssertZero("ShaderParameter's computed bindings, DescriptorRange.IsCounter, SpecializationConstant's size and kind, FunctionSignature.IsOverloaded", FrameParameters);
+        AssertZero("the thread-group and workgroup sizes, EntryPointLayout.BaseOffset and the SPIR-V header reads", FrameDispatch);
+    }
+
+    [NativeFact]
+    public void Reads_of_a_declaration_tree_allocate_nothing()
+    {
+        // The declaration tree is tooling's (ProgramLayout.Declarations), but its one computed
+        // property is a plain read, so it is measured rather than excused.
+        using var global = SlangGlobalSession.Create();
+        using var session = global.CreateSession(new SessionOptions { Targets = [new TargetOptions()] });
+        using var module = session.LoadModuleFromSource("decl", "decl.slang", LayoutShader);
+        var node = module.ReflectDeclarations();
+
+        void FrameDeclarations() => Keep(node.IsSynthetic);
+
+        AssertZero("DeclarationNode.IsSynthetic", FrameDeclarations);
     }
 
     [NativeFact]
@@ -115,10 +273,6 @@ public class AllocationTests
 
         Assert.True(read > 0 && read < 64 * 1024, $"ReadNriProjection allocated {read:N0} bytes per call");
     }
-
-    // Internal rather than private: a value read only to be stored is the point of a sink, and
-    // IDE0052 reports a private field nothing reads.
-    internal static uint Sink;
 
     [NativeFact]
     public void Load_time_work_allocates_and_says_how_much()
@@ -214,26 +368,54 @@ public class AllocationTests
         Assert.Equal((1u, 2u), (projection.DescriptorSets[1].SetIndex, projection.DescriptorSets[1].RegisterSpace));
         Assert.Equal((uint)Unsafe.SizeOf<Step>(), Assert.Single(projection.RootConstants).Desc.size);
 
-        using var fixture = NriTestDevice.Create(GraphicsAPI.NONE);
-        using var frame = new ProjectedFrame(fixture.Device, projection, package.EntryPoints[0].ToNriShaderDesc());
+        // The device on NRI's own counting allocator, as SharpNRI measures its frames: every host
+        // allocation NRI makes goes through it, so the frame is held to 0 host allocations as
+        // well as 0 managed bytes. The reader and the projection make none of their own: they
+        // declare no native call (AllocationCoverageTests.The_packages_a_game_ships_declare_no_native_call).
+        var allocator = new NriCountingAllocator();
+        var messages = 0;
+        using var device = NriDevice.Create(new NriDeviceOptions
+        {
+            GraphicsApi = GraphicsAPI.NONE,
+            Allocator = allocator,
+            MessageHandler = (in NriMessage _) => Interlocked.Increment(ref messages),
+        });
 
-        // One warm-up frame, as SharpNRI's own measurement has: the JIT, static constructors and
-        // first calls allocate once, and that is not what is being measured.
-        frame.Run();
-        frame.ClearMeter();
-        var messages = fixture.Messages.Count;
+        long bytes, hostAllocations, hostReallocations;
+        using (var frame = new ProjectedFrame(device, projection, package.EntryPoints[0].ToNriShaderDesc()))
+        {
+            // One warm-up frame, as SharpNRI's own measurement has: the JIT, static constructors and
+            // first calls allocate once, and that is not what is being measured.
+            frame.Run();
+            frame.ClearMeter();
+            var messagesBefore = Volatile.Read(ref messages);
+            var (allocationsBefore, reallocationsBefore) = (allocator.Allocations, allocator.Reallocations);
 
-        var before = GC.GetAllocatedBytesForCurrentThread();
-        for (var i = 0; i < Frames; i++) frame.Run();
-        var bytes = GC.GetAllocatedBytesForCurrentThread() - before;
+            var before = GC.GetAllocatedBytesForCurrentThread();
+            for (var i = 0; i < Frames; i++) frame.Run();
+            bytes = GC.GetAllocatedBytesForCurrentThread() - before;
+            hostAllocations = allocator.Allocations - allocationsBefore;
+            hostReallocations = allocator.Reallocations - reallocationsBefore;
 
-        // 1,000 particles at the 64 threads per group the frame read off the projection.
-        Assert.Equal(16u, frame.GroupCount);
-        Assert.True(fixture.Messages.Count == messages,
-            "NRI reported messages during the measured frames. NONE should report nothing, and each "
-            + "message allocates in the fixture's handler, where it would be counted as the frame's.");
+            // 1,000 particles at the 64 threads per group the frame read off the projection.
+            Assert.Equal(16u, frame.GroupCount);
+            Assert.True(Volatile.Read(ref messages) == messagesBefore,
+                "NRI reported messages during the measured frames. NONE should report nothing, and each "
+                + "message allocates in the handler, where it would be counted as the frame's.");
+            Assert.True(bytes == 0,
+                $"{Frames} frames bound through SharpSlang.Pipeline.NRI's projection allocated {bytes:N0} managed "
+                + $"bytes, {bytes / (double)Frames:N1} per frame. An engine runs this every frame and it "
+                + $"must allocate nothing. By part of the frame, with what to suspect in each:\n"
+                + frame.Breakdown());
+        }
 
-        // Measured: 0 bytes over the 300 frames after the one warm-up frame. They take about 0.2 ms
+        // Measured: 0 host allocations and 0 reallocations over the 300 frames (workstation, NONE,
+        // SharpNRI 191.0.0-beta.4; NONE's objects are static dummies, and SharpNRI measures the
+        // same of its own frame).
+        Assert.True(hostAllocations == 0 && hostReallocations == 0,
+            $"{Frames} frames made {hostAllocations} host allocations and {hostReallocations} reallocations through NRI's allocator; a frame must make none.");
+
+        // The managed bytes, asserted above. Measured: 0 over the 300 frames after the one warm-up frame. They take about 0.2 ms
         // here and the JIT compiles nothing meanwhile, but a slower machine may tier the frame up in
         // the middle of the loop, so that was measured too: with call counting started at once
         // (DOTNET_TC_CallCountingDelayMs=0) the JIT compiled 12 methods during the 300 frames, and
@@ -252,11 +434,6 @@ public class AllocationTests
         // SharpNRI 191.0.0-beta.4 the same planted fault measures 0, so it no longer fails. A
         // foreach over DescriptorSets and each set's Ranges in
         // place of the indexed loops: 36,000 bytes, 120 per frame, three boxed List<T> enumerators.
-        Assert.True(bytes == 0,
-            $"{Frames} frames bound through SharpSlang.Pipeline.NRI's projection allocated {bytes:N0} managed "
-            + $"bytes, {bytes / (double)Frames:N1} per frame. An engine runs this every frame and it "
-            + $"must allocate nothing. By part of the frame, with what to suspect in each:\n"
-            + frame.Breakdown());
     }
 
     /// <summary>

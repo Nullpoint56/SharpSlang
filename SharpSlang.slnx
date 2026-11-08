@@ -69,10 +69,16 @@
     <File Path="tools/ci/descs-version.ps1" />
     <File Path="tools/ci/api-changes.ps1" />
     <File Path="tools/ci/release-body.ps1" />
+    <File Path="tools/ci/release-version.ps1" />
+    <File Path="tools/ci/native-symbols.ps1" />
   </Folder>
   <Folder Name="/.github/">
     <File Path=".github/workflows/ci.yml" />
-    <File Path=".github/workflows/publish.yml" />
+    <File Path=".github/workflows/checks.yml" />
+    <File Path=".github/workflows/regen.yml" />
+    <File Path=".github/workflows/coverage.yml" />
+    <File Path=".github/workflows/release.yml" />
+    <File Path=".github/actions/slang-payload/action.yml" />
   </Folder>
   <Project Path="descs/SharpSlang.Descs.csproj" />
   <Project Path="pipeline/SharpSlang.Pipeline.csproj" />

@@ -11,7 +11,7 @@
     pack paths differ between the two (SharpNRI 1.0.0-beta.4: PackagePath "lib\net11.0\" packed as
     lib/net11.0//_._ on the Linux runner, which only this check showed).
 
-    It carries publish.yml's inline checks: every RID of the core package carries the compiler, the
+    It carries the old publish workflow's inline checks: every RID of the core package carries the compiler, the
     SPIR-V optimiser (slang-glslang, which holds spirv-opt) and Slang's licence texts; the dxc
     package carries its targets, depends on Microsoft.Direct3D.DXC at exactly the pinned version,
     names that version in its targets, and carries no binary.

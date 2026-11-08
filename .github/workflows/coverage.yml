@@ -1,0 +1,50 @@
+name: coverage
+
+# Whether docs/coverage.md and docs/badges/ still describe the code. The figures are measured on the
+# workstation with a GPU (tools/coverage.ps1; AGENTS.md#coverage): hosted runners have none and skip
+# the device tests, so CI never measures. The report records the measured commit's tree entries for
+# its inputs (tools/coverage/coverage.psd1), and `coverage.ps1 -Check` fails once any differs from
+# this commit, a badge names another commit, or the measurement had uncommitted changes. Git only,
+# no build: seconds on one Linux runner.
+#
+# Red is a signal; it blocks nothing (the template's rule): this workflow posts no commit status and
+# ci.yml's report does not read it. Until the report is first committed, -Check says there are no
+# figures and passes.
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'dotnet/**'
+      - 'descs/**'
+      - 'pipeline/**'
+      - 'bake/**'
+      - 'pipeline-nri/**'
+      - 'dxc/**'
+      - 'tests/**'
+      - 'patches/**'
+      - 'NativeSplit.props'
+      - 'docs/coverage.md'
+      - 'docs/badges/**'
+      - 'tools/coverage.ps1'
+      - 'tools/coverage/coverage.psd1'
+      - '.github/workflows/coverage.yml'
+  # Other branches: by hand only, as every workflow here.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: coverage-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  fresh:
+    name: the coverage figures describe this commit
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5       # git only; ci.yml's docs job, also checkout and a script, took 4-11 s
+    steps:
+      - uses: actions/checkout@v7
+      - name: coverage.ps1 -Check
+        shell: pwsh
+        run: ./tools/coverage.ps1 -Check

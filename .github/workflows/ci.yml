@@ -24,12 +24,19 @@ name: CI
 #     same tree. For the merge of an up-to-date branch that is all of them. A merge that skipped
 #     its branch run, or that differs from it, is tested here. Documentation-only pushes start
 #     nothing, because the branch run checked them.
-#   * macOS on demand. The osx-arm64 leg is most of a run's cost. It runs when
-#     a manual run asks for it, and before every release, where
-#     publish.yml calls this workflow with it on.
+#   * macOS on demand. The osx-arm64 leg is most of a run's cost. It runs when a manual run asks
+#     for it, and once a week on master (the schedule below) when master's tree has not passed it
+#     yet: that leg alone, at most 8 billed minutes measured, $0.50. Nothing in a release waits for it.
+#   * Never two overlapping runs on one head: the gate refuses while checks.yml runs on the commit.
 #
 # tools/ci/ci-gate.ps1 makes those decisions, and its header lists them. It runs on Linux in
-# seconds, ahead of everything else, and its summary says what it decided and why.
+# seconds, ahead of everything else, and its summary says what it decided and why. The same script
+# decides checks.yml and regen.yml, which this workflow calls, so a job that passed in either counts
+# here, and the other way round.
+#
+# Jobs: gate; regen (regen.yml: generator drift, on a branch whose inputs changed); checks
+# (checks.yml: lint and zero-alloc); docs; test, one per platform; digests; report. Each timeout is
+# a few times the slowest successful run of 2026-11-07/08 (24 runs, read from the Actions API).
 #
 # The cross-platform matrix is not box-ticking: the first linux-x64 run of this project found a
 # heap-corrupting ownership bug that had been passing green on Windows since the first commit
@@ -50,6 +57,10 @@ on:
   push:
     branches: [master]
     paths-ignore: ['**.md', 'docs/**']
+  # The weekly macOS run (Monday 06:00 UTC), master only, as every schedule is: the osx-arm64 leg
+  # alone, skipped by the gate when master's tree already passed it.
+  schedule:
+    - cron: '0 6 * * 1'
   # The only way a branch is tested.
   workflow_dispatch:
     inputs:
@@ -61,17 +72,6 @@ on:
         description: 'Run every requested job even if this tree already passed it'
         type: boolean
         default: false
-  # publish.yml calls this before it packs anything, with macOS on: every RID a package ships has
-  # passed on the tree being released.
-  workflow_call:
-    inputs:
-      macos:
-        type: boolean
-        default: true
-      release:
-        type: boolean
-        default: false
-
 permissions:
   contents: read
 
@@ -85,24 +85,25 @@ jobs:
   gate:
     name: gate
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    timeout-minutes: 5       # 9-46 s measured (24 runs, 2026-11-07/08)
     permissions:
       contents: read
-      actions: read          # earlier runs of this workflow, and their jobs
+      actions: read          # earlier runs of ci, checks and regen, their jobs, the runs on this commit
       pull-requests: read    # the pull requests a commit belongs to
       statuses: write        # the pending "ci" status of a manual run
     outputs:
       legs: ${{ steps.decide.outputs.legs }}
       count: ${{ steps.decide.outputs.count }}
       digests: ${{ steps.decide.outputs.digests }}
-      bindings: ${{ steps.decide.outputs.bindings }}
+      regen: ${{ steps.decide.outputs.regen }}
       docs: ${{ steps.decide.outputs.docs }}
       lint: ${{ steps.decide.outputs.lint }}
+      zero_alloc: ${{ steps.decide.outputs.zero_alloc }}
     steps:
       # A pull request does not list a run started by hand, so a pending status linking to the run
       # shows on it at once that one started. The report job replaces it with the outcome.
       - name: Mark the ci status pending
-        if: github.event_name == 'workflow_dispatch' && github.workflow == 'CI'
+        if: github.event_name == 'workflow_dispatch'
         env:
           GH_TOKEN: ${{ github.token }}
         run: >
@@ -118,64 +119,46 @@ jobs:
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
+          GATE_WORKFLOW: ci
           GATE_BEFORE: ${{ github.event.before }}
           GATE_MACOS: ${{ inputs.macos }}
-          GATE_RELEASE: ${{ inputs.release }}
           GATE_FORCE: ${{ inputs.force }}
         run: ./tools/ci/ci-gate.ps1
 
-  # The generated bindings are current: the committed dotnet/Native/ is what the generator produces
-  # from the pinned slang.h.
-  #
-  # Vtable *reordering* is a silent ABI break: the code still compiles and calls the wrong function.
-  # Reviewing that diff is the control (AGENTS.md#generator-and-abi), so this fails if the committed bindings do not
-  # match the generator's output for the pinned header. It was its own workflow, regen.yml, and is
-  # a job here so that one manual run covers a branch. The gate runs it only when its inputs
-  # changed: the SlangVersion pin in Directory.Build.props, tools/generate-native.ps1 and the
-  # header-comment step it calls (tools/generate-native-docs.ps1, .cs), and
-  # dotnet/Native itself. A Directory.Build.props change to another pin runs it too, which is a
-  # minute spent rather than a check missed.
-  bindings:
-    name: generated bindings are current
+  # Generator drift (regen.yml), on a branch whose regen inputs differ from master's and whose tree
+  # has not passed it. A push to master starts regen.yml itself, so this skips there.
+  regen:
+    name: regen
     needs: gate
-    if: needs.gate.outputs.bindings == 'run'
-    runs-on: windows-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v7
+    if: needs.gate.outputs.regen == 'run'
+    # A called workflow's jobs get at most the caller job's permissions; without these the run
+    # failed at startup (startup_failure, run 42493835801), because the called gate reads runs and PRs.
+    permissions:
+      contents: read
+      actions: read
+      pull-requests: read
+    uses: ./.github/workflows/regen.yml
+    with:
+      decided: true
 
-      # 10.0, not the 11.0 the projects target: ClangSharpPInvokeGenerator 21.1.8.4 is a net10.0
-      # tool, and running it is all this job does. generate-native.ps1 never builds the solution,
-      # so nothing here needs the newer SDK. The image already carries a 10.0 SDK, so this takes
-      # seconds (3 s on 2026-11-07).
-      - uses: actions/setup-dotnet@v6
-        with:
-          dotnet-version: '10.0.x'
-
-      # Pinned, like the Slang release the headers come from. The generator's output is what this
-      # job compares, so its version is part of the input: unpinned, it took ClangSharp 22.1.8 on
-      # 2026-11-07, which writes NativeTypeName("slang::IBlob **") where 21.1.8.4 writes
-      # "IBlob **", and the job reported dotnet/Native out of date for a header nothing had
-      # changed. Move this together with the version tools/generate-native.ps1 says it was
-      # validated with.
-      - name: Install ClangSharp generator
-        run: dotnet tool install --global ClangSharpPInvokeGenerator --version 21.1.8.4
-
-      - name: Regenerate
-        shell: pwsh
-        run: ./tools/generate-native.ps1
-
-      - name: Fail if the committed bindings differ
-        shell: pwsh
-        run: |
-          git add --intent-to-add dotnet/Native
-          $diff = git diff --stat -- dotnet/Native
-          if ($diff) {
-            Write-Host "::error::dotnet/Native is out of date. Run tools/generate-native.ps1 and review the diff."
-            git diff -- dotnet/Native
-            exit 1
-          }
-          Write-Host "generated bindings match the pinned header"
+  # lint and zero-alloc (checks.yml, which a branch can also run alone): the analyzers, the
+  # formatter and the descs version; the allocation tests alone on linux-x64. The gate skips each
+  # for a documentation-only branch and for a tree that passed it, here or in checks.yml.
+  checks:
+    name: checks
+    needs: gate
+    if: needs.gate.outputs.lint == 'run' || needs.gate.outputs.zero_alloc == 'run'
+    # A called workflow's jobs get at most the caller job's permissions; without these the run
+    # failed at startup (startup_failure, run 42493835801), because the called gate reads runs and PRs.
+    permissions:
+      contents: read
+      actions: read
+      pull-requests: read
+    uses: ./.github/workflows/checks.yml
+    with:
+      decided: true
+      lint: ${{ needs.gate.outputs.lint }}
+      zero_alloc: ${{ needs.gate.outputs.zero_alloc }}
 
   # Links and AGENTS.md anchors. Needs the source tree, not just docs/: half the check is that every
   # AGENTS.md#<anchor> a code comment cites resolves to a real heading in AGENTS.md, so a renamed
@@ -188,33 +171,11 @@ jobs:
     needs: gate
     if: needs.gate.outputs.docs == 'run'
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    timeout-minutes: 5       # 4-11 s measured (14 runs, 2026-11-07/08)
     steps:
       - uses: actions/checkout@v7
       - name: Check documentation
         run: bash tools/ci/check-docs.sh
-
-  # The SDK's own analyzers at latest-recommended with the code-style rules in the build, as
-  # errors, and the formatter's check: tools/check.ps1, exactly as a local run does it. No payload
-  # is fetched, because the analyzers need none (the script passes SharpSlangRequireNative=false).
-  # The gate skips it for a documentation-only branch, and for a tree it already passed on.
-  lint:
-    name: lint
-    needs: gate
-    if: needs.gate.outputs.lint == 'run'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v7
-
-      - uses: actions/setup-dotnet@v6
-        with:
-          dotnet-version: '11.0.x'
-          dotnet-quality: preview
-
-      - name: Analyzers and formatting
-        shell: pwsh
-        run: ./tools/check.ps1
 
   test:
     name: test (${{ matrix.rid }})
@@ -234,7 +195,7 @@ jobs:
     # thunks Slang calls back into. "Expected to" is the phrase this project has learned to measure.
     # Slang publishes slang-<version>-linux-aarch64.zip and fetch-native.ps1 already maps it.
     #
-    # macOS, when it runs. Until that leg existed, publish.yml staged an osx-arm64 payload into
+    # macOS, when it runs. Until that leg existed, the publish workflow staged an osx-arm64 payload into
     # every package and nothing had ever loaded it — a library shipped to a platform on the
     # strength of the RID being spelled correctly. macos-15 is Apple Silicon, so the ARM64 half was
     # already answered by linux-arm64; what is new is the OS: a third allocator, a third dynamic
@@ -246,7 +207,13 @@ jobs:
     # The legs come from the gate: none when this tree already passed them, and osx-arm64 only
     # when a manual run or a release asked for it.
     if: needs.gate.outputs.legs != '[]'
-    runs-on: ${{ fromJSON('{"win-x64":"windows-latest","linux-x64":"ubuntu-24.04","linux-arm64":"ubuntu-24.04-arm","osx-arm64":"macos-15"}')[matrix.rid] }}
+    # Windows pinned to windows-2025-vs2026, the image windows-latest ran on every run measured
+    # (2026-11-07/08): the leg relies on the image's LLVM for NativeAbiTests and on its WARP for the
+    # exact D3D12 counts below. Moving it is a decision, as for Ubuntu.
+    runs-on: ${{ fromJSON('{"win-x64":"windows-2025-vs2026","linux-x64":"ubuntu-24.04","linux-arm64":"ubuntu-24.04-arm","osx-arm64":"macos-15"}')[matrix.rid] }}
+    # A few times each leg's slowest successful run of 2026-11-07/08: win-x64 521 s, linux-x64
+    # 667 s (a cold naga build and layer fetch), linux-arm64 360 s, osx-arm64 474 s.
+    timeout-minutes: ${{ fromJSON('{"win-x64":30,"linux-x64":35,"linux-arm64":20,"osx-arm64":25}')[matrix.rid] }}
     strategy:
       fail-fast: false       # a Windows-only or Linux-only failure is the interesting signal
       matrix:
@@ -261,12 +228,6 @@ jobs:
           dotnet-version: '11.0.x'
           dotnet-quality: preview
 
-      - name: Cache the Slang release
-        uses: actions/cache@v6
-        with:
-          # Keyed on the pin, so a version bump misses the cache and re-downloads by design.
-          path: obj/slang-dist
-          key: slang-${{ matrix.rid }}-${{ hashFiles('Directory.Build.props') }}
 
       # slang.h, and Slang's own tests/reflection corpus. Both are fetched from the pinned tag by
       # the tests themselves on first use — SlangHeader and SlangTestCorpus — so this only saves
@@ -287,11 +248,17 @@ jobs:
             obj/slang-tests
           key: slang-sources-${{ hashFiles('Directory.Build.props') }}
 
-      - name: Fetch native payload
-        shell: pwsh
-        env:
-          GH_TOKEN: ${{ github.token }}   # only for the API fallback route; see fetch-native.ps1
-        run: ./tools/fetch-native.ps1 -Rid ${{ matrix.rid }} -Profile Spirv
+      # The staged payload, cached under the git object ids of what makes it (the slang-payload
+      # action, tools/ci/native-payload-key.ps1), the same key on every OS and in checks.yml's
+      # zero-alloc job, and saved before the build and tests. Slang's release archive until the
+      # repository is public; then source: build (owner, 2026-11-08), which the native-from-source
+      # job below already keys.
+      - name: Slang payload
+        uses: ./.github/actions/slang-payload
+        with:
+          rid: ${{ matrix.rid }}
+          source: release
+          token: ${{ github.token }}
 
       - name: Payload carries the SPIR-V optimiser
         shell: pwsh
@@ -982,16 +949,14 @@ jobs:
   #
   # The payload is a function of its inputs, so it is built once per input set, not per run: the key
   # is the git object ids of the slang/ pointer, patches/, the build script, the props, the notices
-  # and this file (tools/ci/native-payload-key.ps1), the same on every OS. A hit restores
-  # runtimes/<rid>/ in seconds and no Slang source is fetched. A miss fetches the submodule, builds,
-  # and saves the payload right after the build, before any test runs, so a red test run still
-  # leaves the next run a cached payload. Build times are in AGENTS.md#native-build (workstation,
-  # clean trees); none is measured on a runner yet, so the timeout is several times a 4-vCPU
-  # estimate from them (Ninja edge time / 4, plus the serial LTO link and core-module steps).
+  # and the slang-payload action that runs the build (tools/ci/native-payload-key.ps1 -Source
+  # Build), the same on every OS. A hit restores runtimes/<rid>/ and its symbols in seconds and no
+  # Slang source is fetched. A miss fetches the submodule, builds, and saves the payload right after
+  # the build, before any test runs, so a red test run still leaves the next run a cached payload.
   #
-  # Switching over moves these steps into the test job in place of "Fetch native payload" (inline,
-  # so a hit costs no extra job minute), adds the key to the gate's outputs, and drops the
-  # fetch-native cache.
+  # Switching over (when the repository goes public; owner, 2026-11-08) is the test job's Slang
+  # payload step changing to source: build, inline, so a hit costs no extra job minute, and this
+  # job going. U4 is patched first (AGENTS.md#patches).
   native-from-source:
     name: native payload from source (${{ matrix.rid }})
     needs: gate
@@ -1000,7 +965,9 @@ jobs:
     # Linux the payload loads on, and 22.04 gives Slang's release floor, GLIBC_2.34 and GLIBCXX_3.4.29
     # (Directory.Build.props, LinuxGlibcFloor); a 24.04 build needs 2.38 and 3.4.32, and build-native.ps1
     # refuses it. The payload is then tested on 24.04 like the release's.
-    runs-on: ${{ fromJSON('{"win-x64":"windows-latest","linux-x64":"ubuntu-22.04","linux-arm64":"ubuntu-22.04-arm","osx-arm64":"macos-15"}')[matrix.rid] }}
+    runs-on: ${{ fromJSON('{"win-x64":"windows-2025-vs2026","linux-x64":"ubuntu-22.04","linux-arm64":"ubuntu-22.04-arm","osx-arm64":"macos-15"}')[matrix.rid] }}
+    # Not measured on a runner: several times a 4-vCPU estimate from the workstation's clean builds
+    # (AGENTS.md#native-build: Ninja edge time / 4, plus the serial LTO link and core-module steps).
     timeout-minutes: 120
     strategy:
       fail-fast: false
@@ -1009,38 +976,13 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Payload cache key
-        id: key
-        shell: pwsh
-        run: ./tools/ci/native-payload-key.ps1 | Out-File -FilePath $env:GITHUB_OUTPUT -Append
-
-      - name: Restore native payload
-        id: payload
-        uses: actions/cache/restore@v6
+      # The same action and key as the release's native builds (release.yml), so the payload a
+      # release builds is the one CI tested once CI builds from source.
+      - name: Slang payload from source
+        uses: ./.github/actions/slang-payload
         with:
-          path: runtimes/${{ matrix.rid }}
-          key: slang-native-${{ matrix.rid }}-${{ steps.key.outputs.key }}
-
-      # Slang and its own submodules (external/, about 1.4 GB checked out), only on a miss.
-      - name: Fetch the Slang submodule
-        if: steps.payload.outputs.cache-hit != 'true'
-        run: git -c submodule.fetchJobs=8 submodule update --init --recursive slang
-
-      - name: Install Ninja
-        if: steps.payload.outputs.cache-hit != 'true' && !startsWith(matrix.rid, 'win')
-        run: command -v ninja || { if [ "$RUNNER_OS" = macOS ]; then brew install ninja; else sudo apt-get install -y -qq ninja-build; fi; }
-
-      - name: Build native payload
-        if: steps.payload.outputs.cache-hit != 'true'
-        shell: pwsh
-        run: ./tools/build-native.ps1 -Rid ${{ matrix.rid }}
-
-      - name: Save native payload
-        if: steps.payload.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v6
-        with:
-          path: runtimes/${{ matrix.rid }}
-          key: slang-native-${{ matrix.rid }}-${{ steps.key.outputs.key }}
+          rid: ${{ matrix.rid }}
+          source: build
 
   # The only check here that compares the runners against each other rather than against a claim.
   #
@@ -1074,7 +1016,7 @@ jobs:
     needs: [gate, test]
     if: needs.gate.outputs.digests == 'run'
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    timeout-minutes: 5       # 5-9 s measured (11 runs, 2026-11-07/08)
     steps:
       - uses: actions/checkout@v7
 
@@ -1094,13 +1036,15 @@ jobs:
   # its pull request, and what a ruleset would require. A job the gate skipped counts as passed:
   # it was skipped because this tree already passed it, or because it cannot change a result.
   # Anything else that is not success fails the status, and so does a gate that did not succeed,
-  # whose skipped jobs prove nothing. Not for publish.yml's call, which reports through its own run.
+  # whose skipped jobs prove nothing. regen and checks are this run's too (called workflows), so a
+  # green "ci" covers the generator, lint and zero-alloc as well as the legs. Not for a push or the
+  # weekly macOS run, which report through their own run.
   report:
     name: report
-    needs: [gate, bindings, docs, lint, test, digests]
-    if: always() && github.event_name == 'workflow_dispatch' && github.workflow == 'CI'
+    needs: [gate, regen, checks, docs, test, digests]
+    if: always() && github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    timeout-minutes: 5       # 4-16 s measured (14 runs, 2026-11-07/08)
     permissions:
       statuses: write
     steps:
@@ -1113,7 +1057,7 @@ jobs:
         run: |
           $needs = $env:NEEDS | ConvertFrom-Json
           $gateOk = $needs.gate.result -eq 'success'
-          $bad = @('bindings', 'docs', 'lint', 'test', 'digests' | Where-Object { $needs.$_.result -notin 'success', 'skipped' })
+          $bad = @('regen', 'checks', 'docs', 'test', 'digests' | Where-Object { $needs.$_.result -notin 'success', 'skipped' })
           $state = if ($gateOk -and $bad.Count -eq 0) { 'success' } else { 'failure' }
           $description = if (-not $gateOk) { "gate: $($needs.gate.result)" }
                          elseif ($bad.Count) { ($bad | ForEach-Object { "$($_): $($needs.$_.result)" }) -join ', ' }

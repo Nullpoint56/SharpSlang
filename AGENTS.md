@@ -297,7 +297,7 @@ three, `IBindlessResourceMetadata::usesBindlessResourceHeap`).
 
 | Package | Native content | Notes |
 |---|---|---|
-| `SharpSlang` | `runtimes/<rid>/native/`: `slang-compiler`, `slang-glslang` (carries `spirv-opt`), nothing in a subfolder; `standard-modules/<rid>/slang-standard-module-<version>/`; win-x64, linux-x64, linux-arm64, osx-arm64 | built from `slang/` by `tools/build-native.ps1`; CI still stages Slang's own release archive with `tools/fetch-native.ps1 -Profile Spirv`, which produces the same layout. `licenses/<rid>/Slang/` (`LICENSE.txt`, `LICENSES/`, `third-party-notices/`) and `licenses/<rid>/SharpSlang/` (`LICENSE.txt`, `THIRD-PARTY-NOTICES.md`). `buildTransitive/SharpSlang.targets` puts the module folder beside the compiler and the notices beside the application (below). `NativePayloadTests` holds the staged file list and the import lists |
+| `SharpSlang` | `runtimes/<rid>/native/`: `slang-compiler`, `slang-glslang` (carries `spirv-opt`), nothing in a subfolder; `standard-modules/<rid>/slang-standard-module-<version>/`; win-x64, linux-x64, linux-arm64 in a release (osx-arm64 is a zip on the release: nothing waits for macOS, The release); a local pack carries every staged RID | built from `slang/` by `tools/build-native.ps1`; CI still stages Slang's own release archive with `tools/fetch-native.ps1 -Profile Spirv`, which produces the same layout. `licenses/<rid>/Slang/` (`LICENSE.txt`, `LICENSES/`, `third-party-notices/`) and `licenses/<rid>/SharpSlang/` (`LICENSE.txt`, `THIRD-PARTY-NOTICES.md`). `buildTransitive/SharpSlang.targets` puts the module folder beside the compiler and the notices beside the application (below). `NativePayloadTests` holds the staged file list and the import lists |
 | `SharpSlang.Descs` | none | L0 without `SlangApi.cs`, plus `SpirvVersion` (Layers): `lib/net11.0/SharpSlang.Descs.dll`, its PDB and XML docs, no dependency. `SharpSlang` and `SharpSlang.Pipeline` depend on it at `[$(SharpSlangDescsVersion)]`; `SharpSlang`'s `buildTransitive/SharpSlang.targets` fails a consumer that restores another (`SHARPSLANG005`) |
 | `SharpSlang.Dxc` | none | targets only: `buildTransitive/net11.0/SharpSlang.Dxc.targets` and `lib/net11.0/_._`; exact dependency on `Microsoft.Direct3D.DXC` `[$(DxcPackageVersion)]` (1.9.2609.5), copies `dxcompiler.dll` and `dxil.dll` into the application's output on win-x64, and fails a restore of another version (`SHARPSLANG011`, Companion libraries and dxc) |
 | `SharpSlang.Pipeline`, `.Pipeline.Bake`, `.Pipeline.NRI` | none | exact dependencies (Layers): the reader on Descs; the cooker on `SharpSlang` and the reader, so a cooker gets the compiler through `SharpSlang`; the projection on the reader and `SharpNRI.Descs` `[$(SharpNriDescsPackageVersion)]`, no `NRI` library. `SharpSlang` depends on none of them |
@@ -335,10 +335,12 @@ three, `IBindlessResourceMetadata::usesBindlessResourceHeap`).
   package; `PublishRepositoryUrl`, `EmbedUntrackedSources` in `Directory.Build.props`): each PDB maps
   the repository to `https://raw.githubusercontent.com/Nullpoint56/SharpSlang/<commit>/*` and
   `slang/` to Slang's commit, read back from the packed PDBs by `check-packages.ps1`.
-  `publish.yml` packs with `ContinuousIntegrationBuild`. **Not done yet:** the native library's
-  symbols (`SLANG_ENABLE_SPLIT_DEBUG_INFO` writes them beside the libraries, Native build) belong on
-  the GitHub release as zips checked against the staged library, which is the release workflow's
-  step.
+  `release.yml` packs with `ContinuousIntegrationBuild`. The native library's
+  symbols (`SLANG_ENABLE_SPLIT_DEBUG_INFO` writes them beside the libraries, Native build) go on the
+  GitHub release as `SharpSlang-symbols-<rid>-<tag>.zip`, checked against the staged library by
+  `tools/ci/native-symbols.ps1`: the DLL's CodeView GUID and age against the PDB's info stream
+  (run on a workstation build tree, branch `sharpslang-workflows`: both libraries match), the
+  `.gnu_debuglink` name and CRC32 on Linux, `LC_UUID` on macOS (neither run yet).
 - **Trimming and Native AOT.** `IsAotCompatible` on the five shipped projects with assemblies
   (`SharpSlang`, `.Descs`, `.Pipeline`, `.Pipeline.Bake`, `.Pipeline.NRI`), so the trim, AOT and
   single-file analyzers run in every build and `-warnaserror` makes their findings errors. The
@@ -451,7 +453,7 @@ Decided; not reopened as a side effect of other work.
 
 ```powershell
 pwsh tools/fetch-native.ps1 -Rid win-x64 -Profile Spirv   # stage the pinned Slang payload
-pwsh tools/check.ps1                                      # lint: analyzers as errors, formatter
+pwsh tools/check.ps1                                      # lint (analyzers, formatter, descs version) and zero-alloc
 dotnet build SharpSlang.slnx -c Release -warnaserror
 dotnet test  SharpSlang.slnx -c Release
 dotnet run --project samples/SharpSlang.Smoke -c Release   # the loadability gate CI runs
@@ -492,7 +494,7 @@ script file, strip CR, then run it.
 
 ### macOS
 
-Verified only on the CI `osx-arm64` leg (`macos-15`), on demand. No Vulkan loader there: the Vulkan
+Verified only on the CI `osx-arm64` leg (`macos-15`), on demand and weekly (Actions budget). No Vulkan loader there: the Vulkan
 tests skip with their reason, and the NRI device tests do not run on macOS by decision (Tests and
 skips).
 
@@ -581,7 +583,7 @@ The script fetches `slang.h`, `slang-deprecated.h` and `slang-image-format-defs.
 comments in as XML docs (`tools/generate-native-docs.ps1`, whose parser is
 `tools/generate-native-docs.cs`, compiled by its `Add-Type`) and prints the counts. Review the diff:
 a reordered `[VtblIndex]` is a silent ABI break, and `VtableOrderTests` and `NativeAbiTests` are
-the checks that see it. CI's `bindings` job regenerates and fails on any diff; it runs only when
+the checks that see it. `regen.yml` regenerates and fails on any diff; it runs only when
 `Directory.Build.props`, the two scripts, the parser or `dotnet/Native` change. Line endings are
 LF by `.gitattributes` (`eol=lf`), matching ClangSharp, so the diff is never a CRLF artefact.
 Regenerated with 21.1.8.4 at 093382b it equals the committed files byte for byte.
@@ -589,16 +591,23 @@ Regenerated with 21.1.8.4 at 093382b it equals the committed files byte for byte
 ### Lint
 
 ```powershell
-pwsh tools/check.ps1        # check
-pwsh tools/check.ps1 -Fix   # apply the formatter first, then check
+pwsh tools/check.ps1               # lint and zero-alloc, as CI's two jobs of those names run them
+pwsh tools/check.ps1 -Lint         # lint only (no payload needed)
+pwsh tools/check.ps1 -ZeroAlloc    # zero-alloc only (the payload staged)
+pwsh tools/check.ps1 -Lint -Fix    # apply the formatter first, then check
 ```
 
 The SDK's own analyzers and no analyzer package: `AnalysisLevel` `latest-recommended`,
 `EnforceCodeStyleInBuild` and `GenerateDocumentationFile` on, CS1591 off, set once in
-`Directory.Build.props` and configured in `.editorconfig`. `check.ps1` runs a Release build with
-`-warnaserror -p:SharpSlangRequireNative=false` (lint needs no payload; the property turns off the
-missing-payload warning) and `dotnet format whitespace --exclude dotnet/Native --verify-no-changes`,
-the same commands as CI's `lint` job. Descs-version and zero-alloc gates come later.
+`Directory.Build.props` and configured in `.editorconfig`. Lint is a Release build with
+`-warnaserror -p:SharpSlangRequireNative=false --no-incremental` (lint needs no payload; the
+property turns off the missing-payload warning), `dotnet format whitespace --exclude dotnet/Native
+--verify-no-changes`, and `tools/ci/descs-version.ps1` (Package tools; it asks nuget.org and needs
+the history back to the published commit, so CI checks out with `fetch-depth: 0`). Zero-alloc
+builds the test project and runs `AllocationTests` and `AllocationCoverageTests` alone through
+xunit's runner, with a TRX counted by `count-tests.ps1`: a skip fails it (Pipeline: baking,
+packages, allocation). Both commit-relative: run them on the committed tree. A planted unused
+`using` fails lint with IDE0005 (workstation, branch `sharpslang-workflows`).
 
 - **The generated layer is linted too, and was not.** ClangSharp's `[assembly: GeneratedCode]`
   (`GeneratedCode.cs`) made the SDK's analyzers treat the whole assembly that compiled it as
@@ -612,7 +621,7 @@ the same commands as CI's `lint` job. Descs-version and zero-alloc gates come la
   on the two `[Obsolete]` (CA1041), the fixed-buffer indexer as an expression body (IDE0026), and
   `using System;` removed from 33 files (IDE0005; `ImplicitUsings` makes it global). The rest are
   Slang's names and C layout, exempt below. `dotnet/Native` is excluded only from the formatter and
-  IDE0055: its layout is ClangSharp's, which the `bindings` job compares byte for byte. 0 findings
+  IDE0055: its layout is ClangSharp's, which `regen.yml` compares byte for byte. 0 findings
   in either assembly at 093382b.
 - **Exemptions**, each in `.editorconfig` with its reason: in `dotnet/Native/**` CA1707 and IDE1006
   (Slang's names), IDE0055 (ClangSharp's layout), CS0169, CS0649 and CA1051 (C structs transcribed
@@ -847,7 +856,9 @@ staged by path; its pointer moves only by `git update-index --cacheinfo 160000,<
   step** (owner, 2026-11-08). Until then the repository is private on GitHub's Free plan, which
   answers branch protection and rulesets with "Upgrade to GitHub Pro or make this repository public".
 - **CI is manual on branches; `master` reruns only untested trees; a "ci" commit status gates merges;
-  macOS on demand** (owner, 2026-11-07; Actions budget).
+  macOS on demand** (owner, 2026-11-07; Actions budget), **and weekly; nothing in a release waits
+  for it** (owner, 2026-11-08): no package carries the osx-arm64 library, which the release attaches
+  as a zip when its runner turns up.
 - **Upstream filing is the owner's trigger** (owner, 2026-11-08, from the template; the earlier rule,
   owner, 2026-08-10, was never to file without explicit say-so, because the owner could not vouch for
   AI-assisted debugging results and would not spend maintainers' time on them).
@@ -970,10 +981,10 @@ in `docs/upstream.md`.
   marshalling.
 - **The generator version is part of the input.** ClangSharp 22.1.8 writes
   `NativeTypeName("slang::IBlob **")` where 21.1.8.4 writes `"IBlob **"`, so an unpinned install
-  reported L0 out of date for an unchanged header (00a1358). The `bindings` job installs 21.1.8.4
+  reported L0 out of date for an unchanged header (00a1358). `regen.yml` installs 21.1.8.4
   on the image's .NET 10 SDK; move it together with the version the script states.
 - **Compiling is not correctness: the ABI oracle.** A wrong offset, size, bitfield packing or
-  parameter list compiles, resolves and dispatches, and the `bindings` job cannot see it (it
+  parameter list compiles, resolves and dispatches, and `regen.yml` cannot see it (it
   compares the generator with itself). `NativeAbiTests` generates a C++ probe from the C# metadata,
   compiles it against the pinned `slang.h` and compares 51 struct sizes, 116 field offsets, 2
   bitfield accessors (exact bytes written) and 510 signatures, 279 free functions and 231 vtable
@@ -1559,6 +1570,33 @@ v2026.21 on the workstation (Tests and skips has the counts).
   is the same records and arrays: its lookups allocate 0 bytes and the same NONE frame bound
   through it allocates 0 over 300 frames (branch `sharpslang-bake`, workstation); reading it is
   load-time work, asserted under 64 KB per shader.
+- **Zero allocation per frame is default-deny** (the template's rule; branch
+  `sharpslang-workflows`). Every public method and computed property of `SharpSlang.Pipeline` and
+  `SharpSlang.Pipeline.NRI` counts as per-frame unless it creates an object (`Creates`, 10) or is
+  named in `NotPerFrame` with its reason (20: writing, hashing and staleness at bake time, the
+  pipeline-interface builders that return a new collection once per pipeline, the declaration
+  iterator, the hand-written `ToString`s). `AllocationCoverageTests` reads the IL of the measured
+  loops (the `Frame...` local functions of `AllocationTests` and `ProjectedFrame.Run`) and fails
+  naming each member none of them calls, and on a name in either list that no longer exists: 38
+  members measured, every one at 0 bytes. Measured first, before the fixes: the reader's by-name
+  lookups (`ProgramLayout.Parameter`, `EntryPoint`, `SpecializationConstant`, `StructLayout.Field`,
+  `ShaderPackage.EntryPoint`) 480 bytes over the six calls of one pass, a LINQ closure and its
+  delegate each; `ShaderParameter.DescriptorSet` and `InputAttachmentIndex` 48 bytes each, a
+  `foreach` boxing the list's enumerator; `EntryPointLayout.BaseOffset` 80, a closure over the
+  category. All are indexed loops now. The LINQ calls without a capture (`PrimaryBinding`,
+  `OccupiesDescriptorSlot`, `IsSpecializationConstant`, the uniform offset and size) measured 0 on
+  a layout read back from a package, whose lists are `List<T>`. The whole NRI frame runs on a NONE
+  device created on NRI's `NriCountingAllocator`: 0 host allocations and 0 reallocations over the
+  300 frames, and the two packages declare no P/Invoke and no module reference (from metadata), so
+  the host allocations of a frame are SharpNRI's alone. Falsified: a member removed from a loop
+  fails naming it (`ProgramLayout.SpecializationConstant(String)`), a planted exclusion for a
+  member that does not exist fails naming it, and a LINQ closure planted in
+  `NriPipelineProjection.Set` fails both projection loops at 80 bytes.
+- **The binding has no per-frame API** (the owner's rule, Rules): every `SharpSlang` call is a Slang
+  call that compiles, links, reflects or hands out code, once per shader variant, and the
+  reflection objects are read once by the walker into the snapshot (Decisions); the cooker
+  (`SharpSlang.Pipeline.Bake`) runs in the asset build. A game that compiles at run time, for a hot
+  reload, still compiles once per change.
 
 ### NRI projection
 
@@ -1676,7 +1714,7 @@ Oracles, each outside the binding:
 | the stored projection is the projection | `NriPackageTests`: on every corpus shader, SPIR-V and DXIL, what a package's NRI section reads back equals a fresh `ToNri`, every public field of every desc struct; `NriDeviceTests` and `PixelTests` dispatch and render through the loaded descs on Vulkan and D3D12 |
 | the loaded parts are the built ones | `VersionGuardTests`: the native build tag and the loaded Descs' Slang release and package version against SharpSlang's metadata, and `SHARPSLANG004` / `SHARPSLANG005` from builds of temporary projects |
 | public surface | `PublicApiTests` against approved files |
-| lookups allocate nothing | `AllocationTests` |
+| per-frame calls allocate nothing | `AllocationTests` (GC counters over measured loops; NRI's counting allocator over the whole frame) and `AllocationCoverageTests` (the loops' IL against the two packages' public surface, default-deny) |
 
 Each compile target is held to its strongest outside oracle (owner, 2026-11-08; Decisions): a
 device where one runs here, a validator where the target has one, a compiler where its output is
@@ -1744,7 +1782,10 @@ CUDA device harness.
 
 ### CI runners and flakes
 
-- Runners: `windows-latest` (WARP, no Vulkan ICD), `ubuntu-24.04`, `ubuntu-24.04-arm`, `macos-15`.
+- Runners, each pinned: `windows-2025-vs2026` (WARP, no Vulkan ICD; the image `windows-latest` ran
+  on every run of 2026-11-07/08, now named so that an image move is a decision), `ubuntu-24.04`,
+  `ubuntu-24.04-arm`, `macos-15`; the source builds on `ubuntu-22.04` and `ubuntu-22.04-arm` for the
+  glibc floor (Pin and payload).
   `macos-14` was refused on 2026-11-07 ("The configuration 'macos-14-arm64-us-xl' is not
   supported") and cancelled the leg in its first second.
 - **Validation layers on linux-x64**: Ubuntu 24.04's packaged layer is 1.3.275 and LunarG's apt
@@ -1819,24 +1860,91 @@ owner's (owner, 2026-11-07):
   enforce either on a private Free repository, so the gate refuses a branch behind `master`, and "ci"
   is what a ruleset will require once the repository is public.
 - **Nothing re-runs on `master` unless the tree differs from what a branch run tested**
-  (`tools/ci/ci-gate.ps1`; a job counts as done for a tree when a `ci.yml` run of a commit with that
-  tree succeeded it). Pushes changing only Markdown or `docs/` start nothing on `master`.
-- **macOS on demand**: the `macos` input of a manual run, and every release (`publish.yml` calls
-  `ci.yml` with it on).
-- `ci.yml` jobs: `gate` (Linux, seconds; 5-minute timeout), `bindings` (Windows; only when its
-  inputs change; 15), `docs` (`check-docs.sh`; 5), `lint` (`tools/check.ps1` on ubuntu-24.04, no
-  payload; 10; decided like `docs`: skipped for a docs-only branch, a release, and a tree that
-  already passed it), `test` per leg (the Test step 20), `digests`
-  (needs every leg; the leg count is in its name because the gate reads it back; 5), `report` (5).
-  `publish.yml`: tag equals `v<Version>`, the full matrix with macOS, stage four RIDs, pack the six
-  packages, `check-packages.ps1` and `tools/consume` on them, then GitHub Packages and a GitHub release. Its jobs have no timeouts yet; its `version` job
-  reads `<Version>` as text from the csproj files, which spell it `$(SharpSlangVersion)` and
-  `$(SharpSlangPipelineVersion)` since the versions moved to `Directory.Build.props`, so on a tag it
-  would refuse every release (read, not run); and `-p:Version=<tag>` on the pack would give Descs
-  and the reader the release's version too. It is replaced by the
-  template's `release.yml` (version, native builds, pack, consume, release, nuget).
-- Caches: the Slang release archive and the header/corpus per `Directory.Build.props` hash, the
-  1.4.363 layer per version. The template's payload cache keyed on git object ids arrives with the
-  from-source build.
+  (`tools/ci/ci-gate.ps1`; a job counts as done for a tree when a run of `ci.yml`, `checks.yml` or
+  `regen.yml` of a commit with that tree succeeded it, matched by the job's own name, so `lint` in
+  `checks.yml` and `checks / lint` in `ci.yml` are one job). Pushes changing only Markdown or
+  `docs/` start nothing on `master`. Run read-only against history (branch `sharpslang-workflows`):
+  the push of f67ee8c skips the legs, docs and lint and runs zero-alloc, which no run has passed;
+  the merged `sharpslang-packaging` head is refused as one commit behind `master`.
+- **Never two overlapping runs on one head**: `ci.yml`'s gate fails while a `checks.yml` run is
+  queued or in progress on the commit, and the other way round (the template's rule).
+- **macOS on demand and weekly**: the `macos` input of a manual run, and a schedule (Monday 06:00
+  UTC) that runs the `osx-arm64` leg alone on `master`, skipped when the tree already passed it.
+  Nothing in a release waits for macOS (owner, 2026-11-08).
+- **The workflows** (the template's set). Timeouts are a few times the slowest successful run of
+  2026-11-07/08 (24 runs of `ci.yml`, read from the Actions API with the GCM token):
+
+  | Workflow | Starts on | Jobs (timeout, minutes; slowest measured) |
+  |---|---|---|
+  | `ci.yml` | `master` push (not docs-only), manual, weekly | `gate` (5; 46 s), `regen` (calls `regen.yml` on a branch whose inputs changed), `checks` (calls `checks.yml`), `docs` (5; 11 s), `test` per leg (win-x64 30; 521 s, linux-x64 35; 667 s, linux-arm64 20; 360 s, osx-arm64 25; 474 s; the Test step 20; 375 s), `native-from-source` (off; 120, unmeasured), `digests` (5; 9 s, the leg count in its name because the gate reads it back), `report` (5; 16 s) |
+  | `checks.yml` | manual; called by `ci.yml` | `gate` (5), `lint` (10; 83 s before the descs version), `zero-alloc` (10; unmeasured on a runner) |
+  | `regen.yml` | `master` push touching its inputs, manual; called by `ci.yml` | `gate` (5), `generated bindings are current` (10; 43 s) |
+  | `coverage.yml` | `master` push touching a measured input or the report, manual | `coverage.ps1 -Check` (5; git only). Red blocks nothing |
+  | `release.yml` | manual, `master` only | version, native, pack, consume, release, osx-arm64, nuget (The release, below) |
+
+- **"ci" covers the run.** The report job's status fails on any job of the run that neither passed
+  nor was skipped by the gate, `regen` and `checks` included, so a green "ci" means the generator,
+  lint, zero-alloc, docs and every requested leg passed for the tree, here or in an earlier run.
+- **The payload cache** (the template's): `.github/actions/slang-payload` stages `runtimes/<rid>/`
+  from the cache, or on a miss from Slang's release (`source: release`, what CI stages until the
+  repository is public) or from the submodule (`source: build`, the release and later CI), and
+  saves it right after, before any build or test. The key is `tools/ci/native-payload-key.ps1`:
+  the git object ids of the props, `THIRD-PARTY-NOTICES.md`, the action itself (the workflow that
+  makes the payload) and either `tools/fetch-native.ps1` or the `slang` pointer, `patches/` and
+  `tools/build-native.ps1`; the same on every OS, and the same in a test leg, the zero-alloc job and
+  the release, so a payload is made once per input set. A build also keeps its symbols in the cache
+  (`obj/native-symbols/<rid>/`). Other caches: the header and corpus per `Directory.Build.props`
+  hash, the 1.4.363 layer per version, naga per version.
+- **What a run costs**, at the measured times, billed per job rounded up: a full branch run of
+  three legs is about 26 Linux and 9 Windows minutes, $0.25 ($0.02 of it the new zero-alloc job);
+  the osx-arm64 leg 8 minutes, $0.50. The weekly run costs that when `master`'s tree changed since
+  macOS last passed, at most about $2.15 a month (18 % of $12), and a gate minute otherwise; a
+  manual macOS run costs the same again.
+
 - Never push what starts a run known to fail, and never start two overlapping runs on one head. The
   remaining allowance cannot be read with the available token (the billing endpoint answers 404).
+
+### The release
+
+Manual, from `master`, no dry run (`release.yml`; the template's procedure). Before starting: pack
+on Linux as the workflow does, run `check-packages.ps1`, reproduce `tools/consume`, and see CI green
+on `master`'s tree; the version job checks the last itself.
+
+1. **version**: `tools/ci/release-version.ps1` asks MSBuild for each packed project's `Version` and
+   requires it to equal its property in `Directory.Build.props` (`publish.yml` read the csproj
+   text, `$(SharpSlangVersion)`, and would have refused every release); refuses another branch, an
+   existing tag `v<Version>` and missing `docs/releases/v<Version>.md`; runs `descs-version.ps1`;
+   and `ci-gate.ps1 -Workflow release` fails unless the three test legs, the digests comparison of
+   three, docs, lint and zero-alloc passed for the tree (or for a first-parent commit that differs
+   only in documentation). Walked locally at af19ed3: all six projects evaluate
+   2026210.0.0-beta.1; refused on another branch and for the missing notes; with notes planted it
+   writes `version`, `tag` (`v2026210.0.0-beta.1`), `descs_version` and `pipeline_version`.
+2. **native**: win-x64 (`windows-2025-vs2026`), linux-x64 (`ubuntu-22.04`), linux-arm64
+   (`ubuntu-22.04-arm`) from source through the payload action, and the symbol zips.
+3. **pack**: the six packages on Linux with the three payloads, no `-p:Version`; a Descs or reader
+   version already on nuget.org is taken from there; `check-packages.ps1 -Rids
+   win-x64,linux-x64,linux-arm64` and `api-changes.ps1`.
+4. **consume** on win-x64, linux-x64 and linux-arm64 (`tools/consume/consume.ps1`).
+5. **release**: tag `v<Version>` on the run's commit, the GitHub release (body from
+   `release-body.ps1`), the `.nupkg` files and the symbol zips. Then **osx-arm64** builds and
+   attaches its native and symbol zips when a runner turns up; no package carries macOS.
+6. **nuget**: Trusted Publishing, after the owner approves the `nuget` environment; skipped while
+   the `NUGET_USER` repository variable is absent. Each package pushed alone with
+   `--skip-duplicate`, every refusal named at the end. `nuget_from_release = <tag>` pushes that
+   release's own `.nupkg` assets and builds nothing.
+
+- **Preconditions, the owner's last step**: the repository public, CI building the payload from
+  source (owner, 2026-11-08), and before that U4 patched test first (Patches), because Linux then
+  builds from source.
+- **The owner's setup on nuget.org and GitHub** (not done; nothing is created by this
+  repository): a Trusted Publishing policy naming repository `Nullpoint56/SharpSlang`, workflow
+  `release.yml` and environment `nuget`, with the package ids on separate lines, because the glob
+  does not match the bare id:
+
+  ```
+  SharpSlang
+  SharpSlang.*
+  ```
+
+  then a `nuget` environment requiring the owner's approval and limited to `master`, and the
+  repository variable `NUGET_USER` naming the nuget.org account.

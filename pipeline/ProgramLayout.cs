@@ -90,10 +90,12 @@ public sealed record ShaderParameter(
     {
         get
         {
-            foreach (var b in Bindings)
+            // Indexed: a foreach over the IReadOnlyList boxes its enumerator, 48 bytes a read
+            // (AllocationTests, on a layout read back from a package).
+            for (var i = 0; i < Bindings.Count; i++)
             {
-                if (b.Category == SlangParameterCategory.SLANG_PARAMETER_CATEGORY_SUBPASS)
-                    return b.Index;
+                if (Bindings[i].Category == SlangParameterCategory.SLANG_PARAMETER_CATEGORY_SUBPASS)
+                    return Bindings[i].Index;
             }
             return null;
         }
@@ -122,12 +124,13 @@ public sealed record ShaderParameter(
     {
         get
         {
-            foreach (var b in Bindings)
+            // Indexed, as InputAttachmentIndex: a foreach boxed its enumerator, 48 bytes a read.
+            for (var i = 0; i < Bindings.Count; i++)
             {
-                if (b.Category is SlangParameterCategory.SLANG_PARAMETER_CATEGORY_SUB_ELEMENT_REGISTER_SPACE
-                               or SlangParameterCategory.SLANG_PARAMETER_CATEGORY_REGISTER_SPACE)
+                if (Bindings[i].Category is SlangParameterCategory.SLANG_PARAMETER_CATEGORY_SUB_ELEMENT_REGISTER_SPACE
+                                         or SlangParameterCategory.SLANG_PARAMETER_CATEGORY_REGISTER_SPACE)
                 {
-                    return b.Index;
+                    return Bindings[i].Index;
                 }
             }
             return PrimaryBinding?.Space ?? 0;
@@ -328,9 +331,20 @@ public sealed record EntryPointLayout(
     bool HasDefaultConstantBuffer = false,
     FunctionSignature? Function = null)
 {
-    /// <summary>The entry point's base offset in one category, or 0 if it occupies none.</summary>
-    public uint BaseOffset(SlangParameterCategory category) =>
-        ParameterBase?.FirstOrDefault(b => b.Category == category).Index ?? 0;
+    /// <summary>
+    /// The entry point's base offset in one category, or 0 if it occupies none. A loop: the LINQ
+    /// form's closure over the category was 80 bytes a call (AllocationTests).
+    /// </summary>
+    public uint BaseOffset(SlangParameterCategory category)
+    {
+        if (ParameterBase is null) return 0;
+        for (var i = 0; i < ParameterBase.Count; i++)
+        {
+            if (ParameterBase[i].Category == category) return ParameterBase[i].Index;
+        }
+
+        return 0;
+    }
 }
 
 /// <summary>Compute thread-group dimensions.</summary>
@@ -811,17 +825,38 @@ public sealed record ProgramLayout
     /// </summary>
     public DeclarationNode? Declarations { get; init; }
 
-    /// <summary>Finds a top-level parameter by name, or null.</summary>
-    public ShaderParameter? Parameter(string name) =>
-        Parameters.FirstOrDefault(p => string.Equals(p.Name, name, StringComparison.Ordinal));
+    /// <summary>Finds a top-level parameter by name, or null. A loop: allocates nothing.</summary>
+    public ShaderParameter? Parameter(string name)
+    {
+        for (var i = 0; i < Parameters.Count; i++)
+        {
+            if (string.Equals(Parameters[i].Name, name, StringComparison.Ordinal)) return Parameters[i];
+        }
 
-    /// <summary>Finds an entry point by name, or null.</summary>
-    public EntryPointLayout? EntryPoint(string name) =>
-        EntryPoints.FirstOrDefault(e => string.Equals(e.Name, name, StringComparison.Ordinal));
+        return null;
+    }
 
-    /// <summary>Finds a specialization constant by name, or null.</summary>
-    public SpecializationConstant? SpecializationConstant(string name) =>
-        SpecializationConstants.FirstOrDefault(c => string.Equals(c.Name, name, StringComparison.Ordinal));
+    /// <summary>Finds an entry point by name, or null. A loop: allocates nothing.</summary>
+    public EntryPointLayout? EntryPoint(string name)
+    {
+        for (var i = 0; i < EntryPoints.Count; i++)
+        {
+            if (string.Equals(EntryPoints[i].Name, name, StringComparison.Ordinal)) return EntryPoints[i];
+        }
+
+        return null;
+    }
+
+    /// <summary>Finds a specialization constant by name, or null. A loop: allocates nothing.</summary>
+    public SpecializationConstant? SpecializationConstant(string name)
+    {
+        for (var i = 0; i < SpecializationConstants.Count; i++)
+        {
+            if (string.Equals(SpecializationConstants[i].Name, name, StringComparison.Ordinal)) return SpecializationConstants[i];
+        }
+
+        return null;
+    }
 
     /// <summary>Serializes for offline baking. Round-trips through <see cref="FromJson"/>.</summary>
     public string ToJson() => JsonSerializer.Serialize(this, ProgramLayoutJson.Default.ProgramLayout);

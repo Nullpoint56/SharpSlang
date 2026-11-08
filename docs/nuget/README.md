@@ -21,7 +21,7 @@ byte[] spirv = program.GetEntryPointCodeBytes(0, targetIndex: 0);
 
 | Package | What it is |
 |---|---|
-| `SharpSlang` | the binding and Slang's native library (Windows x64, Linux x64, Linux arm64, macOS arm64), with Slang's standard modules |
+| `SharpSlang` | the binding and Slang's native library (Windows x64, Linux x64, Linux arm64; macOS arm64 as a zip on each GitHub release), with Slang's standard modules |
 | `SharpSlang.Descs` | Slang's enums, descriptor structs and interface layouts as plain types, generated from `slang.h`; no native code |
 | `SharpSlang.Pipeline` | reads baked shader packages and their reflection snapshot; no native code, so an application that loads baked shaders carries no compiler |
 | `SharpSlang.Pipeline.Bake` | the cooker: reflects a linked program into the snapshot and bakes code and layout into a package |

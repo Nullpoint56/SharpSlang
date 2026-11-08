@@ -1,0 +1,109 @@
+name: regen
+
+# Generator drift: the committed dotnet/Native/ is what tools/generate-native.ps1 produces from the
+# pinned slang.h. A reordered [VtblIndex] is a silent ABI break that compiles and calls the wrong
+# function, and reviewing the regenerated diff is the control (AGENTS.md#generator-and-abi).
+#
+# Only its inputs can make it fail: the pin in Directory.Build.props, the generator and its
+# header-comment step, dotnet/Native itself and this file. So it runs only when one changed:
+#
+#   * master: a push touching them starts it, and its gate skips it when the tree already passed it
+#     (the merged branch's run). A Directory.Build.props change to another pin runs it too, a
+#     minute spent rather than a check missed.
+#   * a branch: by hand like everything else, or inside a manual CI run, which calls this file as
+#     its "regen" job when the branch's inputs differ from master's, so the "ci" status covers it.
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'Directory.Build.props'
+      - 'tools/generate-native.ps1'
+      - 'tools/generate-native-docs.*'
+      - 'dotnet/Native/**'
+      - '.github/workflows/regen.yml'
+  workflow_dispatch:
+    inputs:
+      force:
+        description: 'Run even if the inputs are unchanged or this tree already passed'
+        type: boolean
+        default: false
+  workflow_call:
+    inputs:
+      decided:
+        description: "The caller's gate decided; this file's gate does not run"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: regen-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gate:
+    name: gate
+    if: ${{ !inputs.decided }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5       # 9-46 s measured for ci.yml's gate (24 runs, 2026-11-07/08)
+    permissions:
+      contents: read
+      actions: read
+      pull-requests: read
+    outputs:
+      regen: ${{ steps.decide.outputs.regen }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Decide
+        id: decide
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GATE_WORKFLOW: regen
+          GATE_BEFORE: ${{ github.event.before }}
+          GATE_FORCE: ${{ inputs.force }}
+        run: ./tools/ci/ci-gate.ps1
+
+  regen:
+    name: generated bindings are current
+    needs: gate
+    if: ${{ !cancelled() && (inputs.decided || needs.gate.outputs.regen == 'run') }}
+    # Pinned: windows-latest ran windows-2025-vs2026 on every run measured (2026-11-07/08), and
+    # ClangSharp is exercised on Windows. Moving the image is a decision.
+    runs-on: windows-2025-vs2026
+    timeout-minutes: 10      # 28-43 s measured as ci.yml's bindings job (8 runs, 2026-11-07/08)
+    steps:
+      - uses: actions/checkout@v7
+
+      # 10.0, not the 11.0 the projects target: ClangSharpPInvokeGenerator 21.1.8.4 is a net10.0
+      # tool, and running it is all this job does. The image carries a 10.0 SDK (3 s, 2026-11-07).
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '10.0.x'
+
+      # Pinned, like the Slang release the headers come from. The generator's output is what this
+      # job compares, so its version is part of the input: unpinned, it took ClangSharp 22.1.8 on
+      # 2026-11-07, which writes NativeTypeName("slang::IBlob **") where 21.1.8.4 writes
+      # "IBlob **", and the job reported dotnet/Native out of date for a header nothing had
+      # changed. Move this together with the version tools/generate-native.ps1 states.
+      - name: Install ClangSharp generator
+        run: dotnet tool install --global ClangSharpPInvokeGenerator --version 21.1.8.4
+
+      - name: Regenerate
+        shell: pwsh
+        run: ./tools/generate-native.ps1
+
+      # The template's form: re-adding runs git's clean filter, so the comparison is of content and
+      # never a line-ending artefact (.gitattributes makes dotnet/Native LF, as ClangSharp writes).
+      - name: Fail on drift
+        shell: pwsh
+        run: |
+          git add -A -- dotnet/Native
+          git --no-pager diff --cached --stat -- dotnet/Native
+          git diff --cached --quiet -- dotnet/Native
+          if ($LASTEXITCODE -ne 0) {
+            git --no-pager diff --cached -- dotnet/Native | Select-Object -First 120
+            throw "dotnet/Native is out of date with the pinned slang.h. Run tools/generate-native.ps1, review the diff and commit."
+          }
+          Write-Host "generated bindings match the pinned header"
