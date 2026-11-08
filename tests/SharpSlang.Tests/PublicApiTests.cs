@@ -41,7 +41,7 @@ public class PublicApiTests(ITestOutputHelper output)
     };
 
     private static readonly string[] Packages =
-        ["SharpSlang", "SharpSlang.Descs", "SharpSlang.Pipeline", "SharpSlang.Pipeline.NRI"];
+        ["SharpSlang", "SharpSlang.Descs", "SharpSlang.Pipeline", "SharpSlang.Pipeline.Bake", "SharpSlang.Pipeline.NRI"];
 
     public static TheoryData<string> Assemblies()
     {
@@ -107,6 +107,7 @@ public class PublicApiTests(ITestOutputHelper output)
         "SharpSlang" => typeof(SlangGlobalSession).Assembly,
         "SharpSlang.Descs" => typeof(SlangHeaders).Assembly,
         "SharpSlang.Pipeline" => typeof(Reflection.ProgramLayout).Assembly,
+        "SharpSlang.Pipeline.Bake" => typeof(Reflection.ReflectionWalker).Assembly,
         "SharpSlang.Pipeline.NRI" => typeof(Pipeline.NRI.NriPipelineProjection).Assembly,
         _ => throw new ArgumentOutOfRangeException(nameof(name), name, "not a package of this repo"),
     };

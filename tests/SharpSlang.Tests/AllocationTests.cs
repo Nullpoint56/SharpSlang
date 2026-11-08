@@ -87,6 +87,35 @@ public class AllocationTests
         AssertZero("reading the layout's stage mask", () => Sink = (uint)nri.Layout.ShaderStages);
     }
 
+    [NativeFact]
+    public void Lookups_on_a_projection_loaded_from_a_package_allocate_nothing()
+    {
+        // The projection a game reads back from the package's NRI section (stored at bake time)
+        // rather than computes: the same lookups, the same zero (AGENTS.md#pipeline-baking-packages-allocation).
+        var layout = NriProjectionTests.Reflect(Shader, "vertexMain", "fragmentMain");
+        var nri = NriPackageTests.ThroughBytes(NriPackageTests.Package(layout).WithNriProjection()).ReadNriProjection()!;
+
+        AssertZero("NriPipelineProjection.Range(name)", () => nri.Range("albedo"));
+        AssertZero("NriPipelineProjection.Range(name) for a miss", () => nri.Range("nothing"));
+        AssertZero("NriPipelineProjection.Set(space)", () => nri.Set(2));
+        AssertZero("NriPipelineProjection.Stage(name)", () => nri.Stage("fragmentMain"));
+        AssertZero("ProjectedDescriptorSet.Range(name)", () => nri.DescriptorSets[0].Range("outBuffer"));
+        AssertZero("indexing the projected ranges", () => Sink = nri.DescriptorSets[0].Ranges[1].Desc.descriptorNum);
+        AssertZero("reading the layout's stage mask", () => Sink = (uint)nri.Layout.ShaderStages);
+    }
+
+    [NativeFact]
+    public void Reading_the_stored_projection_is_load_time_work_and_says_how_much()
+    {
+        // Once per shader, like ToNri; an order of magnitude, measured beside ToNri's.
+        var layout = NriProjectionTests.Reflect(Shader, "vertexMain", "fragmentMain");
+        var package = NriPackageTests.ThroughBytes(NriPackageTests.Package(layout).WithNriProjection());
+
+        var read = BytesPerCall(() => package.ReadNriProjection(), iterations: 200);
+
+        Assert.True(read > 0 && read < 64 * 1024, $"ReadNriProjection allocated {read:N0} bytes per call");
+    }
+
     // Internal rather than private: a value read only to be stored is the point of a sink, and
     // IDE0052 reports a private field nothing reads.
     internal static uint Sink;
@@ -154,6 +183,20 @@ public class AllocationTests
     [NriNoneFact]
     public void A_whole_frame_bound_through_the_nri_projection_allocates_nothing()
     {
+        var package = NriDeviceTests.Bake(FrameShader, "simulate");
+        WholeFrame(package, package.Layout.ToNri());
+    }
+
+    [NriNoneFact]
+    public void A_whole_frame_bound_through_a_projection_loaded_from_the_package_allocates_nothing()
+    {
+        // The projection stored at bake time and read back, not computed: the path a game takes.
+        var package = NriPackageTests.ThroughBytes(NriDeviceTests.Bake(FrameShader, "simulate").WithNriProjection());
+        WholeFrame(package, package.ReadNriProjection()!);
+    }
+
+    private static void WholeFrame(SharpSlang.Baking.ShaderPackage package, NriPipelineProjection projection)
+    {
         // SharpNRI measures its own frame at zero on NONE, and the test above measures the
         // projection's lookups at zero one at a time. Neither is the frame a renderer writes, in
         // which every index NRI is handed comes off the projection: sets allocated and bound by
@@ -164,9 +207,6 @@ public class AllocationTests
         // SharpSlang's, or this frame's use of them. It validates nothing either (NRI never wraps
         // NONE in its validation layer), so this says nothing about whether the stream is legal —
         // NriDeviceTests asks Vulkan and D3D12 that — only what it costs the heap.
-        var package = NriDeviceTests.Bake(FrameShader, "simulate");
-        var projection = package.Layout.ToNri();
-
         // The shape the frame is written against, pinned, so a change in how Slang places these
         // fails here rather than leaving a frame that quietly binds less.
         Assert.Equal(2, projection.DescriptorSets.Count);

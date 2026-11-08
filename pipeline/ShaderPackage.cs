@@ -17,8 +17,13 @@
 //   deps      uint32 + [ path, 32-byte hash ] * n   files this was compiled from
 //   count     uint32                       number of entry points
 //   entries   [ name, moduleEntryPointName, stage, spirvVersion, workgroup, length, bytes ] * count
+//   sections  uint32 + [ name, length, bytes ] * n     optional sections, by unique name
 //
 //   workgroup uint8 present + [ value, specId+1 ] * 3   threads per group, 0 byte if absent
+//
+// A section is what another package writes at bake time and reads back at load: the NRI projection
+// (SharpSlang.Pipeline.NRI) is the first. The reader keeps every section whole, named, without
+// knowing what is in it, so a package carries a section its reader does not understand.
 //
 // All integers little-endian. BinaryReader/Writer default to that on every platform .NET targets,
 // and the format is not intended for cross-endian transport.
@@ -70,6 +75,11 @@ public sealed record BakedEntryPoint(
     SpirvVersion SpirvVersion = SpirvVersion.Unspecified,
     SpirvWorkgroupSize? WorkgroupSize = null);
 
+/// <summary>An optional section of a package: bytes another package wrote at bake time, by name.</summary>
+/// <param name="Name">Unique within a package; the writer's own name for what it stored.</param>
+/// <param name="Data">What the writer stored. The reader keeps it whole and does not look inside.</param>
+public sealed record ShaderPackageSection(string Name, byte[] Data);
+
 /// <summary>One file a package was compiled from, and what it contained at the time.</summary>
 /// <param name="Path">The path Slang resolved, absolute for anything found through a search path.</param>
 /// <param name="Hash">SHA-256 of its contents when the package was baked.</param>
@@ -84,12 +94,15 @@ public sealed class ShaderPackage
     private const uint Magic = 0x424C5350; // "PSLB" little-endian
 
     // 2 added the module entry point name and SPIR-V version per entry point. 3 added the
-    // dependency file list. 4 added the workgroup size. Older packages cannot be upgraded in
-    // place — none of the module name, the import graph or the workgroup size is recoverable from
-    // what an earlier version stored — so ReadFrom rejects them and says rebake. Rebaking is cheap;
-    // a package that silently reports "main" for a module that says otherwise, or that claims to be
-    // current after its imports moved, is not.
-    private const uint FormatVersion = 4;
+    // dependency file list. 4 added the workgroup size. 5 added the optional sections. Older
+    // packages cannot be upgraded in place — none of the module name, the import graph or the
+    // workgroup size is recoverable from what an earlier version stored — so ReadFrom rejects them
+    // and says rebake. Rebaking is cheap; a package that silently reports "main" for a module that
+    // says otherwise, or that claims to be current after its imports moved, is not.
+    private const uint FormatVersion = 5;
+
+    /// <summary>The container format this build writes and the only one it reads.</summary>
+    public static uint ContainerFormatVersion => FormatVersion;
 
     /// <summary>The Slang build that produced this package, e.g. <c>2026.21</c>.</summary>
     public required string SlangVersion { get; init; }
@@ -116,6 +129,52 @@ public sealed class ShaderPackage
     /// module leaves every shader that imports it claiming to be current.
     /// </remarks>
     public IReadOnlyList<ShaderDependency> Dependencies { get; init; } = [];
+
+    /// <summary>
+    /// The optional sections, in the order they were added: what other packages stored at bake
+    /// time (the NRI projection is <c>SharpSlang.Pipeline.NRI</c>'s). Empty when none was added.
+    /// </summary>
+    public IReadOnlyList<ShaderPackageSection> Sections { get; init; } = [];
+
+    /// <summary>A section by name, or null. A loop over <see cref="Sections"/>: allocates nothing.</summary>
+    public ShaderPackageSection? Section(string name)
+    {
+        for (var i = 0; i < Sections.Count; i++)
+        {
+            var section = Sections[i];
+            if (string.Equals(section.Name, name, StringComparison.Ordinal)) return section;
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// This package with <paramref name="section"/> added, replacing a section of the same name.
+    /// Every other member is the same instance.
+    /// </summary>
+    public ShaderPackage WithSection(ShaderPackageSection section)
+    {
+        ArgumentNullException.ThrowIfNull(section);
+        ArgumentException.ThrowIfNullOrEmpty(section.Name, nameof(section));
+        ArgumentNullException.ThrowIfNull(section.Data, nameof(section));
+
+        var sections = new List<ShaderPackageSection>(Sections.Count + 1);
+        foreach (var existing in Sections)
+        {
+            if (!string.Equals(existing.Name, section.Name, StringComparison.Ordinal)) sections.Add(existing);
+        }
+        sections.Add(section);
+
+        return new ShaderPackage
+        {
+            SlangVersion = SlangVersion,
+            SourceHash = SourceHash,
+            Layout = Layout,
+            EntryPoints = EntryPoints,
+            Dependencies = Dependencies,
+            Sections = sections,
+        };
+    }
 
     /// <summary>Code for one entry point by name, or null.</summary>
     public BakedEntryPoint? EntryPoint(string name) =>
@@ -220,6 +279,17 @@ public sealed class ShaderPackage
             w.Write((uint)e.Code.Length);
             w.Write(e.Code);
         }
+
+        var names = new HashSet<string>(StringComparer.Ordinal);
+        w.Write((uint)Sections.Count);
+        foreach (var section in Sections)
+        {
+            if (!names.Add(section.Name))
+                throw new InvalidOperationException($"two sections are named '{section.Name}'; a name is unique within a package");
+            w.Write(section.Name);
+            w.Write((uint)section.Data.Length);
+            w.Write(section.Data);
+        }
     }
 
     // A specialization constant id is written biased by one so that 0 can mean "not specialized";
@@ -322,6 +392,18 @@ public sealed class ShaderPackage
                 name, stage, r.ReadBytes((int)length), moduleName, spirvVersion, workgroupSize));
         }
 
+        // A name and a length at the least: five bytes.
+        var sectionCount = Bounded(r, r.ReadUInt32(), perItem: 5, "sections");
+        var sections = new List<ShaderPackageSection>((int)sectionCount);
+        for (var i = 0u; i < sectionCount; i++)
+        {
+            var sectionName = r.ReadString();
+            var length = Bounded(r, r.ReadUInt32(), perItem: 1, $"bytes of section '{sectionName}'");
+            if (sections.Exists(x => string.Equals(x.Name, sectionName, StringComparison.Ordinal)))
+                throw new InvalidDataException($"shader package has two sections named '{sectionName}'");
+            sections.Add(new ShaderPackageSection(sectionName, r.ReadBytes((int)length)));
+        }
+
         return new ShaderPackage
         {
             SlangVersion = slangVersion,
@@ -329,6 +411,7 @@ public sealed class ShaderPackage
             Layout = layout,
             EntryPoints = entryPoints,
             Dependencies = dependencies,
+            Sections = sections,
         };
     }
 

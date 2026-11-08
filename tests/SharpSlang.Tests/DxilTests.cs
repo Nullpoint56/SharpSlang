@@ -211,7 +211,7 @@ public sealed class DxilTests(ITestOutputHelper output)
     [MemberData(nameof(Cases))]
     public void Every_corpus_entry_point_compiles_to_a_signed_dxil_container(string caseName)
     {
-        // Every entry point of every case, at the profile a host gets by not naming one (sm_6_5).
+        // Every entry point of every case, at sm_6_5 (NriDeviceTests.Dxil).
         // The corpus is the one in every other corpus test — mesh, task and the six ray tracing
         // stages included — so what does not compile is a property of DXIL, recorded above.
         var c = ShaderCorpus.Case(caseName);

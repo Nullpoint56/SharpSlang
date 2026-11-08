@@ -8,9 +8,11 @@ name: Publish
 # the README's "Status" line cannot disagree; manual runs have no tag and build whatever <Version>
 # says.
 #
-# Four packages, deliberately:
-#   SharpSlang               Slang-neutral. Compilation and reflection.
+# Five packages, deliberately:
+#   SharpSlang               Slang-neutral. Compilation and reflection. Names no pipeline package.
 #   SharpSlang.Pipeline      Reads baked shaders in the shipped game. No compiler, no native payload.
+#   SharpSlang.Pipeline.Bake The cooker: the reflection walk and the baker, on SharpSlang's public
+#                            API. The compiler comes with its SharpSlang dependency.
 #   SharpSlang.Pipeline.NRI  The NRI (NVIDIA Render Interface) reading of a reflection snapshot, onto
 #                            SharpNRI's descs. Opt-in.
 #   SharpSlang.Dxc           Copies Microsoft's dxc into the app's output, where SharpSlang loads it
@@ -72,7 +74,7 @@ jobs:
         env:
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
-          $projects = 'pipeline/SharpSlang.Pipeline.csproj', 'dotnet/SharpSlang.csproj',
+          $projects = 'pipeline/SharpSlang.Pipeline.csproj', 'dotnet/SharpSlang.csproj', 'bake/SharpSlang.Pipeline.Bake.csproj',
                       'pipeline-nri/SharpSlang.Pipeline.NRI.csproj', 'dxc/SharpSlang.Dxc.csproj'
           $versions = foreach ($p in $projects) {
             if ((Get-Content $p -Raw) -notmatch '<Version>([^<]+)</Version>') { throw "<Version> not found in $p" }
@@ -179,7 +181,7 @@ jobs:
           $v = "${{ steps.version.outputs.value }}"
           $extra = @()
           if ($v) { $extra += "-p:Version=$v" }
-          foreach ($proj in @('pipeline/SharpSlang.Pipeline.csproj', 'dotnet/SharpSlang.csproj', 'pipeline-nri/SharpSlang.Pipeline.NRI.csproj', 'dxc/SharpSlang.Dxc.csproj')) {
+          foreach ($proj in @('pipeline/SharpSlang.Pipeline.csproj', 'dotnet/SharpSlang.csproj', 'bake/SharpSlang.Pipeline.Bake.csproj', 'pipeline-nri/SharpSlang.Pipeline.NRI.csproj', 'dxc/SharpSlang.Dxc.csproj')) {
             dotnet pack $proj -c Release -o artifacts --no-build @extra
             if ($LASTEXITCODE -ne 0) { throw "pack failed for $proj" }
           }

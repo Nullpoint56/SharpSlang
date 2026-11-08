@@ -36,13 +36,13 @@ recalled — and the traps flagged along the way are the ones that actually bit 
 
 ## The two halves
 
-Reference `SharpSlang` in the tool that cooks shaders. Reference `SharpSlang.Pipeline` — and
-`SharpSlang.Pipeline.NRI` if you want the pipeline projection — in the game that loads them. The
-runtime half has no native dependency, so a shipped build carries no compiler.
+Reference `SharpSlang.Pipeline.Bake` in the tool that cooks shaders. Reference
+`SharpSlang.Pipeline` — and `SharpSlang.Pipeline.NRI` for the NRI pipeline descs — in the game that
+loads them. The runtime half has no native dependency, so a shipped build carries no compiler.
 
 ```xml
-<!-- asset pipeline -->
-<PackageReference Include="SharpSlang" Version="2026210.0.0-beta.1" />
+<!-- asset pipeline: the cooker brings SharpSlang, the compiler and the reader with it -->
+<PackageReference Include="SharpSlang.Pipeline.Bake" Version="2026210.0.0-beta.1" />
 <PackageReference Include="SharpSlang.Pipeline.NRI" Version="2026210.0.0-beta.1" />
 
 <!-- game -->
@@ -51,19 +51,20 @@ runtime half has no native dependency, so a shipped build carries no compiler.
 ```
 
 `ShaderPackage` — the container, its reader, and the staleness checks — is in the runtime half.
-`ShaderPackageBaker`, which is the only thing that needs a compiler, is in `SharpSlang`.
+`ShaderPackageBaker` and `program.Reflect()`, which need a compiler, are in the cooker.
 
 | Package | What it holds | Native content |
 |---|---|---|
-| `SharpSlang` | the binding: compilation, reflection, baking | `slang-compiler` and `slang-glslang` per RID |
-| `SharpSlang.Descs` | Slang's enums, descriptor structs, COM interface layouts and IIDs (`SharpSlang.Native`), generated from `slang.h` | none |
+| `SharpSlang` | the binding: compilation, and Slang's reflection objects one for one | `slang-compiler` and `slang-glslang` per RID |
+| `SharpSlang.Descs` | Slang's enums, descriptor structs, COM interface layouts and IIDs (`SharpSlang.Native`), generated from `slang.h`, and `SpirvVersion` | none |
 | `SharpSlang.Dxc` | targets that copy Microsoft's dxc into the output (DXIL) | none; depends on `Microsoft.Direct3D.DXC` |
 | `SharpSlang.Pipeline` | the reader: `ShaderPackage`, `ProgramLayout`, `SpirvModule` | none |
-| `SharpSlang.Pipeline.NRI` | the projection onto SharpNRI's descs | none; depends on `SharpNRI.Descs` |
+| `SharpSlang.Pipeline.Bake` | the cooker: `Reflect()` (the reflection snapshot), `ShaderPackageBaker`, and the snapshot conveniences (`SpecializeGeneric`, `FindFunction`, `UnusedBindings`, ...) | none; depends on `SharpSlang` and `SharpSlang.Pipeline` |
+| `SharpSlang.Pipeline.NRI` | the projection onto SharpNRI's descs, and the same descs stored in a package at bake time | none; depends on `SharpSlang.Pipeline` and `SharpNRI.Descs` |
 
-`SharpSlang` and `SharpSlang.Pipeline` depend on `SharpSlang.Descs` and come with it; reference it
-on its own to name Slang's types (a `SlangStage`, a `SlangParameterCategory`) in a library that
-neither compiles nor reads packages.
+`SharpSlang` and `SharpSlang.Pipeline` depend on `SharpSlang.Descs` and come with it, and neither
+on the other; reference Descs on its own to name Slang's types (a `SlangStage`, a
+`SlangParameterCategory`) in a library that neither compiles nor reads packages.
 
 **Versions.** Every package's major is the Slang version as `YYYYRRP`: Slang 2026.21 is
 `2026210`, 2026.18.3 would be `2026183`. A new Slang version is a new major, because Slang's ABI is
@@ -85,13 +86,13 @@ a pack in between.
 
 ```xml
 <!-- the cooker; ../SharpSlang is the checkout -->
-<ProjectReference Include="..\SharpSlang\dotnet\SharpSlang.csproj" />
+<ProjectReference Include="..\SharpSlang\bake\SharpSlang.Pipeline.Bake.csproj" />
 <ProjectReference Include="..\SharpSlang\pipeline-nri\SharpSlang.Pipeline.NRI.csproj" />
 ```
 
 **Stage the payload in the checkout.** Run `pwsh tools/fetch-native.ps1` there once per Slang pin.
-The reference to `dotnet/SharpSlang.csproj` then copies the host RID's payload flat into the
-engine's output, beside its own assemblies.
+The cooker's reference to `dotnet/SharpSlang.csproj` then copies the host RID's payload flat into
+the engine's output, beside its own assemblies.
 
 **DXIL takes the targets by hand.** A package's `build/` files do not flow through a project
 reference, so referencing `dxc/SharpSlang.Dxc.csproj` would copy no dxc. The cooker does
@@ -136,8 +137,8 @@ using var vertex  = module.FindEntryPoint("vertexMain");
 using var pixel   = module.FindEntryPoint("fragmentMain");
 using var program = session.Link(module, vertex, pixel);
 
-byte[] vertexSpirv = program.GetEntryPointCodeBytes(0);
-byte[] pixelSpirv  = program.GetEntryPointCodeBytes(1);
+byte[] vertexSpirv = program.GetEntryPointCodeBytes(0, targetIndex: 0);
+byte[] pixelSpirv  = program.GetEntryPointCodeBytes(1, targetIndex: 0);
 ```
 
 `LoadModuleFromSource(name, path, source)` compiles a string instead, for generated shaders.
@@ -162,12 +163,31 @@ fails with nothing useful to say. The Vulkan specification fixes the ceiling per
 for Vulkan 1.0, 1.3 for 1.1, 1.5 for 1.2, 1.6 from 1.3. With a version pinned, `TargetOptions.VerifyEmittedSpirv` (on by default) parses
 the emitted header and throws if Slang produced something else.
 
+**Name the target.** Every call that reads one target of a session takes its index, as Slang's
+own `getEntryPointCode` and `getTargetCode` do: index 0 is the first target in
+`SessionOptions.Targets`. Nothing picks it for you, so a session with a SPIR-V and a DXIL target
+gets the answer for the target it asks about.
+
+**Link's three steps, one at a time.** `session.Link(module, entryPoints, options)` is
+`CreateCompositeComponentType`, then `Specialize` when there are specialization arguments, then
+`Link` or `LinkWithOptions`, each available on its own when a program needs another order or wants
+to reflect the composite before linking it:
+
+```csharp
+using var composite = session.CreateCompositeComponentType(module, vertex, pixel);
+using var specialized = composite.Specialize(module.RequireType(0, "Lambert"));
+using var program = specialized.Link();
+```
+
+Link a composite once. Linked a second time, Slang hands back the first link's code and ignores the
+second link's options; compose afresh for each variant, as `session.Link` does.
+
 ## Reflecting
 
 ```csharp
 using SharpSlang.Reflection;
 
-ProgramLayout layout = program.Reflect();
+ProgramLayout layout = program.Reflect(targetIndex: 0);   // SharpSlang.Pipeline.Bake
 ```
 
 `ProgramLayout` is an **immutable managed snapshot**, not a proxy. It stays valid after the program,
@@ -190,6 +210,20 @@ foreach (var c in layout.SpecializationConstants)
 `layout.SubObjectRanges` is the one view connecting a descriptor space back to the parameter that
 owns it — a `ParameterBlock` takes a space of its own and nothing else in the reflection says whose
 it is. Empty for a shader whose parameters are all bound directly.
+
+**Slang's own reflection, one for one.** `Reflect()` is built on the binding's reflection objects,
+which are public: `program.GetLayout(targetIndex)` is Slang's `ShaderReflection` as `SlangShaderReflection`,
+and from it `SlangTypeLayout`, `SlangVariableLayout`, `SlangEntryPointReflection`, `SlangFunction`
+and the rest, one member per `spReflection*` function under Slang's own names. They borrow from the
+program: read one after the program is disposed and it throws `ObjectDisposedException`. Reach
+for them for a question the snapshot does not answer; `NativeHandle` on each is the pointer the raw
+`spReflection*` functions take.
+
+```csharp
+var scope = program.GetLayout(0).GlobalParamsTypeLayout!;
+for (long b = 0; b < scope.BindingRangeCount; b++)
+    Console.WriteLine($"{scope.GetBindingRangeLeafVariable(b)?.Name}: {scope.GetBindingRangeType(b)}");
+```
 
 ## Filling a uniform buffer
 
@@ -241,6 +275,27 @@ using var pipelineLayout = device.CreatePipelineLayout(nri.Layout);
 `DescriptorRangeDesc` per binding, one `RootConstantDesc` per push-constant block, and
 `ShaderStages` set to every stage the program has. `SharpSlang.Pipeline.NRI` references `SharpNRI.Descs`
 only — the descs as plain types, no `NRI.dll` — so this runs wherever `SharpSlang.Pipeline` does.
+
+**Project at bake time.** The cooker can store the projection in the package, and the game reads
+the descs back instead of projecting:
+
+```csharp
+// In the cooker, after baking:
+ShaderPackageBaker.Bake(program, module, targetIndex: 0)
+    .WithNriProjection(new NriProjectionOptions { UnboundedArrayCap = 1024 })
+    .WriteToFile("cooked/standard_surface.pslb");
+
+// In the game:
+var package = ShaderPackage.ReadFromFile("cooked/standard_surface.pslb");
+NriPipelineProjection nri = package.ReadNriProjection()   // null when the cooker stored none
+    ?? package.Layout.ToNri(options);
+```
+
+What is stored is the projection's result, so the options are the cooker's and the game needs
+none. Reading it once per shader builds the same descs `ToNri` would, and every lookup on the result
+afterwards allocates nothing. A package projected against another `SharpNRI.Descs` (another
+`NriHeaders.Version`) is refused with `InvalidDataException` saying to rebake: NRI's values are
+stored as that version numbers them.
 
 What NRI's API is indexed by, and the desc cannot carry, is on the projection beside it:
 
@@ -326,9 +381,13 @@ The same shader, cooked twice: one session per target, one baked package per tar
 ```csharp
 using var dxil = global.CreateSession(new SessionOptions
 {
-    Targets = [new TargetOptions { Format = SlangCompileTarget.SLANG_DXIL }],   // sm_6_5 by default
+    Targets = [new TargetOptions { Format = SlangCompileTarget.SLANG_DXIL, Profile = "sm_6_5" }],
 });
 ```
+
+**Name the shader model.** SharpSlang sets no DXIL profile of its own, so without `Profile` Slang
+picks one, and for a compute shader it picks 6.0. `sm_6_5` is the first with mesh shaders and
+inline ray tracing.
 
 **dxc has to be there.** Slang emits DXIL by handing HLSL to dxc, and ships none. Reference
 `SharpSlang.Dxc`, which stages `dxcompiler.dll` and `dxil.dll` in the application's output
@@ -413,30 +472,30 @@ In the asset pipeline:
 ```csharp
 using SharpSlang.Baking;
 
-ShaderPackage package = ShaderPackageBaker.Bake(program, module);   // module, for its imports
+ShaderPackage package = ShaderPackageBaker.Bake(program, module, targetIndex: 0);   // module, for its imports
 package.WriteToFile("cooked/standard_surface.pslb");
 ```
+
+`ShaderPackageBaker` is in `SharpSlang.Pipeline.Bake`; `WithNriProjection`, if the engine renders
+through NRI, stores the projection beside the code (see [Projecting to NRI](#projecting-to-nri)).
 
 In the game, with no compiler present:
 
 ```csharp
 var package = ShaderPackage.ReadFromFile("cooked/standard_surface.pslb");
+var nri = package.ReadNriProjection()!;
 
 foreach (var e in package.EntryPoints)
 {
-    var stage = new VkPipelineShaderStageCreateInfo
-    {
-        stage  = (VkShaderStageFlags)VulkanProjection.ToStage(e.Stage),
-        module = CreateShaderModule(e.Code),
-        pName  = e.ModuleEntryPointName,    // NOT e.Name — see below
-    };
+    NriShaderDesc shader = e.ToNriShaderDesc();   // stage, bytes, e.ModuleEntryPointName — NOT e.Name
 }
 ```
 
 **`Name` and `ModuleEntryPointName` are different things.** `Name` is the Slang function, for
 looking a shader up. `ModuleEntryPointName` is what the entry point is called *inside the SPIR-V*,
-which is what `pName` needs — and Slang names every per-entry-point module `main` by default,
-whatever the function was called. It is read from the module, never derived.
+which is what `VkPipelineShaderStageCreateInfo::pName` needs — and Slang names every
+per-entry-point module `main` by default, whatever the function was called. It is read from the
+module, never derived.
 
 Staleness, for a build system:
 
@@ -452,10 +511,16 @@ file leaves a bake claiming to be current after a shared lighting module changed
 a shader running the version before last. Content hashes, not timestamps, so a checkout does not
 rebuild the project.
 
-`ReadFrom` has exactly one failure mode — `InvalidDataException` — whatever is wrong with the bytes.
-`Bake` reads its own layout back before returning, and throws `InvalidOperationException` if the
-package could not be loaded again. That is a defect in SharpSlang to report, not an error in the
-shader.
+`ReadFrom` has exactly one failure mode — `InvalidDataException` — whatever is wrong with the bytes,
+including a package of an older format, which says to rebake. `Bake` reads its own layout back
+before returning, and throws `InvalidOperationException` if the package could not be loaded again;
+`WithNriProjection` does the same with the projection it stores. That is a defect in SharpSlang to
+report, not an error in the shader.
+
+**Sections.** A package carries named sections other packages wrote at bake time (the NRI
+projection is one: `NriPackage.SectionName`), and keeps each whole whether or not its reader knows
+what is inside: `package.WithSection(new ShaderPackageSection(name, bytes))`,
+`package.Section(name)`.
 
 ## Serving shaders from your own filesystem
 
@@ -477,7 +542,8 @@ using var session = global.CreateSession(new SessionOptions
 Returning null is a miss, and Slang continues searching. Throwing is safe — the callback boundary
 catches everything and turns it into a failure code, because an exception unwinding into native
 code is undefined behaviour. Dispose the filesystem *after* the session: Slang holds the pointer for
-the session's lifetime.
+the session's lifetime, and `Dispose` refuses with `InvalidOperationException` while a session
+created with it is alive (`LiveSessions`).
 
 For tests and generated shaders there is `InMemoryFileProvider`, which needs no implementation:
 
@@ -517,8 +583,8 @@ which is what a material system needs to check a candidate against a hook.
 foreach (var d in module.ReflectDeclarations().Descendants(DeclarationKind.Func))
     Console.WriteLine(d.Function);      // vector<float,3> shade(Surface s, out float occlusion)
 
-var fn = program.FindFunction("shade");                 // by name, across the linked program
-var m  = program.FindFunction(surfaceType, "tinted");   // a method on a type
+var fn = program.FindFunction(0, "shade");              // by name, across the linked program
+var m  = program.FindFunction(0, surfaceType, "tinted");// a method on a type
 ```
 
 Two things to know before matching on strings:
@@ -532,7 +598,7 @@ Two things to know before matching on strings:
 To pick between overloads, hand Slang the call's argument types:
 
 ```csharp
-var chosen = program.ResolveOverload("blend", program.FindType("Lambert")!, floatType);
+var chosen = program.ResolveOverload(0, "blend", program.FindType(0, "Lambert")!, floatType);
 ```
 
 Types and their tags come off the same objects: `SlangType.Fields` lists a struct's members
@@ -561,9 +627,9 @@ using var program = session.Link(module, [vertex, fragment], new LinkOptions
 the module never named:
 
 ```csharp
-var material = module.RequireType("IMaterial");           // FindType returns null instead
-using var lambert  = session.CreateTypeConformance(module.RequireType("Lambert"),  material, 0);
-using var emissive = session.CreateTypeConformance(module.RequireType("Emissive"), material, 1);
+var material = module.RequireType(0, "IMaterial");        // FindType returns null instead
+using var lambert  = session.CreateTypeConformance(module.RequireType(0, "Lambert"),  material, 0);
+using var emissive = session.CreateTypeConformance(module.RequireType(0, "Emissive"), material, 1);
 ```
 
 The trailing id is the value written into the shader's dynamic-dispatch table, so a host selecting
@@ -597,12 +663,12 @@ session per configuration.
 which is what a material system needs after it picks an implementation.
 
 ```csharp
-var specialized = program.SpecializeGeneric("Wrapper", GenericArgument.OfType(lambert));
+var specialized = program.SpecializeGeneric(0, "Wrapper", GenericArgument.OfType(lambert));
 // specialized.Name       -> "Wrapper<Lambert>"
 // specialized.Arguments  -> [T = Lambert]
 // specialized.Layout     -> field offsets, sizes, strides — a snapshot, so it outlives the program
 
-var cascades = program.SpecializeGeneric("Cascades", GenericArgument.OfInt(4));   // Cascades<4>
+var cascades = program.SpecializeGeneric(0, "Cascades", GenericArgument.OfInt(4));   // Cascades<4>
 ```
 
 Value generics are only reachable this way: `LinkOptions.SpecializationArguments` specializes the
@@ -621,13 +687,18 @@ Reflection reports the shader's interface, which includes parameters the emitted
 `IMetadata` is the only thing that knows the difference, and the answer differs per stage.
 
 ```csharp
-using var metadata = program.GetEntryPointMetadata(entryPointIndex);
-foreach (var b in metadata.UnusedBindings(layout))
+using var metadata = program.GetEntryPointMetadata(entryPointIndex, targetIndex);
+foreach (var b in metadata.UnusedBindings(layout))      // SharpSlang.Pipeline.Bake
     log.Info($"{b.Category} set {b.Space} binding {b.Index} is declared but never read");
 ```
 
 A binding reported unused still has to appear in the descriptor set layout — the SPIR-V declares it
 either way. What you save is the descriptor write and the resource behind it.
+
+`metadata.TryBindlessResourceMetadata?.UsesBindlessResourceHeap` says whether the generated code
+still reads a bindless heap after the target's lowering; `ProgramLayout.BindlessSpaceIndex` is the
+space the front end reserved for one, which it reports whether or not the code uses it.
+`program.TryComponentType2` gives an entry point's code and its metadata as one compile result.
 
 ## Caching parsed modules
 
@@ -690,23 +761,36 @@ the miss; it never answers or throws, so a handler your application registers st
 
 ## Lifetime
 
-Dispose everything, in any order:
+Dispose everything, children before the objects they came from; `using` declarations in creation
+order do exactly that:
 
 ```csharp
 using var global  = SlangGlobalSession.Create();
 using var session = global.CreateSession(options);
 using var module  = session.LoadModule("surface");
+using var entry   = module.FindEntryPoint("fragmentMain");
+using var program = session.Link(module, entry);
 ```
 
-- **Disposal order does not matter.** Each wrapper takes a native reference on the object above it,
-  so disposing a session while a module from it is still alive is safe. Slang does not guarantee
-  this on its own — `ISession` retains `IGlobalSession`, but `IModule` does *not* retain `ISession`
-  — and the difference was invisible on Windows and Linux until a macOS runner faulted on it.
+- **A parent refuses `Dispose` while a child lives.** Disposing a session while a module or program
+  from it is alive throws `InvalidOperationException` naming how many, and the session stays alive
+  and usable. `LiveChildren` says how many there are. The children are the sessions of a global
+  session, the modules and programs of a session, the entry points of a module, and the code
+  blobs, metadata and compile results of a program. Each wrapper also holds a native reference on
+  everything above it, because Slang does not on its own (`IModule` does *not* retain `ISession`),
+  so no order can destroy an object under a live one.
+- **Reflection objects borrow.** A `SlangTypeLayout` or any other reflection object from
+  `GetLayout(targetIndex)` throws `ObjectDisposedException` once its program is disposed; there is nothing to
+  dispose on it.
 - **Double dispose is a no-op**, including concurrently.
 - **Use after dispose throws** `ObjectDisposedException` rather than dereferencing.
-- **Forgetting to dispose leaks** until process exit — it does not corrupt. There is deliberately no
-  finalizer: the GC finalizes in arbitrary order, and Slang's objects form an ownership hierarchy it
-  knows nothing about, so a finalizer could release a module into a session whose allocator has gone.
+- **Forgetting to dispose leaks** until process exit — it does not corrupt. A forgotten child keeps
+  its parent from disposing, which leaks both. There is deliberately no finalizer: the GC finalizes
+  in arbitrary order, and Slang's objects form an ownership hierarchy it knows nothing about, so a
+  finalizer could release a module into a session whose allocator has gone.
+- **The native pointer** of every wrapper is `NativeHandle`, for calling a vtable method of the
+  generated structs in `SharpSlang.Native` that the binding has no managed form for. Last resort:
+  the binding sees none of those calls.
 - A `ProgramLayout` outlives all of it. That is the point of a snapshot.
 
 ## Threads
@@ -779,7 +863,7 @@ lock (gate)                                     // front end: one at a time
 
 Parallel.ForEach(programs, p =>                 // back end: parallel
 {
-    using var code = p.GetTargetCode();
+    using var code = p.GetTargetCode(0);
     Write(code.ToArray());
 });
 ```
@@ -808,7 +892,8 @@ pay once. Measured on a two-stage shader with five descriptors: reading a packag
 
 **After load, nothing.** Every property and indexer on a projection, and every lookup on it —
 `Range(name)`, `Set(space)` and `Stage(name)` — allocates zero
-bytes per call, and `AllocationTests` measures that with `GC.GetAllocatedBytesForCurrentThread` so
+bytes per call, whether the projection was computed with `ToNri` or read back from the package with
+`ReadNriProjection`, and `AllocationTests` measures that with `GC.GetAllocatedBytesForCurrentThread` so
 it stays zero. Cache the results anyway: a lookup by name is still a string comparison per range,
 and what a renderer wants per draw is the set index and the range index, which are plain integers
 on the projected records.
@@ -858,6 +943,9 @@ The section column says where the guide covers it.
 | `IsBinaryModuleUpToDate` says current after the source changed | It answers from the asking session's file cache. Ask from a session that has not loaded the module. | [Caching parsed modules](#caching-parsed-modules) |
 | A link option has no effect | `linkWithOptions` accepts every option and ignores most; only `Optimization` and `FloatingPointMode` take effect there. | [Linking with options](#linking-with-options) |
 | A function found by name appears to take no parameters | It is overloaded: `FindFunction` returns one function with `IsOverloaded` set and an empty signature. Check `IsOverloaded` before `Parameters`. | [Reading a shader's functions](#reading-a-shaders-functions) |
+| `InvalidOperationException` from `Dispose` | Something created from the object is still alive: a module of a session, an entry point of a module, a code blob of a program, a session still using a `SlangFileSystem`. Dispose it first; `using` declarations in creation order do it. | [Lifetime](#lifetime) |
+| A DXIL build compiles for an older shader model than expected, or a mesh or ray-tracing stage fails for DXIL | No `Profile` named: SharpSlang sets none, and Slang picks (6.0 for a compute shader). Name `sm_6_5`. | [Targeting D3D12](#targeting-d3d12) |
+| `ReadNriProjection` says to rebake | The package was projected against another `SharpNRI.Descs`, whose values the section stores. Rebake with this one. | [Projecting to NRI](#projecting-to-nri) |
 | `SlangVersionMismatchException` after a version bump | The previous release is still staged in `runtimes/` (git-ignored). Fetch the pinned payload again. | [The payload has to be the pinned one](#the-payload-has-to-be-the-pinned-one) |
 | `SlangVersionMismatchException` naming `SharpSlang.Descs`, or build error `SHARPSLANG005` | A direct `SharpSlang.Descs` reference at another version than `SharpSlang` depends on; NuGet only warns (NU1608). Drop the reference or match the version. | [The two halves](#the-two-halves) |
 | The same shader cooked on x64 and on ARM64 hashes differently | x64 and ARM64 emit byte-identical SPIR-V within an architecture and differ on shaders using `SV_VertexID`: Slang creates the two builtins it lowers to in the opposite order, so the modules are equivalent and never compare equal. Windows and Linux agree exactly. Cook on one architecture, or content-address per architecture. | [Baking and loading](#baking-and-loading) |

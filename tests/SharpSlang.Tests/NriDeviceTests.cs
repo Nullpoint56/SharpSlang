@@ -1048,17 +1048,76 @@ public sealed class NriDeviceTests(ITestOutputHelper output)
         // content is the one message recorded here.
     }
 
+    // ---------------------------------------------------------------- 6. the projection stored at bake time
+
+    [NriVulkanFact]
+    public void A_dispatch_bound_through_the_projection_stored_in_the_package_reaches_the_shader_on_vulkan()
+    {
+        // The engine projects at bake time (owner, 2026-11-08): the cooker stores the projection
+        // in the package and the game builds its pipeline from what it reads back, never calling
+        // ToNri. Root constants and a descriptor, so both channels come off the loaded descs.
+        const int Count = 64;
+        const uint Value = 0xC0FFEE00u;
+
+        var package = NriPackageTests.ThroughBytes(Bake(PushConstantShader, "main").WithNriProjection(Capped));
+        var loaded = package.ReadNriProjection()
+            ?? throw new InvalidOperationException("the package carries no stored projection");
+
+        // The same descs a fresh projection gives, field by field (NriPackageTests holds the corpus).
+        NriPackageTests.AssertSameProjection(package.Layout.ToNri(Capped), loaded);
+
+        var block = Assert.Single(loaded.RootConstants);
+        var (set, range) = loaded.Range("outBuf")
+            ?? throw new InvalidOperationException("the stored projection has no range named outBuf");
+        var value = Value;
+
+        using var fixture = NriTestDevice.Create(GraphicsAPI.VK);
+        var words = DispatchOnce<uint>(fixture.Device, loaded, package.EntryPoints[0].ToNriShaderDesc(), set, range, Count, sizeof(uint),
+            record: cmd => cmd.SetRootConstants(block.Index, in value, 0, BindPoint.COMPUTE));
+
+        for (var i = 0; i < Count; i++) Assert.Equal(Value + (uint)i, words[i]);
+        RequireNoErrors(fixture);
+    }
+
+    [NriD3D12Fact]
+    public void A_dispatch_bound_through_the_projection_stored_in_the_package_reaches_the_shader_on_d3d12()
+    {
+        // The DXIL half: the block promoted to root constants by name at bake time, stored with
+        // the options it was projected with, and read back as root constants at b0.
+        const int Count = 64;
+        const uint Value = 0xC0FFEE00u;
+        var options = Capped with { RootConstantParameters = ["pc"] };
+
+        var package = NriPackageTests.ThroughBytes(Bake(PushConstantShader, "main", Dxil).WithNriProjection(options));
+        var loaded = package.ReadNriProjection()
+            ?? throw new InvalidOperationException("the package carries no stored projection");
+
+        NriPackageTests.AssertSameProjection(package.Layout.ToNri(options), loaded);
+
+        var block = Assert.Single(loaded.RootConstants);
+        Assert.Equal("pc", block.Name);
+        var (set, range) = loaded.Range("outBuf")
+            ?? throw new InvalidOperationException("the stored projection has no range named outBuf");
+        var value = Value;
+
+        using var fixture = NriTestDevice.Create(GraphicsAPI.D3D12);
+        var words = DispatchOnce<uint>(fixture.Device, loaded, package.EntryPoints[0].ToNriShaderDesc(), set, range, Count, sizeof(uint),
+            record: cmd => cmd.SetRootConstants(block.Index, in value, 0, BindPoint.COMPUTE));
+
+        for (var i = 0; i < Count; i++) Assert.Equal(Value + (uint)i, words[i]);
+        RequireNoErrors(fixture);
+    }
+
     // ---------------------------------------------------------------- compiling
 
     internal sealed record Compiled(ProgramLayout Layout, byte[][] Code);
 
-    /// <summary>The DXIL target every D3D12 test compiles for: the binding's default profile.</summary>
+    /// <summary>The DXIL target every D3D12 test compiles for: shader model 6.5.</summary>
     /// <remarks>
-    /// No profile named, on purpose, so the tests run against what TargetOptions falls back to
-    /// (<c>sm_6_5</c>) — the profile a host that did not think about it gets, which is the one most
-    /// worth knowing works.
+    /// Named, because the binding sets no DXIL profile of its own (AGENTS.md#dxil): <c>sm_6_5</c>
+    /// is the first model with mesh shaders and inline ray tracing, which the corpus declares.
     /// </remarks>
-    internal static TargetOptions Dxil => new() { Format = SharpSlang.Native.SlangCompileTarget.SLANG_DXIL };
+    internal static TargetOptions Dxil => new() { Format = SharpSlang.Native.SlangCompileTarget.SLANG_DXIL, Profile = "sm_6_5" };
 
     /// <summary>Compiles, links and reflects for one target, keeping each entry point's code.</summary>
     internal static Compiled Compile(
@@ -1072,10 +1131,10 @@ public sealed class NriDeviceTests(ITestOutputHelper output)
         try
         {
             using var program = session.Link(module, [.. entryPoints]);
-            var layout = program.Reflect();
+            var layout = program.Reflect(0);
 
             var code = new byte[entryPoints.Count][];
-            for (var i = 0; i < code.Length; i++) code[i] = program.GetEntryPointCodeBytes(i);
+            for (var i = 0; i < code.Length; i++) code[i] = program.GetEntryPointCodeBytes(i, 0);
 
             return new Compiled(layout, code);
         }
@@ -1094,6 +1153,6 @@ public sealed class NriDeviceTests(ITestOutputHelper output)
 
         using var entryPoint = module.FindEntryPoint(entryPointName);
         using var program = session.Link(module, entryPoint);
-        return ShaderPackageBaker.Bake(program, source);
+        return ShaderPackageBaker.Bake(program, source, 0);
     }
 }

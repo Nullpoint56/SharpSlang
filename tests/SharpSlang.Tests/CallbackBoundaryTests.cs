@@ -84,7 +84,7 @@ public unsafe class CallbackBoundaryTests
         using var ep = module.FindEntryPoint("fragmentMain");
         using var program = session.Link(module, ep);
 
-        Assert.True(Spirv.SpirvModule.IsSpirv(program.GetEntryPointCodeBytes(0)));
+        Assert.True(Spirv.SpirvModule.IsSpirv(program.GetEntryPointCodeBytes(0, 0)));
     }
 
     [NativeFact]
@@ -102,7 +102,7 @@ public unsafe class CallbackBoundaryTests
         using var ep = module.FindEntryPoint("fragmentMain");
         using var program = session.Link(module, ep);
 
-        Assert.True(Spirv.SpirvModule.IsSpirv(program.GetEntryPointCodeBytes(0)));
+        Assert.True(Spirv.SpirvModule.IsSpirv(program.GetEntryPointCodeBytes(0, 0)));
     }
 
     // ---------------------------------------------------------------- the vtable, called directly

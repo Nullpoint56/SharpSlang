@@ -78,8 +78,9 @@
                 'licenses/{rid}/Slang/LICENSES/Apache-2.0.txt'
             )
             Forbidden = @('^runtimes/[^/]+/(?!native/)')
-            Dependencies = @{ 'SharpSlang.Descs' = '[{DescsVersion}]'; 'SharpSlang.Pipeline' = '[{PipelineVersion}]' }
-            Props = @{ 'buildTransitive/SharpSlang.props' = @{ SharpSlangPackedVersion = '{Version}'; SharpSlangDescsDependency = '{DescsVersion}'; SharpSlangPipelineDependency = '{PipelineVersion}' } }
+            # The binding names no pipeline package (AGENTS.md#layers)
+            Dependencies = @{ 'SharpSlang.Descs' = '[{DescsVersion}]' }
+            Props = @{ 'buildTransitive/SharpSlang.props' = @{ SharpSlangPackedVersion = '{Version}'; SharpSlangDescsDependency = '{DescsVersion}' } }
             # SHARPSLANG005: the restored Descs held to the one SharpSlang depends on
             Contains = @{ 'buildTransitive/SharpSlang.targets' = @('SHARPSLANG005') }
             Description = 'Native'
@@ -125,12 +126,12 @@
             Assemblies = $true
         }
         @{
-            # Not split out yet: no project, so nothing is checked until one is named here.
-            Id = 'SharpSlang.Pipeline.Bake'; Project = $null; Version = 'Version'
+            # The cooker: the reflection walk and the baker, on the binding's public API. The
+            # compiler comes with its SharpSlang dependency, not inside it.
+            Id = 'SharpSlang.Pipeline.Bake'; Project = 'bake/SharpSlang.Pipeline.Bake.csproj'; Version = 'Version'
             Files = @('lib/net11.0/SharpSlang.Pipeline.Bake.dll', 'lib/net11.0/SharpSlang.Pipeline.Bake.xml', 'lib/net11.0/SharpSlang.Pipeline.Bake.pdb', 'README.md')
-            Forbidden = @('^runtimes/', '^licenses/')
+            Forbidden = @('^runtimes/', '^licenses/', 'slang-compiler')
             Dependencies = @{ 'SharpSlang' = '[{Version}]'; 'SharpSlang.Pipeline' = '[{PipelineVersion}]' }
-            Optional = $true
             Assemblies = $true
         }
     )
@@ -140,7 +141,7 @@
     # `publish -r` and Native AOT; reader and dxc are the optional packages alone.
     Consume = @{
         Runs = @{
-            core   = @{ Packages = @('SharpSlang', 'SharpSlang.Dxc'); Optional = @('SharpSlang.Pipeline.Bake')
+            core   = @{ Packages = @('SharpSlang', 'SharpSlang.Dxc', 'SharpSlang.Pipeline.Bake')
                         Usings = @('SharpSlang', 'SharpSlang.Native', 'SharpSlang.Baking'); Defines = @('CONSUME_CORE', 'CONSUME_BAKE') }
             reader = @{ Packages = @('SharpSlang.Pipeline'); Usings = @('SharpSlang.Baking'); Defines = @('CONSUME_READER') }
             dxc    = @{ Packages = @('SharpSlang.Dxc'); Usings = @(); Defines = @('CONSUME_DXC') }

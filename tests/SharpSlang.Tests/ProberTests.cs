@@ -377,7 +377,7 @@ public class ProberTests(ITestOutputHelper output)
     }
 
     [NativeFact]
-    public void Releasing_the_hierarchy_outermost_first_survives()
+    public void Releasing_the_hierarchy_outermost_first_is_refused_and_the_teardown_survives()
     {
         // AGENTS.md#ownership-and-lifetime (U13), and the reason it is here rather than only in LifetimeTests: the in-process
         // version of this teardown has now killed the macOS test host three times, and each run
@@ -402,8 +402,19 @@ public class ProberTests(ITestOutputHelper output)
 
         Assert.True(outcome.ExitCode == 0,
             "releasing the hierarchy outermost-first ended the prober. The last 'releasing X ...' "
-            + "line with no matching 'ok' is the release that did it, and SlangObject's owner "
-            + $"reference is what is supposed to make that release safe.\n{outcome}");
+            + "line with no matching 'ok' or 'refused' is the release that did it.\n{outcome}");
+
+        // The outermost-first order is refused, three times, and the hierarchy stays whole for the
+        // innermost-first teardown after it (AGENTS.md#ownership-and-lifetime).
+        foreach (var refused in new[] { "global", "session", "module" })
+        {
+            Assert.Contains($"releasing {refused} refused:", outcome.Stdout, StringComparison.Ordinal);
+        }
+
+        foreach (var released in new[] { "program", "entry", "module", "session", "global" })
+        {
+            Assert.Contains($"releasing {released} ok", outcome.Stdout, StringComparison.Ordinal);
+        }
     }
 
     [NativeFact]

@@ -27,8 +27,10 @@
     <IsPackable>false</IsPackable>
   </PropertyGroup>
 
+  <!-- The cooker too: the healthy question and others reflect through the walker. -->
   <ItemGroup>
     <ProjectReference Include="..\..\dotnet\SharpSlang.csproj" />
+    <ProjectReference Include="..\..\bake\SharpSlang.Pipeline.Bake.csproj" />
   </ItemGroup>
 
   <!--

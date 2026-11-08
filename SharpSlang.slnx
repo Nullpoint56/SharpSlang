@@ -83,6 +83,7 @@
   <Project Path="descs/SharpSlang.Descs.csproj" />
   <Project Path="pipeline/SharpSlang.Pipeline.csproj" />
   <Project Path="dotnet/SharpSlang.csproj" />
+  <Project Path="bake/SharpSlang.Pipeline.Bake.csproj" />
   <Project Path="pipeline-nri/SharpSlang.Pipeline.NRI.csproj" />
   <Project Path="dxc/SharpSlang.Dxc.csproj" />
   <Project Path="tests/SharpSlang.Tests/SharpSlang.Tests.csproj" />

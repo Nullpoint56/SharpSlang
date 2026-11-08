@@ -24,12 +24,14 @@ changes until then.
 
 ## What you get
 
-Four packages. Which ones you want depends on where the code runs and what it talks to.
+Five packages. Which ones you want depends on where the code runs and what it talks to.
 
-### `SharpSlang` — compile, in your asset pipeline
+### `SharpSlang` and `SharpSlang.Pipeline.Bake` — compile and cook, in your asset pipeline
 
-The compiler and the whole reflection surface. Carries the native Slang payload, so this is the one
-you keep out of a shipped game.
+`SharpSlang` is the binding: the compiler, and Slang's reflection API one class per object. It
+carries the native Slang payload, so it is the one you keep out of a shipped game, and it names no
+pipeline package. `SharpSlang.Pipeline.Bake` is the cooker on top of its public API: the
+reflection snapshot (`Reflect()`) and the baker. Reference the cooker; the binding comes with it.
 
 ```csharp
 using var global  = SlangGlobalSession.Create();
@@ -39,8 +41,8 @@ using var vertex  = module.FindEntryPoint("vertexMain");
 using var pixel   = module.FindEntryPoint("fragmentMain");
 using var program = session.Link(module, vertex, pixel);
 
-var spirv  = program.GetEntryPointCodeBytes(0);
-var layout = program.Reflect();     // descriptor sets, push constants, vertex inputs, byte layouts
+var spirv  = program.GetEntryPointCodeBytes(0, targetIndex: 0);
+var layout = program.Reflect(targetIndex: 0);     // descriptor sets, push constants, vertex inputs, byte layouts
 ```
 
 You also get specialization constants, generics and type conformances, the declaration tree, the
@@ -49,7 +51,8 @@ your own filesystem (an engine VFS or a pack file), and a bake step that writes 
 layout into one file with content hashes over the whole import graph:
 
 ```csharp
-ShaderPackage package = ShaderPackageBaker.Bake(program, module);
+ShaderPackage package = ShaderPackageBaker.Bake(program, module, targetIndex: 0)
+    .WithNriProjection(new NriProjectionOptions { UnboundedArrayCap = 1024 });   // optional: NRI descs too
 package.WriteToFile("cooked/standard_surface.pslb");
 
 if (!package.IsCurrent(SlangGlobalSession.BuildTag))    // for the build system, next time round
@@ -86,7 +89,8 @@ descriptor structs and enums as plain types — and nothing with a native librar
 can project on a machine with no driver and a game carries no `NRI.dll` it did not ask for.
 
 ```csharp
-NriPipelineProjection nri = layout.ToNri(new NriProjectionOptions { UnboundedArrayCap = 1024 });
+NriPipelineProjection nri = package.ReadNriProjection()               // stored at bake time,
+    ?? layout.ToNri(new NriProjectionOptions { UnboundedArrayCap = 1024 });  // or projected now
 
 using var pipelineLayout = device.CreatePipelineLayout(nri.Layout);   // a SharpNRI NriDevice
 
@@ -103,6 +107,11 @@ index of a `[vk::push_constant]` block, vertex attributes with their locations a
 fragment outputs. Register spaces, `ARRAY` flags, stage masks and the fragment-only rule for input
 attachments follow NRI's own Vulkan backend, and `NriDeviceTests` builds every corpus shader into
 real NRI pipeline layouts and pipelines on a validated device to check that they do.
+
+The engine projects at bake time: the cooker stores the projection in the package
+(`WithNriProjection`) and the game reads the descs back (`ReadNriProjection`) without projecting;
+`NriPackageTests` holds what is read back to a fresh projection, field by field, on every corpus
+shader for both targets.
 
 Measured against both NRI backends: Vulkan from SPIR-V and D3D12 from DXIL. NRI has no
 specialization constants, so a shader that uses them is specialized at link time; NRI's `Format`
@@ -121,7 +130,7 @@ pipeline that targets D3D12 and nothing else:
 ```csharp
 using var session = global.CreateSession(new SessionOptions
 {
-    Targets = [new TargetOptions { Format = SlangCompileTarget.SLANG_DXIL }],   // sm_6_5 unless told otherwise
+    Targets = [new TargetOptions { Format = SlangCompileTarget.SLANG_DXIL, Profile = "sm_6_5" }],   // name the shader model
 });
 ```
 
@@ -138,7 +147,7 @@ need:
 dotnet nuget add source https://nuget.pkg.github.com/Nullpoint56/index.json \
     --name sharpslang --username <you> --password <a PAT with read:packages>
 
-dotnet add package SharpSlang            # asset pipeline
+dotnet add package SharpSlang.Pipeline.Bake   # asset pipeline (brings SharpSlang and the compiler)
 dotnet add package SharpSlang.Pipeline    # shipped game
 dotnet add package SharpSlang.Pipeline.NRI        # renderer, talking NRI through SharpNRI
 dotnet add package SharpSlang.Dxc # asset pipeline, only if it emits DXIL for D3D12
@@ -150,9 +159,9 @@ dotnet add package SharpSlang.Descs      # a library that only names Slang's typ
 `SharpNRI`, which a renderer references itself: a release that depends on that same
 `SharpNRI.Descs`, or NuGet warns NU1608 and the two disagree about NRI's vocabulary.
 
-The usual shape of an integration is: cook offline with `SharpSlang`, bake a `.pslb` per shader,
-ship those, and at run time read them with `SharpSlang.Pipeline` and project with
-`SharpSlang.Pipeline.NRI`. **[docs/guide.md](docs/guide.md)** walks through each
+The usual shape of an integration is: cook offline with `SharpSlang.Pipeline.Bake`, bake a `.pslb`
+per shader with its NRI projection stored, ship those, and at run time read them with
+`SharpSlang.Pipeline` and the descs with `SharpSlang.Pipeline.NRI`. **[docs/guide.md](docs/guide.md)** walks through each
 step, plus lifetime, threading, diagnostics, and the traps worth knowing before you meet them.
 
 ## What it does not decide for you
@@ -217,7 +226,7 @@ the only check in the suite that can see a layout error, and the only one that c
 parameter list on a vtable slot nothing has ever called. They skip with instructions where no
 compiler is found; CI has one on every runner.
 
-**1075 tests** run on every leg, against oracles rather than expected values typed
+**1181 tests** run on every leg, against oracles rather than expected values typed
 by hand: the emitted SPIR-V, Slang's own alternate route to each fact, the Khronos validation
 layers and the D3D12 debug layer judging real NRI pipelines built from a **33-shader corpus**, and Slang's own test suite — 31 shaders whose expected reflection the Slang
 team wrote, compared against both `spReflection_ToJson` and this package's projection. It also

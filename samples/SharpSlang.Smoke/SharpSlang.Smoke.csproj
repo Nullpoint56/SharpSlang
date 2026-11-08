@@ -15,8 +15,10 @@
     <IsPackable>false</IsPackable>
   </PropertyGroup>
 
+  <!-- The cooker for the reflection snapshot and the SPIR-V reader, a cooker's references. -->
   <ItemGroup>
     <ProjectReference Include="..\..\dotnet\SharpSlang.csproj" />
+    <ProjectReference Include="..\..\bake\SharpSlang.Pipeline.Bake.csproj" />
   </ItemGroup>
 
 </Project>

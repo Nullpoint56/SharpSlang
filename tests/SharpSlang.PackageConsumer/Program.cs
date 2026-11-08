@@ -34,7 +34,7 @@ try
 
     Console.WriteLine($"spir-v {spirv.Length} bytes, with spirv-opt required");
 
-    var dxil = Compile(global, new TargetOptions { Format = SlangCompileTarget.SLANG_DXIL }, "csMain", """
+    var dxil = Compile(global, new TargetOptions { Format = SlangCompileTarget.SLANG_DXIL, Profile = "sm_6_5" }, "csMain", """
         RWStructuredBuffer<float> output;
 
         [shader("compute")]
@@ -66,5 +66,5 @@ static byte[] Compile(SlangGlobalSession global, TargetOptions target, string en
     using var module = session.LoadModuleFromSource(entryPoint, $"{entryPoint}.slang", source);
     using var entry = module.FindEntryPoint(entryPoint);
     using var program = session.Link(module, entry);
-    return program.GetEntryPointCodeBytes(0);
+    return program.GetEntryPointCodeBytes(0, 0);
 }

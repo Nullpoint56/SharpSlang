@@ -56,7 +56,7 @@ public class NriProjectionTests
         try
         {
             using var program = session.Link(module, eps);
-            return program.Reflect();
+            return program.Reflect(0);
         }
         finally
         {

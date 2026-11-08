@@ -23,7 +23,7 @@ public class TargetEnvironmentTests
         using var module = session.LoadModuleFromSource("t", "t.slang", Trivial);
         using var ep = module.FindEntryPoint("fragmentMain");
         using var program = session.Link(module, ep);
-        return program.GetEntryPointCodeBytes(0);
+        return program.GetEntryPointCodeBytes(0, 0);
     }
 
     [NativeTheory]
@@ -151,7 +151,7 @@ public class TargetEnvironmentTests
         using var ep = module.FindEntryPoint("fragmentMain");
         using var program = session.Link(module, ep);
 
-        using var code = program.GetEntryPointCode(0);
+        using var code = program.GetEntryPointCode(0, 0);
         Assert.Contains("fragmentMain", code.AsText());
     }
 
@@ -171,7 +171,7 @@ public class TargetEnvironmentTests
         using var ep = module.FindEntryPoint("fragmentMain");
         using var program = session.Link(module, ep);
 
-        var package = Baking.ShaderPackageBaker.Bake(program, Trivial);
+        var package = Baking.ShaderPackageBaker.Bake(program, Trivial, 0);
         var baked = Assert.Single(package.EntryPoints);
 
         Assert.Equal(SpirvVersion.V1_6, baked.SpirvVersion);

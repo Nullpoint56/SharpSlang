@@ -23,7 +23,6 @@ using SharpNRI.Native;
 using SharpNRI.Testing;
 using SharpSlang.Native;
 using SharpSlang.Pipeline.NRI;
-using SharpSlang.Reflection;
 
 namespace SharpSlang.Tests;
 
@@ -38,7 +37,6 @@ public sealed class SlangComputeCorpusTests(ITestOutputHelper output)
 
     private static Result Run(SlangTestCorpus.ComputeCase test, NriTestDevice fixture)
     {
-        var entryPoints = new List<SlangEntryPoint>();
         var before = fixture.Messages.Count;
 
         try
@@ -63,18 +61,20 @@ public sealed class SlangComputeCorpusTests(ITestOutputHelper output)
             // Every case in this corpus names its entry point computeMain and none passes -entry;
             // `-compute` is what tells slang-test the stage. Only four of them carry a
             // [shader("compute")] attribute, so the stage has to be supplied.
-            entryPoints.Add(module.FindEntryPoint("computeMain", SlangStage.SLANG_STAGE_COMPUTE));
+            // Disposed before the module by the using order: a module refuses Dispose while an
+            // entry point from it lives (AGENTS.md#ownership-and-lifetime).
+            using var entryPoint = module.FindEntryPoint("computeMain", SlangStage.SLANG_STAGE_COMPUTE);
 
-            using var program = session.Link(module, [.. entryPoints]);
-            var projection = program.Reflect().ToNri();
-            var spirv = program.GetEntryPointCodeBytes(0);
+            using var program = session.Link(module, entryPoint);
+            var projection = program.Reflect(0).ToNri();
+            var spirv = program.GetEntryPointCodeBytes(0, 0);
 
             var device = fixture.Device;
             using var layout = device.CreatePipelineLayout(projection.Layout);
             using var pipeline = device.CreateComputePipeline(new NriComputePipelineDesc
             {
                 PipelineLayout = layout,
-                Shader = new NriShaderDesc(StageBits.COMPUTE_SHADER, spirv, program.GetSpirvEntryPoint(0).Name),
+                Shader = new NriShaderDesc(StageBits.COMPUTE_SHADER, spirv, program.GetSpirvEntryPoint(0, 0).Name),
             });
 
             var result = Execute(test, projection, layout, pipeline, device);
@@ -105,10 +105,6 @@ public sealed class SlangComputeCorpusTests(ITestOutputHelper output)
         catch (Exception e)
         {
             return new Result(test.Source, Outcome.Threw, $"{e.GetType().Name}: {Oneline(e.Message)}");
-        }
-        finally
-        {
-            foreach (var e in entryPoints) e.Dispose();
         }
     }
 

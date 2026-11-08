@@ -764,3 +764,15 @@ int(3)>' for input declaration in a kernel function".
 declares more than eight read_write textures, and Apple's compiler refuses it with "number of
 textures with read_write access exceeds maximum supported (8)". That is Metal's limit, not Slang's
 output.
+
+## U30 — A component type linked a second time ignores the second link's options
+
+**Observed.** `IComponentType::linkWithOptions` called twice on one composite (from
+`ISession::createCompositeComponentType`) returns, the second time, a program whose code is the
+first link's: `SLANG_OPTIMIZATION_LEVEL_NONE` first and `MAXIMAL` second both emit the same
+1,572-byte SPIR-V, where a fresh composite linked at `MAXIMAL` emits 1,188 bytes. No diagnostic.
+
+**Expected.** Each link applies its own options, or the second call is refused.
+
+**Measurement.** v2026.21, Windows (the workstation), `CompositeTests.Linking_with_options_one_call_at_a_time_emits_what_Link_emits`,
+which asserts the wrong answer so a fix fails it. Filed: no.

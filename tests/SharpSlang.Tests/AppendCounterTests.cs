@@ -27,7 +27,7 @@ public class AppendCounterTests(ITestOutputHelper output)
         using var module = session.LoadModuleFromSource("ab", "ab.slang", shaderCase.Source);
         using var entry = module.FindEntryPoint("abCompute");
         using var program = session.Link(module, entry);
-        return program.Reflect();
+        return program.Reflect(0);
     }
 
     [NativeFact]
@@ -133,12 +133,12 @@ public class AppendCounterTests(ITestOutputHelper output)
         using var entry = module.FindEntryPoint("ncCompute");
         using var program = session.Link(module, entry);
 
-        var layout = program.Reflect();
+        var layout = program.Reflect(0);
         Assert.All(layout.DescriptorSets.SelectMany(s => s.Ranges), r => Assert.Null(r.CounterBinding));
     }
 
     [NativeFact]
-    public unsafe void Slangs_own_counter_offset_agrees_with_the_projected_binding()
+    public void Slangs_own_counter_offset_agrees_with_the_projected_binding()
     {
         // getExplicitCounterBindingRangeOffset is the binding-range route to the same fact the
         // projection reaches through the counter's variable layout. Two answers, one counter.
@@ -150,18 +150,17 @@ public class AppendCounterTests(ITestOutputHelper output)
         using var entry = module.FindEntryPoint("abCompute");
         using var program = session.Link(module, entry);
 
-        var shader = (Native.SlangProgramLayout*)program.GetLayout(0);
-        var scope = Native.SlangApi.spReflection_getGlobalParamsTypeLayout(shader);
+        var scope = program.GetLayout(0).GlobalParamsTypeLayout!;
 
-        var count = Native.SlangApi.spReflectionTypeLayout_getBindingRangeCount(scope);
-        var projected = program.Reflect().DescriptorSets.SelectMany(s => s.Ranges).ToList();
+        var count = scope.BindingRangeCount;
+        var projected = program.Reflect(0).DescriptorSets.SelectMany(s => s.Ranges).ToList();
 
         for (long b = 0; b < count; b++)
         {
-            var leaf = Native.SlangApi.spReflectionTypeLayout_getBindingRangeLeafTypeLayout(scope, b);
+            var leaf = scope.GetBindingRangeLeafTypeLayout(b);
             if (leaf is null) continue;
 
-            var offset = Native.SlangApi.spReflectionTypeLayout_getExplicitCounterBindingRangeOffset(leaf);
+            var offset = leaf.ExplicitCounterBindingRangeOffset;
             var range = projected.SingleOrDefault(r => r.IndexOffset == (uint)b);
             if (range is null) continue;
 

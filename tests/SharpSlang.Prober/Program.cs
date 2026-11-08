@@ -18,7 +18,6 @@ using System.Runtime.InteropServices;
 using SharpSlang;
 using SharpSlang.Interop;
 using SharpSlang.Native;
-using SharpSlang.Reflection;
 
 if (args.Length != 1)
 {
@@ -204,7 +203,7 @@ internal static class Cases
         {
             using var session = global.CreateSession(new SessionOptions
             {
-                Targets = [new TargetOptions { Format = SlangCompileTarget.SLANG_DXIL }],
+                Targets = [new TargetOptions { Format = SlangCompileTarget.SLANG_DXIL, Profile = "sm_6_5" }],
             });
             using var module = session.LoadModuleFromSource("dc", "dc.slang", """
                 RWStructuredBuffer<float> dcOutput;
@@ -215,7 +214,7 @@ internal static class Cases
                 """);
             using var entry = module.FindEntryPoint("dcMain");
             using var program = session.Link(module, entry);
-            var code = program.GetEntryPointCodeBytes(0);
+            var code = program.GetEntryPointCodeBytes(0, 0);
 
             // A DXBC container: the magic, then a 16-byte digest that is zeros when unsigned.
             var container = code.Length > 20 && code.AsSpan(0, 4).SequenceEqual("DXBC"u8);
@@ -273,7 +272,7 @@ internal static class Cases
             {
                 CompilerOptions = new LinkTimeOptions { Optimization = level },
             });
-            return program.GetEntryPointCodeBytes(0);
+            return program.GetEntryPointCodeBytes(0, 0);
         }
     }
 
@@ -390,7 +389,7 @@ internal static class Cases
         using var vertex = module.FindEntryPoint("tVertex");
         using var fragment = module.FindEntryPoint("tFragment");
         using var program = session.Link(module, vertex, fragment);
-        using var code = program.GetTargetCode();
+        using var code = program.GetTargetCode(0);
         return code.ToArray();
     }
 
@@ -483,7 +482,7 @@ internal static class Cases
 
             var results = RunOnThreads(Threads, index =>
             {
-                using var code = programs[index].GetTargetCode();
+                using var code = programs[index].GetTargetCode(0);
                 return code.ToArray();
             });
 
@@ -669,9 +668,13 @@ internal static class Cases
     /// </summary>
     /// <remarks>
     /// Deliberately not a test. The thing being measured is whether a release ends the process, and
-    /// an in-process assertion cannot survive to report it — the whole macOS investigation has cost
-    /// three CI runs whose only output was the name of a test. Here the last line on stdout is the
+    /// an in-process assertion cannot survive to report it. Here the last line on stdout is the
     /// answer, and it arrives whether the process exits or dies.
+    ///
+    /// Outermost first is refused now: a parent refuses Dispose while a child lives
+    /// (AGENTS.md#ownership-and-lifetime), so each of the first four releases prints "refused" and
+    /// leaves the hierarchy whole, and the teardown that follows is the only order the binding
+    /// allows, innermost first, with the global session's count printed before each release.
     /// </remarks>
     private static unsafe void DisposeOutermostFirst()
     {
@@ -697,21 +700,34 @@ internal static class Cases
         Release("global", global);
         Release("session", session);
         Release("module", module);
-        Release("entry", entry);
+
         Release("program", program);
+        Release("entry", entry);
+        Release("module", module);
+        Release("session", session);
+        Release("global", global);
 
         void Release(string what, SlangObject o)
         {
-            // The invariant, printed on the line before the release that has to preserve it. The
-            // last release destroys the Linkage, and if the Linkage is the only thing left holding
-            // the global session then Slang destroys it from inside ~Linkage() and double-frees a
-            // witness table between the two AST arenas. global >= 2 here is what says
-            // somebody other than the Linkage is still holding it.
+            // The invariant, printed on the line before the release that has to preserve it: the
+            // last release of a Linkage must not hold the last reference to the global session,
+            // or Slang destroys it from inside ~Linkage() and double-frees a witness table (U13).
+            // The session's count only while the session exists: once its release succeeds the
+            // pointer is freed, and reading it is this prober's use-after-free, not Slang's.
+            var sessionCount = sessionPtr is null ? "gone" : Count(sessionPtr).ToString(System.Globalization.CultureInfo.InvariantCulture);
             Console.Out.WriteLine(
-                $"    global={Count(globalPtr)} session={Count(sessionPtr)}  releasing {what} ...");
+                $"    global={Count(globalPtr)} session={sessionCount}  releasing {what} ...");
             Console.Out.Flush();
-            o.Dispose();
-            Console.Out.WriteLine($"    releasing {what} ok");
+            try
+            {
+                o.Dispose();
+                Console.Out.WriteLine($"    releasing {what} ok");
+                if (what == "session") sessionPtr = null;
+            }
+            catch (InvalidOperationException e)
+            {
+                Console.Out.WriteLine($"    releasing {what} refused: {e.Message}");
+            }
             Console.Out.Flush();
         }
 
@@ -784,7 +800,7 @@ internal static class Cases
         using var entry = module.FindEntryPoint("snFragment");
         using var program = session.Link(module, entry);
 
-        var shader = (SlangProgramLayout*)program.GetLayout(0);
+        var shader = (SlangProgramLayout*)program.GetLayout(0).NativeHandle;
 
         SlangReflectionType* block;
         using (Utf8.Scoped n = new("SnBlock"))
@@ -823,7 +839,7 @@ internal static class Cases
         using var entry = module.FindEntryPoint("seFragment");
         using var program = session.Link(module, entry);
 
-        var shader = (SlangProgramLayout*)program.GetLayout(0);
+        var shader = (SlangProgramLayout*)program.GetLayout(0).NativeHandle;
 
         // Reached structurally rather than through a layout:  measured that a ConstantBuffer
         // of a block containing such an array reports no bindings at all, so there is no layout to
@@ -896,7 +912,7 @@ internal static class Cases
         using var entry = module.FindEntryPoint("pbMain");
         using var program = session.Link(module, entry);
 
-        var shader = (SlangProgramLayout*)program.GetLayout(0);
+        var shader = (SlangProgramLayout*)program.GetLayout(0).NativeHandle;
         var scope = SlangApi.spReflection_getGlobalParamsTypeLayout(shader);
         if (scope is null) throw new InvalidOperationException("no global scope layout");
 
@@ -927,7 +943,7 @@ internal static class Cases
         SlangGlobalSession global, SlangSession session, SlangModule module, LinkedProgram program)
         : IDisposable
     {
-        public SlangProgramLayout* Shader => (SlangProgramLayout*)program.GetLayout(0);
+        public SlangProgramLayout* Shader => (SlangProgramLayout*)program.GetLayout(0).NativeHandle;
 
         public void Dispose()
         {
@@ -975,7 +991,7 @@ internal static class Cases
         using var entry = module.FindEntryPoint("mgFragment");
         using var program = session.Link(module, entry);
 
-        var shader = (SlangProgramLayout*)program.GetLayout(0);
+        var shader = (SlangProgramLayout*)program.GetLayout(0).NativeHandle;
 
         SlangReflectionType* declared;
         using (Utf8.Scoped n = new("MgWrapper"))
@@ -1043,7 +1059,7 @@ internal static class Cases
 
         // Reflect() is what walks the binding ranges. Touching the result keeps a future
         // lazier implementation from making this case pass by never asking the question.
-        var layout = program.Reflect();
+        var layout = program.Reflect(0);
         Console.Out.WriteLine(
             $"{layout.DescriptorSets.Count} set(s), "
             + $"{layout.DescriptorSets.Sum(s => s.Ranges.Count)} range(s)");

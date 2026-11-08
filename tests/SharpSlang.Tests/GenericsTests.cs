@@ -65,12 +65,12 @@ public class GenericsTests
         var (global, session, module) = Load();
         using (global) using (session) using (module)
         {
-            Assert.NotNull(module.FindType("Lambert"));
-            Assert.NotNull(module.FindType("Emissive"));
-            Assert.NotNull(module.FindType("IMaterial"));
-            Assert.Null(module.FindType("NoSuchType"));
+            Assert.NotNull(module.FindType(0, "Lambert"));
+            Assert.NotNull(module.FindType(0, "Emissive"));
+            Assert.NotNull(module.FindType(0, "IMaterial"));
+            Assert.Null(module.FindType(0, "NoSuchType"));
 
-            var ex = Assert.Throws<SlangException>(() => module.RequireType("NoSuchType"));
+            var ex = Assert.Throws<SlangException>(() => module.RequireType(0, "NoSuchType"));
             Assert.Contains("NoSuchType", ex.Message);
         }
     }
@@ -86,10 +86,10 @@ public class GenericsTests
             using var fs = module.FindEntryPoint("fragmentMain");
             using var program = session.Link(module, fs);
 
-            var iMaterial = program.FindType("IMaterial")!;
-            Assert.True(program.IsSubType(program.FindType("Lambert")!, iMaterial));
-            Assert.True(program.IsSubType(program.FindType("Emissive")!, iMaterial));
-            Assert.False(program.IsSubType(program.FindType("NotAMaterial")!, iMaterial));
+            var iMaterial = program.FindType(0, "IMaterial")!;
+            Assert.True(program.IsSubType(0, program.FindType(0, "Lambert")!, iMaterial));
+            Assert.True(program.IsSubType(0, program.FindType(0, "Emissive")!, iMaterial));
+            Assert.False(program.IsSubType(0, program.FindType(0, "NotAMaterial")!, iMaterial));
         }
     }
 
@@ -102,7 +102,7 @@ public class GenericsTests
         var (global, session, module) = Load();
         using (global) using (session)
         {
-            orphan = module.RequireType("Lambert");
+            orphan = module.RequireType(0, "Lambert");
             module.Dispose();
             Assert.Throws<ObjectDisposedException>(() => _ = orphan.Handle is not null);
         }
@@ -119,16 +119,16 @@ public class GenericsTests
         {
             using var fs = module.FindEntryPoint("fragmentMain");
 
-            var iMaterial = module.RequireType("IMaterial");
-            using var lambert = session.CreateTypeConformance(module.RequireType("Lambert"), iMaterial, 0);
-            using var emissive = session.CreateTypeConformance(module.RequireType("Emissive"), iMaterial, 1);
+            var iMaterial = module.RequireType(0, "IMaterial");
+            using var lambert = session.CreateTypeConformance(module.RequireType(0, "Lambert"), iMaterial, 0);
+            using var emissive = session.CreateTypeConformance(module.RequireType(0, "Emissive"), iMaterial, 1);
 
             using var program = session.Link(module, [fs], new LinkOptions
             {
                 TypeConformances = [lambert, emissive],
             });
 
-            var spirv = program.GetEntryPointCodeBytes(0);
+            var spirv = program.GetEntryPointCodeBytes(0, 0);
             Assert.NotEmpty(spirv);
         }
     }
@@ -139,8 +139,8 @@ public class GenericsTests
         var (global, session, module) = Load();
         using (global) using (session) using (module)
         {
-            var iMaterial = module.RequireType("IMaterial");
-            var notAMaterial = module.RequireType("NotAMaterial");
+            var iMaterial = module.RequireType(0, "IMaterial");
+            var notAMaterial = module.RequireType(0, "NotAMaterial");
 
             Assert.Throws<SlangException>(
                 () => session.CreateTypeConformance(notAMaterial, iMaterial).Dispose());
@@ -180,7 +180,7 @@ public class GenericsTests
             Assert.True(open.SpecializationParameterCount > 0,
                 "expected an unbound specialisation parameter before substitution");
 
-            var layout = open.Reflect();
+            var layout = open.Reflect(0);
             var param = Assert.Single(layout.SpecializationParameters);
             Assert.Equal("Material", param.Name);
             Assert.Equal(SpecializationParameterKind.Type, param.Kind);
@@ -200,10 +200,10 @@ public class GenericsTests
             using var fs = module.FindEntryPoint("fragmentMain");
             using var program = session.Link(module, [fs], new LinkOptions
             {
-                SpecializationArguments = [module.RequireType(typeName)],
+                SpecializationArguments = [module.RequireType(0, typeName)],
             });
             Assert.Equal(0, program.SpecializationParameterCount);
-            return program.GetEntryPointCodeBytes(0);
+            return program.GetEntryPointCodeBytes(0, 0);
         }
     }
 
@@ -279,11 +279,11 @@ public class GenericsTests
             using var fs = module.FindEntryPoint("fragmentMain");
             using var program = session.Link(module, fs);
 
-            var param = Assert.Single(program.Reflect().SpecializationParameters);
+            var param = Assert.Single(program.Reflect(0).SpecializationParameters);
             Assert.Equal(SpecializationParameterKind.Existential, param.Kind);
             Assert.True(string.IsNullOrEmpty(param.Name));
 
-            Assert.Equal(LayoutKind.Interface, program.Reflect().Parameter("materialParam")!.Type.Kind);
+            Assert.Equal(LayoutKind.Interface, program.Reflect(0).Parameter("materialParam")!.Type.Kind);
         }
     }
 
@@ -313,7 +313,7 @@ public class GenericsTests
             using var program = session.Link(module, ep);
 
             // Not a program-level specialisation parameter — this is the point.
-            Assert.Empty(program.Reflect().SpecializationParameters);
+            Assert.Empty(program.Reflect(0).SpecializationParameters);
 
             var buffer = Assert.Single(
                 module.ReflectDeclarations().Descendants(DeclarationKind.Generic),
@@ -350,7 +350,7 @@ public class GenericsTests
             using var fs = module.FindEntryPoint("fragmentMain");
             using var program = session.Link(module, fs);
 
-            var original = program.Reflect();
+            var original = program.Reflect(0);
             var restored = ProgramLayout.FromJson(original.ToJson());
 
             Assert.Equal(

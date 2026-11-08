@@ -18,8 +18,19 @@ public sealed unsafe class SlangSession : SlangObject<ISession>
     // Owner references keep Slang's hierarchy alive in the GC's eyes: a session cannot be
     // collected while a module from it lives, and so on down. See SlangObject for why this
     // replaces a finalizer rather than supplementing one.
-    private SlangSession(ISession* owned, SlangGlobalSession owner, IReadOnlyList<TargetOptions> targets)
-        : base(owned, nameof(SlangSession), owner) => Targets = targets;
+    private readonly Hosting.SlangFileSystem? _fileSystem;
+
+    private SlangSession(
+        ISession* owned, SlangGlobalSession owner, IReadOnlyList<TargetOptions> targets, Hosting.SlangFileSystem? fileSystem)
+        : base(owned, nameof(SlangSession), owner)
+    {
+        Targets = targets;
+        _fileSystem = fileSystem;
+        fileSystem?.SessionCreated();
+    }
+
+    // Slang holds the file system for the session's lifetime, so it refuses Dispose until then.
+    private protected override void OnReleased() => _fileSystem?.SessionReleased();
 
     /// <summary>
     /// The targets this session was created with, in order. Kept so a linked program can check what
@@ -128,7 +139,7 @@ public sealed unsafe class SlangSession : SlangObject<ISession>
             if (SlangResult.Failed(hr) || p is null)
                 throw new SlangException(hr, "IGlobalSession::createSession", null);
 
-            return new SlangSession(p, global, [.. options.Targets]);
+            return new SlangSession(p, global, [.. options.Targets], options.FileSystem);
         }
         finally
         {
@@ -245,9 +256,8 @@ public sealed unsafe class SlangSession : SlangObject<ISession>
     /// </summary>
     /// <remarks>
     /// <para>
-    /// Slang's own staleness check for an IR cache entry. Distinct from
-    /// <c>ShaderPackage.IsUpToDate</c>, which is SharpSlang's content-hash check over a baked
-    /// <em>shader</em> — this one is about a cached <em>module</em>, one step earlier.
+    /// Slang's own staleness check for an IR cache entry: about a cached <em>module</em>, not a
+    /// compiled shader.
     /// </para>
     /// <para>
     /// <strong>Ask it from a session that has not loaded the module.</strong> It is answered
@@ -292,20 +302,76 @@ public sealed unsafe class SlangSession : SlangObject<ISession>
     }
 
     /// <summary>
-    /// Composes a module with entry points into one program and links it. This is the step that
-    /// resolves cross-module references and specialisation, and it must happen before code
-    /// generation or reflection.
+    /// <c>ISession::createCompositeComponentType</c>: modules, entry points, conformances and
+    /// component types composed into one, in the order given, which is the order their parameters
+    /// are laid out in. Not yet linked: <see cref="SlangComponentType.Link"/> is the next step.
+    /// </summary>
+    /// <param name="components">The binding's component-type wrappers: <see cref="SlangModule"/>,
+    /// <see cref="SlangEntryPoint"/>, <see cref="TypeConformance"/>, <see cref="SlangComponentType"/>
+    /// or <see cref="LinkedProgram"/>.</param>
+    /// <exception cref="ArgumentException">No components, or one that is not the binding's.</exception>
+    /// <exception cref="SlangException">Slang refused the composition; its diagnostics are attached.</exception>
+    public SlangComponentType CreateCompositeComponentType(params ReadOnlySpan<ISlangComponentType> components)
+    {
+        if (components.Length == 0)
+            throw new ArgumentException("a composite needs at least one component", nameof(components));
+
+        var pointers = new nint[components.Length];
+        var names = new List<string>();
+        for (var i = 0; i < components.Length; i++)
+        {
+            pointers[i] = components[i] switch
+            {
+                null => throw new ArgumentNullException(nameof(components), $"component {i} is null"),
+                SlangModule m => (nint)m.AsComponent,
+                SlangEntryPoint e => (nint)e.AsComponent,
+                TypeConformance t => (nint)t.AsComponent,
+                SlangComponentType c => (nint)c.AsComponent,
+                LinkedProgram l => (nint)l.AsComponent,
+                var other => throw new ArgumentException(
+                    $"component {i} is a {other.GetType().Name}, not one of the binding's component types", nameof(components)),
+            };
+
+            switch (components[i])
+            {
+                case SlangEntryPoint e: names.Add(e.Name); break;
+                case SlangComponentType c: names.AddRange(c.EntryPointNames); break;
+                case LinkedProgram l: names.AddRange(l.EntryPointNames); break;
+            }
+        }
+
+        IComponentType* composed = null;
+        ISlangBlob* diagnostics = null;
+        int hr;
+        fixed (nint* p = pointers)
+        {
+            hr = Ptr->createCompositeComponentType((IComponentType**)p, pointers.Length, &composed, &diagnostics);
+        }
+
+        Diagnostics.ThrowIfFailed(hr, "createCompositeComponentType", diagnostics);
+        Diagnostics.ThrowIfNull(composed, "createCompositeComponentType", null);
+        return new SlangComponentType(composed, this, "SlangComponentType(composite)", pointers, [.. names]);
+    }
+
+    /// <summary>
+    /// Composes a module with entry points into one program and links it:
+    /// <see cref="CreateCompositeComponentType"/> then <see cref="SlangComponentType.Link"/>.
     /// </summary>
     public LinkedProgram Link(SlangModule module, params ReadOnlySpan<SlangEntryPoint> entryPoints) =>
         Link(module, entryPoints, options: null);
 
     /// <summary>
-    /// Composes, optionally specialises, and links — the full Tier 2 path.
+    /// Composes, optionally specializes, and links: <see cref="CreateCompositeComponentType"/>,
+    /// <see cref="SlangComponentType.Specialize"/> when <see cref="LinkOptions.SpecializationArguments"/>
+    /// has any, then <see cref="SlangComponentType.Link"/> or <see cref="SlangComponentType.LinkWithOptions"/>.
     /// </summary>
     /// <remarks>
-    /// Order matters and is fixed by Slang: compose everything (module, entry points,
-    /// conformances) into one component, substitute concrete types for generic parameters, then
-    /// link. Specialising after linking is not the same operation and will not resolve generics.
+    /// A composite of the three calls, each reachable on its own, and nothing else: the
+    /// intermediates are disposed before this returns. The order is Slang's: everything the
+    /// program needs (module, entry points, conformances) is composed first, because the
+    /// generic parameters to specialize are the composite's and a conformance has to be in it to
+    /// be dispatched to; specialization substitutes the concrete types; linking resolves what is
+    /// left. Specializing after linking is not the same operation and does not resolve generics.
     /// </remarks>
     public LinkedProgram Link(
         SlangModule module,
@@ -315,112 +381,22 @@ public sealed unsafe class SlangSession : SlangObject<ISession>
         ArgumentNullException.ThrowIfNull(module);
 
         var conformances = options?.TypeConformances ?? [];
-        var count = 1 + entryPoints.Length + conformances.Count;
-        var components = stackalloc IComponentType*[count];
-
+        var components = new ISlangComponentType[1 + entryPoints.Length + conformances.Count];
         var c = 0;
-        components[c++] = module.AsComponent;
-        for (var i = 0; i < entryPoints.Length; i++) components[c++] = entryPoints[i].AsComponent;
-        foreach (var conf in conformances) components[c++] = conf.AsComponent;
+        components[c++] = module;
+        foreach (var e in entryPoints) components[c++] = e;
+        foreach (var t in conformances) components[c++] = t;
 
-        IComponentType* composed = null;
-        ISlangBlob* diagnostics = null;
-        var hr = Ptr->createCompositeComponentType(components, count, &composed, &diagnostics);
-        Diagnostics.ThrowIfFailed(hr, "createCompositeComponentType", diagnostics);
+        using var composite = CreateCompositeComponentType(components);
 
-        // `current` is whatever should be linked: the composite, or its specialisation.
-        var current = composed;
-        IComponentType* specialized = null;
+        var arguments = options?.SpecializationArguments ?? [];
+        if (arguments.Count == 0) return LinkOne(composite, options?.CompilerOptions);
 
-        IComponentType* linked = null;
-        try
-        {
-            var args = options?.SpecializationArguments ?? [];
-            if (args.Count > 0)
-            {
-                var specArgs = stackalloc SpecializationArg[args.Count];
-                for (var i = 0; i < args.Count; i++)
-                    specArgs[i] = SpecializationArg.fromType(args[i].Handle);
+        using var specialized = composite.Specialize([.. arguments]);
+        return LinkOne(specialized, options?.CompilerOptions);
 
-                diagnostics = null;
-                hr = composed->specialize(specArgs, args.Count, &specialized, &diagnostics);
-                Diagnostics.ThrowIfFailed(hr, "IComponentType::specialize", diagnostics);
-                current = specialized;
-            }
-
-            diagnostics = null;
-            var compilerOptions = options?.CompilerOptions;
-            if (compilerOptions is null || compilerOptions.IsEmpty)
-            {
-                hr = current->link(&linked, &diagnostics);
-                Diagnostics.ThrowIfFailed(hr, "link", diagnostics);
-            }
-            else
-            {
-                hr = LinkWithOptions(current, compilerOptions, &linked, &diagnostics);
-                Diagnostics.ThrowIfFailed(hr, "linkWithOptions", diagnostics);
-            }
-        }
-        finally
-        {
-            // Both are intermediates; the linked program does not reference them.
-            if (specialized is not null) ((ISlangUnknown*)specialized)->release();
-            ((ISlangUnknown*)composed)->release();
-        }
-
-        var names = new string[entryPoints.Length];
-        for (var i = 0; i < entryPoints.Length; i++) names[i] = entryPoints[i].Name;
-        return new LinkedProgram(linked, names, this, Targets);
-    }
-
-    /// <summary>
-    /// Marshals the option list and calls <c>linkWithOptions</c>.
-    /// </summary>
-    /// <remarks>
-    /// String values are allocated for the duration of the call and freed afterwards. Slang copies
-    /// what it needs out of the descriptor, so nothing here has to outlive the call — but a leak
-    /// or a dangling pointer would both be invisible in a passing test, hence the explicit finally.
-    /// </remarks>
-    private static int LinkWithOptions(
-        IComponentType* component,
-        LinkTimeOptions options,
-        IComponentType** outLinked,
-        ISlangBlob** outDiagnostics)
-    {
-        var entries = options.ToEntries();
-        var native = (CompilerOptionEntry*)NativeMemory.AllocZeroed(
-            (nuint)entries.Count, (nuint)sizeof(CompilerOptionEntry));
-        var strings = new List<nint>();
-
-        try
-        {
-            for (var i = 0; i < entries.Count; i++)
-            {
-                var e = entries[i];
-                native[i].name = e.Name;
-                native[i].value = Defaults.CompilerOptionValue();
-
-                if (e.StringValue is not null)
-                {
-                    var p = Utf8.Alloc(e.StringValue);
-                    strings.Add((nint)p);
-                    native[i].value.kind = CompilerOptionValueKind.String;
-                    native[i].value.stringValue0 = p;
-                }
-                else
-                {
-                    native[i].value.kind = CompilerOptionValueKind.Int;
-                    native[i].value.intValue0 = e.IntValue;
-                }
-            }
-
-            return component->linkWithOptions(outLinked, (uint)entries.Count, native, outDiagnostics);
-        }
-        finally
-        {
-            foreach (var p in strings) Utf8.Free((sbyte*)p);
-            NativeMemory.Free(native);
-        }
+        static LinkedProgram LinkOne(SlangComponentType component, LinkTimeOptions? compilerOptions) =>
+            compilerOptions is null || compilerOptions.IsEmpty ? component.Link() : component.LinkWithOptions(compilerOptions);
     }
 
     /// <summary>

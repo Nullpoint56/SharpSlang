@@ -1,5 +1,11 @@
 namespace SharpSlang.Pipeline.NRI
 {
+    public static class NriPackage
+    {
+        public const string SectionName = "SharpSlang.Pipeline.NRI/projection";
+        public static SharpSlang.Pipeline.NRI.NriPipelineProjection? ReadNriProjection(this SharpSlang.Baking.ShaderPackage package) { }
+        public static SharpSlang.Baking.ShaderPackage WithNriProjection(this SharpSlang.Baking.ShaderPackage package, SharpSlang.Pipeline.NRI.NriProjectionOptions? options = null) { }
+    }
     public sealed class NriPipelineProjection : System.IEquatable<SharpSlang.Pipeline.NRI.NriPipelineProjection>
     {
         public NriPipelineProjection() { }

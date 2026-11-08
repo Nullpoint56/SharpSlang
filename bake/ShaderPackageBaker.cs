@@ -1,12 +1,10 @@
-// L2 — turning a linked program into a shippable package.
+// Turning a linked program into a shippable package: SharpSlang.Pipeline.Bake, the cooker.
 //
 // Separated from ShaderPackage itself, which lives in SharpSlang.Pipeline. Reading a package needs
-// nothing but managed code; *making* one needs a LinkedProgram, a SlangModule and the 36 MB
-// compiler behind them. Keeping the two in one class meant a game that only ever calls ReadFromFile
-// still had to reference the compiler to name the type — see docs .
-//
-// So the split runs exactly along that line: the container, its reader, its writer and its
-// staleness checks are on the runtime side; this, the only method that compiles anything, is here.
+// nothing but managed code; *making* one needs a LinkedProgram, a SlangModule and the compiler
+// behind them. So the split runs exactly along that line: the container, its reader, its writer and
+// its staleness checks are on the runtime side; this, the only method that compiles anything, is
+// here, on SharpSlang's public API (AGENTS.md#layers).
 
 using System.Security.Cryptography;
 using System.Text;
@@ -26,7 +24,7 @@ public static class ShaderPackageBaker
     /// <param name="program">A linked program.</param>
     /// <param name="source">The source it was compiled from, hashed for staleness checks.</param>
     /// <param name="targetIndex">Index into the session's target list.</param>
-    public static ShaderPackage Bake(LinkedProgram program, string source, int targetIndex = 0) =>
+    public static ShaderPackage Bake(LinkedProgram program, string source, int targetIndex) =>
         Bake(program, source, dependencies: [], targetIndex);
 
     /// <summary>
@@ -43,7 +41,7 @@ public static class ShaderPackageBaker
     /// file leaves a bake claiming to be current after a module it imports has changed, and the
     /// symptom is a shader running the version before last.
     /// </remarks>
-    public static ShaderPackage Bake(LinkedProgram program, SlangModule module, int targetIndex = 0)
+    public static ShaderPackage Bake(LinkedProgram program, SlangModule module, int targetIndex)
     {
         ArgumentNullException.ThrowIfNull(module);
 

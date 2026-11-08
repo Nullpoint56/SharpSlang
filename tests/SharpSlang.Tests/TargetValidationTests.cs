@@ -25,7 +25,6 @@
 
 using SharpSlang.Interop;
 using SharpSlang.Native;
-using SharpSlang.Reflection;
 
 namespace SharpSlang.Tests;
 
@@ -380,10 +379,10 @@ public sealed class TargetValidationTests(ITestOutputHelper output)
         {
             using var entryPoint = find();
             using var program = session.Link(module, entryPoint);
-            var stage = program.Reflect().EntryPoints[0].Stage;
+            var stage = program.Reflect(0).EntryPoints[0].Stage;
             try
             {
-                return new Emitted(key, stage, program.GetEntryPointCodeBytes(0), null);
+                return new Emitted(key, stage, program.GetEntryPointCodeBytes(0, 0), null);
             }
             catch (SlangException e)
             {

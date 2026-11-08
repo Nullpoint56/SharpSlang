@@ -202,7 +202,7 @@ public class FunctionSignatureTests
             using var entry = module.FindEntryPoint("fragmentMain");
             using var program = session.Link(module, entry);
 
-            var overloaded = program.FindFunction("overloaded");
+            var overloaded = program.FindFunction(0, "overloaded");
             Assert.NotNull(overloaded);
             Assert.True(overloaded.IsOverloaded);
             Assert.Equal("void overloaded()", overloaded.ToString());
@@ -212,7 +212,7 @@ public class FunctionSignatureTests
                 overloaded.Overloads!.Select(o => o.ToString()).Order(StringComparer.Ordinal));
 
             // A name with one declaration is not an overload set, and reads normally.
-            var shade = program.FindFunction("shade");
+            var shade = program.FindFunction(0, "shade");
             Assert.NotNull(shade);
             Assert.False(shade.IsOverloaded);
             Assert.Equal(3, shade.Parameters.Count);
@@ -228,7 +228,7 @@ public class FunctionSignatureTests
             using var entry = module.FindEntryPoint("fragmentMain");
             using var program = session.Link(module, entry);
 
-            Assert.Null(program.FindFunction("noSuchFunction"));
+            Assert.Null(program.FindFunction(0, "noSuchFunction"));
         }
     }
 
@@ -247,7 +247,7 @@ public class FunctionSignatureTests
             using var entry = module.FindEntryPoint("fragmentMain");
             using var program = session.Link(module, entry);
 
-            var layout = program.Reflect();
+            var layout = program.Reflect(0);
             var fragment = Assert.Single(layout.EntryPoints);
 
             Assert.NotNull(fragment.Function);
@@ -270,16 +270,16 @@ public class FunctionSignatureTests
             using var entry = module.FindEntryPoint("fragmentMain");
             using var program = session.Link(module, entry);
 
-            var surface = program.FindType("Surface");
+            var surface = program.FindType(0, "Surface");
             Assert.NotNull(surface);
 
-            var tinted = program.FindFunction(surface, "tinted");
+            var tinted = program.FindFunction(0, surface, "tinted");
             Assert.NotNull(tinted);
             Assert.Equal("vector<float,3> tinted(vector<float,3> light)", tinted.ToString());
 
             // `shade` takes a Surface; it is not a member of one. The distinction matters because
             // both are spelled `shade(s, …)` at a call site in Slang's UFCS-ish way.
-            Assert.Null(program.FindFunction(surface, "shade"));
+            Assert.Null(program.FindFunction(0, surface, "shade"));
         }
     }
 }

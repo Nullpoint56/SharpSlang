@@ -50,7 +50,7 @@ public class HostingTests
         using var fs = module.FindEntryPoint("fragmentMain");
         using var program = session.Link(module, fs);
 
-        Assert.NotEmpty(program.GetEntryPointCodeBytes(0));
+        Assert.NotEmpty(program.GetEntryPointCodeBytes(0, 0));
     }
 
     [NativeFact]
@@ -110,7 +110,7 @@ public class HostingTests
             using var module = session.LoadModuleFromSource($"main{i}", $"main{i}.slang", Main);
             using var fs = module.FindEntryPoint("fragmentMain");
             using var program = session.Link(module, fs);
-            Assert.NotEmpty(program.GetEntryPointCodeBytes(0));
+            Assert.NotEmpty(program.GetEntryPointCodeBytes(0, 0));
         }
     }
 

@@ -11,9 +11,10 @@
     exactly and adds the imports and the hand-written layers on top; SharpSlang.Pipeline, the
     reader, references it exactly and nothing native. One definition of each type.
 
-    No hand-written source: the managed desc forms the template allows for here (a second form of
-    a desc that holds pointer + count) do not exist in SharpSlang yet; the descriptor defaults
-    (dotnet/Defaults.cs) read SlangApi's constants and stay in the binding.
+    One hand-written file, SpirvVersion.cs: the SPIR-V version as Slang's spirv_1_x profiles name
+    it, which the binding's TargetOptions and the reader's BakedEntryPoint both carry, and which
+    neither may take from the other (AGENTS.md#layers). The descriptor defaults (dotnet/Defaults.cs)
+    read SlangApi's constants and stay in the binding.
   -->
 
   <Import Project="$(MSBuildThisFileDirectory)..\NativeSplit.props" />
@@ -37,6 +38,7 @@
 
   <ItemGroup>
     <Compile Include="@(SharpSlangGeneratedDesc)" Link="Native\%(Filename)%(Extension)" />
+    <Compile Include="$(MSBuildThisFileDirectory)*.cs" />
   </ItemGroup>
 
   <!--

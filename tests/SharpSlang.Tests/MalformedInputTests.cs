@@ -33,7 +33,7 @@ public class MalformedInputTests
             """);
         using var ep = module.FindEntryPoint("fragmentMain");
         using var program = session.Link(module, ep);
-        return program.GetEntryPointCodeBytes(0);
+        return program.GetEntryPointCodeBytes(0, 0);
     }
 
     /// <summary>A tiny deterministic generator. Not cryptographic and not meant to be.</summary>
@@ -174,7 +174,7 @@ public class MalformedInputTests
         using var program = session.Link(module, ep);
 
         using var buffer = new MemoryStream();
-        ShaderPackageBaker.Bake(program, Source).WriteTo(buffer);
+        ShaderPackageBaker.Bake(program, Source, 0).WriteTo(buffer);
         return buffer.ToArray();
     }
 
@@ -228,6 +228,20 @@ public class MalformedInputTests
 
         var e = Assert.Throws<InvalidDataException>(() => ShaderPackage.ReadFrom(new MemoryStream(valid)));
         Assert.Contains("Rebake", e.Message);
+    }
+
+    [NativeFact]
+    public void A_package_of_the_previous_format_says_to_rebake()
+    {
+        // 5 added the optional sections (the NRI projection's among them). A version 4 package
+        // has none to read, and the reader refuses it rather than guessing an empty list.
+        var valid = ValidPackage();
+        Assert.Equal(5u, BitConverter.ToUInt32(valid, 4));
+        Assert.Equal(5u, ShaderPackage.ContainerFormatVersion);
+
+        BitConverter.TryWriteBytes(valid.AsSpan(4, 4), 4u);
+        var e = Assert.Throws<InvalidDataException>(() => ShaderPackage.ReadFrom(new MemoryStream(valid)));
+        Assert.Contains("format version 4, this build reads 5. Rebake.", e.Message, StringComparison.Ordinal);
     }
 
     [Fact]

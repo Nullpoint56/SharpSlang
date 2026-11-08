@@ -24,7 +24,6 @@
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
-using SharpSlang.Reflection;
 
 namespace SharpSlang.Tests;
 
@@ -140,7 +139,7 @@ public class SpirvDigestTests(ITestOutputHelper output)
         try
         {
             using var program = session.Link(module, [.. entryPoints]);
-            using var blob = program.GetTargetCode();
+            using var blob = program.GetTargetCode(0);
 
             var code = blob.ToArray();
             var (words, ops) = Structure(code);
@@ -149,7 +148,7 @@ public class SpirvDigestTests(ITestOutputHelper output)
                 Digest(code),
                 words,
                 ops,
-                Digest(Encoding.UTF8.GetBytes(program.Reflect().ToJson())),
+                Digest(Encoding.UTF8.GetBytes(program.Reflect(0).ToJson())),
                 code);
         }
         finally
