@@ -25,7 +25,7 @@ carry until the switch (`AGENTS.md`, Decisions), has none of them.
 | # | Defect | Area | Kind | Patch | Test | State | Verified |
 |---|---|---|---|---|---|---|---|
 | U1 | `spReflectionType_GetElementCount` / `GetSpecializedElementCount` crash on an array sized by a link-time constant | reflection | Slang defect | `0002-element-count-of-a-specialization-sized-array.patch` | `ProberTests.The_element_count_of_a_specialization_sized_array_is_unknown` | patched | v2026.21 |
-| U2 | `getBindingRangeCount` throws a C++ exception through `extern "C"` for a resource array sized by a link-time constant | reflection | Slang defect |  | `ProberTests.A_specialization_sized_resource_array_never_reflects_successfully` | unpatched | v2026.21 |
+| U2 | `getBindingRangeCount` throws a C++ exception through `extern "C"` for a resource array sized by a link-time constant | reflection | Slang defect | `0003-binding-ranges-of-a-specialization-sized-array.patch` | `ProberTests.A_specialization_sized_resource_array_has_binding_ranges_of_unknown_count` | patched | v2026.21 |
 | U3 | `spReflection_specializeGeneric` access-violates on a mismatched argument list | reflection | Slang defect |  | `ProberTests.A_mismatched_generic_argument_kind_crashes_on_two_platforms_and_diagnoses_on_the_third` | unpatched | v2026.21 |
 | U4 | `spReflection_specializeType` on a non-generic type segfaults on Linux (an assert that removes its own check) | reflection | Slang defect | `0001-specialize-type-diagnose-argument-count.patch` | `ProberTests.Specializing_a_non_generic_type_is_refused_with_a_diagnostic` | patched | v2026.21 |
 | U5 | A constant buffer whose block holds only link-time-sized arrays gets no binding | reflection | Slang defect |  | `UnknownSizeTests.A_buffer_with_no_fixed_size_is_refused_rather_than_dropped` | unpatched | v2026.21 |
@@ -153,7 +153,34 @@ crash answers exactly as for a fixed-size array (same categories, `DESCRIPTOR_TA
 stride 0, alignment, `genericParamIndex` -1), so a host cannot guard it. A batch reflection on Linux
 loses the process where Windows loses one shader.
 
-**Measurement.** v2026.21, all four platforms, through a child process.
+**Cause.** `ExtendedTypeLayoutContext::addRangesRec` (`source/slang/slang-reflection-api.cpp`),
+which builds the binding ranges every binding-range query reports, multiplies an array element's
+ranges by the array's length:
+
+```cpp
+if (arrayType->isUnsized())
+    elementCount = LayoutSize::infinite();
+else if (arrayType->getElementCount()->isLinkTimeVal())
+    elementCount = LayoutSize::invalid();
+else
+    elementCount = LayoutSize::RawValue(getIntVal(arrayType->getElementCount()));   // 2146
+```
+
+A length that is a specialization constant is neither a link-time value nor a `ConstantIntVal`, so
+`getIntVal` raises `SLANG_UNEXPECTED` (`source/slang/slang-syntax.cpp:898-905`), as in U1. The
+array's own layout already treats every length that is not a `ConstantIntVal` as unknown
+(`GetElementCount`, `source/slang/slang-type-layout.cpp:3085-3128`).
+
+**Fix.** Take the length of a `ConstantIntVal` and `LayoutSize::invalid()` for any other, as the
+link-time case already did, so the binding range is reported with a binding count of
+`SLANG_UNKNOWN_SIZE`. A constant length, an unsized array and a link-time length give the ranges
+they gave before. Regression test:
+`tools/slang-unit-test/unit-test-specialization-sized-resource-array-reflection.cpp`. Carried as
+`patches/0003-binding-ranges-of-a-specialization-sized-array.patch`.
+
+**Measurement.** v2026.21, all four platforms, through a child process. With the fix: two binding
+ranges, the texture array's binding count `SLANG_UNKNOWN_SIZE` and the sampler's 1 (win-x64 with
+MSVC, linux-x64 with GCC 13.3, the tag built from source).
 
 **Repro.**
 

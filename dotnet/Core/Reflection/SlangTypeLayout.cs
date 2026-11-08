@@ -120,7 +120,8 @@ public sealed unsafe class SlangTypeLayout : SlangReflectionObject
     /// throws <c>Slang::InternalError</c> through <c>extern "C"</c>: a catchable
     /// <c>SEHException</c> on win-x64, <c>std::terminate</c> on Linux and macOS (v2026.21; U2).
     /// Not guardable: every other query answers as for a fixed-size array
-    /// (AGENTS.md#sizes-slang-does-not-know).
+    /// (AGENTS.md#sizes-slang-does-not-know). Patch 0003 makes the array's binding count
+    /// <c>SLANG_UNKNOWN_SIZE</c> in a payload built from source (AGENTS.md#patches).
     /// </remarks>
     public long BindingRangeCount => SlangApi.spReflectionTypeLayout_getBindingRangeCount(Ptr);
 

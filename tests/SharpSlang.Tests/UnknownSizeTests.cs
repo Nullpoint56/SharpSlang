@@ -146,6 +146,28 @@ public class UnknownSizeTests
         Assert.Contains("specialization constant", e.Message);
     }
 
+    [PatchedFact("U2")]
+    public void A_resource_array_sized_by_a_specialization_constant_is_refused_by_name()
+    {
+        // In process only with patch 0003: the release throws Slang::InternalError out of
+        // getBindingRangeCount, which ends a Linux process (ProberTests). Patched, Slang reports the
+        // array's descriptor count as SLANG_UNKNOWN_SIZE, which the walk refuses by name rather
+        // than reading it as a count or as unbounded.
+        const string Source = """
+            [vk::constant_id(0)] const int kCascades = 4;
+
+            Texture2D    scArray[kCascades];
+            SamplerState scSampler;
+
+            [shader("fragment")]
+            float4 scFragment() : SV_Target { return scArray[0].Sample(scSampler, 0); }
+            """;
+
+        var e = Assert.Throws<NotSupportedException>(() => Compile(Source, "scFragment"));
+        Assert.Contains("'scArray'", e.Message, StringComparison.Ordinal);
+        Assert.Contains("specialization constant", e.Message, StringComparison.Ordinal);
+    }
+
     [NativeFact]
     public void A_parameter_the_layout_cannot_place_is_named_in_the_refusal()
     {

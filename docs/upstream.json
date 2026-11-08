@@ -17,9 +17,9 @@
       "title": "`getBindingRangeCount` throws a C++ exception through `extern \"C\"` for a resource array sized by a link-time constant",
       "area": "reflection",
       "kind": "Slang defect",
-      "patch": null,
-      "test": "ProberTests.A_specialization_sized_resource_array_never_reflects_successfully",
-      "state": "unpatched",
+      "patch": "0003-binding-ranges-of-a-specialization-sized-array.patch",
+      "test": "ProberTests.A_specialization_sized_resource_array_has_binding_ranges_of_unknown_count",
+      "state": "patched",
       "verified": "v2026.21"
     },
     {

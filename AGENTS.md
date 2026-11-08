@@ -796,6 +796,7 @@ packages).
 |---|---|---|
 | `0001-specialize-type-diagnose-argument-count` | U4 | `Linkage::specializeType` diagnoses an argument count that does not match (38025) instead of asserting it, so no build can drop the check |
 | `0002-element-count-of-a-specialization-sized-array` | U1 | `GetSpecializedElementCount` returns `SLANG_UNKNOWN_SIZE` for a length that is not a constant instead of throwing out of `getIntVal` |
+| `0003-binding-ranges-of-a-specialization-sized-array` | U2 | the binding ranges of a resource array of such a length carry an unknown count instead of throwing |
 
 Every Slang defect in `docs/upstream.md` gets a patch, test first, and the registry says what became
 of each (owner, 2026-11-08: "All of them and we roll a registry of them so we can clearly see if they
@@ -1385,7 +1386,11 @@ in `docs/upstream.md`.
   exception of type Slang::InternalError`). v2026.21, prober, all four legs. U2. Not guardable: every
   query that does not crash answers exactly as for a fixed-size array. The construct cannot work on
   Vulkan anyway (`descriptorCount` is fixed before specialization). Caller's rule: do not write one;
-  a Linux cook farm dies where a Windows workstation loses one shader.
+  a Linux cook farm dies where a Windows workstation loses one shader. Patched (0003): the ranges are
+  reported, the array's binding and descriptor counts `SLANG_UNKNOWN_SIZE` (-2 as a `SlangInt`), and
+  the walk refuses that count by name with `NotSupportedException`
+  (`UnknownSizeTests.A_resource_array_sized_by_a_specialization_constant_is_refused_by_name`) rather
+  than reading it as unbounded. On the release the rule above stands (Patches).
 - **A buffer whose block holds only such arrays disappears**: `ConstantBuffer<Block>` (and the
   `[[vk::push_constant]]` form) with `struct Block { float4 values[kCount]; }` reports no bindings of
   any kind (v2026.21, `UnknownSizeTests`), and the module dropped the descriptor too while the

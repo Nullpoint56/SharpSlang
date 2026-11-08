@@ -182,7 +182,7 @@ public class ProberTests(ITestOutputHelper output)
         Assert.Contains("unknown case", outcome.Stderr, StringComparison.Ordinal);
     }
 
-    [NativeFact]
+    [ReleasePayloadFact("U2")]
     public void A_specialization_sized_resource_array_never_reflects_successfully()
     {
         // U2: `Texture2D t[kCascades]` where kCascades is a specialization constant. What is
@@ -354,6 +354,23 @@ public class ProberTests(ITestOutputHelper output)
         Assert.Contains("array kind=SLANG_TYPE_KIND_ARRAY", outcome.Stdout, StringComparison.Ordinal);
         Assert.Contains($"GetSpecializedElementCount -> {unknown}", outcome.Stdout, StringComparison.Ordinal);
         Assert.Contains($"GetElementCount -> {unknown}", outcome.Stdout, StringComparison.Ordinal);
+    }
+
+    [PatchedFact("U2")]
+    public void A_specialization_sized_resource_array_has_binding_ranges_of_unknown_count()
+    {
+        // U2 (AGENTS.md#sizes-slang-does-not-know), patch 0003. The binding ranges are there and
+        // the array's count is SLANG_UNKNOWN_SIZE, the answer the type layout already gives for its
+        // size, where the release throws Slang::InternalError out of getBindingRangeCount.
+        var outcome = Run("specialization-sized-resource-array-ranges");
+        output.WriteLine(outcome.ToString());
+
+        // SLANG_UNKNOWN_SIZE, which getBindingRangeBindingCount returns as a SlangInt: -2.
+        const long unknown = -2;
+        Assert.True(outcome.ExitCode == 0, $"reflecting the binding ranges of a specialization-sized resource array failed:\n{outcome}");
+        Assert.Contains("2 binding range(s)", outcome.Stdout, StringComparison.Ordinal);
+        Assert.Contains($"scArray type=SLANG_BINDING_TYPE_TEXTURE bindings={unknown}", outcome.Stdout, StringComparison.Ordinal);
+        Assert.Contains("scSampler type=SLANG_BINDING_TYPE_SAMPLER bindings=1", outcome.Stdout, StringComparison.Ordinal);
     }
 
     [NativeFact]
@@ -664,7 +681,7 @@ public class ProberTests(ITestOutputHelper output)
         Assert.Contains("0 threw, 0 disagreed", outcome.Stdout, StringComparison.Ordinal);
     }
 
-    [NativeFact]
+    [ReleasePayloadFact("U2")]
     public void How_it_fails_depends_on_the_platform()
     {
         // Measured, and not what an earlier round said. Slang throws a C++ `Slang::InternalError` out through
