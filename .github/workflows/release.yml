@@ -1,0 +1,443 @@
+name: release
+
+# How a release is made (the template's procedure; AGENTS.md#actions-budget, "The release"):
+#   1. A version-bump pull request: SharpSlangVersion in Directory.Build.props, and
+#      SharpSlangDescsVersion / SharpSlangPipelineVersion only when their sources changed since the
+#      published version (tools/ci/descs-version.ps1 fails lint otherwise; an unchanged one is
+#      reused), and docs/releases/v<Version>.md (docs/releases/README.md). Before starting: pack on
+#      Linux as this workflow does, run tools/ci/check-packages.ps1, reproduce tools/consume. CI is
+#      green on master's tree.
+#   2. Actions > release > Run workflow, on master. Nothing else starts it: no tag push, no merge,
+#      no dry run (the template's rule).
+#   3. version -> native (win-x64, linux-x64, linux-arm64, from source, cached) -> pack -> consume
+#      (per platform) -> release (tag v<Version> on the run's commit, the GitHub release, the symbol
+#      zips) -> nuget (after the owner approves the nuget environment). osx-arm64 builds after the
+#      release and attaches its native and symbol zips when a runner turns up: nothing waits for
+#      macOS, and no package carries it.
+#   A run that fails before the release job creates no tag and publishes nothing: fix through a
+#   pull request and run again, or re-run failed jobs when the cause was outside the repository. A
+#   version on nuget.org is permanent: a failure after the nuget job means a new version.
+#
+# Preconditions not in this file, each the owner's:
+#   * the repository is public, CI builds the payload from source (owner, 2026-11-08), and U4 is
+#     patched test first before Linux builds from source (AGENTS.md#patches): a release only happens
+#     after going public, so every payload here is built from the slang/ submodule;
+#   * the nuget.org Trusted Publishing policy and the nuget environment, and the NUGET_USER
+#     repository variable, which is absent until then, so the nuget jobs skip
+#     (AGENTS.md#actions-budget).
+on:
+  workflow_dispatch:
+    inputs:
+      nuget_from_release:
+        description: 'Push again: the tag of a published release whose nuget.org push failed (v2026210.0.0-beta.1); pushes its .nupkg assets and builds nothing'
+        type: string
+        default: ''
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  DOTNET_NOLOGO: '1'
+  DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+
+jobs:
+  # Seconds, before anything is built: another branch, an existing tag, missing notes, project
+  # versions that are not the props' values, and a tree CI has not passed.
+  version:
+    name: version
+    if: inputs.nuget_from_release == ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10      # not measured: a checkout of the history, the SDK, six MSBuild evaluations, the gate's API reads
+    permissions:
+      contents: read
+      actions: read          # the gate reads CI's runs for this tree
+      pull-requests: read
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+      descs_version: ${{ steps.descs.outputs.sharpslang_descs_version }}
+      descs_publish: ${{ steps.descs.outputs.sharpslang_descs_publish }}
+      pipeline_version: ${{ steps.descs.outputs.sharpslang_pipeline_version }}
+      pipeline_publish: ${{ steps.descs.outputs.sharpslang_pipeline_publish }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0     # descs-version.ps1 and the gate read the history
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '11.0.x'
+          dotnet-quality: preview
+
+      # The values MSBuild evaluates, not the $(SharpSlangVersion) text the csproj files hold.
+      - name: Versions, tag, branch, notes
+        id: version
+        shell: pwsh
+        run: ./tools/ci/release-version.ps1
+
+      # A new Descs or reader version is published by this release; a published one must be unchanged
+      # since and is reused byte for byte.
+      - name: Descs and reader versions
+        id: descs
+        shell: pwsh
+        run: ./tools/ci/descs-version.ps1
+
+      - name: CI passed on this tree
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GATE_WORKFLOW: release
+        run: ./tools/ci/ci-gate.ps1
+
+  # Each payload from the slang/ submodule, through the action CI uses, so a payload CI built and
+  # tested on this tree is restored rather than rebuilt; and the symbols the same link wrote,
+  # checked to belong to the staged libraries (tools/ci/native-symbols.ps1).
+  native:
+    name: native (${{ matrix.rid }})
+    needs: version
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - rid: win-x64
+            os: windows-2025-vs2026
+          # Ubuntu 22.04 for the glibc floor, GLIBC_2.34 and GLIBCXX_3.4.29 (AGENTS.md#pin-and-payload);
+          # build-native.ps1 refuses a build above it.
+          - rid: linux-x64
+            os: ubuntu-22.04
+          - rid: linux-arm64
+            os: ubuntu-22.04-arm
+    runs-on: ${{ matrix.os }}
+    # Not measured on a runner: several times a 4-vCPU estimate from the workstation's clean builds
+    # (AGENTS.md#native-build), as ci.yml's native-from-source job.
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '11.0.x'
+          dotnet-quality: preview
+
+      - name: Slang payload from source
+        uses: ./.github/actions/slang-payload
+        with:
+          rid: ${{ matrix.rid }}
+          source: build
+
+      - name: Symbols, checked against the staged libraries
+        shell: pwsh
+        run: ./tools/ci/native-symbols.ps1 -Rid ${{ matrix.rid }} -Zip dist -Tag ${{ needs.version.outputs.tag }}
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: runtimes-${{ matrix.rid }}
+          path: runtimes/${{ matrix.rid }}/
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v7
+        with:
+          name: zips-${{ matrix.rid }}
+          path: dist/*.zip
+          if-no-files-found: error
+
+  # One pack with the three payloads, on Linux as the template asks; the package check and the API
+  # diff on it.
+  pack:
+    name: pack
+    needs: [version, native]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20      # not measured on a runner: six packs, the package check and an API diff
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '11.0.x'
+          dotnet-quality: preview
+
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: runtimes-*
+          path: _artifacts
+
+      - name: Lay out the staged payloads
+        shell: pwsh
+        run: |
+          foreach ($rid in 'win-x64', 'linux-x64', 'linux-arm64') {
+            $from = "_artifacts/runtimes-$rid"
+            if (-not (Test-Path "$from/native")) { throw "runtimes-$rid has no native/" }
+            New-Item -ItemType Directory -Force "runtimes/$rid" | Out-Null
+            Copy-Item "$from/*" "runtimes/$rid" -Recurse
+            Write-Host "runtimes/${rid}: $((Get-ChildItem "runtimes/$rid" -Recurse -File).Count) files"
+          }
+
+      # No -p:Version: each project's version is its property in Directory.Build.props, which the
+      # version job read. ContinuousIntegrationBuild: deterministic, repository-relative paths in the
+      # PDBs whose Source Link maps them to this commit (AGENTS.md#native-packages).
+      - name: Pack
+        shell: pwsh
+        run: |
+          foreach ($proj in 'descs/SharpSlang.Descs.csproj', 'pipeline/SharpSlang.Pipeline.csproj', 'dotnet/SharpSlang.csproj',
+                            'bake/SharpSlang.Pipeline.Bake.csproj', 'pipeline-nri/SharpSlang.Pipeline.NRI.csproj', 'dxc/SharpSlang.Dxc.csproj') {
+            dotnet pack $proj -c Release -o nupkg -p:ContinuousIntegrationBuild=true -warnaserror
+            if ($LASTEXITCODE -ne 0) { throw "pack failed for $proj" }
+          }
+
+      # A Descs or reader version already on nuget.org (descs-version.ps1 checked its sources are
+      # unchanged since) is the published package, byte for byte: consume tests it, the release
+      # attaches it, the push skips it.
+      - name: Reuse the published Descs and reader
+        id: reuse
+        shell: pwsh
+        run: |
+          $reused = @()
+          foreach ($p in @(
+              @{ Id = 'SharpSlang.Descs';    Version = '${{ needs.version.outputs.descs_version }}';    Publish = '${{ needs.version.outputs.descs_publish }}' },
+              @{ Id = 'SharpSlang.Pipeline'; Version = '${{ needs.version.outputs.pipeline_version }}'; Publish = '${{ needs.version.outputs.pipeline_publish }}' })) {
+            if ($p.Publish -eq 'true') { continue }
+            $id = $p.Id.ToLowerInvariant(); $v = $p.Version.ToLowerInvariant()
+            Remove-Item "nupkg/$($p.Id).$($p.Version).nupkg" -ErrorAction SilentlyContinue
+            Invoke-WebRequest "https://api.nuget.org/v3-flatcontainer/$id/$v/$id.$v.nupkg" -OutFile "nupkg/$($p.Id).$($p.Version).nupkg"
+            Write-Host "$($p.Id) $($p.Version) taken from nuget.org"
+            $reused += $p.Id
+          }
+          "reused=$($reused -join ',')" >> $env:GITHUB_OUTPUT
+
+      - name: Package check
+        shell: pwsh
+        run: |
+          $reused = @('${{ steps.reuse.outputs.reused }}' -split ',' | Where-Object { $_ })
+          ./tools/ci/check-packages.ps1 -Folder nupkg -Commit '${{ github.sha }}' -Rids win-x64,linux-x64,linux-arm64 -Reused $reused
+
+      # The public surface against the previous release on nuget.org (tools/apidiff): the body's
+      # "API changes", mechanical, per package.
+      - name: API changes
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force release-meta | Out-Null
+          ./tools/ci/api-changes.ps1 -New nupkg -Version '${{ needs.version.outputs.version }}' -Out release-meta/api-changes.md
+          '${{ steps.reuse.outputs.reused }}' | Set-Content release-meta/reused.txt
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: nupkg
+          path: nupkg/*.nupkg
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v7
+        with:
+          name: release-meta
+          path: release-meta/
+          if-no-files-found: error
+
+  # The packages as an outside project uses them (tools/consume): portable, run -r, publish -r and
+  # Native AOT, each optional package alone, the licence layout and its opt-out, and a wrong
+  # Microsoft.Direct3D.DXC failing the build with SHARPSLANG011; on each platform the package carries.
+  consume:
+    name: consume (${{ matrix.rid }})
+    needs: [version, pack]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - rid: win-x64
+            os: windows-2025-vs2026
+          - rid: linux-x64
+            os: ubuntu-24.04
+          - rid: linux-arm64
+            os: ubuntu-24.04-arm
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30      # not measured on a runner: eight restores and builds, two publishes and an AOT link
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '11.0.x'
+          dotnet-quality: preview
+
+      # Native AOT's link on Linux; from the image's lists, refreshed only after a failed install.
+      - name: Native AOT toolchain (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get install -y -qq --no-install-recommends clang zlib1g-dev ||
+            { sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends clang zlib1g-dev; }
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: nupkg
+          path: nupkg
+
+      - name: Consume the packed packages
+        shell: pwsh
+        run: ./tools/consume/consume.ps1 -Feed nupkg
+
+  # The tag v<Version> on this run's commit, and the GitHub release: the .nupkg files and the symbol
+  # zips, the body from tools/ci/release-body.ps1. Prerelease when the version has a suffix.
+  release:
+    name: release
+    needs: [version, native, pack, consume]
+    if: github.ref == 'refs/heads/master'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10      # not measured: downloads, a script and one upload
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: release-meta
+          path: release-meta
+
+      - name: Release body
+        shell: pwsh
+        run: |
+          $reused = @((Get-Content release-meta/reused.txt -Raw).Trim() -split ',' | Where-Object { $_ })
+          ./tools/ci/release-body.ps1 -Tag '${{ needs.version.outputs.tag }}' -ApiChanges release-meta/api-changes.md -Reused $reused -Out body.md
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: nupkg
+          path: dist
+
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: zips-*
+          path: dist
+          merge-multiple: true
+
+      - name: Release assets
+        run: ls -l dist
+
+      - uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ needs.version.outputs.tag }}
+          target_commitish: ${{ github.sha }}   # the tag is created here, on the run's commit
+          name: SharpSlang ${{ needs.version.outputs.tag }}
+          prerelease: ${{ contains(needs.version.outputs.tag, '-') }}
+          body_path: body.md
+          fail_on_unmatched_files: true
+          files: |
+            dist/*.nupkg
+            dist/*.zip
+
+  # osx-arm64 after the release: hosted macOS runners can be unavailable for hours, and nothing waits
+  # for them. Its native payload and its symbols, checked, attached to the release when it runs; no
+  # package carries the macOS library.
+  osx-arm64:
+    name: native (osx-arm64)
+    needs: [version, release]
+    runs-on: macos-15
+    timeout-minutes: 120     # not measured on a runner, as the other native builds
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '11.0.x'
+          dotnet-quality: preview
+
+      - name: Slang payload from source
+        uses: ./.github/actions/slang-payload
+        with:
+          rid: osx-arm64
+          source: build
+
+      - name: Native and symbol zips, checked
+        shell: pwsh
+        run: ./tools/ci/native-symbols.ps1 -Rid osx-arm64 -Zip dist -Tag ${{ needs.version.outputs.tag }} -Native
+
+      - name: Attach to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload '${{ needs.version.outputs.tag }}' dist/*.zip --clobber --repo "$GITHUB_REPOSITORY"
+
+  # nuget.org, from the same .nupkg files, after the GitHub release. Trusted Publishing: no stored
+  # key; NuGet/login trades this job's OIDC token for a key valid one hour, accepted because the
+  # owner's nuget.org policy names this repository, release.yml and the nuget environment, and every
+  # package id. The nuget environment requires the owner's approval; NUGET_USER (a repository
+  # variable) is the nuget.org account, and without it the job skips, as it does today.
+  nuget:
+    name: nuget
+    needs: [version, release]
+    if: github.ref == 'refs/heads/master' && vars.NUGET_USER != ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10      # not measured: a login and six pushes
+    environment: nuget
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: nupkg
+          path: dist
+
+      - name: NuGet login
+        id: login
+        uses: NuGet/login@v1
+        with:
+          user: ${{ vars.NUGET_USER }}
+
+      # Each package on its own, every refusal named at the end; --skip-duplicate, so a reused Descs
+      # or reader, already on nuget.org, is skipped rather than refused.
+      - name: Push to nuget.org
+        shell: pwsh
+        env:
+          NUGET_KEY: ${{ steps.login.outputs.NUGET_API_KEY }}
+        run: |
+          $refused = @()
+          foreach ($p in Get-ChildItem dist -Filter *.nupkg | Sort-Object Name) {
+            dotnet nuget push $p.FullName --api-key $env:NUGET_KEY --source https://api.nuget.org/v3/index.json --skip-duplicate
+            if ($LASTEXITCODE -ne 0) { $refused += $p.Name }
+          }
+          $global:LASTEXITCODE = 0
+          if ($refused) { throw "nuget.org refused: $($refused -join ', '). A 403 for a new package id: add it to the Trusted Publishing policy, then push again (input nuget_from_release)." }
+
+  # Push again (input nuget_from_release, on master): a published release's own .nupkg assets, for a
+  # push that failed after the GitHub release. GitHub re-runs only a run's latest attempt, and a full
+  # re-run stops at the version job (the tag exists), so the source is the release's assets. Nothing
+  # is built. The same Trusted Publishing, environment and approval as nuget.
+  nuget-again:
+    name: nuget (from the release)
+    if: inputs.nuget_from_release != '' && github.ref == 'refs/heads/master' && vars.NUGET_USER != ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment: nuget
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - name: The release's packages
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.nuget_from_release }}
+        run: |
+          gh release download $env:TAG --repo '${{ github.repository }}' --pattern '*.nupkg' --dir dist
+          if ($LASTEXITCODE -ne 0) { throw "no release $env:TAG, or it has no .nupkg assets" }
+          Get-ChildItem dist -Filter *.nupkg | ForEach-Object { Write-Host "  $($_.Name) $($_.Length)" }
+
+      - name: NuGet login
+        id: login
+        uses: NuGet/login@v1
+        with:
+          user: ${{ vars.NUGET_USER }}
+
+      - name: Push to nuget.org
+        shell: pwsh
+        env:
+          NUGET_KEY: ${{ steps.login.outputs.NUGET_API_KEY }}
+        run: |
+          $refused = @()
+          foreach ($p in Get-ChildItem dist -Filter *.nupkg | Sort-Object Name) {
+            dotnet nuget push $p.FullName --api-key $env:NUGET_KEY --source https://api.nuget.org/v3/index.json --skip-duplicate
+            if ($LASTEXITCODE -ne 0) { $refused += $p.Name }
+          }
+          $global:LASTEXITCODE = 0
+          if ($refused) { throw "nuget.org refused: $($refused -join ', '). A 403 for a new package id: add it to the Trusted Publishing policy, then push again." }

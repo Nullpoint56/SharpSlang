@@ -391,7 +391,7 @@ public static partial class SlangTestCorpus
         // call: both legs of the first .NET 11 run failed all six corpus tests with a 403 while
         // the caches, evicted after a quiet week on main, were being rebuilt. A token raises the
         // limit to a thousand an hour per repository for the Actions job token, which is why
-        // ci.yml and publish.yml pass GITHUB_TOKEN to the test step. Locally it is optional.
+        // ci.yml passes GITHUB_TOKEN to the test step. Locally it is optional.
         var token = Environment.GetEnvironmentVariable("GITHUB_TOKEN");
         if (!string.IsNullOrWhiteSpace(token))
             http.DefaultRequestHeaders.Authorization = new("Bearer", token);
