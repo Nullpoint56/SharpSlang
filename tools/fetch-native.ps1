@@ -187,6 +187,22 @@ foreach ($item in @(@{ From = 'LICENSE'; To = 'LICENSE.txt' }, @{ From = 'LICENS
     Write-Host ("    {0,-40} {1,8}" -f $item.To, "(licence)")
 }
 
+# And the notices of what Slang links statically (cmark, glslang, lz4, miniz, spirv-tools,
+# unordered_dense, and mimalloc on Windows), which the release carries in third-party-notices/
+# because their licences require them in a binary redistribution. Given a .txt extension for the
+# reason above; tools/build-native.ps1 stages the same files from the sources under the same names.
+$noticeDir = Join-Path $staged 'third-party-notices'
+if (Test-Path $noticeDir) {
+    New-Item -ItemType Directory -Force -Path (Join-Path $licenceRoot 'third-party-notices') | Out-Null
+    foreach ($n in Get-ChildItem $noticeDir -File) {
+        $to = if ($n.Extension -eq '.txt') { $n.Name } else { "$($n.Name).txt" }
+        Copy-Item $n.FullName (Join-Path $licenceRoot 'third-party-notices' $to)
+    }
+    Write-Host ("    {0,-40} {1,8}" -f 'third-party-notices', "(licence)")
+} else {
+    Write-Warning "no third-party-notices in the $Rid distribution - the release layout changed"
+}
+
 $total = (Get-ChildItem $dest -Recurse -File | Measure-Object Length -Sum).Sum
 Write-Host ""
 Write-Host ("==> done. {0} payload: {1:N1} MB  (archive was {2:N1} MB)" -f $Rid, ($total / 1MB), ((Get-Item $archive).Length / 1MB))

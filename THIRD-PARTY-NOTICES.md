@@ -36,8 +36,13 @@ Slang itself, under these SPDX identifiers:
 `Apache-2.0` · `BSL-1.0` · `CC-BY-4.0` · `LLVM-exception` · `LicenseRef-UOI-NCSA` · `MIT` ·
 `Unlicense`
 
-Both are staged alongside the payload and ship inside the `SharpSlang` package, at
-`runtimes/<rid>/LICENSE.txt` and `runtimes/<rid>/LICENSES/`. They sit outside `native/`, so NuGet
+Slang links some of that vendored code statically into the libraries above, and the licences of
+cmark, glslang, lz4, miniz, SPIRV-Tools and unordered_dense (and mimalloc, on Windows) ask for
+their notices in a binary redistribution. Slang's release carries them in `third-party-notices/`;
+they are staged as `runtimes/<rid>/third-party-notices/<name>.txt`.
+
+All three are staged alongside the payload and ship inside the `SharpSlang` package, at
+`runtimes/<rid>/LICENSE.txt`, `runtimes/<rid>/LICENSES/` and `runtimes/<rid>/third-party-notices/`. They sit outside `native/`, so NuGet
 does not copy them into a consumer's output directory — they travel with the package rather than
 with the build. The publish workflow refuses to push a package where any RID is missing them.
 
