@@ -1,6 +1,6 @@
 // Tier 0 spike, on the L2 API.
 //
-// Originally written against raw vtable pointers to prove the path worked (docs §8). Ported here
+// Originally written against raw vtable pointers to prove the path worked (AGENTS.md#test-runner). Ported here
 // to the managed API — which is also the honest test of whether L2 is actually pleasant to use.
 // Compare against git history: the pointer plumbing, manual release() calls, and stackalloc
 // component arrays are all gone.

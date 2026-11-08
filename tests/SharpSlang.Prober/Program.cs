@@ -65,7 +65,8 @@ internal static class Cases
             float4 hFragment() : SV_Target { return hFixed[0].Sample(hSampler, 0); }
             """),
 
-        // . A resource array sized by a specialization constant. Every query that does not
+        // AGENTS.md#sizes-slang-does-not-know (U2).
+        // A resource array sized by a specialization constant. Every query that does not
         // crash gives the same answers as a fixed-size array, so there is nothing to test for and
         // nothing to guard — the only observable difference is that reflecting it ends the process
         // inside spReflectionTypeLayout_getBindingRangeCount.
@@ -79,7 +80,8 @@ internal static class Cases
             float4 scFragment() : SV_Target { return scArray[0].Sample(scSampler, 0); }
             """),
 
-        // . An integer argument where a type parameter belongs. LinkedProgram.SpecializeGeneric
+        // AGENTS.md#reflection-snapshot (U3).
+        // An integer argument where a type parameter belongs. LinkedProgram.SpecializeGeneric
         // refuses this before Slang sees it, because Slang does not refuse it — it access-violates.
         // Reaching past the guard is the point, so this calls the flat API directly.
         ["generic-argument-kind-mismatch"] = () => MismatchedGenericArgument(wrongKind: true),
@@ -90,14 +92,16 @@ internal static class Cases
         // evidence.
         ["generic-argument-count-mismatch"] = () => MismatchedGenericArgument(wrongKind: false),
 
-        // . Does creating a child actually retain its parent? LifetimeTests asserts that
+        // AGENTS.md#ownership-and-lifetime.
+        // Does creating a child actually retain its parent? LifetimeTests asserts that
         // disposal order does not matter, on the stated premise that "each object holds its own
         // reference to what it needs". That premise has never been measured — it was read off COM
         // convention — and the macOS leg crashes in exactly the test that depends on it. addRef
         // followed by release reports the count without changing it.
         ["refcount-ownership"] = RefcountOwnership,
 
-        // . The same teardown LifetimeTests does, outermost first, one release at a time with
+        // AGENTS.md#ownership-and-lifetime (U13).
+        // The same teardown LifetimeTests does, outermost first, one release at a time with
         // the name of each printed before it happens. Taking a native reference on the owner made
         // the refcounts balance and did not stop the macOS host dying here, so the remaining
         // suspect is not *whether* the objects survive but the order Slang destroys them in when
@@ -105,38 +109,44 @@ internal static class Cases
         // release that did it.
         ["dispose-outermost-first"] = DisposeOutermostFirst,
 
-        // . Two reflection questions that were being asked in-process on the strength of
+        // AGENTS.md#tests-and-skips.
+        // Two reflection questions that were being asked in-process on the strength of
         // Windows and Linux tolerating them, and that the first macOS run turned into a dead test
         // host. Both are caller mistakes rather than obvious Slang defects, which is exactly why
         // the answer belongs somewhere a crash is the result rather than the end of the run.
         ["specialized-type-arg-out-of-range"] = SpecializedTypeArgOutOfRange,
         ["apply-generic-to-itself"] = ApplyGenericToItself,
 
-        // . spReflection_specializeType handed a type that is not generic. Returns null on
-        // Windows, aborts the process on Linux — the same platform split as , and found the
+        // AGENTS.md#reflection-snapshot (U4).
+        // spReflection_specializeType handed a type that is not generic. Returns null on
+        // Windows, aborts the process on Linux — the same platform split as U2, and found the
         // same way: by a test that passed on one platform and killed the runner on the other.
         ["specialize-a-non-generic-type"] = SpecializeNonGenericType,
 
-        //  / . GetSpecializedElementCount is the documented resolving counterpart of
+        // AGENTS.md#sizes-slang-does-not-know (U1).
+        // GetSpecializedElementCount is the documented resolving counterpart of
         // GetElementCount — "returns SLANG_UNKNOWN_SIZE when size depends on unresolved generic
         // parameters or link-time constants" — and it access-violates on exactly that case. The
         // walk reads the size marker first and never asks; this is the only place it is called,
         // because calling it anywhere else would end the caller.
         ["specialized-element-count"] = SpecializedElementCount,
 
-        // . getBindingRangeImageFormat on a ParameterBlock's binding range. The receiver and
+        // AGENTS.md#sizes-slang-does-not-know.
+        // getBindingRangeImageFormat on a ParameterBlock's binding range. The receiver and
         // the index are the ones every other binding-range query in the same loop is answered for,
         // which is the whole point: this prints the range's type — proving the pair is valid — and
         // then dies asking the next question about it.
         ["image-format-on-parameter-block"] = ImageFormatOnParameterBlock,
 
-        // . The three threading patterns slang.h documents, measured instead of trusted.
+        // AGENTS.md#threads.
+        // The three threading patterns slang.h documents, measured instead of trusted.
         // Nothing in the suite has ever used this library from two threads — AssemblyInfo disables
         // test parallelism for unrelated reasons — so the primary use case of a shader cooker is
         // the one thing with no coverage at all. Out of process because the middle case is the one
         // the header says needs external synchronization, and asking it in the runner would be
-        //  all over again.
-        // . Whether the allocator poisoning CI leans on is actually doing anything. Both
+        // a crash the runner shares with every other test.
+        // AGENTS.md#allocator-poisoning-and-crash-diagnosis.
+        // Whether the allocator poisoning CI leans on is actually doing anything. Both
         // tripwires are environment variables the runner sets and nobody has ever confirmed took
         // effect — and macOS's pair is documented not to apply to its nano allocator, which is
         // where small objects live. A tripwire that is off looks exactly like one that found

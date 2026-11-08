@@ -150,7 +150,7 @@ ProgramLayout layout = program.Reflect();
 session and global session are all disposed, and it serialises to JSON. That is deliberate: Slang's
 reflection pointers are interior pointers owned by the object that produced them, so a proxy would
 become a use-after-free presenting as corrupt bindings rather than a clean crash
-([§4.4](design.md#44-reflection-must-be-projected-to-a-managed-snapshot-not-proxied)).
+([Reflection snapshot](../AGENTS.md#reflection-snapshot)).
 
 ```csharp
 foreach (var p in layout.Parameters)

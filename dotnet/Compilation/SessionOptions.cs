@@ -101,7 +101,7 @@ public sealed class TargetOptions
     /// An earlier version of this comment said the opposite — that without the flag two blocks are
     /// packed into space 0, and that a Vulkan renderer "almost certainly wants this on" — and cited
     /// a test whose name agreed while its body had already recorded the correction. That is the
-    ///  failure repeating: a consumer reads the property they are about to set, not the body of
+    /// same failure repeating: a consumer reads the property they are about to set, not the body of
     /// a test somewhere else.
     /// </para>
     /// </remarks>
@@ -206,7 +206,7 @@ public sealed class SessionOptions
     /// <summary>
     /// Matrix layout for the session. Slang's own default is row-major; the generated
     /// <c>SessionDesc</c> zero-initialises to <c>UNKNOWN</c>, which is not the same thing.
-    /// See docs §4.5.
+    /// See AGENTS.md#descriptor-defaults-and-result-codes.
     /// </summary>
     public SlangMatrixLayoutMode MatrixLayout { get; init; } =
         SlangMatrixLayoutMode.SLANG_MATRIX_LAYOUT_ROW_MAJOR;

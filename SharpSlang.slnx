@@ -14,7 +14,6 @@
   </Folder>
   <Folder Name="/docs/">
     <File Path="docs/guide.md" />
-    <File Path="docs/design.md" />
     <File Path="docs/upstream.md" />
   </Folder>
   <Folder Name="/docs/releases/">
@@ -31,7 +30,6 @@
     <File Path="tools/ci/compare-digests.sh" />
     <File Path="tools/ci/count-tests.ps1" />
     <File Path="tools/ci/cross-arch-differences.txt" />
-    <File Path="tools/ci/design-citation-map.txt" />
     <File Path="tools/ci/spirv-worddiff.py" />
     <File Path="tools/ci/macos-backtrace.sh" />
     <File Path="tools/ci/verify-linux.sh" />

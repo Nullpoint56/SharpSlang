@@ -5,7 +5,7 @@
 // file: the only thing that leaves is immutable managed data.
 //
 // Cost is not a concern. These are O(1) reads over layout data Slang already computed, a few
-// thousand of them at load time — tens of microseconds, once. See docs §4.4 for why that kills the
+// thousand of them at load time — tens of microseconds, once. See AGENTS.md#reflection-snapshot for why that kills the
 // argument for batching this behind a C++ shim.
 
 using SharpSlang.Interop;

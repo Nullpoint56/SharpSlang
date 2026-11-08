@@ -227,7 +227,8 @@ loaded library.
 | | |
 |---|---|
 | **[guide.md](docs/guide.md)** | how to use it — compiling, reflecting, projecting, baking, lifetime, threads, and the traps |
-| **[design.md](docs/design.md)** | how it is built and why — the layering, the package split, the scope boundary, the risks |
+| **[AGENTS.md](AGENTS.md)** | how it is built and why, for contributors — the layers, the pin, the decisions, and every measured oddity of Slang's with where it is handled |
+| **[upstream.md](docs/upstream.md)** | the Slang defects found here, as report text |
 
 Most of the difficulty in binding Slang is not in the signatures. `loadModule` returns a borrowed
 pointer where every other call returns an owned one; `getEntryPointCode` names every module `main`;

@@ -460,7 +460,7 @@ public sealed class SlangComputeCorpusTests(Xunit.Abstractions.ITestOutputHelper
 
         // Both documents state it, so both are pinned. A phrase, not a table cell — see the note
         // on the same pattern in NativeAbiTests.
-        foreach (var file in new[] { "docs/design.md", "README.md" })
+        foreach (var file in new[] { "AGENTS.md", "README.md" })
         {
             DocumentedFactsTests.Documents(file, $"dispatches {cases.Count} shaders",
                 $"{cases.Count} compute cases are runnable");

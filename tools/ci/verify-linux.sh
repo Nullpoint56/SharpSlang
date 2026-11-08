@@ -43,8 +43,8 @@ status=0
 # Kept on disk, not only printed. A round of this script reported FAILED, the terminal it ran in
 # was clipped to the last few lines, and the evidence was gone before anyone read it — four green
 # rounds later there is still no answer as to what it was. Printing a diagnosis only helps if it
-# survives the scrollback of whoever was watching, which is the same instrumentation gap as
-# and  wearing a third hat. obj/ is ignored, so these cost nothing but the bytes.
+# survives the scrollback of whoever was watching, which is the same instrumentation gap
+# again, in a third form (AGENTS.md#allocator-poisoning-and-crash-diagnosis). obj/ is ignored, so these cost nothing but the bytes.
 logs="$root/obj"
 mkdir -p "$logs"
 
@@ -66,7 +66,7 @@ printf '%s\n' "$out" | grep -E 'Passed!|Failed!|crashed|Aborted'
 
 # The names too, when there are any. Filtering to the summary meant a failure here reported
 # "linux-x64: FAILED" and nothing else, and finding out which test it was took four more runs —
-# the same instrumentation gap as , in the script written to catch that class of problem.
+# the same instrumentation gap as before, in the script written to catch that class of problem.
 if printf '%s\n' "$out" | grep -qE '\[FAIL\]|^  Failed '; then
     echo "--- failing tests:"
     printf '%s\n' "$out" | grep -E '^  Failed |^  Error Message|^  Assert' | head -40

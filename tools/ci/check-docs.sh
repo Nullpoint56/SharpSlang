@@ -1,26 +1,21 @@
 #!/usr/bin/env bash
 #
-# Two things a reader would notice and no build would: a link that goes nowhere, and a solution
-# entry pointing at a file that is not there. Both have happened here — renaming a document left
-# thirteen source references updated and the .slnx entry dangling, and deleting one left a link in
-# design.md pointing at nothing.
+# Things a reader would notice and no build would: a link that goes nowhere, a comment citing a
+# heading that is not there, and a solution entry pointing at a file that is not there. All have
+# happened here: renaming a document left thirteen source references updated and the .slnx entry
+# dangling, deleting one left a link pointing at nothing, and deleting another left sentences in
+# code comments with the citation cut out of the middle.
 #
-# It used to check more. A §-reference validator existed because two documents shared one numbering
-# and ~170 code comments cited it; one of those documents is gone and the citations with it. What is
-# left is small enough to read.
+#   1. Every internal link in the documents resolves: the file exists and the anchor matches a
+#      real heading.
+#   2. Every AGENTS.md#<anchor> a code comment cites is a heading in AGENTS.md, so renaming a
+#      heading cannot silently orphan the comments that cite it. Code comments cite AGENTS.md this
+#      way and nothing else; a bare section number (the old design.md form) has nothing to resolve
+#      against and fails.
+#   3. Every file the solution lists exists, and every document and script is listed.
 #
-#   1. Every internal link resolves — the file exists and the anchor matches a real heading.
-#   2. Every § a code comment cites is a heading in design.md, whose numbers are cited by bare
-#      number and therefore must not move — while design.md exists. design.md's facts have moved
-#      to AGENTS.md, and tools/ci/design-citation-map.txt maps each cited number to the AGENTS.md
-#      heading that now holds it: every cited § must have a row there, and every row's target must
-#      be a real AGENTS.md heading. Once design.md is deleted only the map check remains, until the
-#      citations themselves are rewritten.
-#   3. Every AGENTS.md#<anchor> a code comment cites is a heading in AGENTS.md.
-#   4. Every file the solution lists exists, and every document and script is listed.
-#
-# What none of this sees is whether a document is *true*. DocumentedFactsTests covers the countable
-# part of that; the rest is reading.
+# What none of this sees is whether a document is *true*. DocumentedFactsTests and the phrase pins
+# beside the tests that measure each figure cover the countable part of that; the rest is reading.
 #
 # Usage:  bash tools/ci/check-docs.sh
 
@@ -28,41 +23,26 @@ set -uo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/../.."
 
 problems=$(mktemp)
-sections=$(mktemp)
-trap 'rm -f "$problems" "$sections"' EXIT
+trap 'rm -f "$problems"' EXIT
 
 DOCS=(README.md THIRD-PARTY-NOTICES.md AGENTS.md docs/guide.md docs/upstream.md docs/releases/README.md)
-# design.md is checked while it exists; its deletion is planned (tools/ci/design-citation-map.txt).
-[ -f docs/design.md ] && DOCS+=(docs/design.md)
-
-MAP=tools/ci/design-citation-map.txt
 
 # The source files whose comments cite documents. obj/ is excluded and must stay excluded:
 # fetch-native.ps1 stages Slang's own release there, user-guide markdown included, and scanning it
-# would have this script grading upstream's prose.
-#
-# Extra arguments go to grep: the map check passes --exclude=design.md, since design.md's references
-# to its own sections go with it.
+# would have this script grading upstream's prose. tools/ci/*.txt and *.py are scanned too: their
+# comments carry citations like any other.
 cited_in_code() {
-    local pattern="$1"
-    shift
-    # The extra arguments come after the includes: when an --include and an --exclude both match a
-    # file, grep lets the last one win.
-    grep -rhoE "$pattern" \
-        --include='*.cs' --include='*.csproj' --include='*.props' \
-        --include='*.ps1' --include='*.sh' --include='*.yml' --include='*.md' "$@" \
+    grep -rhoE "$1" \
+        --include='*.cs' --include='*.csproj' --include='*.props' --include='*.targets' \
+        --include='*.ps1' --include='*.sh' --include='*.yml' --include='*.md' \
+        --include='*.txt' --include='*.py' \
         --exclude-dir=obj --exclude-dir=bin --exclude-dir=runtimes --exclude-dir=.git . 2>/dev/null
 }
 
 # GitHub's anchor rule, near enough: lowercase, drop anything that is not alphanumeric, space or
-# hyphen, then spaces to hyphens.
-anchor_of() {
-    printf '%s\n' "$1" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9 -]//g; s/ /-/g'
-}
-
-# The same rule over every heading of a file in one pipeline, not a process per heading: the guide's
-# traps table links a section from every row, and a loop per heading per link took minutes on
-# Windows, where starting a process is slow.
+# hyphen, then spaces to hyphens. Applied to every heading of a file in one pipeline, not a process
+# per heading: the guide's traps table links a section from every row, and a loop per heading per
+# link took minutes on Windows, where starting a process is slow.
 anchors_of() {
     grep -E '^#{1,6} ' "$1" | sed 's/^#\{1,6\} *//' | tr '[:upper:]' '[:lower:]' \
         | sed 's/[^a-z0-9 -]//g; s/ /-/g'
@@ -111,62 +91,20 @@ for src in "${DOCS[@]}"; do
     done
 done
 
-# ---------------------------------------------------------------- 2. § references
-
-echo "==> section references"
-
-cited=$(cited_in_code '§ ?[0-9]+(\.[0-9]+)?' | sed 's/§ *//' | sort -u)
-
-if [ -f docs/design.md ]; then
-    grep -hoE '^#{2,3} [0-9]+(\.[0-9]+)?' docs/design.md | sed 's/^#* *//' | sort -u > "$sections"
-
-    if [ ! -s "$sections" ]; then
-        echo "found no numbered headings in design.md - the extraction is broken, not the doc" >> "$problems"
-    fi
-
-    for section in $cited; do
-        grep -qxF "$section" "$sections" \
-            || echo "code cites §$section, which is not a heading in design.md" >> "$problems"
-    done
-fi
-
-# The map: every cited number has a row, and every row's target is a real heading. Comment lines
-# start with '#'; the first column is the kind (§N, orphan, link, pin), the second the target.
-if [ -f "$MAP" ]; then
-    outside=$(cited_in_code '§ ?[0-9]+(\.[0-9]+)?' --exclude=design.md | sed 's/§ *//' | sort -u)
-
-    for section in $outside; do
-        grep -qE "^§$section[[:space:]]" "$MAP" \
-            || echo "code cites §$section, which $MAP does not map to an AGENTS.md heading" >> "$problems"
-    done
-
-    grep -vE '^[[:space:]]*(#|$)' "$MAP" | awk '{ print $2 }' | sort -u | while IFS= read -r target; do
-        file="${target%%#*}"
-        anchor=""
-        case "$target" in *#*) anchor="${target#*#}";; esac
-
-        if [ ! -f "$file" ]; then
-            echo "$MAP -> $target : no such file" >> "$problems"
-        elif [ -n "$anchor" ] && ! has_anchor "$file" "$anchor"; then
-            echo "$MAP -> $target : no heading with that anchor in $file" >> "$problems"
-        fi
-    done
-elif [ ! -f docs/design.md ] && [ -n "$cited" ]; then
-    echo "code cites § numbers, and neither docs/design.md nor $MAP exists to resolve them" >> "$problems"
-fi
-
-# ---------------------------------------------------------------- 3. AGENTS.md anchors
+# ---------------------------------------------------------------- 2. AGENTS.md anchors
 
 echo "==> AGENTS.md anchors"
 
-if [ -f AGENTS.md ]; then
-    cited_in_code 'AGENTS\.md#[a-z0-9-]+' | sed 's/^AGENTS\.md#//' | sort -u | while IFS= read -r anchor; do
-        has_anchor AGENTS.md "$anchor" \
-            || echo "code cites AGENTS.md#$anchor, which is not a heading in AGENTS.md" >> "$problems"
-    done
-fi
+cited_in_code 'AGENTS\.md#[a-z0-9-]+' | sed 's/^AGENTS\.md#//' | sort -u | while IFS= read -r anchor; do
+    has_anchor AGENTS.md "$anchor" \
+        || echo "code cites AGENTS.md#$anchor, which is not a heading in AGENTS.md" >> "$problems"
+done
 
-# ---------------------------------------------------------------- 4. solution file references
+cited_in_code '§ ?[0-9]+(\.[0-9]+)?' | sort -u | while IFS= read -r section; do
+    echo "something cites $section, a section number with no document behind it; cite an AGENTS.md#<anchor> instead" >> "$problems"
+done
+
+# ---------------------------------------------------------------- 3. solution file references
 
 echo "==> solution references"
 
@@ -201,4 +139,4 @@ if [ -s "$problems" ]; then
 fi
 
 echo
-echo "OK - links, § references, AGENTS.md anchors and solution entries all resolve"
+echo "OK - links, AGENTS.md anchors and solution entries all resolve"

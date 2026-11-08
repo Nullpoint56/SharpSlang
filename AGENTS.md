@@ -226,6 +226,11 @@ Decided; not reopened as a side effect of other work.
   cook time.
 - **Don't flood CI.** Verify locally on every platform the machine has (Windows, WSL) before a push;
   start one run per head, only when it is expected to pass (Actions budget).
+- **Code cites these notes by heading anchor**, `AGENTS.md#<anchor>`, and nothing else (no section
+  numbers). `tools/ci/check-docs.sh` fails on an anchor with no heading, so renaming a heading
+  means updating the comments that cite it in the same change. Tests that pin a figure stated here
+  read this file (`DocumentedFactsTests.Documents("AGENTS.md", ...)`), so a figure changes here when
+  its test changes.
 - `slang/` and `patches/` are not changed as a side effect of other work. Stage by path.
 
 ---
@@ -347,11 +352,13 @@ the same commands as CI's `lint` job. Descs-version and zero-alloc gates come la
 - The Tier 0 spike (`samples/SharpSlang.Smoke`) has no skip logic: almost every test is a `[NativeFact]`
   that skips when `slang-compiler` cannot load, so the spike is what fails a leg whose payload
   stages and does not load.
-- Figures at 3dcfff3: the workstation (Release, Vulkan with the SDK's 1.4.363 layer, and D3D12)
-  762 passed, 0 skipped, 0 failed, 105 of them NRI device tests; WSL (`verify-linux.sh`, lavapipe,
-  layer 1.4.363 through `VK_ADD_LAYER_PATH`, `SHARPNRI_TEST_SOFTWARE=1`) 655 passed, 11 skipped
-  (the D3D12 and DXIL rows), 0 failed, with `NriDeviceTests` 70 passed and 3 skipped and
-  `NriValidationTests` + `SlangComputeCorpusTests` 6 passed. CI per leg: under Tests and skips.
+- Figures. The workstation (Release, Vulkan with the SDK's 1.4.363 layer, and D3D12): 761 passed,
+  0 skipped, 0 failed, 105 of them NRI device tests, at 2742804 and again with the commit that moved
+  the code's citations to these notes on top of it. WSL at 3dcfff3, one test before 2742804 deleted
+  the unlocked-sharing test (`verify-linux.sh`, lavapipe, layer 1.4.363 through
+  `VK_ADD_LAYER_PATH`, `SHARPNRI_TEST_SOFTWARE=1`): 655 passed, 11 skipped (the D3D12 and DXIL
+  rows), 0 failed, with `NriDeviceTests` 70 passed and 3 skipped and `NriValidationTests` +
+  `SlangComputeCorpusTests` 6 passed; not re-run since. CI per leg: under Tests and skips.
 
 ### Coverage
 
@@ -848,13 +855,15 @@ in `docs/upstream.md`.
 
 ### Threads
 
-- **A global session and everything made from it belong to one thread at a time** (`slang.h:4144-4147`).
-  Shared without a lock, measured outcomes on one machine: an access violation in
-  `loadModuleFromSource`, a `SlangException` "load module 'x' failed: SLANG_FAIL" on one thread
-  (indistinguishable from a bad shader), and nothing. No thread has returned success with bytes that
-  differ from a serial compile; `Sharing_one_global_session_across_threads_is_never_silently_wrong`
-  pins only that, from the prober. Caller's rule: if a batch fails a shader that passes alone,
-  suspect the thread pool.
+- **A global session and everything made from it belong to one thread at a time**
+  (`slang.h:4144-4147`), and sharing one without a lock can be silently wrong. Measured outcomes of
+  eight threads on one global session: an access violation in `loadModuleFromSource`, a
+  `SlangException` "load module 'x' failed: SLANG_FAIL" on one thread (indistinguishable from a bad
+  shader), all eight agreeing with a serial compile, and, on the windows-latest runner in run
+  42437636618 (Slang v2026.21), five of eight threads returning success with 1,492 bytes of SPIR-V
+  where the serial compile gave 1,436. No outcome holds on every run, so no test pins one; the
+  prober's sharing case stays for diagnosis. Handled: the guide's Threads section and its trap row.
+  Caller's rule: one global session per thread, or a lock around every use of a shared one.
 - **One global session per worker** is the pattern; each output is byte-identical to a serial
   compile (`Threads_with_their_own_global_session_agree_with_a_serial_compile`). Creating one cost
   about 80 ms (v2026.14.1, hardware not recorded; re-measure on the workstation).
@@ -1002,8 +1011,8 @@ Oracles, each outside the binding:
   module-initializer form is not used; the prober is its own executable.
 - **Two in-process questions moved out on suspicion** (`specialized-type-arg-out-of-range`,
   `apply-generic-to-itself`): benign on Windows and Linux, unproven on macOS; asked out of process.
-- **Expected skips.** The workstation skips nothing (762 at 3dcfff3). WSL skips the 11 D3D12 and
-  DXIL rows (655 passed). CI per leg has not run on this tree: the last figures are of the tree
+- **Expected skips.** The workstation skips nothing (761 at 2742804). WSL skipped the 11 D3D12 and
+  DXIL rows (655 passed at 3dcfff3). CI per leg has not run on this tree: the last figures are of the tree
   before the Vulkan projection's removal (run 42422416933 on 9af4412: win-x64 774 passed, 10
   skipped; linux-x64 740, 12; linux-arm64 670, 18; run 42423571989 on 15428be: osx-arm64 632, 24),
   and are re-measured by the first CI run of this tree. Each skip prints its reason in the TRX: no
@@ -1051,8 +1060,11 @@ Oracles, each outside the binding:
 - **Flake, once, locally**: an `SEHException` from Slang in `SlangReflectionCorpusTests`
   (`sample-rate-input.hlsl`) on the workstation (b417ede); it did not recur in a second full run,
   seven filtered runs, or CI. Not explained.
-- **Threads probe**: a win-x64 CI leg once drew an outcome of the unlocked sharing case that the
-  assertion had not listed; the test now asserts only the property (never silently wrong).
+- **The unlocked-sharing test was ended by a measurement**: it asserted that sharing one global
+  session across threads is never silently wrong, and run 42437636618 (windows-latest, v2026.21)
+  measured five of eight threads succeeding with different SPIR-V (1,492 bytes against the serial
+  1,436). Undefined behaviour has no outcome to pin, so the test is deleted and the probe kept
+  (Threads).
 
 ### Actions budget
 

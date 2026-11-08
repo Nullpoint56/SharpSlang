@@ -382,7 +382,7 @@ public class ReflectionTests
     [NativeFact]
     public void Snapshot_outlives_the_program_that_produced_it()
     {
-        // The whole point of §4.4: no native reflection pointer escapes the walk, so the snapshot
+        // The whole point of AGENTS.md#reflection-snapshot: no native reflection pointer escapes the walk, so the snapshot
         // stays readable after everything native has been released.
         var layout = Reflect();
 

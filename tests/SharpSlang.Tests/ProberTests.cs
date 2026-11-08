@@ -1,6 +1,6 @@
 // The reflection call that does not fail, asserted from outside the process it ends.
 //
-//  measured that reflecting a resource array sized by a specialization constant terminates the
+// An earlier round (AGENTS.md#sizes-slang-does-not-know, U2) measured that reflecting a resource array sized by a specialization constant terminates the
 // process inside spReflectionTypeLayout_getBindingRangeCount — no exception, no managed stack, no
 // diagnostic. A test cannot assert that in-process, so for several rounds it was a sentence in the
 // documentation that nothing checked, which is the same category as a comment asserting something
@@ -184,7 +184,7 @@ public class ProberTests(Xunit.Abstractions.ITestOutputHelper output)
     [NativeFact]
     public void A_specialization_sized_resource_array_never_reflects_successfully()
     {
-        // : `Texture2D t[kCascades]` where kCascades is a specialization constant. What is
+        // U2: `Texture2D t[kCascades]` where kCascades is a specialization constant. What is
         // true on both platforms is that reflection never returns an answer, and that nothing
         // distinguishes the shader beforehand, so a cooker handed one loses either the shader or
         // itself. Which of those it loses is platform-dependent, and the next test measures it.
@@ -192,14 +192,14 @@ public class ProberTests(Xunit.Abstractions.ITestOutputHelper output)
 
         Assert.True(outcome.ExitCode != 0,
             "reflecting a specialization-sized resource array now succeeds. That is an upstream "
-            + "fix and good news:  says it cannot be guarded because it cannot be detected, "
+            + "fix and good news: AGENTS.md#sizes-slang-does-not-know says it cannot be guarded because it cannot be detected, "
             + $"and that paragraph is what needs rewriting, not this assertion.\n{outcome}");
     }
 
     [NativeFact]
     public void A_mismatched_generic_argument_kind_crashes_on_two_platforms_and_diagnoses_on_the_third()
     {
-        // , corrected by the first macOS run. This was called
+        // U3 (AGENTS.md#reflection-snapshot), corrected by the first macOS run. This was called
         // ..._ends_the_process_on_every_platform, and it does not.
         //
         //   win-x64      0xC0000005, which the CLR does not convert into anything catchable
@@ -243,7 +243,7 @@ public class ProberTests(Xunit.Abstractions.ITestOutputHelper output)
         {
             Assert.True(outcome.ExitCode is not (0 or 1 or 2),
                 "specializing a generic with a mismatched argument list no longer ends the process "
-                + "here. That is an upstream fix, and  plus the guard in SpecializeGeneric are "
+                + "here. That is an upstream fix, and U3 in AGENTS.md plus the guard in SpecializeGeneric are "
                 + $"what need revisiting — not this assertion.\n{outcome}");
             return;
         }
@@ -259,7 +259,7 @@ public class ProberTests(Xunit.Abstractions.ITestOutputHelper output)
     public void Specializing_a_non_generic_type_segfaults_only_on_Linux()
     {
         // The fifth measured crash, and it cost a green run to find: the call sat in an ordinary
-        // in-process test, passed on Windows, and killed the runner on Linux. Same shape as  —
+        // in-process test, passed on Windows, and killed the runner on Linux. Same shape as the borrowed pointer (AGENTS.md#ownership-and-lifetime):
         // a defect that only exists on the platform not being developed on — and the same lesson,
         // which is that the second platform is the control and not a formality.
         //
@@ -282,7 +282,7 @@ public class ProberTests(Xunit.Abstractions.ITestOutputHelper output)
         {
             Assert.True(outcome.ExitCode is not (0 or 1 or 2),
                 "specializeType on a non-generic type no longer ends the process on Linux. If it "
-                + $"now returns null there too, the split in  is closed.\n{outcome}");
+                + $"now returns null there too, the split recorded as U4 in AGENTS.md is closed.\n{outcome}");
         }
         else
         {
@@ -315,7 +315,7 @@ public class ProberTests(Xunit.Abstractions.ITestOutputHelper output)
 
         Assert.True(outcome.ExitCode != 0,
             "GetSpecializedElementCount now survives a specialization-sized array. That is the "
-            + "upstream fix  has been waiting for: the size marker guard in ReflectionWalker "
+            + "upstream fix U1 in AGENTS.md has been waiting for: the size marker guard in ReflectionWalker "
             + $"could be relaxed, and ArrayLayout.IsSpecializationSized reconsidered.\n{outcome}");
 
         Assert.Contains("SLANG_TYPE_KIND_ARRAY", outcome.Stdout, StringComparison.Ordinal);
@@ -346,7 +346,7 @@ public class ProberTests(Xunit.Abstractions.ITestOutputHelper output)
             else
             {
                 // Unmeasured on macOS, and this is where the answer arrives. If either exits
-                // abnormally, that is the crasher and  can stop saying "on suspicion".
+                // abnormally, that is the crasher, and AGENTS.md#tests-and-skips can stop saying "on suspicion".
                 Assert.True(outcome.ExitCode is 0 or 1,
                     $"'{probe}' ended the prober on this platform — which makes it the candidate "
                     + $" could not name.\n{outcome}");
@@ -378,7 +378,7 @@ public class ProberTests(Xunit.Abstractions.ITestOutputHelper output)
     [NativeFact]
     public void Releasing_the_hierarchy_outermost_first_survives()
     {
-        // , and the reason it is here rather than only in LifetimeTests: the in-process
+        // AGENTS.md#ownership-and-lifetime (U13), and the reason it is here rather than only in LifetimeTests: the in-process
         // version of this teardown has now killed the macOS test host three times, and each run
         // cost fifty-odd tests that never got to report. A dead host names one test and destroys
         // every other signal in the run.
@@ -408,7 +408,8 @@ public class ProberTests(Xunit.Abstractions.ITestOutputHelper output)
     [NativeFact]
     public void The_allocator_poisoning_is_armed_and_reaches_small_allocations()
     {
-        // . The control for the tripwires the whole cross-platform strategy rests on. Both are
+        // AGENTS.md#allocator-poisoning-and-crash-diagnosis.
+        // The control for the tripwires the whole cross-platform strategy rests on. Both are
         // environment variables, and a runner can set one, print it in the log, and have it do
         // nothing — which is precisely what MALLOC_CHECK_=3 turned out to be. An unarmed tripwire
         // and one that found nothing are the same green.
@@ -476,7 +477,7 @@ public class ProberTests(Xunit.Abstractions.ITestOutputHelper output)
         }
         else
         {
-            // macOS, measured on osx-arm64, and not what  predicted. It predicted 0x55 at both
+            // macOS, measured on osx-arm64, and not what an earlier round predicted. It predicted 0x55 at both
             // sizes once the probe stopped reading the tiny allocator's tail metadata. What the
             // fixed probe reported:
             //
@@ -527,7 +528,8 @@ public class ProberTests(Xunit.Abstractions.ITestOutputHelper output)
     [NativeFact]
     public void Threads_with_their_own_global_session_agree_with_a_serial_compile()
     {
-        // . slang.h: "Distinct global sessions may be used from different threads in
+        // AGENTS.md#threads.
+        // slang.h: "Distinct global sessions may be used from different threads in
         // parallel." Eight threads, eight global sessions, one barrier so they are all inside the
         // compiler at once, and every result compared byte-for-byte against a serial baseline.
         //
@@ -619,7 +621,7 @@ public class ProberTests(Xunit.Abstractions.ITestOutputHelper output)
     [NativeFact]
     public void How_it_fails_depends_on_the_platform()
     {
-        // Measured, and not what  said. Slang throws a C++ `Slang::InternalError` out through
+        // Measured, and not what an earlier round said. Slang throws a C++ `Slang::InternalError` out through
         // a `extern "C"` boundary, and the two runtimes disagree about what that is:
         //
         //   linux-x64   no handler, std::terminate, SIGABRT — exit 134, "terminate called after
@@ -629,7 +631,7 @@ public class ProberTests(Xunit.Abstractions.ITestOutputHelper output)
         //
         // So "terminates the process" was true of the platform it was measured on. Recording both
         // matters for the engine: a cook farm on Linux dies mid-batch where a developer's Windows
-        // machine reports one failed shader — which is the same shape as , and the reason that
+        // machine reports one failed shader — which is the same shape as the borrowed pointer (AGENTS.md#ownership-and-lifetime), and the reason that
         // finding took a second platform to see.
         var outcome = Run("specialization-sized-resource-array");
 

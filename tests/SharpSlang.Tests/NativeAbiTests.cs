@@ -386,14 +386,15 @@ public sealed partial class NativeAbiTests(Xunit.Abstractions.ITestOutputHelper 
             $"{missing.Count} struct(s) were probed and produced no measurement:\n"
             + string.Join("", missing.Select(n => $"    {n}\n")));
 
-        // §4.3 and §7 both state these. A measured quantity in prose has a half-life, and this is
-        // the test that measured them. Pinned against §7's sentence rather than §4.3's table,
-        // because "| 51 |" would match any table cell in the document and pass by accident.
-        DocumentedFactsTests.Documents("docs/design.md", $"{Truth.Structs.Count} struct sizes",
+        // AGENTS.md states these (Generator and ABI, and the oracle table under Tests and skips). A
+        // measured quantity in prose has a half-life, and this is the test that measured them.
+        // Pinned against a phrase rather than a table cell, because "| 51 |" would match any table
+        // cell in the document and pass by accident.
+        DocumentedFactsTests.Documents("AGENTS.md", $"{Truth.Structs.Count} struct sizes",
             $"the probe measures {Truth.Structs.Count} structs");
-        DocumentedFactsTests.Documents("docs/design.md", $"{Truth.Offsets.Count} field offsets",
+        DocumentedFactsTests.Documents("AGENTS.md", $"{Truth.Offsets.Count} field offsets",
             $"the probe measures {Truth.Offsets.Count} field offsets");
-        DocumentedFactsTests.Documents("docs/design.md", $"{Truth.BitPatterns.Count} bitfield accessors",
+        DocumentedFactsTests.Documents("AGENTS.md", $"{Truth.BitPatterns.Count} bitfield accessors",
             $"the probe measures {Truth.BitPatterns.Count} bitfield accessors");
     }
 
@@ -804,7 +805,7 @@ public sealed partial class NativeAbiTests(Xunit.Abstractions.ITestOutputHelper 
         output.WriteLine($"{methods.Count} of {declared} vtable method signatures reconstructed");
         foreach (var s in skipped) output.WriteLine($"  skipped: {s}");
 
-        DocumentedFactsTests.Documents("docs/design.md", $"{declared} vtable methods",
+        DocumentedFactsTests.Documents("AGENTS.md", $"{declared} vtable methods",
             $"the probe checks {declared} vtable method signatures");
 
         // Counted, not reconstructed, and no reason recorded: a declaration shape the pattern

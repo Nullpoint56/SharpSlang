@@ -1,4 +1,4 @@
-// Offline baking — docs §4.4 reason 3.
+// Offline baking — AGENTS.md#reflection-snapshot: a snapshot is serializable, so a shipped game needs no compiler.
 //
 // A shipped game should not carry a 36 MB shader compiler. Since the reflection snapshot is plain
 // immutable managed data, the asset pipeline can compile once at build time and write the SPIR-V

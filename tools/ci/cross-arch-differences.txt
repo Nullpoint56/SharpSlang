@@ -7,12 +7,12 @@
 #
 # Found by the digests job on its first real run. The layout half agrees on all four legs, and the
 # module half agrees between operating systems — win-x64 and linux-x64 are byte-identical — so this
-# is an architecture split in Slang's own code generation, not an OS one and not ours. §9.33.
+# is an architecture split in Slang's own code generation, not an OS one and not ours. AGENTS.md#cross-platform-behaviour.
 #
 # The correlation is exact: SV_VertexID appears in exactly these three corpus shaders, and exactly
 # these three disagree. Nothing uses it without disagreeing and nothing disagrees without using it.
 #
-# The mechanism, from disassembling both sides (§9.38): nothing is renumbered, which is what §9.34
+# The mechanism, from disassembling both sides (AGENTS.md#cross-platform-behaviour): nothing is renumbered, which is what an earlier round
 # guessed. The IDs are the same. Slang creates the two builtin inputs that SV_VertexID lowers to —
 # VertexIndex and BaseVertex — in the opposite order on the two architectures, so which ID carries
 # which BuiltIn swaps, the pair swaps places in the OpEntryPoint interface list, and the operands of

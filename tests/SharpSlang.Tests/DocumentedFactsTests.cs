@@ -68,7 +68,7 @@ public class DocumentedFactsTests
 
         Documents("README.md", $"{count} `DllImport` entry points",
             $"SlangApi declares {count} DllImports");
-        Documents("docs/design.md", $"resolves all {count} bound exports",
+        Documents("AGENTS.md", $"resolves all {count} bound exports",
             $"SlangApi declares {count} DllImports");
     }
 

@@ -2,7 +2,7 @@
 //
 // SLANG_COM_INTERFACE's constexpr SlangUUID cannot be expressed as a C# fixed-buffer initializer,
 // so getTypeGuid() is excluded from generation and the IIDs are parsed out of slang.h here.
-// Required by queryInterface / castAs. See docs/design.md §4.3.
+// Required by queryInterface / castAs. See AGENTS.md#generator-and-abi.
 
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;

@@ -375,7 +375,7 @@ public sealed unsafe class LinkedProgram : SlangObject<IComponentType>
     /// that is Slang's own formatting rather than this package's reading of it.
     ///
     /// <c>spReflection_ToJson</c> takes an <c>ICompileRequest</c>, which belongs to the legacy API
-    /// this binding does not bind (§5, Tier 4). Null is passed, and measured to work; a release
+    /// this binding does not bind (AGENTS.md#unbound-surface). Null is passed, and measured to work; a release
     /// that starts dereferencing it makes this return null rather than crash, because the result is
     /// checked rather than assumed.
     /// </remarks>
@@ -623,7 +623,7 @@ public sealed unsafe class LinkedProgram : SlangObject<IComponentType>
     /// </summary>
     /// <remarks>
     /// Borrowed, not ref-counted: owned by this program and invalid once it is disposed. It must
-    /// not escape the reflection walk — see docs §4.4. Deliberately internal.
+    /// not escape the reflection walk — see AGENTS.md#reflection-snapshot. Deliberately internal.
     /// </remarks>
     internal ShaderReflection* GetLayout(int targetIndex = 0)
     {

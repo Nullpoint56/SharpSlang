@@ -160,7 +160,7 @@ public class LifetimeTests
             "loading a module did not retain its session. Disposing the session first is then a "
             + "use-after-free, which is what SlangObject's owner reference exists to prevent.");
 
-        // And its grandparent. The immediate owner is not enough on its own — see  and the
+        // And its grandparent. The immediate owner is not enough on its own — see AGENTS.md#ownership-and-lifetime and the
         // test below — so the chain is held whole and this is where that is visible.
         Assert.True(RefCount(global) > globalBefore,
             "loading a module did not retain the global session. A module only protects it while "
@@ -321,7 +321,7 @@ public class LifetimeTests
     {
         // The whole reason L3 projects to managed data instead of holding reflection pointers:
         // those are interior pointers owned by the program, and this is what would be a
-        // use-after-free if any of them had escaped the walk. Docs §4.4.
+        // use-after-free if any of them had escaped the walk. AGENTS.md#reflection-snapshot.
         ProgramLayout layout;
         using (var global = SlangGlobalSession.Create())
         using (var session = NewSession(global))

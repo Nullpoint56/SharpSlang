@@ -47,7 +47,7 @@ public sealed class SlangException(int result, string operation, string? diagnos
 /// Its own exception type because it is not a compiler error and there is no <c>SlangResult</c> to
 /// carry: nothing has been asked of Slang yet. It is a deployment fault, and the two recoveries a
 /// caller might want — re-stage the payload, or accept the mismatch deliberately — both need to
-/// distinguish it from a compile failure. See <c>docs/design.md</c> §3.5.
+/// distinguish it from a compile failure. See <c>AGENTS.md#pin-and-payload</c>.
 /// </remarks>
 public sealed class SlangVersionMismatchException(string expected, string loaded, string message)
     : Exception(message)

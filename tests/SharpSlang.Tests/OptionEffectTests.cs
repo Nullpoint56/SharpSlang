@@ -1,6 +1,6 @@
 // Does every option do something?
 //
-//  asked this of the seven link-time options and found five of them inert — Slang accepts the
+// An earlier round asked this of the seven link-time options and found five of them inert — Slang accepts the
 // whole CompilerOptionName range at linkWithOptions and silently ignores most of it, so a typed
 // property reads as a supported feature and does nothing. Session and target options never got the
 // same treatment, and they are the ones a consumer actually sets.

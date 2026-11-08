@@ -16,7 +16,7 @@
 //                          They are interior pointers owned by the IComponentType that produced
 //                          them and have no refcount at all. They must NEVER be wrapped here —
 //                          releasing one would corrupt the heap, and holding one past its owner
-//                          is the use-after-free docs §4.4 is about. They stay inside L3 and are
+//                          is the use-after-free AGENTS.md#reflection-snapshot is about. They stay inside L3 and are
 //                          projected to a managed snapshot instead.
 //
 // Why IDisposable and not SafeHandle: these are not OS handles. SafeHandle exists to defeat

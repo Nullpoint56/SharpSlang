@@ -205,7 +205,7 @@ public class CompilationTests
     [NativeFact]
     public void Row_and_column_major_produce_different_spirv()
     {
-        // Guards the §4.5 hazard from the other side: if the matrix-layout option were being
+        // Guards the AGENTS.md#descriptor-defaults-and-result-codes hazard from the other side: if the matrix-layout option were being
         // dropped on the floor, both configurations would emit identical bytes and nothing else
         // in the suite would notice.
         static byte[] Compile(SlangMatrixLayoutMode layout)

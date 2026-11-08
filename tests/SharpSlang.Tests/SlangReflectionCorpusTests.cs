@@ -46,7 +46,7 @@ public sealed class SlangReflectionCorpusTests(Xunit.Abstractions.ITestOutputHel
         // `"used": 0` in the expected output is post-emit analysis: which parameters the generated
         // code actually reads. spReflection_ToJson reports it from the ICompileRequest it is
         // given, and LinkedProgram.ToJson passes null — that API is the legacy compile-request
-        // surface this binding does not bind (docs/design.md §3.3, Tier 4). Requesting the entry
+        // surface this binding does not bind (AGENTS.md#unbound-surface). Requesting the entry
         // point code does not help; the analysis lives on the request, not on the program.
         //
         // Keyed on the property rather than on a file name, so a release that starts reporting it
