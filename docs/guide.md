@@ -669,9 +669,11 @@ Slang's rule, not a limitation of the binding — `slang.h` says a global sessio
 thread-safe" and that it "and the objects created from it should be externally synchronized when
 shared across threads".
 
-Sharing one across threads without a lock has been measured doing three different things on the
-same machine: an access violation inside `loadModuleFromSource`, a clean `SlangException` out of one
-thread while the others carried on, and — once — nothing at all.
+Sharing one across threads without a lock has been measured doing four different things: an access
+violation inside `loadModuleFromSource`, a clean `SlangException` out of one thread while the others
+carried on, once nothing at all, and once **five of eight threads returning success with SPIR-V
+that differed from a serial compile** (1,492 bytes against 1,436, on a GitHub-hosted Windows runner
+with Slang v2026.21).
 
 **Do not count on the crash to tell you.** The access violation stops the cook, which is the outcome
 you want. The `SlangException` says `load module 'x' failed: SLANG_FAIL`, and that is
@@ -679,11 +681,9 @@ indistinguishable from a shader that genuinely does not compile: a cooker that l
 failure and keeps going will blame the file, ship the rest of the batch, and blame a different file
 next time. Getting this wrong does not reliably announce itself.
 
-What has held across every run is the part that would be unrecoverable — no thread has ever returned
-*success* with bytes that differ from a serial compile. That is what
-`Sharing_one_global_session_across_threads_is_never_silently_wrong` pins, and it is deliberately the
-only thing it pins: the rest is undefined behaviour, and an assertion about how undefined behaviour
-usually goes is a transcript, not a test.
+The last outcome is the unrecoverable one: the shader compiles, nothing is reported, and different
+bytes ship. So there is no safe way to share a global session without a lock, and no test pins any
+outcome of doing it, because no outcome holds on every run. Use one of the two patterns below.
 
 ### Cooking on all your cores
 
@@ -801,7 +801,7 @@ recognise the shape if you meet a cousin of one.
 | An unbounded array that is not the last binding | `VK_DESCRIPTOR_BINDING_VARIABLE_DESCRIPTOR_COUNT_BIT` is legal only on a set's highest-numbered binding, and Slang does not arrange for that. Check the range's `Desc.baseRegisterIndex` against the rest of its set before reaching for it; `PARTIALLY_BOUND` with a fixed cap is legal anywhere. |
 | The `sample` interpolation modifier | Slang 2026.14.1 emitted `OpDecorate … Sample` without declaring `OpCapability SampleRateShading`, which spirv-val rejects as malformed whatever the device enables. Fixed by 2026.21, which declares the capability, so a device now has to enable `sampleRateShading` for the shader instead. |
 | `ParameterBlocksUseRegisterSpaces` | Byte-for-byte inert on SPIR-V. A `ParameterBlock` takes a space of its own either way. |
-| A threading bug that looks like a bad shader | Sharing a global session across threads sometimes fails as `SLANG_FAIL` on one module instead of crashing. A cooker that logs per-shader failures and continues will blame the file. If a batch reports a failure that passes on its own, suspect the thread pool before the shader. |
+| A threading bug that looks like a bad shader, or no symptom at all | Sharing a global session across threads sometimes fails as `SLANG_FAIL` on one module instead of crashing, and has been measured returning success with different SPIR-V. A cooker that logs per-shader failures and continues will blame the file. Give each thread its own global session, or lock. |
 | Uniform offsets are per target, not per shader | The same `ConstantBuffer<T>` lays out differently on SPIR-V and on D3D — std140 over-aligns a `struct` member and rounds its size up where D3D does neither, so a member can sit at byte 32 on Vulkan and byte 24 on D3D from identical source. Reflect against the target you will run on, and treat a baked layout as belonging to that target. Slang's own `buffer-layout` test compares one expected result across five targets by forcing D3D packing on all of them; nothing here does that, and the numbers differ accordingly. |
 | An entry point Slang cannot find | `FindEntryPoint(name)` returns nothing for a function without a `[shader]` attribute, and `EntryPointCount` counts zero, which reads as "this module has no entry points" rather than "you have not said which stage". Use the overload taking a `SlangStage`. |
 | The same shader, two architectures, different bytes | x64 and ARM64 emit byte-identical SPIR-V within an architecture and differ on shaders using `SV_VertexID`: Slang creates the two builtins it lowers to in the opposite order, so the modules are equivalent and will never compare equal. Windows and Linux agree exactly. Cook on one architecture, or content-address per architecture. |

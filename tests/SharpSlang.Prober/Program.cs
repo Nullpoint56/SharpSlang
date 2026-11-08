@@ -527,9 +527,9 @@ internal static class Cases
 
     /// <summary>Fires the disagreement report on purpose, on results that never saw a thread.</summary>
     /// <remarks>
-    /// The self-test for the tripwire the three threading probes are read through. `SILENTLY WRONG`
-    /// is the single token the unsafe pattern's test asserts the *absence* of, and a token never
-    /// observed to appear is indistinguishable from one that cannot — which is 's finding, and
+    /// The self-test for the tripwire the threading probes are read through. `SILENTLY WRONG` is
+    /// the token the supported patterns' tests assert the *absence* of, and a token never observed
+    /// to appear is indistinguishable from one that cannot — which is 's finding, and
     /// 's own argument pointed back at the fix it proposes.
     ///
     /// Nothing here is a measurement, and the label says so in the output. It is fabricated data
@@ -554,7 +554,7 @@ internal static class Cases
     /// A disagreement gets its own token rather than being read out of the summary line. A test
     /// matching on `"0 threw, 0 disagreed"` asserts three things at once — nothing threw, nothing
     /// disagreed, and the process survived to print the line — and cannot say which of them failed;
-    /// `SILENTLY WRONG` is the single outcome that must never appear, and its absence means the
+    /// `SILENTLY WRONG` is the outcome a supported pattern must never show, and its absence means the
     /// same thing whether the report was printed or the process died before reaching it.  is
     /// what that distinction cost when it was missing.
     /// </remarks>

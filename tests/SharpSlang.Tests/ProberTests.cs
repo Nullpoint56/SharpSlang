@@ -561,42 +561,24 @@ public class ProberTests(Xunit.Abstractions.ITestOutputHelper output)
             + "section is what needs changing");
     }
 
-    [NativeFact]
-    public void Sharing_one_global_session_across_threads_is_never_silently_wrong()
-    {
-        // The case slang.h says requires external synchronization: "A single global session object
-        // is currently *not* thread-safe."
-        //
-        // Three outcomes have now been measured on win-x64 alone: an access violation inside
-        // loadModuleFromSourceString, a clean SlangException out of one thread while the other
-        // seven agreed, and once all eight getting away with it. Every one of those is either loud
-        // or harmless, and which one a run draws is the machine's business.
-        //
-        // So neither the exit code nor the throw count is asserted. The property is the one in the
-        // name and nothing else: no thread may return *success* with bytes that disagree with a
-        // serial compile. That is the outcome nobody would catch.
-        //
-        // This test used to require "0 threw" on the surviving path, and failed the first time
-        // win-x64 threw instead of crashing — the same measurement, differently shaped. Both of its
-        // branches matched strings transcribed from an observed run rather than the invariant, and
-        // the crash branch had the mirror defect: a probe that printed "0 disagreed" and then died
-        // in teardown would have failed a test whose property held.
-        var outcome = Run("threads-shared-global-session");
-        output.WriteLine(outcome.ToString());
-
-        // The baseline is printed before any thread starts, so requiring it stops a probe that died
-        // on startup — a missing native library, a bad argument — from passing this test by never
-        // having measured anything. Without it the assertion below is satisfied by empty output.
-        Assert.Contains("baseline ", outcome.Stdout, StringComparison.Ordinal);
-        Assert.DoesNotContain("SILENTLY WRONG", outcome.Stdout, StringComparison.Ordinal);
-    }
+    // No test runs the shared-global-session probe ("threads-shared-global-session"). slang.h says
+    // "A single global session object is currently *not* thread-safe", and the probe has now
+    // measured every outcome undefined behaviour allows: an access violation, a SlangException out
+    // of one thread, all eight agreeing, and, on the GitHub-hosted windows-latest runner in run
+    // 42437636618 (2026-11-08, Slang v2026.21), five of eight threads returning success with
+    // 1,492 bytes of SPIR-V where the serial compile gave 1,436. The test that stood here asserted
+    // that last outcome never happens. It was the tripwire for exactly that, and it fired. No
+    // property of this pattern holds on every run, so any assertion about it is a transcript of one
+    // run. The rule is in docs/guide.md ("Threads"): a global session per thread, or a lock. The
+    // probe stays for diagnosis: `dotnet run --project tests/SharpSlang.Prober --
+    // threads-shared-global-session`.
 
     [Fact]
     public void The_disagreement_report_has_been_seen_to_fire()
     {
-        // Three threading probes are read through one token, and the unsafe one asserts only that
-        // the token is absent. That assertion has never failed and — if everything keeps working —
-        // never will, which makes it indistinguishable from an assertion that *cannot* fail.
+        // The threading probes are read through one token, and the two supported patterns assert
+        // only that it is absent. Such an assertion that never fails is indistinguishable from one
+        // that *cannot* fail (the unsupported pattern's tripwire did fire, on 2026-11-08).
         // is a whole finding about the difference, so this fires it deliberately: fabricated
         // results, the real reporting path, and the exact text the other tests match on.
         //
