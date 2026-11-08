@@ -130,7 +130,7 @@ public class AssemblySplitTests
             var exe = Path.Combine(ConsumerOutput, "SharpSlang.Pipeline.Consumer.dll");
             Assert.True(File.Exists(exe), $"consumer not built at {exe}");
 
-            using var process = Process.Start(new ProcessStartInfo("dotnet")
+            using var process = Process.Start(new ProcessStartInfo(DotnetHost.Path)
             {
                 ArgumentList = { exe, path },
                 RedirectStandardOutput = true,

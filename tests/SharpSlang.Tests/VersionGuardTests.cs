@@ -200,7 +200,7 @@ public sealed class VersionGuardTests(ITestOutputHelper output)
             File.WriteAllText(project, projectXml.Replace("$(Repo)", SlangHeader.RepoRoot(), StringComparison.Ordinal));
             File.WriteAllText(Path.Combine(directory.FullName, "assets.json"), """{ "libraries": { "SharpSlang.Descs/2026210.0.0-beta.2": { } } }""");
 
-            var info = new ProcessStartInfo("dotnet")
+            var info = new ProcessStartInfo(DotnetHost.Path)
             {
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
@@ -314,5 +314,26 @@ public sealed class VersionGuardTests(ITestOutputHelper output)
         var (exit, text) = Build(DescsProject.Replace("{0}", "2026210.0.0-beta.2", StringComparison.Ordinal), "-t:Build");
         Assert.True(exit == 0, text);
         Assert.DoesNotContain("SHARPSLANG005", text, StringComparison.Ordinal);
+    }
+}
+
+/// <summary>The dotnet host that owns the runtime the tests run on, for child processes.</summary>
+/// <remarks>
+/// Not "dotnet" from PATH: verify-linux.sh runs the suite through ~/.dotnet/dotnet with nothing on
+/// PATH, and a bare "dotnet" failed to start there (WSL, 093382b). The shared runtime sits at
+/// <c>&lt;root&gt;/shared/Microsoft.NETCore.App/&lt;version&gt;/</c> and the host at the root, as
+/// ProberTests finds it.
+/// </remarks>
+internal static class DotnetHost
+{
+    internal static string Path { get; } = Find();
+
+    private static string Find()
+    {
+        var runtime = RuntimeEnvironment.GetRuntimeDirectory();
+        var muxer = System.IO.Path.Combine(
+            System.IO.Path.GetFullPath(System.IO.Path.Combine(runtime, "..", "..", "..")),
+            OperatingSystem.IsWindows() ? "dotnet.exe" : "dotnet");
+        return File.Exists(muxer) ? muxer : "dotnet";
     }
 }
