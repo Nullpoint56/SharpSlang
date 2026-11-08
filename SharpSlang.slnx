@@ -1,6 +1,8 @@
 <Solution>
   <Folder Name="/Solution Items/">
     <File Path="README.md" />
+    <File Path="AGENTS.md" />
+    <File Path="CLAUDE.md" />
     <File Path="LICENSE" />
     <File Path="THIRD-PARTY-NOTICES.md" />
     <File Path="Directory.Build.props" />
@@ -13,6 +15,10 @@
   <Folder Name="/docs/">
     <File Path="docs/guide.md" />
     <File Path="docs/design.md" />
+    <File Path="docs/upstream.md" />
+  </Folder>
+  <Folder Name="/docs/releases/">
+    <File Path="docs/releases/README.md" />
   </Folder>
   <Folder Name="/tools/">
     <File Path="tools/check.ps1" />
@@ -25,6 +31,7 @@
     <File Path="tools/ci/compare-digests.sh" />
     <File Path="tools/ci/count-tests.ps1" />
     <File Path="tools/ci/cross-arch-differences.txt" />
+    <File Path="tools/ci/design-citation-map.txt" />
     <File Path="tools/ci/spirv-worddiff.py" />
     <File Path="tools/ci/macos-backtrace.sh" />
     <File Path="tools/ci/verify-linux.sh" />

@@ -1,0 +1,66 @@
+# Where every docs/design.md citation moves when design.md is deleted.
+#
+# design.md was cited from code by bare section number. Its measured facts and decisions now live
+# in AGENTS.md, and this file maps each citation to the AGENTS.md heading that holds the fact. The
+# rewrite of the code comments and the deletion of design.md happen after the rename lands; until
+# then this file is the plan, and tools/ci/check-docs.sh holds it to the tree:
+#
+#   * every target here must be AGENTS.md#<anchor> of a real heading in AGENTS.md;
+#   * every section number cited from code must have a "§" row here.
+#
+# Columns, separated by whitespace: kind, target, then where it is cited (informational).
+#
+#   §N[.M]   a section number cited from code; the "cited from" lists every file:line at 90ec948
+#   orphan   a citation of the deleted docs/findings.md (§9.x) whose number was stripped in dbbc18b,
+#            leaving a gap in the sentence ("see  —", "// . ", "(docs )"); rewrite to point here
+#   link     a Markdown link into design.md from a document
+#   pin      a test that pins a phrase in docs/design.md (DocumentedFactsTests.Documents); the
+#            file argument becomes "AGENTS.md", and AGENTS.md carries each phrase verbatim
+#
+# The two §9.x citations in tools/ci/cross-arch-differences.txt and tools/ci/spirv-worddiff.py are
+# not checked by check-docs (it scans *.cs *.csproj *.props *.ps1 *.sh *.yml *.md), and point at
+# findings.md, deleted in dbbc18b; they are listed so the rewrite catches them.
+
+# ---------------------------------------------------------------- section numbers
+§3.2    AGENTS.md#reflection-snapshot                   dotnet/Native/_OpaqueReflectionHandles.cs:8 tools/generate-native.ps1:216
+§3.3    AGENTS.md#unbound-surface                       tests/PrismSlang.Tests/SlangReflectionCorpusTests.cs:51 tests/PrismSlang.Tests/VtableOrderTests.cs:277 tools/generate-native.ps1:257
+§3.5    AGENTS.md#pin-and-payload                       Directory.Build.props:7 dotnet/Compilation/SlangGlobalSession.cs:42 dotnet/Interop/Diagnostics.cs:50 dotnet/PrismSlang.csproj:67 tools/fetch-native.ps1:7
+§4.3    AGENTS.md#generator-and-abi                     .github/workflows/ci.yml:130 .gitignore:17 dotnet/Hosting/SlangFileSystem.cs:20 dotnet/Native/_InterfaceGuids.cs:5 tests/PrismSlang.Tests/NativeAbiTests.cs:387 tools/generate-native.ps1:11 tools/generate-native.ps1:271
+§4.4    AGENTS.md#reflection-snapshot                   docs/guide.md:154 dotnet/Compilation/LinkedProgram.cs:626 dotnet/Interop/SlangObject.cs:19 dotnet/Native/_OpaqueReflectionHandles.cs:8 dotnet/Reflection/ReflectionWalker.cs:8 runtime/ShaderPackage.cs:1 runtime/TypeLayout.cs:4 tests/PrismSlang.Tests/LifetimeTests.cs:324 tests/PrismSlang.Tests/ReflectionTests.cs:385 tools/generate-native.ps1:216
+§4.5    AGENTS.md#descriptor-defaults-and-result-codes  dotnet/Compilation/SessionOptions.cs:209 dotnet/Compilation/SlangGlobalSession.cs:83 dotnet/Defaults.cs:1 dotnet/Hosting/SlangFileSystem.cs:6 dotnet/SlangResult.cs:1 tests/PrismSlang.Tests/CompilationTests.cs:208 tests/PrismSlang.Tests/DefaultsDriftTests.cs:108 tests/PrismSlang.Tests/PrismSlang.Tests.csproj:7
+§5      AGENTS.md#unbound-surface                       dotnet/Compilation/LinkedProgram.cs:378
+§7      AGENTS.md#tests-and-skips                       tests/PrismSlang.Tests/NativeAbiTests.cs:387 tests/PrismSlang.Tests/NativeAbiTests.cs:388
+§8      AGENTS.md#test-runner                           samples/PrismSlang.Smoke/PrismSlang.Smoke.csproj:4 samples/PrismSlang.Smoke/Program.cs:3
+§9.33   AGENTS.md#cross-platform-behaviour              tools/ci/cross-arch-differences.txt:10
+§9.34   AGENTS.md#cross-platform-behaviour              tools/ci/cross-arch-differences.txt:15 tools/ci/spirv-worddiff.py:4
+§9.35   AGENTS.md#cross-platform-behaviour              tools/ci/spirv-worddiff.py:94
+§9.38   AGENTS.md#cross-platform-behaviour              tools/ci/cross-arch-differences.txt:15 tools/ci/spirv-worddiff.py:23 tools/ci/spirv-worddiff.py:94 tools/ci/spirv-worddiff.py:191
+
+# ---------------------------------------------------------------- stripped findings.md citations
+orphan  AGENTS.md#ownership-and-lifetime                .github/workflows/ci.yml:36 (borrowed pointer, "see docs/guide.md )")
+orphan  AGENTS.md#cross-platform-behaviour              .github/workflows/ci.yml:38 ("'s fifth Slang crash": specializeType, U4)
+orphan  AGENTS.md#tests-and-skips                       .github/workflows/ci.yml:288 ("(docs )": the validation-layer oracle)
+orphan  AGENTS.md#ownership-and-lifetime                .github/workflows/ci.yml:382 ("Both bugs in  lived")
+orphan  AGENTS.md#ownership-and-lifetime                .github/workflows/ci.yml:401 ("the two ownership bugs the leg found —  —")
+orphan  AGENTS.md#ci-runners-and-flakes                 .github/workflows/ci.yml:467 ("mode  is about", "the one 's driver was")
+orphan  AGENTS.md#sizes-slang-does-not-know             tests/PrismSlang.Prober/Program.cs:68 tests/PrismSlang.Tests/ProberTests.cs:186 tests/PrismSlang.Tests/ProberTests.cs:194 tests/PrismSlang.Tests/ProberTests.cs:638
+orphan  AGENTS.md#reflection-snapshot                   tests/PrismSlang.Prober/Program.cs:82 tests/PrismSlang.Prober/Program.cs:108 tests/PrismSlang.Prober/Program.cs:115 tests/PrismSlang.Tests/ProberTests.cs:244 tests/PrismSlang.Tests/ProberTests.cs:260
+orphan  AGENTS.md#sizes-slang-does-not-know             tests/PrismSlang.Prober/Program.cs:120 tests/PrismSlang.Prober/Program.cs:127 tests/PrismSlang.Tests/ProberTests.cs:316
+orphan  AGENTS.md#ownership-and-lifetime                tests/PrismSlang.Prober/Program.cs:93 tests/PrismSlang.Prober/Program.cs:100 tests/PrismSlang.Tests/LifetimeTests.cs:163
+orphan  AGENTS.md#threads                               tests/PrismSlang.Prober/Program.cs:133 tests/PrismSlang.Prober/Program.cs:138 tests/PrismSlang.Tests/ProberTests.cs:528
+orphan  AGENTS.md#allocator-poisoning-and-crash-diagnosis  tests/PrismSlang.Prober/Program.cs:139 tests/PrismSlang.Tests/ProberTests.cs:409
+orphan  AGENTS.md#nri-projection                        tests/PrismSlang.Tests/VulkanPipelines.cs:80 (unbounded is not always last)
+orphan  AGENTS.md#layout-and-the-emitted-module         tests/PrismSlang.Tests/VulkanValidationTests.cs:161 (the 64-bit location question, U6)
+
+# ---------------------------------------------------------------- document links
+link    AGENTS.md#reflection-snapshot                   docs/guide.md:154 (users: the guide may keep its own sentence and drop the link)
+link    AGENTS.md#the-repository                        README.md:260 (the documentation table's design.md row; AGENTS.md is contributors' notes)
+
+# ---------------------------------------------------------------- pinned phrases
+pin     AGENTS.md#upstream-shape                        tests/PrismSlang.Tests/DocumentedFactsTests.cs:71 "resolves all 279 bound exports"
+pin     AGENTS.md#generator-and-abi                     tests/PrismSlang.Tests/NativeAbiTests.cs:390 "51 struct sizes"
+pin     AGENTS.md#generator-and-abi                     tests/PrismSlang.Tests/NativeAbiTests.cs:392 "116 field offsets"
+pin     AGENTS.md#generator-and-abi                     tests/PrismSlang.Tests/NativeAbiTests.cs:394 "2 bitfield accessors"
+pin     AGENTS.md#generator-and-abi                     tests/PrismSlang.Tests/NativeAbiTests.cs:805 "231 vtable methods"
+pin     AGENTS.md#generator-and-abi                     tests/PrismSlang.Tests/VtableOrderTests.cs:96 "all 374 slot indices"
+pin     AGENTS.md#tests-and-skips                       tests/PrismSlang.Tests/SlangComputeCorpusTests.cs:429 "dispatches 56 shaders" (README.md stays as the second file)
