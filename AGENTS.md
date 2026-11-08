@@ -21,7 +21,7 @@ C# binding over the Slang shader compiler, plus opt-in shader pipeline packages 
 binding's public API. One SharpSlang release pins exactly one Slang release (`<SlangVersion>` in
 `Directory.Build.props`, an exact pin, not a floor): Slang states its public ABI "is not currently
 stable" (`docs/building.md` upstream) and directs redistributors to ship the exact libraries they
-built against. .NET 11 / C# 15, xunit 2.9.2.
+built against. .NET 11 / C# 15, xunit.v3 4.0.2 on Microsoft.Testing.Platform.
 
 The layout below is the target shape of the restructure to the binding template. Paths that do not
 exist yet say so.
@@ -39,10 +39,10 @@ exist yet say so.
 | `pipeline-nri/` | `SharpSlang.Pipeline.NRI`: the projection onto SharpNRI's descs (`NriPipelineProjection`) |
 | `tests/SharpSlang.Tests/` | the suite |
 | `tests/SharpSlang.Prober/` | child-process host for questions whose answer may end the process (Tests and skips) |
-| `tests/SharpSlang.PackageConsumer/`, `tests/SharpSlang.Pipeline.Consumer/` | consume checks outside the solution's build: a portable app against packed packages, and a reader-only consumer that must carry no compiler |
+| `tests/SharpSlang.PackageConsumer/`, `tests/SharpSlang.Pipeline.Consumer/` | consume checks outside the solution's build: a portable app against packed packages (publish.yml's; `tools/consume` supersedes it), and a reader-only consumer that must carry no compiler |
 | `samples/SharpSlang.Smoke/` | source to SPIR-V end to end; CI's loadability gate ("Tier 0 spike") |
-| `tools/` | `check.ps1` (lint), `fetch-native.ps1` (stages Slang's prebuilt release until the from-source build replaces it), `generate-native.ps1`, `ci/` |
-| `runtimes/`, `obj/`, `bin/`, `artifacts/`, `TestResults/` | build output, git-ignored |
+| `tools/` | `check.ps1` (lint), `fetch-native.ps1` (stages Slang's prebuilt release until the from-source build replaces it), `generate-native.ps1`, `coverage.ps1` with `coverage/` (BoundSurface), `apidiff/`, `consume/`, `ci/` (Package tools) |
+| `runtimes/`, `obj/`, `bin/`, `artifacts/`, `TestResults/`, `_build/` | build output, git-ignored (`_build/`: coverage.ps1's measurement, consume.ps1's runs) |
 | `AGENTS.md` | these notes |
 | `CLAUDE.md` | one line, `@AGENTS.md`, so Claude Code loads these notes |
 | `CLAUDE.local.md` | git-ignored: the filing policy and how we deal with Slang upstream |
@@ -160,8 +160,10 @@ IID check hold the list.
   not call, because it crashes on the input it exists for (Sizes Slang does not know).
 - **`slang-rhi`, `gfx`**: out of scope; the renderer is NRI through SharpNRI.
 
-Bound-surface and coverage measurement (the template's `BoundSurface` and `coverage.ps1`) do not
-exist yet; this list is maintained by hand until they do.
+`tools/coverage/BoundSurface` measures what this list explains (Coverage): at 094296b, 191 of 489
+functions bound (39 of 210 vtable slots, 152 of 279 exports) and 53 of 120 struct fields. The
+list above is still kept by hand; `_build/coverage/bound.json` names every unbound slot, export
+and field.
 
 ### Native packages
 
@@ -437,29 +439,88 @@ the same commands as CI's `lint` job. Descs-version and zero-alloc gates come la
 
 ### Test runner
 
-- xunit 2.9.2 on VSTest, `net11.0`. Tests run serially (`AssemblyInfo.cs`): `SlangDiagnostics.Policy`
-  and `Handler` are process-global, and several tests measure emitted byte sizes.
-- `dotnet test --blame --logger "trx;LogFileName=results.trx"`: the blame sequence file names the
-  test running when a host died; CI's gates count from the TRX (`tools/ci/count-tests.ps1`), never
-  from console text, whose shape changes with verbosity.
+- xunit.v3 4.0.2 on Microsoft.Testing.Platform, `net11.0`; the test project is an executable and
+  `global.json` selects the platform for `dotnet test`. Tests run serially (`xunit.runner.json`;
+  xunit.v3 refuses the old `CollectionBehavior` attribute): `SlangDiagnostics.Policy` and `Handler`
+  are process-global, and several tests measure emitted byte sizes.
+- CI runs `dotnet test --solution SharpSlang.slnx --report-xunit-trx --report-xunit-trx-filename
+  results.trx --diagnostic --diagnostic-output-directory test-results/diagnostics`. The gates count
+  from xunit's TRX (`tools/ci/count-tests.ps1`), never from console text, whose shape changes with
+  verbosity. A crashed or killed host writes no TRX; the platform's diagnostic log records each
+  test's start as it happens, and the crash step names the test that started and never finished
+  (measured with a test that calls `Environment.FailFast`).
+- Running the test executable directly (`dotnet SharpSlang.Tests.dll`) gives xunit's own runner
+  (`-method`, `-class`, `-list full/json`), not the platform's switches. With
+  `SHARPSLANG_TEST_CHILD=test-adapters` it prints the adapter each NRI backend's tests use and exits
+  (`TestAdapters.cs`), for coverage.ps1.
+- The README count is every fact once and every theory row once (`DocumentedFactsTests`, which
+  counts InlineData and MemberData rows itself: xunit.v3's `DataAttribute.GetData` returns no
+  MemberData row outside a run). It is the runner's total where nothing skips; a skipped theory is
+  one result.
 - Environment: `GITHUB_TOKEN` (corpus listing), `SHARPSLANG_APPROVE_API=1` rewrites the approved
   public API files, `SHARPNRI_TEST_SOFTWARE=1` makes SharpNRI's test device pick WARP and lavapipe
   as CI does.
 - The Tier 0 spike (`samples/SharpSlang.Smoke`) has no skip logic: almost every test is a `[NativeFact]`
   that skips when `slang-compiler` cannot load, so the spike is what fails a leg whose payload
   stages and does not load.
-- Figures. The workstation (Release, Vulkan with the SDK's 1.4.363 layer, and D3D12): 761 passed,
-  0 skipped, 0 failed, 105 of them NRI device tests, at 2742804 and again with the commit that moved
-  the code's citations to these notes on top of it. WSL at 3dcfff3, one test before 2742804 deleted
-  the unlocked-sharing test (`verify-linux.sh`, lavapipe, layer 1.4.363 through
-  `VK_ADD_LAYER_PATH`, `SHARPNRI_TEST_SOFTWARE=1`): 655 passed, 11 skipped (the D3D12 and DXIL
-  rows), 0 failed, with `NriDeviceTests` 70 passed and 3 skipped and `NriValidationTests` +
-  `SlangComputeCorpusTests` 6 passed; not re-run since. CI per leg: under Tests and skips.
+- Figures, on the test platform at 094296b. The workstation (Release, Vulkan with the SDK's 1.4.363
+  layer, and D3D12, the RTX 4070 SUPER): 761 passed, 0 skipped, 0 failed, 105 of them NRI device
+  tests, 1m30s; the same 761 VSTest ran at 2742804. WSL (`verify-linux.sh` in a Linux-filesystem
+  clone, lavapipe, layer 1.4.363 through `VK_ADD_LAYER_PATH`, `SHARPNRI_TEST_SOFTWARE=1`): 665
+  total, 654 passed, 11 skipped (the D3D12 and DXIL rows), 0 failed, with `NriDeviceTests` 70
+  passed and 3 skipped and `NriValidationTests` + `SlangComputeCorpusTests` 6 passed; 655 at
+  3dcfff3 on VSTest, before 2742804 deleted one. With Ubuntu's 1.3.275 layer alone, WSL skips 9
+  more (the Vulkan validation rows): 613 passed, 20 skipped. CI per leg: under Tests and skips.
 
 ### Coverage
 
-Not built yet. The template's `tools/coverage.ps1`, `docs/coverage.md`, the badges and the
-`BoundSurface` tool are a later phase; until then no coverage figure is published.
+`pwsh tools/coverage.ps1` builds with `-p:SharpSlangCoverage=true` (which brings
+`Microsoft.Testing.Extensions.CodeCoverage` into the test project), runs BoundSurface and
+`dotnet test --coverage` (cobertura, the prober's child processes included, `dotnet/Native` not
+counted), and writes `docs/coverage.md` and `docs/badges/`, stamped with the commit, date, Slang
+ref, patch count, payload by content and adapter per backend, recording the measured inputs' tree
+entries. `-Check` builds nothing and fails when an input changed, a badge names another commit or
+the measurement had uncommitted changes. What it measures is `tools/coverage/coverage.psd1`.
+
+- **BoundSurface** (`tools/coverage/BoundSurface`, outside the solution): a function is a flat
+  export of `SlangApi` or a vtable slot, counted once on the interface that declares it (the slot
+  index is read from IL: `VtblIndexAttribute` is `[Conditional("DEBUG")]`; `ITypeConformance` adds no
+  slot to `IComponentType`, which the data names). Bound means called from code whose PDB document
+  is outside `dotnet/Native`. Interfaces the host implements (file systems, writers, library loaders)
+  are not counted.
+- **Measured at 094296b** (Windows, VK and D3D12 on the RTX 4070 SUPER): 191 of 489 functions bound,
+  186 with a call site the tests run; 53 of 120 fields; lines 92.3 % (2716/2943), branches 81.3 %;
+  761 tests passed. Not published: `docs/coverage.md` and the badges are committed once the
+  restructure settles.
+
+### Package tools
+
+`tools/ci/packages.psd1` lists every package (project, version pin, required and forbidden entries
+per package and per RID, exact dependencies, packed props values, generated description) and the
+consume runs; `Packages.psm1` reads it. `SharpSlang.Descs` and `SharpSlang.Pipeline.Bake` are in it
+with no project until they are split out. The package versions fall back to each project's
+`<Version>` until `Directory.Build.props` holds them.
+
+- `tools/ci/check-packages.ps1 -Folder <pack>`: the package check, on a Windows pack and a Linux one.
+  At 094296b both gave the same 35 findings, among them: every RID's 30
+  `slang-standard-module-2026.21/` files in a subfolder of `native/`; Slang's licences under
+  `runtimes/<rid>/`, which NuGet never copies, and no `licenses/<rid>/`; no PDB or README; the
+  `SharpSlang.Pipeline` dependency a floor, not exact; no `buildTransitive` props or targets; a
+  typed description; the dxc targets under `build/` with no `lib/net11.0/_._`.
+- `tools/ci/descs-version.ps1`: for Descs and the reader, a published version must name a commit
+  whose sources equal HEAD's (`-PublishedFrom Id=commit` states one without the feed).
+- `tools/ci/api-changes.ps1` (`tools/apidiff`): the public surface against a folder of packages, a
+  git ref it packs, or nuget.org's previous release; `-Package Old=New` and `-Rename Old=New` carry a
+  rename. Against 90ec948 with the PrismSlang renames: every package unchanged, `PrismSlang.Vulkan`
+  removed.
+- `tools/ci/release-body.ps1`: Bound libraries, the notes, API changes, Packages.
+- `tools/consume/consume.ps1 -Feed <pack>` (supersedes `tests/SharpSlang.PackageConsumer`):
+  portable, `run -r`, `publish -r`, Native AOT, dxc alone, the reader alone, a wrong dxc version;
+  each check PASS, FAIL or NOT YET (a prerequisite the packages lack, named). At 094296b on
+  Windows: 27 passed, 2 failed (`publish -r` and AOT flatten the standard-module files beside the
+  application), 5 not yet (licences, `IsAotCompatible`, and a wrong `Microsoft.Direct3D.DXC` that
+  builds when the pinned version is in the package cache, or fails with no `SHARPSLANG` code when
+  it is not).
 
 ---
 
@@ -1109,7 +1170,8 @@ in `docs/upstream.md`.
   the 4 KB block, `MallocPreScribble` (`0xAA`) reaches fresh small blocks once `MallocNanoZone=0`.
   `The_allocator_poisoning_is_armed_and_reaches_small_allocations` asserts all four bytes at both
   sizes on every leg.
-- On a failed leg CI prints the blame sequence file, the last 15 completed tests and a tally of
+- On a failed leg CI prints the test the diagnostic log shows started and never finished, the last
+  15 completed tests and a tally of
   completed tests per class;
   on osx-arm64 `tools/ci/macos-backtrace.sh` reads the `.ips` crash report and reruns the prober's
   teardown under `lldb`. A test-host crash's reported "reason" is stderr, never the cause.
@@ -1152,11 +1214,12 @@ Oracles, each outside the binding:
 - **Child processes**: `tests/SharpSlang.Prober` runs one question per process; exit 0 completed,
   1 threw (message on stderr), 2 misuse, anything else ended the process. `healthy` runs first,
   because a prober that cannot load its payload also dies. The template's `<Binding>_TEST_CHILD`
-  module-initializer form is not used; the prober is its own executable.
+  module-initializer form is not used for questions; the prober is its own executable. The test
+  executable has one such mode, `test-adapters`, which only reports adapters (Test runner).
 - **Two in-process questions moved out on suspicion** (`specialized-type-arg-out-of-range`,
   `apply-generic-to-itself`): benign on Windows and Linux, unproven on macOS; asked out of process.
-- **Expected skips.** The workstation skips nothing (761 at 2742804). WSL skipped the 11 D3D12 and
-  DXIL rows (655 passed at 3dcfff3). CI per leg has not run on this tree: the last figures are of the tree
+- **Expected skips.** The workstation skips nothing (761 at 094296b). WSL skips the 11 D3D12 and
+  DXIL rows (654 passed at 094296b). CI per leg has not run on this tree: the last figures are of the tree
   before the Vulkan projection's removal (run 42422416933 on 9af4412: win-x64 774 passed, 10
   skipped; linux-x64 740, 12; linux-arm64 670, 18; run 42423571989 on 15428be: osx-arm64 632, 24),
   and are re-measured by the first CI run of this tree. Each skip prints its reason in the TRX: no
@@ -1197,7 +1260,7 @@ Oracles, each outside the binding:
   two.
 - **Hang bound**: the Test step has a 20-minute timeout. A win-x64 run of the .NET 11 migration went
   quiet one minute in and was cancelled by hand at 22 minutes with no record of the test; with the
-  bound, `--blame`'s sequence file survives.
+  bound, the diagnostic log names the test that was running.
 - **Rate limit**: two of eight legs got a 403 on their first corpus-listing call after the caches
   were evicted; the job token now goes to the tests (`GITHUB_TOKEN`), and the header and corpus are
   cached per pin.
