@@ -18,6 +18,7 @@
 // that fails, preloads nothing and leaves the failure to the first DllImport, which is the one
 // explained here.
 
+using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Runtime.Loader;
@@ -74,6 +75,9 @@ internal static class NativeLibraryHint
     /// then the assembly's own directory. Read, not guessed: <c>NATIVE_DLL_SEARCH_DIRECTORIES</c> is
     /// the host's list as the runtime received it.
     /// </summary>
+    // An assembly embedded in a single-file or Native AOT application has no Location: the empty
+    // path is skipped, and the application's directory, which the runtime searches then, stands in
+    [UnconditionalSuppressMessage("SingleFile", "IL3000", Justification = "An empty Location is skipped; AppContext.BaseDirectory stands in")]
     internal static IReadOnlyList<string> SearchedDirectories()
     {
         var directories = new List<string>();

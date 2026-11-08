@@ -45,6 +45,6 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.Direct3D.DXC" Version="[$(DxcPackageVersion)]" PrivateAssets="all" />
   </ItemGroup>
-  <Import Project="..\..\dxc\build\SharpSlang.Dxc.targets" />
+  <Import Project="..\..\dxc\buildTransitive\SharpSlang.Dxc.targets" />
 
 </Project>

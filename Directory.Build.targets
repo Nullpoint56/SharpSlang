@@ -46,6 +46,26 @@
     <FileVersion>$(AssemblyVersion)</FileVersion>
   </PropertyGroup>
 
+  <!--
+    The package page (docs/nuget/README.md) with its repository links pinned to the release:
+    blob/master/ and tree/master/ become blob/v$(SharpSlangVersion)/ and tree/v$(SharpSlangVersion)/,
+    the tag the release creates on the packed commit, so a package's page shows the guide of its own
+    version (SharpNRI's target). Every package's page names the release tag, Descs and the reader
+    included: a reused Descs keeps the page of the release that packed it.
+  -->
+  <PropertyGroup>
+    <_SharpSlangReadme>$(BaseIntermediateOutputPath)nuget-readme/README.md</_SharpSlangReadme>
+  </PropertyGroup>
+  <ItemGroup Condition="'$(IsPackable)' != 'false'">
+    <None Include="$(_SharpSlangReadme)" Pack="true" PackagePath="\" Visible="false" />
+  </ItemGroup>
+  <Target Name="SharpSlangPackageReadme" BeforeTargets="_GetPackageFiles;GenerateNuspec" Condition="'$(IsPackable)' != 'false'">
+    <PropertyGroup>
+      <_SharpSlangReadmeText>$([System.IO.File]::ReadAllText('$(MSBuildThisFileDirectory)docs/nuget/README.md').Replace('/blob/master/', '/blob/v$(SharpSlangVersion)/').Replace('/tree/master/', '/tree/v$(SharpSlangVersion)/'))</_SharpSlangReadmeText>
+    </PropertyGroup>
+    <WriteLinesToFile File="$(_SharpSlangReadme)" Lines="$([MSBuild]::Escape($(_SharpSlangReadmeText)))" Overwrite="true" WriteOnlyWhenDifferent="true" />
+  </Target>
+
   <Target Name="SharpSlangVersionMajor" BeforeTargets="Build;GenerateNuspec" Condition="'$(IsPackable)' != 'false'">
     <Error Code="SHARPSLANG004" Condition="'$(SharpSlangVersionMajor)' == ''"
            Text="SlangVersion $(SlangVersion) has no YYYYRRP encoding (a four-digit year, a release below 100, a patch below 10): the package major cannot name it (Directory.Build.props)" />

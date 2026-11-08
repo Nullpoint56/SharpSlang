@@ -33,6 +33,31 @@
     <NoWarn>$(NoWarn);CS1591</NoWarn>
   </PropertyGroup>
 
+  <!--
+    Package metadata every package shares. The package page is docs/nuget/README.md with its
+    repository links pointed at the release tag (Directory.Build.targets).
+
+    Debugging into the binding from an application: the package records the repository and the
+    commit it was built from (<repository commit>), each portable PDB ships beside its DLL, and
+    the SDK's own Source Link (no Microsoft.SourceLink package: .NET 8 and later carry it) maps
+    the PDB's documents to that commit on GitHub; the generated files of obj/ (SlangHeaders.g.cs,
+    the JSON source generator's) are embedded in the PDB instead. tools/ci/check-packages.ps1 reads
+    each packed PDB's Source Link map. The release pack adds ContinuousIntegrationBuild
+    (deterministic, repository-relative paths); local and test builds keep their real paths.
+  -->
+  <PropertyGroup>
+    <Authors>szombathy-tamas</Authors>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <RepositoryType>git</RepositoryType>
+    <RepositoryUrl>https://github.com/Nullpoint56/SharpSlang</RepositoryUrl>
+    <PackageProjectUrl>https://github.com/Nullpoint56/SharpSlang</PackageProjectUrl>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+    <DebugType>portable</DebugType>
+    <AllowedOutputExtensionsInPackageBuildOutputFolder>$(AllowedOutputExtensionsInPackageBuildOutputFolder);.pdb</AllowedOutputExtensionsInPackageBuildOutputFolder>
+  </PropertyGroup>
+
   <PropertyGroup>
     <SlangVersion>v2026.21</SlangVersion>
 
@@ -44,7 +69,7 @@
       a fix the third; beta while the API may change.
 
         SharpSlangVersion          the release: tag v<it>; SharpSlang, SharpSlang.Dxc,
-                                   SharpSlang.Pipeline.NRI (and .Bake once it is split out)
+                                   SharpSlang.Pipeline.Bake, SharpSlang.Pipeline.NRI
         SharpSlangDescsVersion     SharpSlang.Descs, moved only when the descs change
                                    (tools/ci/descs-version.ps1): a binding-only release reuses the
                                    published Descs, so a library built on them needs no release
@@ -101,10 +126,11 @@
       DirectXShaderCompiler GitHub release, and Microsoft's licence terms in that release forbid a
       stand-alone offering of the files, which a payload-only package is. Read by:
 
-        dxc/SharpSlang.Dxc.csproj          the PackageReference, as an exact range
-        dxc/build/SharpSlang.Dxc.targets   restated there as the path to copy from, since
-                                                     NuGet hands a consumer no path property for a
-                                                     transitive package; DocumentedFactsTests pins
+        dxc/SharpSlang.Dxc.csproj                    the PackageReference, as an exact range
+        dxc/buildTransitive/SharpSlang.Dxc.targets   restated there as the version the restore must
+                                                     resolve (SHARPSLANG011) and copy from, since
+                                                     NuGet hands a consumer no version property for
+                                                     a transitive package; DocumentedFactsTests pins
                                                      the two to each other
         tests/SharpSlang.Tests                       the same reference and import, so the DXIL
                                                      tests find dxc beside the compiler

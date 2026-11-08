@@ -25,7 +25,7 @@
 
     What the package contains is one dependency and one targets file. The dependency is
     Microsoft.Direct3D.DXC, Microsoft's own NuGet package of the same two DLLs, at an exact version;
-    the targets file (build/SharpSlang.Dxc.targets) copies dxcompiler.dll and dxil.dll from
+    the targets file (buildTransitive/SharpSlang.Dxc.targets) copies dxcompiler.dll and dxil.dll from
     that package's build/native/bin/x64/ into the root of the consumer's output. That is beside
     slang-compiler.dll when the output is flat (a RID-specific build, or SharpSlang referenced as a
     project), and one runtimes\win-x64\native\ away from it in a portable build; SharpSlang's
@@ -53,11 +53,8 @@
 
     <PackageId>SharpSlang.Dxc</PackageId>
     <Version>$(SharpSlangVersion)</Version>
-    <Authors>szombathy-tamas</Authors>
-    <Description>Copies Microsoft's DirectX Shader Compiler (dxcompiler.dll, dxil.dll) into the application's output on win-x64, where SharpSlang loads it for Slang, so Slang can emit DXIL for D3D12. Carries no binary: depends on Microsoft.Direct3D.DXC at a pinned version and copies the two DLLs from it. Optional: without it SharpSlang compiles SPIR-V only.</Description>
+    <Description>Copies Microsoft's DirectX Shader Compiler (dxcompiler.dll, dxil.dll) into the application's output on win-x64, where SharpSlang loads it for Slang, so Slang can emit DXIL for D3D12. Carries no binary: depends on Microsoft.Direct3D.DXC at a pinned version, copies the two DLLs from it, and fails the build when another version is restored (SHARPSLANG011). Optional: without it SharpSlang compiles SPIR-V only.</Description>
     <PackageTags>slang;dxc;dxil;d3d12;shader-compiler</PackageTags>
-    <PackageLicenseExpression>MIT</PackageLicenseExpression>
-    <RepositoryType>git</RepositoryType>
 
     <IncludeBuildOutput>false</IncludeBuildOutput>
     <IncludeSymbols>false</IncludeSymbols>
@@ -73,7 +70,9 @@
     -->
     <PackageReference Include="Microsoft.Direct3D.DXC" Version="[$(DxcPackageVersion)]" />
 
-    <None Include="build\SharpSlang.Dxc.targets" Pack="true" PackagePath="build\" />
+    <!-- net11.0 folders: the package is for .NET 11; _._ marks lib/ as intentionally empty -->
+    <None Include="buildTransitive\SharpSlang.Dxc.targets" Pack="true" PackagePath="buildTransitive\net11.0\" />
+    <None Include="_._" Pack="true" PackagePath="lib/net11.0/_._" />
     <None Include="$(MSBuildThisFileDirectory)..\THIRD-PARTY-NOTICES.md" Pack="true" PackagePath="\" />
   </ItemGroup>
 

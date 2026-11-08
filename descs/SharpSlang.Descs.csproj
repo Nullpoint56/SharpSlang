@@ -27,13 +27,12 @@
     <RootNamespace>SharpSlang</RootNamespace>
     <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
 
+    <!-- Trimming and Native AOT: declared, so the trim, AOT and single-file analyzers run in every build (errors under -warnaserror), and tools/consume publishes it with Native AOT (AGENTS.md#native-packages) -->
+    <IsAotCompatible>true</IsAotCompatible>
     <PackageId>SharpSlang.Descs</PackageId>
     <Version>$(SharpSlangDescsVersion)</Version>
-    <Authors>szombathy-tamas</Authors>
     <Description>Slang $(SlangVersion)'s enums, descriptor structs, COM interface layouts and IIDs as plain .NET types, generated from the pinned slang.h. No native dependency: reference this to name Slang's types without the compiler.</Description>
     <PackageTags>slang;shader;spirv;reflection</PackageTags>
-    <PackageLicenseExpression>MIT</PackageLicenseExpression>
-    <RepositoryType>git</RepositoryType>
   </PropertyGroup>
 
   <ItemGroup>

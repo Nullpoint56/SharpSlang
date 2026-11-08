@@ -36,13 +36,12 @@
     <Nullable>enable</Nullable>
     <RootNamespace>SharpSlang.Pipeline.NRI</RootNamespace>
 
+    <!-- Trimming and Native AOT: declared, so the trim, AOT and single-file analyzers run in every build (errors under -warnaserror), and tools/consume publishes it with Native AOT (AGENTS.md#native-packages) -->
+    <IsAotCompatible>true</IsAotCompatible>
     <PackageId>SharpSlang.Pipeline.NRI</PackageId>
     <Version>$(SharpSlangVersion)</Version>
-    <Authors>szombathy-tamas</Authors>
-    <Description>NRI (NVIDIA Render Interface) projection for SharpSlang reflection: a SharpNRI pipeline layout desc, root constants, vertex attributes and shader descs from a Slang shader. References SharpNRI.Descs only, so no NRI binary comes with it. Alpha: not yet load-tested by a shipping game.</Description>
+    <Description>NRI (NVIDIA Render Interface) projection for SharpSlang reflection: a SharpNRI pipeline layout desc, root constants, vertex attributes and shader descs from a Slang shader. Stored in a baked package at bake time and read back without projecting. References SharpNRI.Descs only, so no NRI binary comes with it.</Description>
     <PackageTags>slang;nri;vulkan;d3d12;spirv;shader;reflection;descriptor-set</PackageTags>
-    <PackageLicenseExpression>MIT</PackageLicenseExpression>
-    <RepositoryType>git</RepositoryType>
   </PropertyGroup>
 
   <!--
