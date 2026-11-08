@@ -288,6 +288,8 @@ jobs:
 
       - name: Fetch native payload
         shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}   # only for the API fallback route; see fetch-native.ps1
         run: ./tools/fetch-native.ps1 -Rid ${{ matrix.rid }} -Profile Spirv
 
       - name: Payload carries the SPIR-V optimiser
