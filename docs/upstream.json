@@ -255,9 +255,9 @@
       "title": "C++: the prelude has no vector arithmetic or comparison for `half`",
       "area": "C++",
       "kind": "Slang defect",
-      "patch": null,
-      "test": "TargetValidationTests.Slang_compute_corpus_cpp_compiles_with_the_host_compiler",
-      "state": "unpatched",
+      "patch": "0011-cpp-prelude-half-vector-ops.patch",
+      "test": "TargetValidationTests.Cpp_half_vector_arithmetic_and_comparison_compile",
+      "state": "patched",
       "verified": "v2026.21",
       "upstream": [
         "#14037",

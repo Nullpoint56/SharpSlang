@@ -292,6 +292,26 @@ public sealed class TargetValidationTests(ITestOutputHelper output)
     public void Glsl_a_hull_shaders_patch_constant_function_compiles() =>
         RequirePatchedCaseValid("glsl", "tessellation/teHull", Validator.GlslangValidator);
 
+    /// <summary>The registry test of a patch that fixes a compute case's output on <paramref name="target"/>.</summary>
+    private static void RequirePatchedComputeValid(string target, Validator validator, params string[] keys)
+    {
+        var missing = TargetValidators.Unavailable(validator);
+        Assert.SkipWhen(missing is not null, missing ?? "");
+        var t = TargetNamed(target);
+        using var global = SlangGlobalSession.Create();
+        foreach (var key in keys)
+        {
+            var test = SlangTestCorpus.Compute.Single(c => ComputePrefix + c.Source == key);
+            var e = EmitCompute(global, test, t.Options());
+            Assert.True(e.Refusal is null, $"{target} {key}: Slang refused: {e.Refusal}");
+            var verdict = t.Judge(e);
+            Assert.True(verdict.Accepted, $"{target} {key}: {verdict.Message}");
+        }
+    }
+
+    [PatchedFact("U24")]
+    public void Cpp_half_vector_arithmetic_and_comparison_compile() =>
+        RequirePatchedComputeValid("cpp", Validator.HostCxx, "compute:half-vector-calc.slang", "compute:half-vector-compare.slang");
     [PatchedFact("U19")]
     public void Glsl_a_domain_shaders_patch_input_compiles() =>
         RequirePatchedCaseValid("glsl", "tessellation/teDomain", Validator.GlslangValidator);
@@ -566,7 +586,7 @@ public sealed class TargetValidationTests(ITestOutputHelper output)
             (["compute:atomics-groupshared.slang", "compute:atomics.slang", "compute:groupshared.slang", "compute:half-rw-texture-convert2.slang"],
                 new(Outcome.SlangRefuses, NotInStage, NoStageForTarget)),
             (["compute:half-vector-calc.slang", "compute:half-vector-compare.slang"],
-                new(Outcome.ValidatorRejects, "invalid operands to binary expression", "U24: Slang's C++ prelude defines vector arithmetic and comparison for float and double, not half")));
+                new(Outcome.ValidatorRejects, "invalid operands to binary expression", "U24: Slang's C++ prelude defines vector arithmetic and comparison for float and double, not half", FixedBy: "U24")));
 
         public static Dictionary<string, Expected> For(string target) => target switch
         {
@@ -600,6 +620,12 @@ internal static class SlangPrelude
 
     private static string Fetch()
     {
+        // A payload built from source is judged against the submodule's prelude, its patches applied
+        // (AGENTS.md#patches): a prelude patch changes what the emitted source compiles against.
+        var submodule = Path.Combine(SlangHeader.RepoRoot(), "slang", "prelude");
+        if (StagedPayload.IsBuild && File.Exists(Path.Combine(submodule, "slang-cpp-prelude.h")))
+            return submodule;
+
         var version = SlangHeader.Pinned.Version;
         var directory = Path.Combine(SlangHeader.RepoRoot(), "obj", "slang-headers", version, "prelude");
         System.IO.Directory.CreateDirectory(directory);
