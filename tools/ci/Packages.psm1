@@ -55,7 +55,7 @@ function Get-Pins($Spec, [string]$Root, [hashtable]$Overrides = @{}) {
         if ($Overrides.ContainsKey($token) -and $Overrides[$token]) { $pins[$token] = $Overrides[$token]; continue }
         $value = Get-MSBuildProperty $props $Spec.Pins[$token]
         if (-not $value) {
-            foreach ($p in @($Spec.Packages | Where-Object { $_.Version -eq $token })) {
+            foreach ($p in @($Spec.Packages | Where-Object { $_.Version -eq $token -and $_.Project })) {
                 $value = Get-MSBuildProperty (Join-Path $Root $p.Project) 'Version'
                 if ($value) { break }
             }

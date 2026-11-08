@@ -187,8 +187,8 @@ function Measurement {
     }
 
     # The upstream ref: the submodule's tag when there is one, else the pin
-    $sub = Join-Path $root $cfg.Upstream.Submodule
-    $upstream = if (Test-Path (Join-Path $sub ".git")) { (git -C $sub describe --tags --always).Trim() } else {
+    $sub = if ($cfg.Upstream.Submodule) { Join-Path $root $cfg.Upstream.Submodule } else { $null }
+    $upstream = if ($sub -and (Test-Path (Join-Path $sub ".git"))) { (git -C $sub describe --tags --always).Trim() } else {
         $props = Get-Content (Join-Path $root "Directory.Build.props") -Raw
         if ($props -match "<$($cfg.Upstream.Pin)>([^<]+)</$($cfg.Upstream.Pin)>") { "$($Matches[1].Trim()) (release binaries)" } else { "unknown" }
     }
@@ -286,7 +286,7 @@ $unrun = foreach ($class in $xml.coverage.packages.package.classes.class) {
         if ($lines.Count -eq 0 -or @($lines | Where-Object { [int]$_.hits -gt 0 }).Count -gt 0) { continue }
         $name = $method.name
         if ($name -match '^<([^>]+)>') { $name = "$($Matches[1]) (lambda)" }
-        elseif ($signatures["$($class.name)|$name"].Count -gt 1) { $name += $method.signature -replace '\b(SharpSlang\.(Native\.|Interop\.)?|PrismSlang\.(Native\.|Interop\.)?|System\.)', '' }
+        elseif ($signatures["$($class.name)|$name"].Count -gt 1) { $name += $method.signature -replace '\b(SharpSlang\.(Native\.|Interop\.)?|System\.)', '' }
         [pscustomobject]@{ Path = $path; Class = $className; Method = $name; Line = [int]$lines[0].number }
     }
 }

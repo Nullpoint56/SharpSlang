@@ -37,7 +37,7 @@
 // can ask the test coverage whether that line ran.
 //
 //   BoundSurface --assembly <dll> [--assembly <dll> ...] --out <bound.json>
-//                [--namespace PrismSlang.Native] [--api SlangApi] [--generated dotnet/Native]
+//                [--namespace SharpSlang.Native] [--api SlangApi] [--generated dotnet/Native]
 //                [--root <repository root>] [--vtable-field lpVtbl]
 //                [--host-implemented ISlangFileSystem,ISlangWriter,...]
 
@@ -593,7 +593,7 @@ internal sealed class Options
 {
     public List<string> Assemblies { get; } = [];
     public string Out { get; private set; } = "";
-    public string Namespace { get; private set; } = "PrismSlang.Native";
+    public string Namespace { get; private set; } = "SharpSlang.Native";
     public string Api { get; private set; } = "SlangApi";
     public string Generated { get; private set; } = "dotnet/Native";
     public string Root { get; private set; } = Directory.GetCurrentDirectory();

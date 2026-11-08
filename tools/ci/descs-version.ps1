@@ -66,6 +66,10 @@ $failed = @()
 foreach ($p in $data.Packages | Where-Object { $_.Sources.Count -or $_.SourcesFromProject }) {
     $id = $p.Id
     $key = $id.ToLowerInvariant().Replace('.', '_')
+    if (-not $p.Project) {
+        Write-Host "$id`: no project yet (not split out; tools/ci/packages.psd1 names none): nothing to check"
+        continue
+    }
     if (-not (Test-Path (Join-Path $root $p.Project))) {
         Write-Host "$id`: no $($p.Project) in this tree (not split out yet): nothing to check"
         continue

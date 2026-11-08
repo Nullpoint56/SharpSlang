@@ -10,9 +10,10 @@
 # A file pattern may use * and ?, matched against the package's entries (-like); the rest are exact.
 @{
     # Every pin a package version or dependency is spelled with, as the Directory.Build.props
-    # property that holds it. A package-version pin whose property is not there yet falls back to
-    # the <Version> of the package's project (one version for every package, as the repository
-    # had before the per-package versions).
+    # property that holds it. Directory.Build.props holds SlangVersion, DxcPackageVersion and the
+    # two SharpNRI pins today; the three package-version properties are not there yet, and until
+    # they are each falls back to the <Version> of a project whose package uses it (one version,
+    # set in every packed project, as the repository has it now).
     Pins = @{
         Version         = 'SharpSlangVersion'               # the release: tag v<it>
         DescsVersion    = 'SharpSlangDescsVersion'          # SharpSlang.Descs, moved only when the descs change
@@ -57,7 +58,8 @@
     #   Contains          entry = @( text ... ): literal text a packed file must contain
     #   Description       'Native': the description ends with "Native library inside for: <platforms>."
     #   Commit            $false when <repository commit> is not required (a package with no build)
-    #   Optional          checked when packed, not required to be (a package not split out yet)
+    #   Optional          checked when packed, not required to be (a package not split out yet,
+    #                     whose Project is $null until it exists)
     #   Assemblies        whether it carries lib/ assemblies: in the API diff and the consume runs
     Packages = @(
         @{
@@ -86,14 +88,14 @@
         }
         @{
             # The reader: baked packages, the reflection snapshot, the SPIR-V header. No compiler.
-            Id = 'SharpSlang.Pipeline'; Project = 'runtime/SharpSlang.Pipeline.csproj'; Version = 'PipelineVersion'
-            Sources = @('runtime', 'NativeReaderEnums.props'); SourcesFromProject = $true
+            Id = 'SharpSlang.Pipeline'; Project = 'pipeline/SharpSlang.Pipeline.csproj'; Version = 'PipelineVersion'
+            Sources = @('pipeline', 'NativeReaderEnums.props'); SourcesFromProject = $true
             Files = @('lib/net11.0/SharpSlang.Pipeline.dll', 'lib/net11.0/SharpSlang.Pipeline.xml', 'lib/net11.0/SharpSlang.Pipeline.pdb', 'README.md')
             Forbidden = @('^runtimes/', '^licenses/', 'slang-compiler')
             Assemblies = $true
         }
         @{
-            Id = 'SharpSlang.Pipeline.NRI'; Project = 'nri/SharpSlang.Pipeline.NRI.csproj'; Version = 'Version'
+            Id = 'SharpSlang.Pipeline.NRI'; Project = 'pipeline-nri/SharpSlang.Pipeline.NRI.csproj'; Version = 'Version'
             Files = @('lib/net11.0/SharpSlang.Pipeline.NRI.dll', 'lib/net11.0/SharpSlang.Pipeline.NRI.xml', 'lib/net11.0/SharpSlang.Pipeline.NRI.pdb', 'README.md')
             Forbidden = @('^runtimes/', '^licenses/')
             Dependencies = @{ 'SharpSlang.Pipeline' = '[{PipelineVersion}]'; 'SharpNRI.Descs' = '[{SharpNriDescs}]' }
@@ -103,17 +105,21 @@
             # Targets only: Microsoft's own package at the pinned version, and the targets that
             # copy dxcompiler.dll and dxil.dll out of it. Redistributes no binary (Microsoft's
             # terms forbid a stand-alone offering; THIRD-PARTY-NOTICES.md).
-            Id = 'SharpSlang.Dxc'; Project = 'native/SharpSlang.Dxc.csproj'; Version = 'Version'
+            # The targets' source is dxc/build/SharpSlang.Dxc.targets, packed today as
+            # build/SharpSlang.Dxc.targets; a targets-only package carries them under
+            # buildTransitive/<tfm>/ with lib/<tfm>/_._.
+            Id = 'SharpSlang.Dxc'; Project = 'dxc/SharpSlang.Dxc.csproj'; Version = 'Version'
             Files = @('buildTransitive/net11.0/SharpSlang.Dxc.targets', 'lib/net11.0/_._', 'README.md', 'THIRD-PARTY-NOTICES.md')
             Forbidden = @('^runtimes/', '\.(dll|so|dylib)$', '^licenses/')
             Dependencies = @{ 'Microsoft.Direct3D.DXC' = '[{Dxc}]' }
-            Contains = @{ 'buildTransitive/net11.0/SharpSlang.Dxc.targets' = @('>{Dxc}<') }
+            Contains = @{ 'buildTransitive/net11.0/SharpSlang.Dxc.targets' = @('>{Dxc}<'); 'build/SharpSlang.Dxc.targets' = @('>{Dxc}<') }
             Commit = $false
             Assemblies = $false
         }
         @{
             # L0 without the DllImport file, and the managed desc forms: no native dependency.
-            Id = 'SharpSlang.Descs'; Project = 'descs/SharpSlang.Descs.csproj'; Version = 'DescsVersion'
+            # Not split out yet: no project, so nothing is checked until one is named here.
+            Id = 'SharpSlang.Descs'; Project = $null; Version = 'DescsVersion'
             Sources = @('dotnet/Native', ':(exclude)dotnet/Native/SlangApi.cs', 'descs', 'NativeSplit.props'); SourcesFromProject = $true
             Files = @('lib/net11.0/SharpSlang.Descs.dll', 'lib/net11.0/SharpSlang.Descs.xml', 'lib/net11.0/SharpSlang.Descs.pdb', 'README.md')
             Forbidden = @('^runtimes/', '^licenses/')
@@ -121,7 +127,8 @@
             Assemblies = $true
         }
         @{
-            Id = 'SharpSlang.Pipeline.Bake'; Project = 'bake/SharpSlang.Pipeline.Bake.csproj'; Version = 'Version'
+            # Not split out yet: no project, so nothing is checked until one is named here.
+            Id = 'SharpSlang.Pipeline.Bake'; Project = $null; Version = 'Version'
             Files = @('lib/net11.0/SharpSlang.Pipeline.Bake.dll', 'lib/net11.0/SharpSlang.Pipeline.Bake.xml', 'lib/net11.0/SharpSlang.Pipeline.Bake.pdb', 'README.md')
             Forbidden = @('^runtimes/', '^licenses/')
             Dependencies = @{ 'SharpSlang' = '[{Version}]'; 'SharpSlang.Pipeline' = '[{PipelineVersion}]' }

@@ -120,7 +120,7 @@ foreach ($p in $data.Packages) {
     # The values the packed props set (the restore guards compare against them)
     foreach ($file in $p.Props.Keys) {
         $text = $pkg.Texts[$file]
-        if ($null -eq $text) { $failed.Add("$name has no $file to hold $($p.Props[$file].Keys -join ', ')"); continue }
+        if ($null -eq $text) { $failed.Add("$name has no $file to hold $(($p.Props[$file].Keys | Sort-Object) -join ', ')"); continue }
         foreach ($prop in $p.Props[$file].Keys) {
             $value = Expand-Template $p.Props[$file][$prop] $pinValues
             if ($text -notmatch "<$prop(\s[^>]*)?>$([regex]::Escape($value))</$prop>") { $failed.Add("$name $file does not set $prop to $value") }

@@ -83,6 +83,9 @@ else {
     $label = "v$previous"
 }
 
+# "A=B,C=D" from pwsh -File, or an array
+$Package = @($Package | ForEach-Object { $_ -split ',' } | Where-Object { $_ })
+$Rename = @($Rename | ForEach-Object { $_ -split ',' } | Where-Object { $_ })
 $diffArgs = @($Baseline, $New, $Out, $label)
 foreach ($p in $Package) { $diffArgs += "--package", $p }
 foreach ($r in $Rename) { $diffArgs += "--rename", $r }

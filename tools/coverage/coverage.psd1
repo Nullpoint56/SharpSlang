@@ -1,5 +1,7 @@
 # What tools/coverage.ps1 measures, and from where. A project renamed, split or added is a change
-# here, not in the script. Paths are relative to the repository root.
+# here, not in the script. Paths are relative to the repository root. SharpSlang.Descs and
+# SharpSlang.Pipeline.Bake are not split out yet; their assemblies, areas and inputs join the
+# lists below when they are.
 @{
     # Built with -p:<CoverageProperty>=true, which brings Microsoft.Testing.Extensions.CodeCoverage
     # into the test project (off otherwise: test-only, and no collector on every RID).
@@ -14,9 +16,9 @@
     Bin = 'dotnet/bin/Release/net11.0'
 
     # The bound surface (tools/coverage/BoundSurface): the assemblies that hold the generated layer
-    # and the binding code, whichever exist (SharpSlang.Descs once NativeSplit.props splits it out).
+    # and the binding code. One today: L0 is compiled into SharpSlang.dll.
     BoundSurface = @{
-        Assemblies  = @('SharpSlang.dll', 'SharpSlang.Descs.dll')
+        Assemblies  = @('SharpSlang.dll')
         Namespace   = 'SharpSlang.Native'
         Api         = 'SlangApi'          # the one DllImport class
         Generated   = 'dotnet/Native'     # L0's source folder: methods from here are not binding code
@@ -29,8 +31,8 @@
         Bases = @{ ITypeConformance = 'IComponentType' }
     }
 
-    # Test coverage: the modules measured (file names, no extension), whichever are built
-    Modules = @('SharpSlang', 'SharpSlang.Descs', 'SharpSlang.Pipeline', 'SharpSlang.Pipeline.NRI', 'SharpSlang.Pipeline.Bake')
+    # Test coverage: the modules measured (file names, no extension)
+    Modules = @('SharpSlang', 'SharpSlang.Pipeline', 'SharpSlang.Pipeline.NRI')
 
     # Report areas by source path, first match wins; $null = not counted (generated L0)
     Areas = @(
@@ -41,18 +43,18 @@
         @{ Path = 'dotnet/Hosting/';     Area = 'L2 dotnet/Hosting' }
         @{ Path = 'dotnet/Baking/';      Area = 'L2 dotnet/Baking' }
         @{ Path = 'dotnet/';             Area = 'dotnet/ (other)' }
-        @{ Path = 'descs/';              Area = 'descs/ (managed desc forms)' }
-        @{ Path = 'runtime/';            Area = 'SharpSlang.Pipeline (runtime/)' }
-        @{ Path = 'nri/';                Area = 'SharpSlang.Pipeline.NRI (nri/)' }
-        @{ Path = 'bake/';               Area = 'SharpSlang.Pipeline.Bake (bake/)' }
+        @{ Path = 'pipeline/';           Area = 'SharpSlang.Pipeline (pipeline/)' }
+        @{ Path = 'pipeline-nri/';       Area = 'SharpSlang.Pipeline.NRI (pipeline-nri/)' }
     )
 
     # The measured inputs: these entries of the measured commit's tree are recorded, and -Check
-    # compares them with HEAD's. A path that does not exist is recorded as absent.
-    Inputs = @('dotnet', 'descs', 'runtime', 'nri', 'bake', 'native', 'tests', 'patches', 'slang', 'NativeSplit.props', 'NativeReaderEnums.props')
+    # compares them with HEAD's. A path that does not exist (patches/, before the first patch) is
+    # recorded as absent, and its appearing counts as a change.
+    Inputs = @('dotnet', 'pipeline', 'pipeline-nri', 'dxc', 'tests', 'patches', 'NativeReaderEnums.props')
 
-    # The upstream ref: `git describe` of the submodule when there is one, else the pin
-    Upstream = @{ Submodule = 'slang'; Pin = 'SlangVersion'; Name = 'Slang' }
+    # The upstream ref: `git describe` of the submodule when there is one (Submodule names its
+    # path), else the pin. No submodule yet: the payload is Slang's release binaries.
+    Upstream = @{ Submodule = $null; Pin = 'SlangVersion'; Name = 'Slang' }
     Patches  = 'patches'
 
     # The payload the tests load, identified by content: the library beside the test assembly,

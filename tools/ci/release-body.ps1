@@ -62,7 +62,7 @@ $api = if ($ApiChanges) { @("") + @((Get-Content $ApiChanges -Raw).TrimEnd() -sp
 # Packages: every package this tree packs, at its version
 $packages = @("", "## Packages")
 foreach ($p in $data.Packages) {
-    if ($p.Optional -and -not (Test-Path (Join-Path $root $p.Project))) { continue }
+    if ($p.Optional -and -not ($p.Project -and (Test-Path (Join-Path $root $p.Project)))) { continue }
     $v = Get-PackageVersion $p $pinValues
     $link = "[$($p.Id) $v]($Gallery/$($p.Id)/$v)"
     $packages += "- $link$(if ($Reused -contains $p.Id) { ' (reused: unchanged, the published package)' })"
