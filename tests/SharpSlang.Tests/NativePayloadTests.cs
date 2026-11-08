@@ -5,6 +5,7 @@
 // Slang's official release while CI still uses that. The two produce the same contract, measured at
 // v2026.21: the same file names on win-x64, linux-x64, linux-arm64 and osx-arm64, and the same
 // import lists. The lists mirror what build-native.ps1 stages and checks; change both together.
+// The measurements behind them are in AGENTS.md#native-packages and AGENTS.md#pin-and-payload.
 //
 //   runtimes/<rid>/native/   slang-compiler, slang-glslang, slang-standard-module-<version>/
 //   runtimes/<rid>/          LICENSE.txt, LICENSES/, third-party-notices/ (outside native/, which

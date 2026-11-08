@@ -865,11 +865,9 @@ jobs:
   # and this file (tools/ci/native-payload-key.ps1), the same on every OS. A hit restores
   # runtimes/<rid>/ in seconds and no Slang source is fetched. A miss fetches the submodule, builds,
   # and saves the payload right after the build, before any test runs, so a red test run still
-  # leaves the next run a cached payload. Measured at v2026.21 on a Ryzen 7 9700X (8 cores, 16
-  # threads), clean trees: win-x64 2 min 55 s (configure 10 s, 21.6 thread-minutes of Ninja edges),
-  # linux-x64 under WSL 4 min 52 s (43.5 thread-minutes, 1137% CPU, 2.4 GB peak RSS). Not measured
-  # on a runner; the timeout is several times a 4-vCPU estimate (Ninja edge time / 4, plus the
-  # serial LTO link and core-module steps).
+  # leaves the next run a cached payload. Build times are in AGENTS.md#native-build (workstation,
+  # clean trees); none is measured on a runner yet, so the timeout is several times a 4-vCPU
+  # estimate from them (Ninja edge time / 4, plus the serial LTO link and core-module steps).
   #
   # Switching over moves these steps into the test job in place of "Fetch native payload" (inline,
   # so a hit costs no extra job minute), adds the key to the gate's outputs, and drops the

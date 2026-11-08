@@ -21,86 +21,13 @@
 
      and prints what it staged. tests/SharpSlang.Tests/NativePayloadTests.cs holds the same lists.
 
-  Options, all passed on every platform where Slang declares them (CMakeLists.txt at v2026.21).
-  "Official" is what Slang's release workflow (.github/workflows/release.yml) builds with: the
-  "default" preset plus -DSLANG_ENABLE_EXAMPLES=OFF -DSLANG_ENABLE_RELEASE_LTO=ON
-  -DSLANG_STANDARD_MODULE_DEVELOP_BUILD=OFF, slang-llvm built from LLVM on x86_64.
-
-    Option                                   Value    Why
-    ---------------------------------------  -------  ----------------------------------------------
-    SLANG_LIB_TYPE                           SHARED   the binding P/Invokes slang-compiler
-    SLANG_EMBED_CORE_MODULE                  ON       official; the core module is inside the library
-    SLANG_EMBED_CORE_MODULE_SOURCE           ON       official
-    SLANG_ENABLE_SLANG_GLSLANG               ON       slang-glslang carries spirv-opt (docs/design.md §6)
-    SLANG_ENABLE_DXIL                        ON       DXIL through a dxc the application brings
-                                                      (SharpSlang.Native.Dxc). Compiles the DXC loader
-                                                      in; FetchDXC.cmake also downloads DXC (below)
-    SLANG_DXC_BUILD_FROM_SOURCE              OFF      never a 30-minute DXC source build; unset, macOS
-                                                      builds DXC from source and Linux x86_64 does when
-                                                      the host glibc is older than DXC's prebuilt needs
-    SLANG_SLANG_LLVM_FLAVOR                  DISABLE  slang-llvm (CPU targets) is not staged; the default
-                                                      FETCH_BINARY_IF_POSSIBLE downloads the whole
-                                                      official release archive to take it from there
-    SLANG_EXCLUDE_DAWN                       ON       its Windows default (OFF) downloads Dawn for the
-                                                      test tools; ON everywhere else already
-    SLANG_EXCLUDE_TINT                       ON       its default (OFF) downloads slang-tint on Windows
-    SLANG_ENABLE_SLANG_RHI                   OFF      slang-rhi is for the tests and examples
-    SLANG_ENABLE_GFX                         OFF      Slang's graphics layer; not staged
-    SLANG_ENABLE_SLANGC / SLANGD / SLANGI    OFF      tools; not staged. The standard modules are
-                                                      compiled by slang-bootstrap, not slangc
-    SLANG_ENABLE_SLANGRT                     OFF      slang-rt is for CPU/host targets; not staged
-    SLANG_ENABLE_SLANG_PROXY                 OFF      the legacy slang.dll; the binding binds slang-compiler
-    SLANG_ENABLE_TESTS / EXAMPLES / REPLAYER OFF      not staged (TESTS requires SLANG_RHI)
-    SLANG_ENABLE_RECORD_REPLAY               ON       official: OFF compiles the slang_*RecordLayer exports
-                                                      as stubs, a different library under the same names
-    SLANG_ENABLE_CUDA / OPTIX / NVAPI /      OFF      auto_option()s: AUTO enables whatever the build
-      AFTERMATH                                       machine has installed. Only the tools use them
-    SLANG_ENABLE_XLIB (Linux only)           OFF      auto_option() for gfx windows; declared on Linux only
-    SLANG_ENABLE_DX_ON_VK                    OFF      test configuration
-    SLANG_ENABLE_MIMALLOC                    ON win,  Slang's own default per platform (MSVC + SHARED
-                                             OFF else -> ON), which the official build takes
-    SLANG_ENABLE_SPIRV_TOOLS_MIMALLOC        ON win,  likewise
-                                             OFF else
-    SLANG_ENABLE_RELEASE_LTO                 ON       official
-    SLANG_STANDARD_MODULE_DEVELOP_BUILD      OFF      official ("Disable for release builds")
-    SLANG_BUILD_MONOLITHIC_STANDARD_MODULE_  OFF      loose .slang-module files, the layout the official
-      LIBRARY                                         release and the binding use
-    SLANG_ENABLE_RELEASE_DEBUG_INFO          ON       PDB / DWARF for the symbol zips; not staged
-    SLANG_ENABLE_SPLIT_DEBUG_INFO            ON       debug info beside the library, the library stripped
-    SLANG_ENABLE_PCH                         ON       build speed only
-    SLANG_ENABLE_VALIDATION_VM_BYTECODE      ON       upstream default, official
-    SLANG_ENABLE_VALIDATION_IR / _FOSSIL,    OFF      debugging aids
-      SLANG_ENABLE_IR_BREAK_ALLOC
-    SLANG_ENABLE_ASAN / TSAN / COVERAGE /    OFF      instrumentation
-      TIME_TRACE
-    SLANG_IGNORE_ABORT_MSG                   OFF      upstream default, official
-    SLANG_USE_SCCACHE                        OFF      and $env:SLANG_USE_SCCACHE is cleared: Slang turns
-                                                      it on from the environment
-    SLANG_INSTALL_USER_SKILLS                OFF      install-time only
-    SLANG_USE_SYSTEM_* (8)                   OFF      every dependency from slang/external/ at the pin
-    SLANG_OVERRIDE_*_PATH (15)               OFF      likewise
-    SLANG_SPIRV_HEADERS_INCLUDE_DIR          OFF      likewise
-    SLANG_ENABLE_EXTERNAL_COMPILER_WARNINGS  OFF      upstream default (read in external/, not declared)
-    SLANG_DISABLE_NOTE_IDS                   ""       upstream default
-    SLANG_GENERATORS_PATH                    ""       native build, no cross-compiled generators
-    SLANG_VERSION_FULL / _NUMERIC            <pin>    Slang reads its version from `git describe`, which
-                                                      gives 0.0.0 in a checkout without tags (CI's
-                                                      submodule fetch) and changes the library and module
-                                                      directory names. Passed from the checked pin.
-    CMAKE_MSVC_RUNTIME_LIBRARY (Windows)     static   MultiThreaded, as Slang's own "default" preset
-    CMAKE_OSX_DEPLOYMENT_TARGET (macOS)      15.0     .NET 11's oldest macOS, as SharpNRI
-    CMAKE_OSX_ARCHITECTURES (macOS)          arm64
-    CMAKE_BUILD_WITH_INSTALL_RPATH (not      ON       the staged libraries carry the release's RPATH;
-      Windows)                                        the build tree's has an empty entry (see $opt)
-
-  Configure-time downloads with these options, measured on win-x64 and linux-x64: only DXC, by
-  slang/cmake/FetchDXC.cmake through FetchContent into _build/<rid>/_deps/dxc-src, SHA-256 pinned
-  there (Windows dxc_<date>.zip, Linux x86_64 linux_dxc_<date>.x86_64.tar.gz; none on macOS or Linux
-  arm64, which have no prebuilt). DXC is not staged: Slang only copies it beside slangc, which is off.
-  The offline-dependency key (_build/<rid>/_deps/.sharpslang-deps) is the Slang commit, every nested
-  submodule commit, the patch set, the option set, the compiler and the DXC pin. While it matches,
-  the configure runs with FETCHCONTENT_FULLY_DISCONNECTED=ON and touches no network; when it moves,
-  the whole build tree is deleted, downloads included.
+  Options: every one Slang declares at v2026.21 is passed, ON or OFF, on the platforms that declare
+  it; the table of values and reasons is in AGENTS.md#native-build, and $opt below must match it.
+  The only configure-time download left is DXC (slang/cmake/FetchDXC.cmake, SHA-256 pinned there),
+  into _build/<rid>/_deps; it is not staged. The offline-dependency key
+  (_build/<rid>/_deps/.sharpslang-deps) is the Slang commit, every nested submodule commit, the
+  patch set, the options, the compiler and the DXC pin. While it matches, the configure runs with
+  FETCHCONTENT_FULLY_DISCONNECTED=ON; when it moves, the build tree is deleted, downloads included.
 
 .PARAMETER Rid
   win-x64 (default on Windows), linux-x64 / linux-arm64 (default on Linux), osx-arm64 (default on
@@ -225,7 +152,7 @@ foreach ($p in $patches) {
 }
 
 # ------------------------------------------------------------------------------------------ 3. options
-# Ordered: name -> value. Each exists on the target (slang/CMakeLists.txt); the header says why.
+# Ordered: name -> value. Each exists on the target (slang/CMakeLists.txt); AGENTS.md#native-build says why.
 $platformDefault = if ($targetWindows) { "ON" } else { "OFF" }
 $opt = [ordered]@{
     SLANG_LIB_TYPE                                 = "SHARED"
@@ -374,7 +301,7 @@ $offline = (Test-Path $depsMarker) -and ((Get-Content $depsMarker -Raw).Trim() -
 
 # A new Slang commit, patch set or option set starts the tree from scratch, downloads included: a
 # cache entry outlives the default that created it, and FetchContent keeps an extracted archive in
-# _deps across a pin change (SharpNRI measured both, AGENTS.md there).
+# _deps across a pin change (SharpNRI measured both and records it in its own working notes).
 if (-not $offline -and (Test-Path $build)) {
     Write-Host "==> Slang commit, patches or options changed since the last configure: fresh build tree, downloads again"
     Remove-Item -Recurse -Force $build -Confirm:$false
@@ -413,8 +340,8 @@ foreach ($kv in $opt.GetEnumerator()) {
     }
 }
 $unknown = @($entries.Keys | Where-Object { -not $opt.Contains($_) -and $derived -notcontains $_ })
-if ($unknown) { throw "slang/ declares options this script does not decide: $($unknown -join ', '). Add each to `$opt (and the header table) with a reason." }
-# What was downloaded: only DXC is expected (header). slang-llvm, Dawn and slang-tint would land here
+if ($unknown) { throw "slang/ declares options this script does not decide: $($unknown -join ', '). Add each to `$opt, and to the options table in AGENTS.md (Native build) with a reason." }
+# What was downloaded: only DXC is expected (AGENTS.md#native-build). slang-llvm, Dawn and slang-tint would land here
 # or in the build tree's top level if an option above stopped holding.
 $downloaded = @(Get-ChildItem $deps -Directory -ErrorAction SilentlyContinue | Where-Object { $_.Name -like '*-src' } | ForEach-Object { $_.Name })
 Write-Host "    downloaded (_deps): $(if ($downloaded) { $downloaded -join ', ' } else { 'nothing' })"

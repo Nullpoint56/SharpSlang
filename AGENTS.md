@@ -167,7 +167,7 @@ exist yet; this list is maintained by hand until they do.
 
 | Package | Native content | Notes |
 |---|---|---|
-| `SharpSlang` | `runtimes/<rid>/native/`: `slang-compiler`, `slang-glslang` (carries `spirv-opt`), `slang-standard-module-<version>/`; win-x64, linux-x64, linux-arm64, osx-arm64 | today staged from Slang's own release archive by `tools/fetch-native.ps1 -Profile Spirv`; the from-source build replaces that (Patches). Slang's licence texts staged at `runtimes/<rid>/LICENSE.txt` and `LICENSES/` |
+| `SharpSlang` | `runtimes/<rid>/native/`: `slang-compiler`, `slang-glslang` (carries `spirv-opt`), `slang-standard-module-<version>/`; win-x64, linux-x64, linux-arm64, osx-arm64 | built from `slang/` by `tools/build-native.ps1`; CI still stages Slang's own release archive with `tools/fetch-native.ps1 -Profile Spirv`, which produces the same layout. Beside `native/`: Slang's `LICENSE.txt`, `LICENSES/`, and `third-party-notices/` for what Slang links statically. `NativePayloadTests` holds the file list and the import lists |
 | `SharpSlang.Descs` | none | L0 enums without `SlangApi.cs` |
 | `SharpSlang.Dxc` | none | targets only; exact dependency on `Microsoft.Direct3D.DXC` `[$(DxcPackageVersion)]` (1.9.2609.5), copies `dxcompiler.dll` and `dxil.dll` into the application's output on win-x64 |
 | `SharpSlang.Pipeline`, `.Pipeline.Bake`, `.Pipeline.NRI` | none | `.Pipeline.NRI` depends on `SharpNRI.Descs` `[$(SharpNriDescsPackageVersion)]` only, no `NRI` library |
@@ -178,7 +178,30 @@ exist yet; this list is maintained by hand until they do.
   v2026.21 is not measured: re-measure.
 - Not staged from the archive: `slang-llvm` (CPU/host codegen), `gfx`, `slang-glsl-module` (GLSL
   input only; the `Glsl` profile stages it, untested), the executables, and the `slang.dll` proxy
-  (removed upstream at the end of 2026).
+  (removed upstream at the end of 2026). `build-native.ps1` does not build most of them (its
+  options table), and stages `slang-glsl-module` only with `-WithGlslModule`.
+- **Built against the release** (v2026.21, the build script at f55670e and 23be068; MSVC 19.44 on Windows, GCC 13.3 on
+  WSL Ubuntu 24.04):
+
+  | | win-x64 built | win-x64 release | linux-x64 built | linux-x64 release |
+  |---|---:|---:|---:|---:|
+  | `slang-compiler` bytes | 26,486,272 | 26,715,136 | 33,114,000 | 32,226,136 |
+  | `slang-glslang` bytes | 6,319,104 | 6,262,784 | 10,112,320 | 10,171,024 |
+  | exports, compiler / glslang | 465 / 10 | 465 / 10 | 620 / 10 | 620 / 10 |
+  | `native/` | 62.9 MB | 63.1 MB | 72.8 MB | 72.0 MB |
+
+  The export names are identical (`dumpbin /exports`, `nm -D --defined-only`; 279 `slang*`/`sp*`
+  functions on Linux), and so are the imports: `slang-compiler.dll` ADVAPI32, KERNEL32, ole32,
+  SHELL32, `slang-glslang.dll` ADVAPI32, KERNEL32, nothing delay-loaded, no C runtime DLL; on Linux
+  libstdc++.so.6, libm.so.6, libgcc_s.so.1, libc.so.6 and the loader. The 30 standard-module files
+  have the same names; the `.slang` sources are byte-identical and each `.slang-module` differs by a
+  few bytes, an embedded relative source path (`../../../../../slang/source/...` against the
+  release's `../../../../source/...`). What differs in substance is the Linux glibc floor (Pin and
+  payload).
+- **The neural and numerics modules are an option.** `-StandardModules WithoutNeuralNumerics`
+  stages workgraph and functional only (3 files, 0.2 MB of the 31.6 MB); win-x64 `native/` is then
+  31.5 MB instead of 62.9 MB, and `import slang.neural` / `import slang.numerics` fail. The default,
+  `All`, is what the release carries; the choice is the owner's, not yet made.
 - The template's licence layout (`licenses/<rid>/` plus `buildTransitive` copy targets,
   `SharpSlangCopyLicenses=false`) is not built yet; the licence files sit one level above
   `native/` so NuGet's flat copy of `native/` does not put them beside a game's binaries.
@@ -250,7 +273,7 @@ dotnet run --project samples/SharpSlang.Smoke -c Release   # the loadability gat
 `runtimes/` is git-ignored, so a fresh clone fetches first; after changing `<SlangVersion>` fetch
 again, or the old payload stays staged and the version guard refuses it (Pin and payload).
 
-`tools/fetch-native.ps1` (replaced by `tools/build-native.ps1` with the from-source build):
+`tools/fetch-native.ps1`, what CI stages today (the source build is under Native build):
 
 | Flag | Meaning |
 |---|---|
@@ -280,6 +303,79 @@ script file, strip CR, then run it.
 Verified only on the CI `osx-arm64` leg (`macos-15`), on demand. No Vulkan loader there: the Vulkan
 tests skip with their reason, and the NRI device tests do not run on macOS by decision (Tests and
 skips).
+
+### Native build
+
+```powershell
+git submodule update --init --recursive slang      # Slang at the pinned tag, with external/ (1.4 GB)
+pwsh tools/build-native.ps1 -Rid win-x64           # or linux-x64 / linux-arm64 / osx-arm64, on that OS
+```
+
+It checks `slang/` against `<SlangVersion>` (fetching the tag ref if the checkout has none) and its
+nested submodules, applies `patches/`, configures with Ninja into `_build/<rid>/`, checks each
+library's imports against exact lists, stages `runtimes/<rid>/` through an allowlist, and prints
+what it staged. Without a staged library the binding's build stops with `SHARPSLANG001` and this
+command; `-p:SharpSlangRequireNative=false` skips that (lint does).
+
+| Flag | Meaning |
+|---|---|
+| `-Rid` | `win-x64`, `linux-x64`, `linux-arm64`, `osx-arm64`; default the host. Host OS and architecture only, no cross-compiling |
+| `-StandardModules` | `All` (default, the release's set) or `WithoutNeuralNumerics` (Native packages); staging only |
+| `-WithGlslModule` | also stage `slang-glsl-module` (GLSL source input) |
+| `-AllowNewerGlibc` | Linux: stage a build above the pinned glibc floor instead of failing, for local test builds (Pin and payload) |
+| `-Configuration` | CMake configuration, `Release` by default |
+| `-Clean` | delete `_build/<rid>/`, downloads included, before configuring |
+
+Toolchains: Windows needs Visual Studio 2022 with the C++ x64 tools (the script enters its developer
+shell and uses the Ninja it ships) and Python 3 (found by the script, since a broken `python` on
+PATH is otherwise taken); Linux needs GCC, CMake 3.22 or newer, Ninja and Python 3, and builds the
+payload on Ubuntu 22.04 for the glibc floor; macOS needs Xcode's AppleClang and Ninja. Clean builds
+on the workstation (Ryzen 7 9700X, 16 threads, f55670e and 23be068): win-x64 2 min 55 s (configure
+10 s, 21.6 thread-minutes of Ninja edges), linux-x64 under WSL 4 min 52 s (43.5 thread-minutes,
+1137% CPU, 2.4 GB peak RSS, a 2.9 GB tree). A reconfigure with an unchanged key runs offline in 2 s.
+
+**Options.** Every option `slang/CMakeLists.txt` declares at v2026.21 is passed, ON or OFF, only on
+the platforms that declare it; after the configure the script fails on any `SLANG_*` cache entry it
+neither passed nor lists as derived, so a new upstream option is decided rather than defaulted.
+"Official" is what Slang's `release.yml` builds with: the `default` preset plus
+`-DSLANG_ENABLE_EXAMPLES=OFF -DSLANG_ENABLE_RELEASE_LTO=ON -DSLANG_STANDARD_MODULE_DEVELOP_BUILD=OFF`.
+
+| Option | Value | Why |
+|---|---|---|
+| `SLANG_LIB_TYPE` | `SHARED` | the binding calls the shared library |
+| `SLANG_EMBED_CORE_MODULE`, `_SOURCE` | ON | official; the core module is inside the library |
+| `SLANG_ENABLE_SLANG_GLSLANG` | ON | `slang-glslang` carries `spirv-opt` |
+| `SLANG_ENABLE_DXIL` | ON | the DXC loader compiled in; the application brings dxc (`SharpSlang.Dxc`) |
+| `SLANG_DXC_BUILD_FROM_SOURCE` | OFF | unset, macOS (and Linux x86_64 on an older glibc) builds DXC from source, 10-30 minutes |
+| `SLANG_SLANG_LLVM_FLAVOR` | `DISABLE` | the default downloads the whole release archive to take `slang-llvm`, which is not staged |
+| `SLANG_EXCLUDE_DAWN`, `SLANG_EXCLUDE_TINT` | ON | their Windows defaults download Dawn and `slang-tint` for the test tools |
+| `SLANG_ENABLE_SLANG_RHI`, `GFX`, `SLANGC`, `SLANGD`, `SLANGI`, `SLANGRT`, `SLANG_PROXY`, `TESTS`, `EXAMPLES`, `REPLAYER` | OFF | not staged; the standard modules are compiled by `slang-bootstrap`, not `slangc` |
+| `SLANG_ENABLE_RECORD_REPLAY` | ON | official; OFF compiles the `slang_*RecordLayer` exports as stubs under the same names |
+| `SLANG_ENABLE_CUDA`, `OPTIX`, `NVAPI`, `AFTERMATH`, `XLIB` (Linux only), `DX_ON_VK` | OFF | the `auto_option`s enable whatever the build machine has installed; only Slang's tools use them |
+| `SLANG_ENABLE_MIMALLOC`, `SLANG_ENABLE_SPIRV_TOOLS_MIMALLOC` | ON on Windows, OFF elsewhere | Slang's own per-platform default, which the release takes |
+| `SLANG_ENABLE_RELEASE_LTO` | ON | official |
+| `SLANG_STANDARD_MODULE_DEVELOP_BUILD` | OFF | official |
+| `SLANG_BUILD_MONOLITHIC_STANDARD_MODULE_LIBRARY` | OFF | loose `.slang-module` files, the release's layout |
+| `SLANG_ENABLE_RELEASE_DEBUG_INFO`, `SLANG_ENABLE_SPLIT_DEBUG_INFO` | ON | PDB / DWARF beside the libraries, for symbol zips; not staged |
+| `SLANG_ENABLE_PCH`, `SLANG_ENABLE_VALIDATION_VM_BYTECODE` | ON | upstream defaults; PCH is build speed only |
+| `SLANG_ENABLE_VALIDATION_IR`, `_FOSSIL`, `IR_BREAK_ALLOC`, `ASAN`, `TSAN`, `COVERAGE`, `TIME_TRACE`, `SLANG_IGNORE_ABORT_MSG`, `SLANG_INSTALL_USER_SKILLS` | OFF | debugging, instrumentation, install-time only |
+| `SLANG_USE_SCCACHE` | OFF | and `$env:SLANG_USE_SCCACHE` is cleared: Slang turns it on from the environment whatever the option says |
+| `SLANG_USE_SYSTEM_*` (8), `SLANG_OVERRIDE_*_PATH` (15), `SLANG_SPIRV_HEADERS_INCLUDE_DIR`, `SLANG_ENABLE_EXTERNAL_COMPILER_WARNINGS` | OFF | every dependency from `slang/external/` at the pin |
+| `SLANG_DISABLE_NOTE_IDS`, `SLANG_GENERATORS_PATH` | empty | upstream defaults; a native build |
+| `SLANG_VERSION_FULL`, `SLANG_VERSION_NUMERIC` | the pin (2026.21) | Slang reads its version from `git describe`, which gives 0.0.0 in a checkout without tags and renames the libraries and the module directory |
+| `CMAKE_MSVC_RUNTIME_LIBRARY` (Windows) | `MultiThreaded` | the static C runtime, as Slang's `default` preset |
+| `CMAKE_BUILD_WITH_INSTALL_RPATH` (not Windows) | ON | the release's RPATH, not the build tree's (Pin and payload) |
+| `CMAKE_OSX_DEPLOYMENT_TARGET`, `CMAKE_OSX_ARCHITECTURES` (macOS) | 15.0, arm64 | .NET 11's oldest macOS, as SharpNRI |
+
+The only configure-time download left is DXC (`slang/cmake/FetchDXC.cmake`, SHA-256 pinned there;
+a zip on Windows, a tarball on Linux x86_64, none on macOS or Linux arm64) into
+`_build/<rid>/_deps/dxc-src`; it is not staged. The offline-dependency key in
+`_build/<rid>/_deps/.sharpslang-deps` is the Slang commit, every nested submodule commit, the patch
+set, the options, the compiler and the DXC pin: while it matches, the configure runs with
+`FETCHCONTENT_FULLY_DISCONNECTED=ON`; when it moves, the tree is deleted, downloads included.
+
+The macOS path (otool link list, `minos 15.0`, LC_RPATHs) and the linux-arm64 build have not run:
+written without a Mac, and linux-arm64 measured only on the release archive.
 
 ### Regenerating L0
 
@@ -373,10 +469,16 @@ Not built yet. The template's `tools/coverage.ps1`, `docs/coverage.md`, the badg
 |---|---|---|
 | (none) | | |
 
-The set is empty: the payload is still Slang's prebuilt release, which cannot be patched. The
-from-source build (`slang/` submodule, `tools/build-native.ps1`) is being added; until it lands,
-Slang defects are guarded in the binding and recorded in `docs/upstream.md`, where the entries
-marked "patch candidate" are the first work for it.
+The set is empty. `slang/` is Slang at the pinned tag and `tools/build-native.ps1` builds it with
+`patches/` applied (Native build), but CI still stages Slang's prebuilt release, which cannot be
+patched; a patch therefore takes effect only once CI builds from source. Until then Slang defects
+are guarded in the binding and recorded in `docs/upstream.md`, where the entries marked "patch
+candidate" are the first work. The format is in `patches/README.md`. `slang/` is never edited or
+staged by path; its pointer moves only by `git update-index --cacheinfo 160000,<commit>,slang`.
+
+- **U4 must be patched, test first, before Linux builds from source.** The prober test asserts the
+  release's SIGSEGV; the same sources built with GCC 13 return a non-null type instead, so the test
+  fails on a source-built Linux payload (Reflection snapshot). The cause is in U4.
 
 - **Applying.** `build-native.ps1` applies `patches/*.patch` in name order and skips a patch already
   applied, by a reverse check with `-C0`.
@@ -567,6 +669,39 @@ in `docs/upstream.md`.
   `DllNotFoundException`. CI's "Package contains the host RID's payload" step checks it.
 - **The standard modules are loose files** beside the compiler (`slang-standard-module-<version>/`);
   the core module is embedded, but any other `import` resolves there.
+- **The Linux payload has a glibc floor, set by the build host.** The release needs at most
+  GLIBC_2.34 and GLIBCXX_3.4.29 on linux-x64 and linux-arm64 (its version-needs sections,
+  `readelf -V`, v2026.21), so it loads on Ubuntu 22.04. Built from source on Ubuntu 24.04 with GCC
+  13.3, both libraries need GLIBC_2.38 and GLIBCXX_3.4.32 (`__isoc23_strtol`, `__isoc23_strtoll`,
+  `fmod`, `std::ios_base_library_init`, `basic_string::_M_replace_cold`) and would not load on 22.04
+  or Debian 12. Handled: `Directory.Build.props` pins the floor (`LinuxGlibcFloor`,
+  `LinuxGlibcxxFloor`); `build-native.ps1` prints the floor it produced and refuses a build above the
+  pin, saying why, unless `-AllowNewerGlibc`; `NativePayloadTests` fails on a staged library above
+  it unless `SHARPSLANG_ALLOW_NEWER_GLIBC=1`; CI builds Linux on ubuntu-22.04. Measured at 00401a8
+  under WSL: without the switch the script exits 1 with "glibc floor of this build: GLIBC_2.38,
+  GLIBCXX_3.4.32 (pinned: GLIBC_2.34, GLIBCXX_3.4.29)"; with it the test fails naming each library,
+  with the variable it skips, and with the release payload it passes. Raising the pin is a decision.
+- **A library staged from Slang's build tree searched the working directory.** CMake gives the
+  build-tree libraries `RUNPATH "$ORIGIN/../lib:$ORIGIN:"`; the trailing empty entry made glibc add
+  `glibc-hwcaps/x86-64-v4:...:` and an empty entry, paths relative to the working directory, to the
+  search (`LD_DEBUG=libs`, linux-x64, the build of f55670e, before 23be068), so a same-named library there would
+  be found first. The release carries the install RPATH, `$ORIGIN/../lib:$ORIGIN`. Handled:
+  `CMAKE_BUILD_WITH_INSTALL_RPATH=ON` off Windows; the script and `NativePayloadTests` require the
+  RUNPATH, and on macOS the LC_RPATHs (`@loader_path/../lib`, `@loader_path`), exactly.
+- **The release's osx-arm64 libraries declare macOS 26.0 as their minimum** (`LC_BUILD_VERSION minos
+  26.0.0, sdk 26.5.0` in `libslang-compiler.0.2026.21.dylib` and `libslang-glslang-2026.21.dylib`,
+  read from the v2026.21 archive's load commands on Windows); the CI leg runs them on macOS 15.
+  `build-native.ps1` sets 15.0 and checks `minos 15.0` (unverified: no Mac).
+- **Slang's licences ask for notices the payload once lacked.** cmark, glslang, lz4, miniz,
+  SPIRV-Tools and unordered_dense (and mimalloc, which Slang builds only on Windows) are linked
+  statically, and Slang's install step ships their notices in `third-party-notices/`
+  (`slang/CMakeLists.txt`); the release archives carry exactly that set on all four RIDs. Both
+  staging scripts now stage them as `runtimes/<rid>/third-party-notices/<name>.txt`, `.txt`
+  because of the extensionless-path rule above.
+- **Slang's version comes from `git describe`.** A checkout without tags, which a submodule fetch
+  usually is, configures as 0.0.0 and renames the libraries and the module directory.
+  `build-native.ps1` passes `SLANG_VERSION_FULL` and `SLANG_VERSION_NUMERIC` from the pin, after
+  checking the commit against the tag.
 
 ### Companion libraries and dxc
 
@@ -689,7 +824,16 @@ in `docs/upstream.md`.
   interleaving is not recoverable and a wrong order with matching counts reaches Slang.
 - **`specializeType` on a non-generic type**: null on win-x64 and osx-arm64, SIGSEGV (exit 139) on
   Linux (v2026.21, prober). U4. Handled: never called in process; `SpecializeGeneric` refuses a
-  non-generic type.
+  non-generic type. The cause is undefined behaviour, so the answer is the compiler's: in Release
+  `SLANG_ASSERT(x)` is `SLANG_ASSUME(x)` (`source/core/slang-common.h:371`), and the assert of the
+  parameter count at `source/slang/slang-check-shader.cpp:4087` lets the optimiser drop the very
+  check after it (4088-4089), so the loop reads `specializationParams[0]` of an empty list. The
+  same sources built with GCC 13.3 on Ubuntu 24.04 (23be068; that build now needs `-AllowNewerGlibc`)
+  return a non-null type: the prober prints `specialized`, exit 0, and
+  `Specializing_a_non_generic_type_segfaults_only_on_Linux` fails (742 passed, 14 skipped, 1 failed
+  of 757 under WSL, against 743 passed, 14 skipped with the release payload). The test stays as it
+  is while CI ships the release payload; a source-built Linux payload needs U4 patched test first
+  (Patches).
 - **Sub-object ranges carry less than their names suggest**: `getSubObjectRangeOffset` returns a
   variable layout with no variable (names come from `getBindingRangeLeafVariable`);
   `getSubObjectRangeSpaceOffset` is 0 for blocks in set 1 and set 2, and
