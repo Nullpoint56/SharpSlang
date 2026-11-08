@@ -256,7 +256,7 @@ public class ProberTests(ITestOutputHelper output)
         Assert.Contains("error", outcome.Stdout, StringComparison.Ordinal);
     }
 
-    [NativeFact]
+    [ReleasePayloadFact("U4")]
     public void Specializing_a_non_generic_type_segfaults_only_on_Linux()
     {
         // The fifth measured crash, and it cost a green run to find: the call sat in an ordinary
@@ -320,6 +320,24 @@ public class ProberTests(ITestOutputHelper output)
             + $"could be relaxed, and ArrayLayout.IsSpecializationSized reconsidered.\n{outcome}");
 
         Assert.Contains("SLANG_TYPE_KIND_ARRAY", outcome.Stdout, StringComparison.Ordinal);
+    }
+
+    [PatchedFact("U4")]
+    public void Specializing_a_non_generic_type_is_refused_with_a_diagnostic()
+    {
+        // U4 (AGENTS.md#reflection-snapshot), patch 0001. The answer slang.h's error path gives,
+        // on every platform: null, and a diagnostic saying the type takes no arguments. The
+        // release's three answers are the wrong ones asserted above: null with nothing said
+        // (Windows, macOS), SIGSEGV (Linux), and, built by GCC 13.3 without the patch, a type.
+        var outcome = Run("specialize-a-non-generic-type");
+        output.WriteLine(outcome.ToString());
+
+        Assert.True(outcome.ExitCode == 0, $"specializeType on a non-generic type ended the process:\n{outcome}");
+        Assert.Contains("SnBlock kind=SLANG_TYPE_KIND_STRUCT", outcome.Stdout, StringComparison.Ordinal);
+        Assert.Contains("\nrefused", outcome.Stdout.ReplaceLineEndings("\n"), StringComparison.Ordinal);
+        Assert.DoesNotContain("\nspecialized", outcome.Stdout.ReplaceLineEndings("\n"), StringComparison.Ordinal);
+        Assert.Contains("E38025", outcome.Stdout, StringComparison.Ordinal);
+        Assert.Contains("wrong number of specialization arguments", outcome.Stdout, StringComparison.Ordinal);
     }
 
     [NativeFact]

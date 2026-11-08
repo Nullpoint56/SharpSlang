@@ -27,7 +27,7 @@ carry until the switch (`AGENTS.md`, Decisions), has none of them.
 | U1 | `spReflectionType_GetElementCount` / `GetSpecializedElementCount` crash on an array sized by a link-time constant | reflection | Slang defect |  | `ProberTests.The_resolving_element_count_is_the_one_call_the_library_will_not_make` | unpatched | v2026.21 |
 | U2 | `getBindingRangeCount` throws a C++ exception through `extern "C"` for a resource array sized by a link-time constant | reflection | Slang defect |  | `ProberTests.A_specialization_sized_resource_array_never_reflects_successfully` | unpatched | v2026.21 |
 | U3 | `spReflection_specializeGeneric` access-violates on a mismatched argument list | reflection | Slang defect |  | `ProberTests.A_mismatched_generic_argument_kind_crashes_on_two_platforms_and_diagnoses_on_the_third` | unpatched | v2026.21 |
-| U4 | `spReflection_specializeType` on a non-generic type segfaults on Linux (an assert that removes its own check) | reflection | Slang defect |  | `ProberTests.Specializing_a_non_generic_type_segfaults_only_on_Linux` | unpatched | v2026.21 |
+| U4 | `spReflection_specializeType` on a non-generic type segfaults on Linux (an assert that removes its own check) | reflection | Slang defect | `0001-specialize-type-diagnose-argument-count.patch` | `ProberTests.Specializing_a_non_generic_type_is_refused_with_a_diagnostic` | patched | v2026.21 |
 | U5 | A constant buffer whose block holds only link-time-sized arrays gets no binding | reflection | Slang defect |  | `UnknownSizeTests.A_buffer_with_no_fixed_size_is_refused_rather_than_dropped` | unpatched | v2026.21 |
 | U6 | A 64-bit 3/4-component vertex input is given one location; Vulkan requires two | SPIR-V | Slang defect |  | `NriValidationTests.A_wide_64_bit_vertex_attribute_really_does_consume_two_locations` | unpatched | v2026.21 |
 | U7 | `sample` interpolation without `SampleRateShading` (reported by others as #12441) | SPIR-V | Slang defect |  | `ModuleAgreementTests.The_sample_interpolation_modifier_declares_SampleRateShading` | fixed upstream in v2026.21 | v2026.21 |
@@ -213,8 +213,15 @@ GCC 11 build of the release segfaults, the MSVC build returns null, and the same
 GCC 13.3 (Ubuntu 24.04) return a non-null specialized type with no diagnostic. Turning the assert
 into a plain check, or keeping only the `if`, makes every build return null.
 
+**Fix.** Remove the assert and report the mismatch with the existing
+`mismatch-specialization-arguments` diagnostic (38025) before returning null, so every build returns
+null and says why. A call with a matching count is unchanged. Regression test: a second case in
+`tools/slang-unit-test/unit-test-specialize-type.cpp`, through `ISession::specializeType` and
+`ProgramLayout::specializeType`. Carried as `patches/0001-specialize-type-diagnose-argument-count.patch`.
+
 **Measurement.** v2026.21, all four platforms, through a child process; the GCC 13.3 build of the
-tag measured the same way on linux-x64.
+tag measured the same way on linux-x64. With the fix: null and `wrong number of specialization
+arguments` (win-x64 with MSVC, linux-x64 with GCC 13.3, the tag built from source).
 
 **Repro.**
 

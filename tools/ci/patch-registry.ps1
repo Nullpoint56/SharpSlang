@@ -198,8 +198,9 @@ function New-BaseTree([string]$Commit, [string]$From) {
         New-Item -ItemType Directory -Force (Split-Path $dest) | Out-Null
         if ($haveObjects) {
             # Bytes as committed: git show through the shell would re-encode them.
-            $blob = (git -C $From rev-parse "${Commit}:$path" 2>$null) -join ""
-            if (-not $blob) { throw "$path is not in Slang at $Commit, but a patch changes it" }
+            # A path the tag does not have is one an earlier patch creates; the alone check reports it.
+            $blob = (git -C $From rev-parse --verify --quiet "${Commit}:$path" 2>$null) -join ""
+            if (-not $blob) { continue }
             $info = [System.Diagnostics.ProcessStartInfo]::new("git", @("-C", $From, "cat-file", "blob", $blob))
             $info.RedirectStandardOutput = $true
             $proc = [System.Diagnostics.Process]::Start($info)
@@ -211,7 +212,12 @@ function New-BaseTree([string]$Commit, [string]$From) {
             $cached = Join-Path $cache $path
             if (-not (Test-Path $cached)) {
                 New-Item -ItemType Directory -Force (Split-Path $cached) | Out-Null
-                Invoke-WebRequest -Uri "https://raw.githubusercontent.com/shader-slang/slang/$Commit/$path" -OutFile "$cached.partial" -TimeoutSec 120
+                try { Invoke-WebRequest -Uri "https://raw.githubusercontent.com/shader-slang/slang/$Commit/$path" -OutFile "$cached.partial" -TimeoutSec 120 }
+                catch {
+                    Remove-Item "$cached.partial" -ErrorAction SilentlyContinue
+                    if ($_.Exception.Response -and [int]$_.Exception.Response.StatusCode -eq 404) { continue }
+                    throw
+                }
                 Move-Item "$cached.partial" $cached -Force
             }
             Copy-Item $cached $dest

@@ -1,0 +1,125 @@
+Diagnose an argument count mismatch in Linkage::specializeType instead of asserting it.
+
+Linkage::specializeType (source/slang/slang-check-shader.cpp) asserts that the number of
+specialization arguments matches the specialization parameters it collected, and then checks the
+same condition:
+
+    SLANG_ASSERT(specializationParams.getCount() == argCount);   // 4087
+    if (specializationParams.getCount() != argCount)             // 4088
+        return nullptr;                                          // 4089
+
+Outside _DEBUG, SLANG_ASSERT(x) is SLANG_ASSUME(x) (source/core/slang-common.h:371), so the
+compiler may take the condition as true and remove the check after it. The count comes from the
+caller of the public specializeType API (IComponentType's layout, ISession, and
+spReflection_specializeType), so it is not an invariant: a non-generic type collects no
+parameters, and one argument for it makes the loop below read specializationParams[0] of an empty
+list. What the release does then is the optimiser's: the GCC 11 build of v2026.21 segfaults, the
+MSVC build returns null with no diagnostic, and the same sources built with GCC 13.3 return a
+non-null specialized type.
+
+This removes the assert and reports the mismatch with the existing
+mismatch-specialization-arguments diagnostic (38025) before returning null, so every build returns
+null and says why. A call with a matching count is unchanged. A regression test is added to
+tools/slang-unit-test/unit-test-specialize-type.cpp, for both specializeType entry points.
+
+Measured on v2026.21 through spReflection_specializeType with a struct that is not generic and one
+type argument: before, null and no diagnostics (win-x64, MSVC); after, null and
+"wrong number of specialization arguments" (win-x64, MSVC; linux-x64, GCC 13.3).
+diff --git a/source/slang/slang-check-shader.cpp b/source/slang/slang-check-shader.cpp
+index b5504b981..3dd669658 100644
+--- a/source/slang/slang-check-shader.cpp
++++ b/source/slang/slang-check-shader.cpp
+@@ -4084,9 +4084,18 @@ Type* Linkage::specializeType(
+         return nullptr;
+     }
+ 
+-    SLANG_ASSERT(specializationParams.getCount() == argCount);
++    // The argument count comes from the caller of the public `specializeType` API, so a
++    // mismatch is an error in the input rather than an internal invariant. It must not be
++    // asserted: in a release build `SLANG_ASSERT` becomes `SLANG_ASSUME`, which allows the
++    // compiler to remove the check below and index past the end of `specializationParams`.
++    //
+     if (specializationParams.getCount() != argCount)
++    {
++        sink->diagnose(Diagnostics::MismatchSpecializationArguments{
++            .expected = (int64_t)specializationParams.getCount(),
++            .provided = (int64_t)argCount});
+         return nullptr;
++    }
+ 
+     ExpandedSpecializationArgs specializationArgs;
+     for (Int aa = 0; aa < argCount; ++aa)
+diff --git a/tools/slang-unit-test/unit-test-specialize-type.cpp b/tools/slang-unit-test/unit-test-specialize-type.cpp
+index 61142ed23..71662f054 100644
+--- a/tools/slang-unit-test/unit-test-specialize-type.cpp
++++ b/tools/slang-unit-test/unit-test-specialize-type.cpp
+@@ -75,3 +75,68 @@ SLANG_UNIT_TEST(specializeTypeInfiniteRecursion)
+         diagnosticBlob->getBufferSize());
+     SLANG_CHECK(diagnostics.indexOf(toSlice("maximum type nesting level exceeded")) != -1);
+ }
++
++// This test exercises `specializeType` on a type that has no specialization parameters.
++//
++// The number of arguments is supplied by the caller, so a count that does not match the
++// parameters of the type is an error in the input. The API should report it as a diagnostic
++// and return `nullptr` in every build configuration, including release builds, where
++// assertions are not evaluated.
++SLANG_UNIT_TEST(specializeTypeArgumentCountMismatch)
++{
++    const char* source = R"(
++        struct Block
++        {
++            float4 tint;
++        }
++        )";
++
++    ComPtr<slang::IGlobalSession> globalSession;
++    SLANG_CHECK_ABORT(
++        slang_createGlobalSession(SLANG_API_VERSION, globalSession.writeRef()) == SLANG_OK);
++
++    slang::TargetDesc targetDesc = {};
++    targetDesc.format = SLANG_SPIRV;
++    targetDesc.profile = globalSession->findProfile("spirv_1_5");
++
++    slang::SessionDesc sessionDesc = {};
++    sessionDesc.targetCount = 1;
++    sessionDesc.targets = &targetDesc;
++
++    ComPtr<slang::ISession> session;
++    SLANG_CHECK_ABORT(globalSession->createSession(sessionDesc, session.writeRef()) == SLANG_OK);
++
++    ComPtr<slang::IBlob> diagnosticBlob;
++    auto module = session->loadModuleFromSourceString(
++        "specializeTypeArgumentCountMismatch",
++        "specializeTypeArgumentCountMismatch.slang",
++        source,
++        diagnosticBlob.writeRef());
++    SLANG_CHECK_ABORT(module != nullptr);
++
++    auto layout = module->getLayout();
++    SLANG_CHECK_ABORT(layout != nullptr);
++
++    auto blockType = layout->findTypeByName("Block");
++    SLANG_CHECK_ABORT(blockType != nullptr);
++
++    diagnosticBlob = nullptr;
++    slang::SpecializationArg arg = slang::SpecializationArg::fromType(blockType);
++    auto specializedType = session->specializeType(blockType, &arg, 1, diagnosticBlob.writeRef());
++    SLANG_CHECK(specializedType == nullptr);
++    SLANG_CHECK(diagnosticBlob != nullptr);
++    auto diagnostics = UnownedStringSlice(
++        (const char*)diagnosticBlob->getBufferPointer(),
++        diagnosticBlob->getBufferSize());
++    SLANG_CHECK(diagnostics.indexOf(toSlice("wrong number of specialization arguments")) != -1);
++
++    diagnosticBlob = nullptr;
++    slang::TypeReflection* typeArgs[] = {blockType};
++    specializedType = layout->specializeType(blockType, 1, typeArgs, diagnosticBlob.writeRef());
++    SLANG_CHECK(specializedType == nullptr);
++    SLANG_CHECK(diagnosticBlob != nullptr);
++    diagnostics = UnownedStringSlice(
++        (const char*)diagnosticBlob->getBufferPointer(),
++        diagnosticBlob->getBufferSize());
++    SLANG_CHECK(diagnostics.indexOf(toSlice("wrong number of specialization arguments")) != -1);
++}
+\ No newline at end of file

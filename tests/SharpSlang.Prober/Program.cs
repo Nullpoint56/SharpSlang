@@ -819,6 +819,11 @@ internal static class Cases
 
         var specialized = SlangApi.spReflection_specializeType(shader, block, 1, args, &diagnostics);
         Console.Out.WriteLine(specialized is null ? "refused" : "specialized");
+        if (diagnostics is not null)
+        {
+            using var blob = new SlangBlob(diagnostics);
+            Console.Out.WriteLine($"diagnostics: {blob.AsText()}");
+        }
     }
 
     private static unsafe void SpecializedElementCount()

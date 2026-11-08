@@ -794,7 +794,7 @@ packages).
 
 | Patch | Defect | What |
 |---|---|---|
-| (none) | | |
+| `0001-specialize-type-diagnose-argument-count` | U4 | `Linkage::specializeType` diagnoses an argument count that does not match (38025) instead of asserting it, so no build can drop the check |
 
 Every Slang defect in `docs/upstream.md` gets a patch, test first, and the registry says what became
 of each (owner, 2026-11-08: "All of them and we roll a registry of them so we can clearly see if they
@@ -828,9 +828,10 @@ is in `patches/README.md`. `slang/` is never edited or staged by path; its point
   runs on every source build, one built `-WithoutPatches` included, which is how it is run red.
   `[ReleasePayloadFact("U4")]` asserts the release's wrong answer as wrong, so the release that fixes
   it fails and names the binding's guard to revisit; it skips on a source build.
-- **U4 must be patched, test first, before Linux builds from source.** The prober test asserts the
-  release's SIGSEGV; the same sources built with GCC 13 return a non-null type instead, so the test
-  fails on a source-built Linux payload (Reflection snapshot). The cause is in U4.
+- **Each patch carries Slang's own regression test** under `tools/slang-unit-test/` (`SLANG_UNIT_TEST`),
+  as their contribution guide asks. `build-native.ps1` builds no tests (`SLANG_ENABLE_TESTS` OFF), so
+  those tests are compiled and run only by Slang's CI on a fork PR; the binding's prober tests are
+  the measurement here.
 
 - **Applying.** `build-native.ps1` applies `patches/*.patch` in name order and skips a patch already
   applied, by a reverse check with `-C0`.
@@ -1325,9 +1326,10 @@ in `docs/upstream.md`.
   same sources built with GCC 13.3 on Ubuntu 24.04 (23be068; that build now needs `-AllowNewerGlibc`)
   return a non-null type: the prober prints `specialized`, exit 0, and
   `Specializing_a_non_generic_type_segfaults_only_on_Linux` fails (742 passed, 14 skipped, 1 failed
-  of 757 under WSL, against 743 passed, 14 skipped with the release payload). The test stays as it
-  is while CI ships the release payload; a source-built Linux payload needs U4 patched test first
-  (Patches).
+  of 757 under WSL, against 743 passed, 14 skipped with the release payload). Patched (0001): null
+  and `wrong number of specialization arguments` (38025) from every build;
+  `Specializing_a_non_generic_type_is_refused_with_a_diagnostic` holds it, and the release's split
+  stays asserted on the release payload. The rest of the handling stays with the release (Patches).
 - **Sub-object ranges carry less than their names suggest**: `getSubObjectRangeOffset` returns a
   variable layout with no variable (names come from `getBindingRangeLeafVariable`);
   `getSubObjectRangeSpaceOffset` is 0 for blocks in set 1 and set 2, and
