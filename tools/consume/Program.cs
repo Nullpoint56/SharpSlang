@@ -3,9 +3,12 @@
 //
 //   CONSUME_CORE    the binding and the dxc package: the loaded slang-compiler is the one in this
 //                   application's output; SPIR-V compiles with the optimiser required (the
-//                   default); on win-x64 a signed DXIL container compiles through dxc; with
-//                   CONSUME_BAKE a baked package is written to args[0] for the reader run.
-//   CONSUME_READER  the reader alone: reads args[0], projects nothing native, loads no compiler.
+//                   default); Slang's standard modules are found and imported from beside the
+//                   compiler; on win-x64 a signed DXIL container compiles through dxc; with
+//                   CONSUME_BAKE a baked package is written to args[0] for the reader runs, with
+//                   CONSUME_NRI its NRI projection stored in it.
+//   CONSUME_READER  the reader alone: reads args[0], loads no compiler; with CONSUME_NRI the NRI
+//                   projection alone, which reads the stored projection back.
 //   CONSUME_DXC     the dxc package alone: nothing to call; the output is what consume.ps1 checks.
 //
 // Every check prints one line, PASS, FAIL or NOTYET (a check whose prerequisite the packages do not
@@ -66,10 +69,68 @@ try
 #if CONSUME_BAKE
         if (args.Length > 0)
         {
-            ShaderPackageBaker.Bake(program, Fragment, 0).WriteToFile(args[0]);
+            ShaderPackageBaker.Bake(program, Fragment, 0)
+#if CONSUME_NRI
+                .WithNriProjection()
+#endif
+                .WriteToFile(args[0]);
             Report("PASS", "bake", $"wrote {args[0]} for the reader run");
         }
 #endif
+    }
+
+    // Slang's standard modules, where Slang looks for them: slang-standard-module-<version>/ beside
+    // the library it runs from (AGENTS.md#native-packages). Every one is declared experimental, so
+    // without ExperimentalFeatures Slang reads the module and refuses it (E00104), and a module it
+    // did not find is E00001: which of the two says whether the folder is where Slang looks.
+    using (var session = global.CreateSession(new SessionOptions()))
+    {
+        try
+        {
+            using var module = session.LoadModuleFromSource("findsNeural", "findsNeural.slang", "import slang.neural;");
+            Report("FAIL", "standard modules found", "import slang.neural loaded without ExperimentalFeatures, which Slang refuses");
+        }
+        catch (SharpSlang.Interop.SlangException e) when (e.Message.Contains("E00104", StringComparison.Ordinal))
+        {
+            Report("PASS", "standard modules found", "slang.neural found beside the compiler (refused without ExperimentalFeatures, E00104)");
+        }
+        catch (SharpSlang.Interop.SlangException e)
+        {
+            Report("FAIL", "standard modules found", $"import slang.neural: {e.Diagnostics?.Split('\n')[0] ?? e.Message}");
+        }
+    }
+
+    // And used: a compute shader importing slang.neural and slang.numerics compiled to SPIR-V. The
+    // importing module's dependency files name neural's .slang sources, resolved in the folder
+    // Slang read the module from, which must be beside the loaded compiler in this output.
+    using (var session = global.CreateSession(new SessionOptions { ExperimentalFeatures = true }))
+    {
+        const string UsesModules = """
+            import slang.neural;
+            import slang.numerics;
+            RWStructuredBuffer<float> output;
+            [shader("compute")]
+            [numthreads(1, 1, 1)]
+            void usesModules(uint3 id : SV_DispatchThreadID) { output[id.x] = 1.0; }
+            """;
+        try
+        {
+            using var module = session.LoadModuleFromSource("usesModules", "usesModules.slang", UsesModules);
+            using var entry = module.FindEntryPoint("usesModules");
+            using var program = session.Link(module, entry);
+            var spirv = program.GetEntryPointCodeBytes(0, 0);
+            var compilerDir = Path.GetDirectoryName(LoadedCompilers().FirstOrDefault() ?? "") ?? "";
+            var folder = Path.GetFullPath(Path.Combine(compilerDir, $"slang-standard-module-{SlangHeaders.Version}")) + Path.DirectorySeparatorChar;
+            var read = module.DependencyFilePaths.Where(p => p.EndsWith(".slang", StringComparison.Ordinal) && p != "usesModules.slang").Select(Path.GetFullPath).ToArray();
+            var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+            if (read.Length == 0) Report("FAIL", "standard modules used", "the module names no file of slang.neural among its dependencies");
+            else if (!read.All(p => p.StartsWith(folder, comparison) && InOutput(p))) Report("FAIL", "standard modules used", $"read from {Path.GetDirectoryName(read[0])}, not {folder} in this output");
+            else Report("PASS", "standard modules used", $"slang.neural and slang.numerics imported, {spirv.Length} bytes of SPIR-V; read from {folder}");
+        }
+        catch (SharpSlang.Interop.SlangException e)
+        {
+            Report("FAIL", "standard modules used", e.Diagnostics?.Split('\n')[0] ?? e.Message);
+        }
     }
 
     if (OperatingSystem.IsWindows() && RuntimeInformation.ProcessArchitecture == Architecture.X64)
@@ -103,6 +164,12 @@ try
     if (args.Length == 0) throw new ArgumentException("pass the baked package the core run wrote");
     var package = ShaderPackage.ReadFromFile(args[0]);
     Report("PASS", "read", $"slang {package.SlangVersion}, {package.EntryPoints.Count} entry point(s), {package.Layout.Parameters.Count} parameter(s)");
+#if CONSUME_NRI
+    // The projection the cooker stored, read back without projecting
+    var stored = package.ReadNriProjection();
+    if (stored is null) Report("FAIL", "NRI projection", "the baked package carries no NRI section");
+    else Report("PASS", "NRI projection", $"{stored.DescriptorSets.Count} descriptor set(s) read back from the package");
+#endif
 }
 catch (Exception e)
 {

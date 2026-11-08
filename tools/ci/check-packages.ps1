@@ -100,6 +100,14 @@ foreach ($p in $data.Packages) {
         $repo = $pkg.Nuspec.package.metadata.repository
         $named = if ($repo) { $repo.GetAttribute('commit') } else { '' }
         if ($named -ne $Commit) { $failed.Add("$name does not name commit $Commit in <repository>$(if ($named) { " (it names $named)" } else { ' (no commit)' })") }
+
+        # Each portable PDB beside its DLL carries a Source Link map onto that commit
+        foreach ($pdb in @($entries | Where-Object { $_ -match '^lib/[^/]+/[^/]+\.pdb$' })) {
+            $map = Get-SourceLink $pkg.Path $pdb
+            if (-not $map) { $failed.Add("$name $pdb has no Source Link map (not a portable PDB, or no Source Link)") }
+            elseif ($map -notmatch "/$([regex]::Escape($Commit))/") { $failed.Add("$name $pdb maps its sources elsewhere than commit ${Commit}: $map") }
+            elseif (-not $Quiet) { Write-Host "    source link ($pdb): $map" }
+        }
     }
 
     # Exact dependencies: the listed ones at their values, and any on a package of ours as [v]
