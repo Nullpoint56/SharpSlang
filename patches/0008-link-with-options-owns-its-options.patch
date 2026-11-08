@@ -19,7 +19,7 @@ tools/slang-unit-test/unit-test-link-with-options-twice.cpp.
 Measured on v2026.21 (win-x64): before, NONE then MAXIMAL on one composite give 1,572 and 1,572
 bytes; a fresh composite at MAXIMAL gives 1,188.
 diff --git a/source/slang/slang-linkable.cpp b/source/slang/slang-linkable.cpp
-index 7e9886867..1c7275840 100644
+index 7e9886867..3098cfcc0 100644
 --- a/source/slang/slang-linkable.cpp
 +++ b/source/slang/slang-linkable.cpp
 @@ -579,15 +579,24 @@ SLANG_NO_THROW SlangResult SLANG_MCALL ComponentType::linkWithOptions(
@@ -39,7 +39,7 @@ index 7e9886867..1c7275840 100644
 +    // code. A component type of its own, composed of the linked one, carries this link's options.
 +    //
 +    RefPtr<ComponentType> linked = static_cast<ComponentType*>(linkedInterface.get());
-+    if (linked == this)
++    if (linked.Ptr() == this)
      {
 -        static_cast<ComponentType*>(linked)->getOptionSet().load(count, entries);
 +        List<RefPtr<ComponentType>> components;

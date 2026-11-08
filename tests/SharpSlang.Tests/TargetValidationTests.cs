@@ -33,7 +33,16 @@ public sealed class TargetValidationTests(ITestOutputHelper output)
     public enum Outcome { Valid, SlangRefuses, ValidatorRejects }
 
     /// <summary>What a declared entry expects: the outcome, words its message must contain, and why.</summary>
-    public sealed record Expected(Outcome Outcome, string Words, string Reason);
+    /// <summary>A declared outcome. <paramref name="FixedBy"/> names the defect whose patch makes the row
+/// <see cref="Outcome.Valid"/> on a payload built with that patch (AGENTS.md#patches).</summary>
+public sealed record Expected(Outcome Outcome, string Words, string Reason, string? FixedBy = null)
+{
+    /// <summary>What the staged payload should produce: <see cref="Outcome.Valid"/> where it carries the fix.</summary>
+    public Expected ForStagedPayload() =>
+        FixedBy is not null && PatchRegistry.PatchFor(FixedBy) is { } patch && StagedPayload.Carries(patch)
+            ? new Expected(Outcome.Valid, "", $"patched ({FixedBy})")
+            : this;
+}
 
     /// <summary>One entry point's code for one target, or Slang's reason for not producing it.</summary>
     private sealed record Emitted(string Key, SlangStage Stage, byte[]? Code, string? Refusal);
@@ -258,6 +267,33 @@ public sealed class TargetValidationTests(ITestOutputHelper output)
 
     // ---------------------------------------------------------------- judging
 
+    /// <summary>
+    /// The registry test of a patch that fixes a target's output: the case must be <see cref="Outcome.Valid"/>
+    /// on our build, so the build without the patch is red (AGENTS.md#patches).
+    /// </summary>
+    private void RequirePatchedCaseValid(string target, string name, Validator validator)
+    {
+        Assert.SkipWhen(TargetValidators.Unavailable(validator) is { } missing, missing ?? "");
+        var t = TargetNamed(target);
+        using var global = SlangGlobalSession.Create();
+        var caseName = name.Split('/')[0];
+        var emitted = EmitCase(global, ShaderCorpus.Case(caseName), t.Options()).Where(e => e.Key == name).ToList();
+        Assert.NotEmpty(emitted);
+        foreach (var e in emitted)
+        {
+            Assert.True(e.Refusal is null, $"{target} {e.Key}: Slang refused: {e.Refusal}");
+            var verdict = t.Judge(e);
+            Assert.True(verdict.Accepted, $"{target} {e.Key}: {verdict.Message}");
+        }
+    }
+
+    [PatchedFact("U18")]
+    public void Glsl_a_hull_shaders_patch_constant_function_compiles() =>
+        RequirePatchedCaseValid("glsl", "tessellation/teHull", Validator.GlslangValidator);
+
+    [PatchedFact("U19")]
+    public void Glsl_a_domain_shaders_patch_input_compiles() =>
+        RequirePatchedCaseValid("glsl", "tessellation/teDomain", Validator.GlslangValidator);
     private void CheckCase(string target, string name)
     {
         var t = TargetNamed(target);
@@ -305,7 +341,7 @@ public sealed class TargetValidationTests(ITestOutputHelper output)
             tally[outcome] = tally.GetValueOrDefault(outcome) + 1;
             output.WriteLine($"{target.Name} {e.Key} ({e.Stage}): {outcome}{(message.Length > 0 ? ": " + Oneline(message) : "")}");
 
-            var expected = declared.GetValueOrDefault(e.Key) ?? new Expected(Outcome.Valid, "", "");
+            var expected = (declared.GetValueOrDefault(e.Key) ?? new Expected(Outcome.Valid, "", "")).ForStagedPayload();
             if (outcome != expected.Outcome || !message.Contains(expected.Words, StringComparison.Ordinal))
             {
                 problems.Add($"{e.Key}: expected {expected.Outcome}{(expected.Words.Length > 0 ? $" ('{expected.Words}')" : "")}, "
@@ -471,7 +507,7 @@ public sealed class TargetValidationTests(ITestOutputHelper output)
             (["compute-specialized/csCompute"], new(Outcome.SlangRefuses, SpecializedNumthreads, NoSpecializedNumthreads)));
 
         public static readonly Dictionary<string, Expected> Glsl = Table(
-            (["tessellation/teHull"], new(Outcome.ValidatorRejects, "non-void function must return a value", "U18: the patch-constant function is declared to return its struct and ends in a bare return")),
+            (["tessellation/teHull"], new(Outcome.ValidatorRejects, "non-void function must return a value", "U18: the patch-constant function is declared to return its struct and ends in a bare return", FixedBy: "U18")),
             (["tessellation/teDomain"], new(Outcome.ValidatorRejects, "tessellation input array size must be gl_MaxPatchVertices or implicitly sized", "U19: the domain stage's per-vertex input is declared with the patch size")));
 
         public static readonly Dictionary<string, Expected> Metal = Table(

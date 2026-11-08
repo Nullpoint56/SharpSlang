@@ -180,9 +180,9 @@
       "title": "GLSL: a hull shader's patch-constant function returns its struct with a bare `return;`",
       "area": "GLSL",
       "kind": "Slang defect",
-      "patch": null,
-      "test": "TargetValidationTests.Glsl_compiles_with_glslang",
-      "state": "unpatched",
+      "patch": "0009-glsl-patch-constant-function-void.patch",
+      "test": "TargetValidationTests.Glsl_a_hull_shaders_patch_constant_function_compiles",
+      "state": "patched",
       "verified": "v2026.21",
       "upstream": [
         "#14335"
@@ -193,9 +193,9 @@
       "title": "GLSL: a domain shader's per-vertex input is sized by the patch, which GLSL forbids",
       "area": "GLSL",
       "kind": "Slang defect",
-      "patch": null,
-      "test": "TargetValidationTests.Glsl_compiles_with_glslang",
-      "state": "unpatched",
+      "patch": "0010-glsl-domain-input-unsized.patch",
+      "test": "TargetValidationTests.Glsl_a_domain_shaders_patch_input_compiles",
+      "state": "patched",
       "verified": "v2026.21",
       "upstream": [
         "#14335"

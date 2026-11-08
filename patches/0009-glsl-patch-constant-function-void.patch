@@ -1,0 +1,111 @@
+Emit a hull shader's patch-constant function returning void on the GLSL target.
+
+invokePatchConstantFuncInHullShader (source/slang/slang-ir-glsl-legalize.cpp) legalizes the
+patch-constant function's result as it does an entry point's: legalizeEntryPointReturnValueForGLSL
+writes the returned struct to gl_TessLevelOuter, gl_TessLevelInner and the patch outputs, and
+replaces each return with one that has no value. It then calls fixUpFuncType(constantFunc), which
+keeps the function's declared result type, while the entry point beside it gets
+fixUpFuncType(entryPoint, builder.getVoidType()). The GLSL target therefore emits
+`TePatch_0 teConstants_0(...) { ... return; }`, and glslang refuses it: "'return' : non-void
+function must return a value".
+
+This gives the patch-constant function a void result type, as the entry point has. A regression
+test is added as tools/slang-unit-test/unit-test-glsl-patch-constant-function-void.cpp.
+
+Measured on v2026.21: glslangValidator -V --target-env vulkan1.2 -S tesc refused the hull shader's
+GLSL (the SPIR-V target's module passed spirv-val).
+diff --git a/source/slang/slang-ir-glsl-legalize.cpp b/source/slang/slang-ir-glsl-legalize.cpp
+index f34e007df..d4a5713aa 100644
+--- a/source/slang/slang-ir-glsl-legalize.cpp
++++ b/source/slang/slang-ir-glsl-legalize.cpp
+@@ -1469,7 +1469,11 @@ void invokePatchConstantFuncInHullShader(
+ 
+     addPatchDecorationToNonSystemValueLeaves(&builder, patchConstantFuncOutputVal);
+ 
+-    fixUpFuncType(constantFunc);
++    // The legalization above writes the result to the patch-constant outputs and turns every
++    // `return` into one without a value, as for the entry point itself, so the function no longer
++    // returns its struct.
++    //
++    fixUpFuncType(constantFunc, builder.getVoidType());
+ }
+ 
+ static bool targetBuiltinRequiresLegalization(IRTargetBuiltinVarName builtinVarName)
+diff --git a/tools/slang-unit-test/unit-test-glsl-patch-constant-function-void.cpp b/tools/slang-unit-test/unit-test-glsl-patch-constant-function-void.cpp
+new file mode 100644
+index 000000000..35d127dc8
+--- /dev/null
++++ b/tools/slang-unit-test/unit-test-glsl-patch-constant-function-void.cpp
+@@ -0,0 +1,71 @@
++// unit-test-glsl-patch-constant-function-void.cpp
++
++#include "slang-com-ptr.h"
++#include "slang.h"
++#include "unit-test/slang-unit-test.h"
++
++using namespace Slang;
++
++// The GLSL target writes a hull shader's patch-constant result to the tessellation levels and
++// returns without a value, so the patch-constant function must be emitted returning `void`.
++
++SLANG_UNIT_TEST(glslPatchConstantFunctionReturnsVoid)
++{
++    const char* source = R"(
++        struct TeControl { float3 tePosition : POSITION; };
++        struct TePatch { float teEdges[3] : SV_TessFactor; float teInner : SV_InsideTessFactor; };
++
++        TePatch teConstants(InputPatch<TeControl, 3> patch)
++        {
++            TePatch c;
++            c.teEdges[0] = c.teEdges[1] = c.teEdges[2] = 1;
++            c.teInner = 1;
++            return c;
++        }
++
++        [shader("hull")] [domain("tri")] [partitioning("integer")] [outputtopology("triangle_cw")]
++        [outputcontrolpoints(3)] [patchconstantfunc("teConstants")]
++        TeControl teHull(InputPatch<TeControl, 3> patch, uint i : SV_OutputControlPointID)
++        {
++            return patch[i];
++        }
++        )";
++
++    ComPtr<slang::IGlobalSession> globalSession;
++    SLANG_CHECK_ABORT(
++        slang_createGlobalSession(SLANG_API_VERSION, globalSession.writeRef()) == SLANG_OK);
++
++    slang::TargetDesc targetDesc = {};
++    targetDesc.format = SLANG_GLSL;
++    targetDesc.profile = globalSession->findProfile("glsl_450");
++
++    slang::SessionDesc sessionDesc = {};
++    sessionDesc.targetCount = 1;
++    sessionDesc.targets = &targetDesc;
++
++    ComPtr<slang::ISession> session;
++    SLANG_CHECK_ABORT(globalSession->createSession(sessionDesc, session.writeRef()) == SLANG_OK);
++
++    ComPtr<slang::IBlob> diagnostics;
++    auto module = session->loadModuleFromSourceString(
++        "glslPatchConstantFunctionReturnsVoid",
++        "glslPatchConstantFunctionReturnsVoid.slang",
++        source,
++        diagnostics.writeRef());
++    SLANG_CHECK_ABORT(module != nullptr);
++
++    ComPtr<slang::IEntryPoint> entryPoint;
++    SLANG_CHECK_ABORT(SLANG_SUCCEEDED(module->findEntryPointByName("teHull", entryPoint.writeRef())));
++    slang::IComponentType* components[] = {module, entryPoint};
++    ComPtr<slang::IComponentType> program;
++    SLANG_CHECK_ABORT(SLANG_SUCCEEDED(
++        session->createCompositeComponentType(components, 2, program.writeRef(), diagnostics.writeRef())));
++    ComPtr<slang::IComponentType> linked;
++    SLANG_CHECK_ABORT(SLANG_SUCCEEDED(program->link(linked.writeRef(), diagnostics.writeRef())));
++
++    ComPtr<slang::IBlob> code;
++    SLANG_CHECK_ABORT(
++        SLANG_SUCCEEDED(linked->getEntryPointCode(0, 0, code.writeRef(), diagnostics.writeRef())));
++    auto glsl = UnownedStringSlice((const char*)code->getBufferPointer(), code->getBufferSize());
++    SLANG_CHECK(glsl.indexOf(UnownedStringSlice("void teConstants")) != -1);
++}
+\ No newline at end of file

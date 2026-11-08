@@ -1,0 +1,113 @@
+Declare a domain shader's patch input implicitly sized on the GLSL target.
+
+legalizePatchParam (source/slang/slang-ir-glsl-legalize.cpp) turns an InputPatch or OutputPatch
+parameter into a global varying array sized by the patch: `layout(location = 0) in vec3
+patch_tePosition_0[3];` for `const OutputPatch<TeControl, 3> patch` in a domain shader. GLSL 4.50
+requires a tessellation evaluation shader's per-vertex inputs to be implicitly sized or sized
+gl_MaxPatchVertices, and glslang refuses the declaration: "'[]' : tessellation input array size
+must be gl_MaxPatchVertices or implicitly sized". The SPIR-V target's module for the same shader
+is valid.
+
+This leaves the array unsized for a domain shader on targets other than SPIR-V, which the GLSL
+emitter writes as `[]`. The SPIR-V target, and hull shaders, keep the patch size. A regression
+test is added as tools/slang-unit-test/unit-test-glsl-domain-input-unsized.cpp.
+
+Measured on v2026.21: glslangValidator -V --target-env vulkan1.2 -S tese refused the domain
+shader's GLSL.
+diff --git a/source/slang/slang-ir-glsl-legalize.cpp b/source/slang/slang-ir-glsl-legalize.cpp
+index d4a5713aa..257e3f84d 100644
+--- a/source/slang/slang-ir-glsl-legalize.cpp
++++ b/source/slang/slang-ir-glsl-legalize.cpp
+@@ -3319,7 +3319,14 @@ static void legalizePatchParam(
+ {
+     auto builder = context->getBuilder();
+     auto elementType = patchType->getElementType();
+-    auto elementCount = patchType->getElementCount();
++    IRInst* elementCount = patchType->getElementCount();
++
++    // GLSL requires the per-vertex inputs of a tessellation evaluation shader to be implicitly sized
++    // (or sized gl_MaxPatchVertices); declaring them with the patch's size is an error there. The
++    // SPIR-V target takes the size.
++    //
++    if (context->stage == Stage::Domain && !isSPIRV(codeGenContext->getTargetFormat()))
++        elementCount = nullptr;
+     auto arrayType = builder->getArrayType(elementType, elementCount);
+ 
+     auto globalPatchVal = createGLSLGlobalVaryings(
+diff --git a/tools/slang-unit-test/unit-test-glsl-domain-input-unsized.cpp b/tools/slang-unit-test/unit-test-glsl-domain-input-unsized.cpp
+new file mode 100644
+index 000000000..373cb99f5
+--- /dev/null
++++ b/tools/slang-unit-test/unit-test-glsl-domain-input-unsized.cpp
+@@ -0,0 +1,70 @@
++// unit-test-glsl-domain-input-unsized.cpp
++
++#include "slang-com-ptr.h"
++#include "slang.h"
++#include "unit-test/slang-unit-test.h"
++
++using namespace Slang;
++
++// GLSL requires a tessellation evaluation shader's per-vertex inputs to be implicitly sized, so the
++// GLSL target must not declare a domain shader's patch input with the patch's size.
++
++SLANG_UNIT_TEST(glslDomainInputUnsized)
++{
++    const char* source = R"(
++        struct TeControl { float3 tePosition : POSITION; };
++        struct TePatch { float teEdges[3] : SV_TessFactor; float teInner : SV_InsideTessFactor; };
++        struct TeOut { float4 teClip : SV_Position; };
++
++        [shader("domain")] [domain("tri")]
++        TeOut teDomain(TePatch c, float3 bary : SV_DomainLocation, const OutputPatch<TeControl, 3> patch)
++        {
++            TeOut o;
++            o.teClip = float4(patch[0].tePosition * bary.x, 1);
++            return o;
++        }
++        )";
++
++    ComPtr<slang::IGlobalSession> globalSession;
++    SLANG_CHECK_ABORT(
++        slang_createGlobalSession(SLANG_API_VERSION, globalSession.writeRef()) == SLANG_OK);
++
++    slang::TargetDesc targetDesc = {};
++    targetDesc.format = SLANG_GLSL;
++    targetDesc.profile = globalSession->findProfile("glsl_450");
++
++    slang::SessionDesc sessionDesc = {};
++    sessionDesc.targetCount = 1;
++    sessionDesc.targets = &targetDesc;
++
++    ComPtr<slang::ISession> session;
++    SLANG_CHECK_ABORT(globalSession->createSession(sessionDesc, session.writeRef()) == SLANG_OK);
++
++    ComPtr<slang::IBlob> diagnostics;
++    auto module = session->loadModuleFromSourceString(
++        "glslDomainInputUnsized",
++        "glslDomainInputUnsized.slang",
++        source,
++        diagnostics.writeRef());
++    SLANG_CHECK_ABORT(module != nullptr);
++
++    ComPtr<slang::IEntryPoint> entryPoint;
++    SLANG_CHECK_ABORT(
++        SLANG_SUCCEEDED(module->findEntryPointByName("teDomain", entryPoint.writeRef())));
++    slang::IComponentType* components[] = {module, entryPoint};
++    ComPtr<slang::IComponentType> program;
++    SLANG_CHECK_ABORT(SLANG_SUCCEEDED(session->createCompositeComponentType(
++        components,
++        2,
++        program.writeRef(),
++        diagnostics.writeRef())));
++    ComPtr<slang::IComponentType> linked;
++    SLANG_CHECK_ABORT(SLANG_SUCCEEDED(program->link(linked.writeRef(), diagnostics.writeRef())));
++
++    ComPtr<slang::IBlob> code;
++    SLANG_CHECK_ABORT(
++        SLANG_SUCCEEDED(linked->getEntryPointCode(0, 0, code.writeRef(), diagnostics.writeRef())));
++    auto glsl = UnownedStringSlice((const char*)code->getBufferPointer(), code->getBufferSize());
++    SLANG_CHECK(glsl.indexOf(UnownedStringSlice("patch_tePosition_0[3]")) == -1);
++    SLANG_CHECK(glsl.indexOf(UnownedStringSlice("patch_tePosition_0[]")) != -1);
++}
+\ No newline at end of file
