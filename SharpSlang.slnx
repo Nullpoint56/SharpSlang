@@ -6,6 +6,8 @@
     <File Path="Directory.Build.props" />
     <File Path="NativeReaderEnums.props" />
     <File Path=".gitignore" />
+    <File Path=".gitattributes" />
+    <File Path=".editorconfig" />
     <File Path="nuget.config" />
   </Folder>
   <Folder Name="/docs/">
@@ -13,6 +15,7 @@
     <File Path="docs/design.md" />
   </Folder>
   <Folder Name="/tools/">
+    <File Path="tools/check.ps1" />
     <File Path="tools/fetch-native.ps1" />
     <File Path="tools/generate-native.ps1" />
   </Folder>

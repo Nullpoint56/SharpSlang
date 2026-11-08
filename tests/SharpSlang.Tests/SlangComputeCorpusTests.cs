@@ -18,12 +18,12 @@
 //   SlangWalkerCorpusTests     is this layout *reported right* (the Slang team says)
 //   this file                  does a host binding by it *work* (the driver says)
 
-using SharpSlang.Native;
-using SharpSlang.Pipeline.NRI;
-using SharpSlang.Reflection;
 using SharpNRI;
 using SharpNRI.Native;
 using SharpNRI.Testing;
+using SharpSlang.Native;
+using SharpSlang.Pipeline.NRI;
+using SharpSlang.Reflection;
 
 namespace SharpSlang.Tests;
 
@@ -397,28 +397,28 @@ public sealed class SlangComputeCorpusTests(Xunit.Abstractions.ITestOutputHelper
         switch (type)
         {
             case "float":
-            {
-                if (!double.TryParse(expected, System.Globalization.NumberStyles.Float, culture, out var want))
-                    return (false, $"could not read '{expected}' as a float");
+                {
+                    if (!double.TryParse(expected, System.Globalization.NumberStyles.Float, culture, out var want))
+                        return (false, $"could not read '{expected}' as a float");
 
-                var got = BitConverter.UInt32BitsToSingle(produced);
-                var tolerance = Math.Max(1e-4, Math.Abs(want) * 1e-5);
-                return (Math.Abs(want - got) <= tolerance, $"slang {want}, shader wrote {got}");
-            }
+                    var got = BitConverter.UInt32BitsToSingle(produced);
+                    var tolerance = Math.Max(1e-4, Math.Abs(want) * 1e-5);
+                    return (Math.Abs(want - got) <= tolerance, $"slang {want}, shader wrote {got}");
+                }
 
             case "uint":
-            {
-                if (!uint.TryParse(expected, culture, out var want))
-                    return (false, $"could not read '{expected}' as a uint");
-                return (want == produced, $"slang {want}, shader wrote {produced}");
-            }
+                {
+                    if (!uint.TryParse(expected, culture, out var want))
+                        return (false, $"could not read '{expected}' as a uint");
+                    return (want == produced, $"slang {want}, shader wrote {produced}");
+                }
 
             default:
-            {
-                if (!int.TryParse(expected, culture, out var want))
-                    return (false, $"could not read '{expected}' as an int ({type})");
-                return (want == unchecked((int)produced), $"slang {want}, shader wrote {unchecked((int)produced)}");
-            }
+                {
+                    if (!int.TryParse(expected, culture, out var want))
+                        return (false, $"could not read '{expected}' as an int ({type})");
+                    return (want == unchecked((int)produced), $"slang {want}, shader wrote {unchecked((int)produced)}");
+                }
         }
     }
 

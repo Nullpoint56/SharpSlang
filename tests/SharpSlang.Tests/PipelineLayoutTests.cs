@@ -13,11 +13,10 @@
 //
 // A test that reads the answer out of the bytes cannot be wrong in the same direction as the code.
 
-using SharpSlang.Baking;
-using SharpSlang.Native;
-using SharpSlang.Reflection;
-using SharpSlang.Pipeline.NRI;
 using SharpNRI.Native;
+using SharpSlang.Baking;
+using SharpSlang.Pipeline.NRI;
+using SharpSlang.Reflection;
 
 namespace SharpSlang.Tests;
 

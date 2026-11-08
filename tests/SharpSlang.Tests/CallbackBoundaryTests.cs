@@ -9,9 +9,7 @@
 // So the thunks are called here the way Slang calls them: through the function pointers, with the
 // arguments a confused caller would pass, and with a provider that throws.
 
-using System.Runtime.InteropServices;
 using SharpSlang.Hosting;
-using SharpSlang.Interop;
 using SharpSlang.Native;
 
 namespace SharpSlang.Tests;

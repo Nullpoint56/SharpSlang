@@ -10,10 +10,10 @@
 // allocated object) and an NriDescriptorSetDesc (the desc), and a consumer with both namespaces
 // open should never have to disambiguate the description of a set from the set.
 
-using SharpSlang.Native;
-using SharpSlang.Reflection;
 using SharpNRI;
 using SharpNRI.Native;
+using SharpSlang.Native;
+using SharpSlang.Reflection;
 
 namespace SharpSlang.Pipeline.NRI;
 

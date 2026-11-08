@@ -27,11 +27,12 @@
     digests    run | skip
     bindings   run | skip    the generated-bindings check, Windows
     docs       run | skip    links and section references, Linux
+    lint       run | skip    the analyzers and the formatter (tools/check.ps1), Linux
 
   Decisions:
 
     branch, behind master   fails here, before anything is paid for. Merge or rebase, then run again.
-    branch, docs only     the test legs, digests and bindings skip. The docs check runs.
+    branch, docs only     the test legs, digests, bindings and lint skip. The docs check runs.
     tests and digests     skip when every requested leg passed for this tree, and the digests
                           comparison passed for at least that many legs. Otherwise all requested
                           legs run, because the digests job compares legs of one run.
@@ -39,8 +40,9 @@
                           inputs differ from master, and on a push only when the push changed them:
                           Directory.Build.props, tools/generate-native.ps1, dotnet/Native.
     docs                  skip when it passed for this tree.
-    release               publish.yml's call. Bindings and docs skip, and the legs follow the rule
-                          above. macOS normally has not run, so a release normally runs every leg.
+    lint                  skip when it passed for this tree.
+    release               publish.yml's call. Bindings, docs and lint skip, and the legs follow the
+                          rule above. macOS normally has not run, so a release normally runs every leg.
     force                 the manual input: everything requested runs.
 
   Any API failure makes every job run. Paying twice beats skipping something untested.
@@ -90,11 +92,12 @@ $onBranch      = $Ref -like 'refs/heads/*' -and $Ref -ne 'refs/heads/master'
 $short         = $Sha.Substring(0, [Math]::Min(7, $Sha.Length))
 $notes         = [System.Collections.Generic.List[string]]::new()
 
-$decision = [ordered]@{ legs = $requested; digests = 'run'; bindings = 'run'; docs = 'run' }
+$decision = [ordered]@{ legs = $requested; digests = 'run'; bindings = 'run'; docs = 'run'; lint = 'run' }
 if ($isRelease) {
     $decision.bindings = 'skip'
     $decision.docs = 'skip'
-    $notes.Add('Release: the bindings and docs checks skip; the packages do not depend on them.')
+    $decision.lint = 'skip'
+    $notes.Add('Release: the bindings, docs and lint checks skip; the packages do not depend on them.')
 }
 
 function Write-Decision([string]$Headline) {
@@ -104,14 +107,16 @@ function Write-Decision([string]$Headline) {
         "count=$($legs.Count)",
         "digests=$($decision.digests)",
         "bindings=$($decision.bindings)",
-        "docs=$($decision.docs)"
+        "docs=$($decision.docs)",
+        "lint=$($decision.lint)"
     )
     $summary = @("### CI gate: $short", '', $Headline, '') + @($notes | ForEach-Object { "- $_" }) + @(
         '', '| Job | Decision |', '|---|---|',
         "| test legs | $(if ($legs.Count) { $legs -join ', ' } else { 'none' }) |",
         "| digests | $($decision.digests) |",
         "| bindings | $($decision.bindings) |",
-        "| docs | $($decision.docs) |")
+        "| docs | $($decision.docs) |",
+        "| lint | $($decision.lint) |")
     if ($env:GITHUB_OUTPUT) { $lines | Add-Content -Path $env:GITHUB_OUTPUT -Encoding utf8 } else { $lines | Write-Output }
     if ($env:GITHUB_STEP_SUMMARY) { $summary | Add-Content -Path $env:GITHUB_STEP_SUMMARY -Encoding utf8 } else { $summary | Write-Host }
 }
@@ -146,7 +151,8 @@ try {
             $decision.legs = @()
             $decision.digests = 'skip'
             $decision.bindings = 'skip'
-            $notes.Add("Only documentation differs from master ($($changed.Count) files): the test legs, digests and bindings skip.")
+            $decision.lint = 'skip'
+            $notes.Add("Only documentation differs from master ($($changed.Count) files): the test legs, digests, bindings and lint skip.")
         }
         if ($decision.bindings -eq 'run' -and -not (Test-Like $changed $bindingInputs)) {
             $decision.bindings = 'skip'
@@ -200,6 +206,10 @@ try {
         $decision.docs = 'skip'
         $notes.Add('The docs check already passed for this tree.')
     }
+    if ($decision.lint -eq 'run' -and $passed.Contains('lint')) {
+        $decision.lint = 'skip'
+        $notes.Add('The lint check already passed for this tree.')
+    }
 
     $headline = "$EventName on $Ref, tree $($tree.Substring(0, 7)), looked up through $($heads.Count) commit(s)."
 }
@@ -209,6 +219,7 @@ catch {
         legs = $requested; digests = 'run'
         bindings = $(if ($isRelease) { 'skip' } else { 'run' })
         docs = $(if ($isRelease) { 'skip' } else { 'run' })
+        lint = $(if ($isRelease) { 'skip' } else { 'run' })
     }
     $headline = 'The GitHub API did not answer: every requested job runs.'
 }

@@ -7,8 +7,8 @@
 
 using System.Runtime.InteropServices;
 using SharpSlang.Native;
-using SharpSlang.Reflection;
 using SharpSlang.Pipeline.NRI;
+using SharpSlang.Reflection;
 
 namespace SharpSlang.Tests;
 

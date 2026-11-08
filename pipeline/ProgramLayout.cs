@@ -26,6 +26,10 @@ public readonly record struct ParameterBinding(SlangParameterCategory Category, 
 /// <param name="Semantic">HLSL-style semantic, if declared.</param>
 /// <param name="SemanticIndex">Index on that semantic.</param>
 /// <param name="Attributes">User attributes declared on the parameter.</param>
+/// <param name="Stage">
+/// Which stage the parameter belongs to, where Slang attributes it to one — an entry point's
+/// varyings do, a global does not.
+/// </param>
 public sealed record ShaderParameter(
     string Name,
     TypeLayout Type,
@@ -184,6 +188,10 @@ public sealed record ShaderParameter(
 /// binding while the program is still alive, which is also why it is on the snapshot rather
 /// than computed later — the compiler is gone by then.
 /// </remarks>
+/// <param name="IsImplicitGlobalBuffer">
+/// Whether this is the constant buffer Slang synthesises for loose global uniforms
+/// (<c>uniform float4 gTint;</c> at file scope), which no declaration names.
+/// </param>
 public sealed record DescriptorRange(
     SlangBindingType BindingType,
     uint IndexOffset,
@@ -368,7 +376,7 @@ public readonly record struct ThreadGroupSize(ulong X, ulong Y, ulong Z)
         ? $"[{Dim(X)}, {Dim(Y)}, {Dim(Z)}]"
         : $"[{X}, {Y}, {Z}]";
 
-    private static string Dim(ulong v) => v == 0 ? "specialized" : v.ToString();
+    private static string Dim(ulong v) => v == 0 ? "specialized" : v.ToString(System.Globalization.CultureInfo.InvariantCulture);
 }
 
 /// <summary>
@@ -530,7 +538,7 @@ public readonly record struct GenericArgumentBinding(
     long? Value = null)
 {
     public override string ToString() =>
-        $"{Parameter} = {(Kind == GenericParameterKind.Type ? Type ?? "?" : Value?.ToString() ?? "?")}";
+        $"{Parameter} = {(Kind == GenericParameterKind.Type ? Type ?? "?" : Value?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "?")}";
 }
 
 /// <summary>
@@ -596,10 +604,6 @@ public enum ParameterDirection
 /// </param>
 /// <param name="Direction">Whether the function reads it, writes it, or both.</param>
 /// <param name="Attributes">User attributes on the parameter, if any.</param>
-/// <param name="Stage">
-/// Which stage the parameter belongs to, where Slang attributes it to one — an entry point's
-/// varyings do, a global does not.
-/// </param>
 /// <remarks>
 /// Deliberately carries no semantic. <c>GetSemanticName</c> exists only on a <em>variable
 /// layout</em>, and an ordinary function parameter has no layout — a semantic is a property of a
@@ -736,7 +740,7 @@ public sealed record DeclarationNode(
 
 /// <summary>
 /// A complete, immutable snapshot of one linked program's layout. Safe to keep after the
-/// <see cref="LinkedProgram"/> is disposed, and serializable so the asset pipeline can bake it
+/// <c>LinkedProgram</c> is disposed, and serializable so the asset pipeline can bake it
 /// beside the SPIR-V and keep the compiler out of shipped builds.
 /// </summary>
 public sealed record ProgramLayout

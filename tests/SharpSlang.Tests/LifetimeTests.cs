@@ -129,7 +129,7 @@ public class LifetimeTests
         Assert.True(blob.ToArray().Length > 0);
 
         blob.Dispose();
-        Assert.Throws<ObjectDisposedException>(() => blob.ToArray());
+        Assert.Throws<ObjectDisposedException>(blob.ToArray);
     }
 
     // ---------------------------------------------------------------- disposal order

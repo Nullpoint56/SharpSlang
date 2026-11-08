@@ -337,6 +337,7 @@ public sealed class ShaderPackage
     /// </summary>
     /// <param name="count">The value just read from the stream.</param>
     /// <param name="perItem">Fewest bytes one item can occupy.</param>
+    /// <param name="r">The reader, positioned after the count.</param>
     /// <param name="what">What is being counted, for the message.</param>
     /// <remarks>
     /// A corrupted length prefix is the one field that turns a bad file into a bad allocation:

@@ -4,7 +4,6 @@
 // so getTypeGuid() is excluded from generation and the IIDs are parsed out of slang.h here.
 // Required by queryInterface / castAs. See docs/design.md §4.3.
 
-using System;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 

@@ -23,7 +23,7 @@ namespace SharpSlang.Tests;
 /// <summary>The pinned checkout of one directory of Slang's test suite.</summary>
 public static partial class SlangTestCorpus
 {
-    /// <summary>One `//TEST(...):REFLECTION:<args>` directive and the output it must produce.</summary>
+    /// <summary>One <c>//TEST(...):REFLECTION:&lt;args&gt;</c> directive and the output it must produce.</summary>
     /// <param name="Source">Shader file name, e.g. <c>parameter-block.slang</c>.</param>
     /// <param name="Index">Directive position in the file. Decides the .expected suffix.</param>
     /// <param name="Arguments">The slangc command line after the directive.</param>
@@ -131,7 +131,7 @@ public static partial class SlangTestCorpus
     /// <summary>Every REFLECTION directive in tests/reflection that has an expected result.</summary>
     public static IReadOnlyList<ReflectionCase> Reflection => LazyReflection.Value;
 
-    private static IReadOnlyList<ReflectionCase> LoadReflection()
+    private static List<ReflectionCase> LoadReflection()
     {
         var directory = Fetch("reflection");
         var cases = new List<ReflectionCase>();
@@ -257,7 +257,7 @@ public static partial class SlangTestCorpus
     /// <summary>Compute cases this harness can express: a Vulkan target and buffers only.</summary>
     public static IReadOnlyList<ComputeCase> Compute => LazyCompute.Value;
 
-    private static IReadOnlyList<ComputeCase> LoadCompute()
+    private static List<ComputeCase> LoadCompute()
     {
         var directory = Fetch("compute");
         var cases = new List<ComputeCase>();
@@ -413,7 +413,7 @@ public static partial class SlangTestCorpus
                     : "to a token that is still valid; the one set was refused."), e);
         }
 
-        var entries = JsonDocument.Parse(listing).RootElement.EnumerateArray()
+        var entries = JsonElement.Parse(listing).EnumerateArray()
             .Where(e => e.GetProperty("type").GetString() == "file")
             .Select(e => (Name: e.GetProperty("name").GetString()!, Url: e.GetProperty("download_url").GetString()!))
             .ToList();

@@ -519,7 +519,7 @@ public sealed partial class SlangHeader
             if (t == "(")
             {
                 // A cast is `(TYPE)` followed by an operand; anything else is a grouping.
-                if (CastWidths.ContainsKey(t = Peek ?? "") && _i + 1 < _tokens.Count && _tokens[_i + 1] == ")")
+                if (CastWidths.ContainsKey(Peek ?? "") && _i + 1 < _tokens.Count && _tokens[_i + 1] == ")")
                 {
                     var type = Next();
                     Expect(")");

@@ -9,7 +9,6 @@
 // These tests are also the assertion that the *package* ships it. A run with a Minimal payload
 // fails here rather than shipping fat shaders.
 
-using SharpSlang.Interop;
 using SharpSlang.Native;
 
 namespace SharpSlang.Tests;

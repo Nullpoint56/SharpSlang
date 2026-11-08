@@ -39,7 +39,7 @@ public partial class VtableOrderTests(Xunit.Abstractions.ITestOutputHelper outpu
 
     private static IReadOnlyList<Generated> Emitted => LazyEmitted.Value;
 
-    private static IReadOnlyList<Generated> ReadGenerated()
+    private static List<Generated> ReadGenerated()
     {
         var directory = Path.Combine(SlangHeader.RepoRoot(), "dotnet", "Native");
         var result = new List<Generated>();
@@ -69,8 +69,8 @@ public partial class VtableOrderTests(Xunit.Abstractions.ITestOutputHelper outpu
                     + "reading it wrong.");
 
                 slots.Add(new Slot(
-                    int.Parse(marks[i].Groups["index"].Value),
-                    int.Parse(dispatch.Groups["index"].Value),
+                    int.Parse(marks[i].Groups["index"].Value, System.Globalization.CultureInfo.InvariantCulture),
+                    int.Parse(dispatch.Groups["index"].Value, System.Globalization.CultureInfo.InvariantCulture),
                     name.Groups["name"].Value));
             }
 

@@ -292,7 +292,7 @@ public class SpecializeGenericTests(Xunit.Abstractions.ITestOutputHelper output)
                 () => program.SpecializeGeneric("SgWrapper", default(GenericArgument)));
 
             Assert.Throws<ArgumentException>(
-                () => program.SpecializeGeneric("SgWrapper", ReadOnlySpan<GenericArgument>.Empty));
+                () => program.SpecializeGeneric("SgWrapper", []));
         }
     }
 

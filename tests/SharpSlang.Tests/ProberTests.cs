@@ -43,6 +43,7 @@ public class ProberTests(Xunit.Abstractions.ITestOutputHelper output)
     /// MALLOC_PERTURB_ — the "unpoisoned" control run was poisoned too, and the control assertion
     /// failed on every poisoned run while passing on a bare developer shell.
     /// </remarks>
+    /// <param name="probe">The scenario the prober runs, by name.</param>
     private static Outcome Run(string probe, IReadOnlyDictionary<string, string?>? environment)
     {
         // The apphost, not `dotnet exec`. The obvious spelling was
@@ -235,7 +236,8 @@ public class ProberTests(Xunit.Abstractions.ITestOutputHelper output)
     /// than accepting any diagnostic, so "Slang complained about something" cannot pass for
     /// "Slang complained about this".
     /// </param>
-    private void AssertMismatchRefused(Outcome outcome, string expectedDiagnostic)
+    /// <param name="outcome">What the prober reported for the mismatched specialization.</param>
+    private static void AssertMismatchRefused(Outcome outcome, string expectedDiagnostic)
     {
         if (OperatingSystem.IsWindows() || OperatingSystem.IsLinux())
         {
@@ -723,7 +725,7 @@ public class ProberTests(Xunit.Abstractions.ITestOutputHelper output)
             var sizes = Regex.Match(outcome.Stdout,
                 @"spirv (?<maximal>\d+) bytes at maximal, (?<none>\d+) at none");
             Assert.True(sizes.Success, $"the probe printed no SPIR-V sizes:\n{outcome}");
-            Assert.True(int.Parse(sizes.Groups["maximal"].Value) < int.Parse(sizes.Groups["none"].Value),
+            Assert.True(int.Parse(sizes.Groups["maximal"].Value, System.Globalization.CultureInfo.InvariantCulture) < int.Parse(sizes.Groups["none"].Value, System.Globalization.CultureInfo.InvariantCulture),
                 "the optimised module is not smaller than the unoptimised one, so spirv-opt did not "
                 + $"run:\n{outcome}");
 

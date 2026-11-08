@@ -7,11 +7,11 @@
 // registers and locations to the emitted module.
 
 using System.Reflection;
+using SharpNRI;
+using SharpNRI.Native;
 using SharpSlang.Native;
 using SharpSlang.Pipeline.NRI;
 using SharpSlang.Reflection;
-using SharpNRI;
-using SharpNRI.Native;
 
 namespace SharpSlang.Tests;
 

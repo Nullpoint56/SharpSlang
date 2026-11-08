@@ -15,6 +15,4 @@
 // native compiler. A flaky test costs more than that the first time someone has to decide whether
 // to believe it.
 
-using Xunit;
-
 [assembly: CollectionBehavior(DisableTestParallelization = true)]

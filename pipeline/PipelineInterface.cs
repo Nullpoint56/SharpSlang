@@ -302,43 +302,43 @@ public static class PipelineInterface
             // from the location count Slang reported rather than from an assumption about whether
             // rows or columns come first, which depends on the session's matrix layout mode.
             case MatrixLayout m:
-            {
-                var locations = VaryingLocations(m);
-                var components = m.RowCount * m.ColumnCount;
-                if (locations == 0 || components % locations != 0)
                 {
-                    throw new NotSupportedException(
-                        $"vertex input '{name}' is a {m.RowCount}x{m.ColumnCount} matrix occupying " +
-                        $"{locations} location(s), which does not divide evenly. SharpSlang " +
-                        $"cannot say what each location holds; declare the attribute explicitly.");
+                    var locations = VaryingLocations(m);
+                    var components = m.RowCount * m.ColumnCount;
+                    if (locations == 0 || components % locations != 0)
+                    {
+                        throw new NotSupportedException(
+                            $"vertex input '{name}' is a {m.RowCount}x{m.ColumnCount} matrix occupying " +
+                            $"{locations} location(s), which does not divide evenly. SharpSlang " +
+                            $"cannot say what each location holds; declare the attribute explicitly.");
+                    }
+
+                    var width = (int)(components / locations);
+                    TypeLayout piece = width == 1
+                        ? new ScalarLayout { Kind = LayoutKind.Scalar, ScalarType = m.ElementType }
+                        : new VectorLayout { Kind = LayoutKind.Vector, ElementType = m.ElementType, ElementCount = width };
+
+                    // The semantic index advances with the row. HLSL numbers a matrix attribute's rows
+                    // INSTANCE0 to INSTANCE3, and D3D12 binds vertex attributes by semantic name and
+                    // index: four rows all declared INSTANCE0 are refused by CreateInputLayout with
+                    // "have the same Semantic". Found by the D3D12 device leg on vertex-interface;
+                    // Vulkan binds by location and never looked at the index.
+                    for (var i = 0u; i < locations; i++)
+                        into.Add(new VertexInput(location + i, piece, 1, $"{name}[{i}]", semantic, semanticIndex + i));
+                    return;
                 }
 
-                var width = (int)(components / locations);
-                TypeLayout piece = width == 1
-                    ? new ScalarLayout { Kind = LayoutKind.Scalar, ScalarType = m.ElementType }
-                    : new VectorLayout { Kind = LayoutKind.Vector, ElementType = m.ElementType, ElementCount = width };
-
-                // The semantic index advances with the row. HLSL numbers a matrix attribute's rows
-                // INSTANCE0 to INSTANCE3, and D3D12 binds vertex attributes by semantic name and
-                // index: four rows all declared INSTANCE0 are refused by CreateInputLayout with
-                // "have the same Semantic". Found by the D3D12 device leg on vertex-interface;
-                // Vulkan binds by location and never looked at the index.
-                for (var i = 0u; i < locations; i++)
-                    into.Add(new VertexInput(location + i, piece, 1, $"{name}[{i}]", semantic, semanticIndex + i));
-                return;
-            }
-
             case ArrayLayout { ElementCount: { } count } a when count > 0:
-            {
-                var locations = VaryingLocations(a);
-                var stride = locations == 0 ? 1u : locations / (uint)count;
-                // The semantic index advances by what each element consumes, for the same reason
-                // as the matrix rows above: `float2 uv[3] : TEXCOORD0` is TEXCOORD0, 1, 2 in HLSL,
-                // and an array of matrices steps by the rows of each.
-                for (var i = 0u; i < count; i++)
-                    Emit($"{name}[{i}]", a.ElementType, semantic, semanticIndex + (i * stride), location + (i * stride), into);
-                return;
-            }
+                {
+                    var locations = VaryingLocations(a);
+                    var stride = locations == 0 ? 1u : locations / (uint)count;
+                    // The semantic index advances by what each element consumes, for the same reason
+                    // as the matrix rows above: `float2 uv[3] : TEXCOORD0` is TEXCOORD0, 1, 2 in HLSL,
+                    // and an array of matrices steps by the rows of each.
+                    for (var i = 0u; i < count; i++)
+                        Emit($"{name}[{i}]", a.ElementType, semantic, semanticIndex + (i * stride), location + (i * stride), into);
+                    return;
+                }
 
             case ScalarLayout or VectorLayout:
                 into.Add(new VertexInput(location, type, VaryingLocations(type), name, semantic, semanticIndex));

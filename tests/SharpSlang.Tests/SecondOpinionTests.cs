@@ -309,8 +309,8 @@ public unsafe class SecondOpinionTests(Xunit.Abstractions.ITestOutputHelper outp
         Assert.All(layout.Parameters, p => Assert.Equal(SlangStage.SLANG_STAGE_NONE, p.Stage));
 
         foreach (var entryPoint in layout.EntryPoints)
-        foreach (var parameter in entryPoint.Parameters)
-            output.WriteLine($"{entryPoint.Name}.{parameter.Name}: {parameter.Stage}");
+            foreach (var parameter in entryPoint.Parameters)
+                output.WriteLine($"{entryPoint.Name}.{parameter.Name}: {parameter.Stage}");
     }
 
     // ---------------------------------------------------------------- the last of the surface

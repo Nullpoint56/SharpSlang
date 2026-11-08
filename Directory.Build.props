@@ -15,6 +15,24 @@
     Bumping Slang is therefore: change this line, re-run both tools, run the tests, review the diff.
   -->
 
+  <!--
+    Lint, for every project: the SDK's own analyzers and no analyzer package. The CA rules at
+    latest-recommended and the IDE code-style rules in the build, configured in .editorconfig, where
+    every exemption sits with its reason. pwsh tools/check.ps1 and the CI lint job build with
+    warnings as errors and check the formatting with dotnet format whitespace, as tools/check.ps1
+    spells out.
+
+    XML docs on: they ship in the packages for IntelliSense, and with them on the build checks every
+    doc comment, so a malformed one (a cref to nothing, a param that does not exist) fails. A
+    missing one does not (CS1591).
+  -->
+  <PropertyGroup>
+    <AnalysisLevel>latest-recommended</AnalysisLevel>
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+  </PropertyGroup>
+
   <PropertyGroup>
     <SlangVersion>v2026.21</SlangVersion>
 

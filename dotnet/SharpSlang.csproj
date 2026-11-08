@@ -43,11 +43,6 @@
     <None Include="$(MSBuildThisFileDirectory)..\THIRD-PARTY-NOTICES.md" Pack="true" PackagePath="\" />
   </ItemGroup>
 
-  <!-- The generated layer is machine-authored; its style is not ours to police. -->
-  <PropertyGroup>
-    <NoWarn>$(NoWarn);CS0169;CS0649;CS1591</NoWarn>
-  </PropertyGroup>
-
   <ItemGroup>
     <!-- Tests reach into Defaults and the L0 layer deliberately; the sample does not, and that is
          the point: once L2 existed the sample stopped needing internal access at all. If a future
@@ -125,8 +120,13 @@
           Visible="false" />
   </ItemGroup>
 
+  <!--
+    SharpSlangRequireNative=false turns the warning off, for a build that only lints: the analyzers
+    need no payload, and with warnings as errors (tools/check.ps1, the CI lint job) the warning
+    would fail a lint run on a machine that never fetched one.
+  -->
   <Target Name="SharpSlangWarnIfNoNative" BeforeTargets="Build"
-          Condition="!Exists('$(MSBuildThisFileDirectory)..\runtimes\$(SharpSlangRid)\native')">
+          Condition="'$(SharpSlangRequireNative)' != 'false' And !Exists('$(MSBuildThisFileDirectory)..\runtimes\$(SharpSlangRid)\native')">
     <Warning Text="No native payload for '$(SharpSlangRid)'. Run: pwsh tools/fetch-native.ps1 -Rid $(SharpSlangRid)" />
   </Target>
 

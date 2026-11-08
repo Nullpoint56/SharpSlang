@@ -15,8 +15,14 @@
 *.yml     text eol=lf
 *.json    text eol=lf
 *.slang   text eol=lf
+*.targets text eol=lf
+*.config  text eol=lf
+*.txt     text eol=lf
+*.py      text eol=lf
+LICENSE         text eol=lf
 .gitignore      text eol=lf
 .gitattributes  text eol=lf
+.editorconfig   text eol=lf
 
 # Baked shader packages are binary; never let EOL conversion near them.
 *.pslb    binary

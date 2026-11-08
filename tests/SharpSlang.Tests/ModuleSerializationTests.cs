@@ -118,9 +118,9 @@ public class ModuleSerializationTests(Xunit.Abstractions.ITestOutputHelper outpu
         using (global) using (session)
         {
             Assert.Throws<ArgumentException>(
-                () => session.LoadModuleFromIRBlob("empty", "empty.slang", ReadOnlySpan<byte>.Empty));
-            Assert.Throws<ArgumentException>(() => session.ReadModuleInfo(ReadOnlySpan<byte>.Empty));
-            Assert.False(session.IsBinaryModuleUpToDate("nowhere.slang", ReadOnlySpan<byte>.Empty));
+                () => session.LoadModuleFromIRBlob("empty", "empty.slang", []));
+            Assert.Throws<ArgumentException>(() => session.ReadModuleInfo([]));
+            Assert.False(session.IsBinaryModuleUpToDate("nowhere.slang", []));
         }
     }
 

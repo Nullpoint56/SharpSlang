@@ -10,10 +10,9 @@
 // so even a renderer reading the descriptor-set view cannot say which belongs to which. That is
 // what CounterBinding is for.
 
-using SharpSlang.Native;
-using SharpSlang.Reflection;
-using SharpSlang.Pipeline.NRI;
 using SharpNRI.Native;
+using SharpSlang.Pipeline.NRI;
+using SharpSlang.Reflection;
 
 namespace SharpSlang.Tests;
 

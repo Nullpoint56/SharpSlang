@@ -11,6 +11,8 @@ public sealed unsafe class SlangModule : SlangObject<IModule>
     /// <param name="borrowed">
     /// A module pointer from <c>ISession::loadModule*</c>. Note: <em>borrowed</em>, not owned.
     /// </param>
+    /// <param name="name">The module's name, for the wrapper's description in messages.</param>
+    /// <param name="owner">The session that owns the module.</param>
     /// <remarks>
     /// This is the one place Slang departs from COM convention, and it is documented nowhere in
     /// slang.h. <c>loadModule</c> and <c>loadModuleFromSourceString</c> return a pointer the

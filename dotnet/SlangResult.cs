@@ -25,7 +25,6 @@ public static class SlangResult
 {
     // ---- facilities (slang.h:1343-1361) ----
     private const int FacilityWinGeneral = 0;
-    private const int FacilityWinInterface = 4;
     private const int FacilityWinApi = 7;
     private const int FacilityBase = 0x200;
     private const int FacilityCore = FacilityBase;

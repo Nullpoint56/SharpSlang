@@ -17,8 +17,6 @@
 // Cases the binding cannot set up are reported with the reason and counted, never skipped quietly:
 // a corpus harness that matches nothing is green, and looks identical to one that passes.
 
-using SharpSlang.Native;
-
 namespace SharpSlang.Tests;
 
 public sealed class SlangReflectionCorpusTests(Xunit.Abstractions.ITestOutputHelper output)

@@ -93,20 +93,20 @@ public static class SpirvDecorations
                     break;
 
                 case OpDecorate when count >= 4:
-                {
-                    var kind = words[i + 2];
-                    if (kind is DecorationLocation or DecorationBinding or DecorationDescriptorSet)
                     {
-                        var target = words[i + 1];
-                        if (!decorations.TryGetValue(target, out var d))
+                        var kind = words[i + 2];
+                        if (kind is DecorationLocation or DecorationBinding or DecorationDescriptorSet)
                         {
-                            decorations[target] = d = [];
-                            order.Add(target);
+                            var target = words[i + 1];
+                            if (!decorations.TryGetValue(target, out var d))
+                            {
+                                decorations[target] = d = [];
+                                order.Add(target);
+                            }
+                            d[kind] = words[i + 3];
                         }
-                        d[kind] = words[i + 3];
+                        break;
                     }
-                    break;
-                }
 
                 case OpVariable when count >= 4:
                     storage[words[i + 2]] = words[i + 3];
@@ -191,21 +191,21 @@ public static class SpirvDecorations
             switch (op)
             {
                 case OpMemberName when o.Length >= 3:
-                    names[(o[0], o[1])] = ReadString(o[2..]);
+                    names[(o[0], o[1])] = ReadString(o.AsSpan(2));
                     break;
 
                 case OpMemberDecorate when o.Length >= 3:
-                {
-                    var key = (o[0], o[1]);
-                    switch (o[2])
                     {
-                        case DecorationOffset when o.Length >= 4: offsets[key] = o[3]; break;
-                        case DecorationMatrixStride when o.Length >= 4: strides[key] = o[3]; break;
-                        case DecorationRowMajor: rowMajor[key] = true; break;
-                        case DecorationColMajor: rowMajor[key] = false; break;
+                        var key = (o[0], o[1]);
+                        switch (o[2])
+                        {
+                            case DecorationOffset when o.Length >= 4: offsets[key] = o[3]; break;
+                            case DecorationMatrixStride when o.Length >= 4: strides[key] = o[3]; break;
+                            case DecorationRowMajor: rowMajor[key] = true; break;
+                            case DecorationColMajor: rowMajor[key] = false; break;
+                        }
+                        break;
                     }
-                    break;
-                }
             }
         }
 
@@ -245,7 +245,7 @@ public static class SpirvDecorations
 
     /// <summary>
     /// The workgroup size the module declares: literals from <c>LocalSize</c>, or result ids from
-    /// <c>LocalSizeId</c> with <paramref name="byId"/> set.
+    /// <c>LocalSizeId</c> with <c>ById</c> set.
     /// </summary>
     public static (uint X, uint Y, uint Z, bool ById)? LocalSize(ReadOnlySpan<byte> spirv)
     {

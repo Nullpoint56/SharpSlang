@@ -142,25 +142,22 @@ catch (DllNotFoundException)
     return 1;
 }
 
-/// <summary>Short human-readable name for a field's type.</summary>
+// Short human-readable name for a field's type.
 static string Describe(TypeLayout t) => t switch
 {
     ScalarLayout s => Short(s.ScalarType),
     VectorLayout v => $"{Short(v.ElementType)}{v.ElementCount}",
     MatrixLayout m => $"{Short(m.ElementType)}{m.RowCount}x{m.ColumnCount}",
-    ArrayLayout a => $"{Describe(a.ElementType)}[{a.ElementCount?.ToString() ?? ""}]",
+    ArrayLayout a => $"{Describe(a.ElementType)}[{a.ElementCount?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? ""}]",
     _ => t.Name ?? t.Kind.ToString(),
 };
 
-/// <summary>
-/// Which axis a matrix's stride steps along, in Slang's terms.
-/// </summary>
-/// <remarks>
-/// Worth spelling out rather than printing the enum: the emitted module decorates the opposite
-/// word, because HLSL counts rows where SPIR-V counts columns. Printing "ROW_MAJOR" beside a module
-/// that says <c>ColMajor</c> is exactly the kind of half-answer that sent a consumer the wrong way
-/// over entry-point names.
-/// </remarks>
+// Which axis a matrix's stride steps along, in Slang's terms.
+//
+// Worth spelling out rather than printing the enum: the emitted module decorates the opposite
+// word, because HLSL counts rows where SPIR-V counts columns. Printing "ROW_MAJOR" beside a module
+// that says `ColMajor` is exactly the kind of half-answer that sent a consumer the wrong way
+// over entry-point names.
 static string Major(SlangMatrixLayoutMode mode) =>
     mode == SlangMatrixLayoutMode.SLANG_MATRIX_LAYOUT_COLUMN_MAJOR ? "per column" : "per row";
 
@@ -171,7 +168,7 @@ static string Short(SlangScalarType s) => s.ToString()
     .Replace("UINT32", "uint")
     .ToLowerInvariant();
 
-/// <summary>Structural check on the emitted module: magic number, version, word alignment.</summary>
+// Structural check on the emitted module: magic number, version, word alignment.
 static bool Validate(ReadOnlySpan<byte> spirv, string entryPoint)
 {
     try

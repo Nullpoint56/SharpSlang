@@ -26,11 +26,10 @@
 // call's one-time work are not counted.
 
 using System.Runtime.CompilerServices;
-using SharpSlang.Pipeline.NRI;
-using SharpSlang.Reflection;
 using SharpNRI;
 using SharpNRI.Native;
 using SharpNRI.Testing;
+using SharpSlang.Pipeline.NRI;
 
 namespace SharpSlang.Tests;
 
@@ -88,7 +87,9 @@ public class AllocationTests
         AssertZero("reading the layout's stage mask", () => Sink = (uint)nri.Layout.ShaderStages);
     }
 
-    private static uint Sink;
+    // Internal rather than private: a value read only to be stored is the point of a sink, and
+    // IDE0052 reports a private field nothing reads.
+    internal static uint Sink;
 
     [NativeFact]
     public void Load_time_work_allocates_and_says_how_much()

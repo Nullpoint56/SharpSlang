@@ -32,14 +32,14 @@
 // A case that cannot be built states why, in a dictionary below, and the dictionaries are checked:
 // a stale entry is a failing test, so they cannot quietly grow to excuse a regression.
 
+using SharpNRI;
+using SharpNRI.Native;
+using SharpNRI.Testing;
 using SharpSlang.Baking;
 using SharpSlang.Native;
 using SharpSlang.Pipeline.NRI;
 using SharpSlang.Reflection;
 using SharpSlang.Spirv;
-using SharpNRI;
-using SharpNRI.Native;
-using SharpNRI.Testing;
 
 namespace SharpSlang.Tests;
 

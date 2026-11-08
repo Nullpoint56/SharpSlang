@@ -427,6 +427,8 @@ public sealed unsafe class SlangSession : SlangObject<ISession>
     /// Registers that <paramref name="type"/> implements <paramref name="interfaceType"/>, so a
     /// program linking this conformance can dispatch to it dynamically.
     /// </summary>
+    /// <param name="type">The concrete type.</param>
+    /// <param name="interfaceType">The interface it implements.</param>
     /// <param name="conformanceId">
     /// Stable id written into the shader's dynamic-dispatch table. Supply one if the host needs to
     /// select an implementation by id at run time; omit to let Slang assign it.

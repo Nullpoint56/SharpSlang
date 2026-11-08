@@ -10,8 +10,8 @@
 // resolving version. So the count has to be inferred from the size marker and never requested.
 
 using SharpSlang.Native;
-using SharpSlang.Reflection;
 using SharpSlang.Pipeline.NRI;
+using SharpSlang.Reflection;
 
 namespace SharpSlang.Tests;
 

@@ -6,11 +6,11 @@
 // VkPipelineLayout the SPIR-V is bound against. Each rule below names the line of that backend it
 // answers to. Where a mapping is genuinely ambiguous the code says so rather than guessing quietly.
 
+using SharpNRI;
+using SharpNRI.Native;
 using SharpSlang.Baking;
 using SharpSlang.Native;
 using SharpSlang.Reflection;
-using SharpNRI;
-using SharpNRI.Native;
 
 namespace SharpSlang.Pipeline.NRI;
 

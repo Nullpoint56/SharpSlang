@@ -100,6 +100,7 @@ public static class NativeAbi
     /// <param name="source">The C++ to build.</param>
     /// <param name="name">Base name for the generated files, inside the test's own directory.</param>
     /// <param name="diagnostics">The compiler's output, whether or not it succeeded.</param>
+    /// <param name="extraArguments">Further compiler arguments, after the defaults.</param>
     public static string? Build(string source, string name, out string diagnostics,
         params string[] extraArguments)
     {
@@ -209,7 +210,7 @@ public sealed partial class NativeAbiTests(Xunit.Abstractions.ITestOutputHelper 
     /// assembly at all and reflection would find no bitfields to check.
     /// </para>
     /// </remarks>
-    private static IReadOnlyList<(string Name, int Width)> Bitfields(Type t) =>
+    private static List<(string Name, int Width)> Bitfields(Type t) =>
         LazyBitfields.Value.TryGetValue(t.Name, out var found) ? found : [];
 
     private static readonly Lazy<Dictionary<string, List<(string Name, int Width)>>> LazyBitfields =
@@ -294,15 +295,16 @@ public sealed partial class NativeAbiTests(Xunit.Abstractions.ITestOutputHelper 
                 // The whole dispatch mechanism assumes an interface is exactly one vtable pointer
                 // with the pointer at offset zero. Slang's interfaces are single-inheritance and
                 // pure-virtual, so that is true — but it is an assumption until measured.
-                cpp.AppendLine($"  printf(\"S|{type.Name}|%zu|%zu\\n\", sizeof({type.Name}), alignof({type.Name}));");
+                cpp.AppendLine(CultureInfo.InvariantCulture, $"  printf(\"S|{type.Name}|%zu|%zu\\n\", sizeof({type.Name}), alignof({type.Name}));");
                 continue;
             }
 
-            cpp.AppendLine($"  printf(\"S|{type.Name}|%zu|%zu\\n\", sizeof({type.Name}), alignof({type.Name}));");
+            cpp.AppendLine(CultureInfo.InvariantCulture, $"  printf(\"S|{type.Name}|%zu|%zu\\n\", sizeof({type.Name}), alignof({type.Name}));");
 
             foreach (var field in NamedFields(type))
             {
                 cpp.AppendLine(
+                    CultureInfo.InvariantCulture,
                     $"  printf(\"F|{type.Name}|{field.Name}|%zu\\n\", offsetof({type.Name}, {field.Name}));");
             }
 
@@ -312,7 +314,7 @@ public sealed partial class NativeAbiTests(Xunit.Abstractions.ITestOutputHelper 
             foreach (var (name, width) in Bitfields(type))
             {
                 var ones = width >= 64 ? ulong.MaxValue : (1UL << width) - 1;
-                cpp.AppendLine($"  {{ {type.Name} v; memset(&v, 0, sizeof v); "
+                cpp.AppendLine(CultureInfo.InvariantCulture, $"  {{ {type.Name} v; memset(&v, 0, sizeof v); "
                     + $"v.{name} = ({ones}ull); "
                     + $"unsigned char b[sizeof({type.Name})]; memcpy(b, &v, sizeof v); "
                     + $"printf(\"B|{type.Name}|{name}|\"); "
@@ -543,7 +545,7 @@ public sealed partial class NativeAbiTests(Xunit.Abstractions.ITestOutputHelper 
     /// <c>const</c>, a pointer that should be a pointer-to-pointer — fail.
     /// </para>
     /// </remarks>
-    private static IReadOnlyList<Import> Imports()
+    private static List<Import> Imports()
     {
         var source = File.ReadAllText(
             Path.Combine(SlangHeader.RepoRoot(), "dotnet", "Native", "SlangApi.cs"));
@@ -663,8 +665,8 @@ public sealed partial class NativeAbiTests(Xunit.Abstractions.ITestOutputHelper 
 
         foreach (var import in imports)
         {
-            cpp.AppendLine($"static_assert(same_<decltype(&{import.Name}), {import.AsFunctionPointer}>::value,");
-            cpp.AppendLine($"    \"{import.Name} is declared with a different signature by the binding\");");
+            cpp.AppendLine(CultureInfo.InvariantCulture, $"static_assert(same_<decltype(&{import.Name}), {import.AsFunctionPointer}>::value,");
+            cpp.AppendLine(CultureInfo.InvariantCulture, $"    \"{import.Name} is declared with a different signature by the binding\");");
         }
 
         cpp.AppendLine("int main() { return 0; }");
@@ -709,7 +711,7 @@ public sealed partial class NativeAbiTests(Xunit.Abstractions.ITestOutputHelper 
     /// declaring class, where it is checked once.
     /// </para>
     /// </remarks>
-    private static IReadOnlyList<Method> VtableMethods(out int declared, out List<string> skipped)
+    private static List<Method> VtableMethods(out int declared, out List<string> skipped)
     {
         var directory = Path.Combine(SlangHeader.RepoRoot(), "dotnet", "Native");
         var header = SlangHeader.Pinned;
@@ -843,12 +845,12 @@ public sealed partial class NativeAbiTests(Xunit.Abstractions.ITestOutputHelper 
         // return type and every parameter still have to match exactly, which is what can be wrong.
         foreach (var method in methods)
         {
-            cpp.AppendLine($"static_assert(same_<decltype(&{method.Interface}::{method.Name}), "
+            cpp.AppendLine(CultureInfo.InvariantCulture, $"static_assert(same_<decltype(&{method.Interface}::{method.Name}), "
                 + $"{method.AsMemberPointer}>::value");
-            cpp.AppendLine($"           || same_<decltype(&{method.Interface}::{method.Name}), "
+            cpp.AppendLine(CultureInfo.InvariantCulture, $"           || same_<decltype(&{method.Interface}::{method.Name}), "
                 + $"{method.AsMemberPointer} noexcept>::value,");
-            cpp.AppendLine($"    \"{method.Interface}::{method.Name} is declared with a different "
-                + "signature by the binding\");");
+            cpp.AppendLine(CultureInfo.InvariantCulture, $"    \"{method.Interface}::{method.Name} is declared with a different "
+                + $"signature by the binding\");");
         }
 
         cpp.AppendLine("int main() { return 0; }");
@@ -859,7 +861,7 @@ public sealed partial class NativeAbiTests(Xunit.Abstractions.ITestOutputHelper 
         // as well. The first version of this probe was green here and red on three runners.
         foreach (var (label, arguments) in new[]
                  {
-                     ("as this platform declares them", Array.Empty<string>()),
+                     ("as this platform declares them", []),
                      ("with SLANG_NO_THROW empty, as every non-Windows platform sees them",
                       new[] { "-DSLANG_NO_THROW=" }),
                  })

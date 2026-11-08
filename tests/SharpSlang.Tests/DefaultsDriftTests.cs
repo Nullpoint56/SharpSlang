@@ -11,7 +11,6 @@
 // that adds, removes, or changes a default fails here.
 
 using System.Reflection;
-using System.Runtime.CompilerServices;
 using SharpSlang.Native;
 
 namespace SharpSlang.Tests;
@@ -190,7 +189,7 @@ public class DefaultsDriftTests
         nint n => n,
         nuint n => (long)n,
         bool b => b ? 1 : 0,
-        Enum e => Convert.ToInt64(e),
+        Enum e => Convert.ToInt64(e, System.Globalization.CultureInfo.InvariantCulture),
         // Reflection boxes a pointer field as System.Reflection.Pointer, whose type is NOT
         // IsPointer, so this must be matched by type rather than by GetType().IsPointer.
         Pointer p => (long)Pointer.Unbox(p),

@@ -4,9 +4,6 @@
 // machine where tools/fetch-native.ps1 has not run they must skip with a message that says what to
 // do — not fail with a DllNotFoundException that reads like a broken build.
 
-using System.Runtime.InteropServices;
-using SharpSlang;
-
 namespace SharpSlang.Tests;
 
 /// <summary>A fact that is skipped, with an actionable reason, when the native payload is absent.</summary>

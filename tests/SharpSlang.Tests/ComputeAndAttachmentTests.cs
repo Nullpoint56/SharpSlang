@@ -5,12 +5,12 @@
 // reflection reported a thread group size of 0 for a specialized dimension, and dropped subpass
 // inputs from the descriptor sets while Slang went on consuming their binding indices.
 
+using SharpNRI.Native;
 using SharpSlang.Baking;
 using SharpSlang.Native;
+using SharpSlang.Pipeline.NRI;
 using SharpSlang.Reflection;
 using SharpSlang.Spirv;
-using SharpSlang.Pipeline.NRI;
-using SharpNRI.Native;
 
 namespace SharpSlang.Tests;
 

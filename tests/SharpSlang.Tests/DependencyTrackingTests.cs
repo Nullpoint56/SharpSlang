@@ -9,7 +9,7 @@ using SharpSlang.Baking;
 
 namespace SharpSlang.Tests;
 
-public class DependencyTrackingTests : IDisposable
+public sealed class DependencyTrackingTests : IDisposable
 {
     private readonly string _dir = Path.Combine(
         Path.GetTempPath(), $"sharpslang-deps-{Guid.NewGuid():N}");

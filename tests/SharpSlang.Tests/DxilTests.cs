@@ -20,12 +20,12 @@
 // tests: an entry that stops being true is a failing test, so none of them can quietly grow to
 // excuse a regression or outlive a fix.
 
+using SharpNRI.Native;
 using SharpSlang.Baking;
 using SharpSlang.Interop;
-using SharpSlang.Pipeline.NRI;
 using SharpSlang.Native;
+using SharpSlang.Pipeline.NRI;
 using SharpSlang.Reflection;
-using SharpNRI.Native;
 
 namespace SharpSlang.Tests;
 

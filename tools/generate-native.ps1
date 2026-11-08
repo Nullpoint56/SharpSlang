@@ -292,6 +292,25 @@ $($guidLines -join "`r`n")
 }
 "@ | Set-Content (Join-Path $Output "_InterfaceGuids.cs")
 
+# ---------------------------------------------------------------- normalise
+# Last, over every file, so nothing after it can undo it.
+#
+# `using System;` goes: both projects that compile these files (dotnet/SharpSlang.csproj and,
+# for the reader enums, pipeline/SharpSlang.Pipeline.csproj) have ImplicitUsings on, which makes
+# it a global using, and the build's IDE0005 then reports it as unnecessary. Measured with
+# ClangSharpPInvokeGenerator 21.1.8.4 on v2026.21: 33 files carry it, 32 of ClangSharp's and the
+# IID table above. A finding in this layer is fixed here, never by hand.
+#
+# And LF, in every file. ClangSharp writes LF, but Set-Content writes the platform's newline, so on
+# Windows the files this script touched came out CRLF while the rest stayed LF. .gitattributes
+# normalises them on add either way; writing LF here means the working tree is what is committed.
+foreach ($p in @(Get-ChildItem (Join-Path $Output "*.cs"))) {
+    $t = [System.IO.File]::ReadAllText($p.FullName)
+    $n = ($t -replace "`r`n", "`n") -replace '(?m)^using System;\n', ''
+    if (-not $n.EndsWith("`n")) { $n += "`n" }
+    if ($n -ne $t) { [System.IO.File]::WriteAllText($p.FullName, $n, [System.Text.UTF8Encoding]::new($false)) }
+}
+
 # ---------------------------------------------------------------- report
 $files = @(Get-ChildItem (Join-Path $Output "*.cs"))
 $lines = ($files | Get-Content | Measure-Object -Line).Lines

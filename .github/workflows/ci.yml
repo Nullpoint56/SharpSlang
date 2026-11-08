@@ -97,6 +97,7 @@ jobs:
       digests: ${{ steps.decide.outputs.digests }}
       bindings: ${{ steps.decide.outputs.bindings }}
       docs: ${{ steps.decide.outputs.docs }}
+      lint: ${{ steps.decide.outputs.lint }}
     steps:
       # A pull request does not list a run started by hand, so a pending status linking to the run
       # shows on it at once that one started. The report job replaces it with the outcome.
@@ -192,6 +193,28 @@ jobs:
       - uses: actions/checkout@v7
       - name: Check documentation
         run: bash tools/ci/check-docs.sh
+
+  # The SDK's own analyzers at latest-recommended with the code-style rules in the build, as
+  # errors, and the formatter's check: tools/check.ps1, exactly as a local run does it. No payload
+  # is fetched, because the analyzers need none (the script passes SharpSlangRequireNative=false).
+  # The gate skips it for a documentation-only branch, and for a tree it already passed on.
+  lint:
+    name: lint
+    needs: gate
+    if: needs.gate.outputs.lint == 'run'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '11.0.x'
+          dotnet-quality: preview
+
+      - name: Analyzers and formatting
+        shell: pwsh
+        run: ./tools/check.ps1
 
   test:
     name: test (${{ matrix.rid }})
@@ -887,7 +910,7 @@ jobs:
   # whose skipped jobs prove nothing. Not for publish.yml's call, which reports through its own run.
   report:
     name: report
-    needs: [gate, bindings, docs, test, digests]
+    needs: [gate, bindings, docs, lint, test, digests]
     if: always() && github.event_name == 'workflow_dispatch' && github.workflow == 'CI'
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -903,7 +926,7 @@ jobs:
         run: |
           $needs = $env:NEEDS | ConvertFrom-Json
           $gateOk = $needs.gate.result -eq 'success'
-          $bad = @('bindings', 'docs', 'test', 'digests' | Where-Object { $needs.$_.result -notin 'success', 'skipped' })
+          $bad = @('bindings', 'docs', 'lint', 'test', 'digests' | Where-Object { $needs.$_.result -notin 'success', 'skipped' })
           $state = if ($gateOk -and $bad.Count -eq 0) { 'success' } else { 'failure' }
           $description = if (-not $gateOk) { "gate: $($needs.gate.result)" }
                          elseif ($bad.Count) { ($bad | ForEach-Object { "$($_): $($needs.$_.result)" }) -join ', ' }

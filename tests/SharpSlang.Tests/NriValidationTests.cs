@@ -11,12 +11,11 @@
 // (VUID-VkGraphicsPipelineCreateInfo-layout-07988 and its neighbours) — exactly the claim the
 // projection makes and cannot check about itself.
 
-using SharpSlang.Pipeline.NRI;
-using SharpSlang.Reflection;
-using SharpSlang.Spirv;
 using SharpNRI;
 using SharpNRI.Native;
 using SharpNRI.Testing;
+using SharpSlang.Pipeline.NRI;
+using SharpSlang.Reflection;
 
 namespace SharpSlang.Tests;
 

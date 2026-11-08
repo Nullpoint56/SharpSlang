@@ -519,31 +519,31 @@ public sealed class SlangWalkerCorpusTests(Xunit.Abstractions.ITestOutputHelper 
                             break;
 
                         case "usesAnySampleRateInput":
-                        {
-                            // Written as a JSON boolean, unlike the `used` flags next door, which
-                            // are 0/1 numbers. Both spellings are accepted rather than assumed.
-                            var flag = element.GetProperty("usesAnySampleRateInput");
-                            var expectedFlag = flag.ValueKind switch
                             {
-                                JsonValueKind.True => true,
-                                JsonValueKind.False => false,
-                                JsonValueKind.Number => flag.GetInt64() != 0,
-                                _ => (bool?)null,
-                            };
+                                // Written as a JSON boolean, unlike the `used` flags next door, which
+                                // are 0/1 numbers. Both spellings are accepted rather than assumed.
+                                var flag = element.GetProperty("usesAnySampleRateInput");
+                                var expectedFlag = flag.ValueKind switch
+                                {
+                                    JsonValueKind.True => true,
+                                    JsonValueKind.False => false,
+                                    JsonValueKind.Number => flag.GetInt64() != 0,
+                                    _ => (bool?)null,
+                                };
 
-                            if (expectedFlag is { } wanted)
-                            {
-                                Check($"{path}.usesAnySampleRateInput",
-                                    wanted == entry.UsesAnySampleRateInput,
-                                    wanted.ToString(), entry.UsesAnySampleRateInput.ToString());
-                            }
-                            else
-                            {
-                                Unchecked(path, key);
-                            }
+                                if (expectedFlag is { } wanted)
+                                {
+                                    Check($"{path}.usesAnySampleRateInput",
+                                        wanted == entry.UsesAnySampleRateInput,
+                                        wanted.ToString(), entry.UsesAnySampleRateInput.ToString());
+                                }
+                                else
+                                {
+                                    Unchecked(path, key);
+                                }
 
-                            break;
-                        }
+                                break;
+                            }
 
                         default:
                             Unchecked(path, key);

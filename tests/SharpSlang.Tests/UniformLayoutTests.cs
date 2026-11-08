@@ -9,7 +9,6 @@
 using SharpSlang.Baking;
 using SharpSlang.Native;
 using SharpSlang.Reflection;
-using SharpSlang.Spirv;
 
 namespace SharpSlang.Tests;
 

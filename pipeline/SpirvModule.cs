@@ -128,7 +128,7 @@ public readonly record struct SpirvWorkgroupDimension(uint Value, uint? Speciali
     public bool IsSpecialized => SpecializationConstantId is not null;
 
     public override string ToString() =>
-        IsSpecialized ? $"spec({SpecializationConstantId}, default {Value})" : Value.ToString();
+        IsSpecialized ? $"spec({SpecializationConstantId}, default {Value})" : Value.ToString(System.Globalization.CultureInfo.InvariantCulture);
 }
 
 /// <summary>
