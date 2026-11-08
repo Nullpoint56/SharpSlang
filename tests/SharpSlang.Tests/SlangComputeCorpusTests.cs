@@ -1,47 +1,45 @@
 // The shader runs, and the numbers are the Slang team's.
 //
-// This is the only test in the suite that executes a shader. Everything else stops at the point
-// where a pipeline is created, which is where the Khronos layers stop too — and the layers cannot
-// see an offset. A uniform member reported at byte 16 that really lives at 32 produces a pipeline
-// that is created without complaint and a shader that reads the wrong bytes.
+// This is the only test in the suite that executes a corpus of shaders. Everything else stops at
+// the point where a pipeline is created, which is where the validation layers stop too — and the
+// layers cannot see an offset. A uniform member reported at byte 16 that really lives at 32
+// produces a pipeline that is created without complaint and a shader that reads the wrong bytes.
 //
-// So: take a shader from Slang's own tests/compute, fill its buffers, bind them at the set and
-// binding index *SharpSlang's reflection reports*, dispatch on a real device, read back, and
-// compare with the words the Slang team checked in. Nothing about the binding is assumed — the
-// descriptor set layouts come from the projection, and if the projection puts a buffer at the wrong
-// binding the shader reads whatever is at that binding instead and the output is wrong.
+// So: take a shader from Slang's own tests/compute, fill its buffers, bind them at the register
+// space and range *SharpSlang's NRI projection reports*, dispatch on a validated NRI Vulkan
+// device, read back, and compare with the words the Slang team checked in. Nothing about the
+// binding is assumed — the pipeline layout is the projection's, and if the projection puts a buffer
+// at the wrong range the shader reads whatever is bound there instead and the output is wrong.
+// Every message NRI's validation or the Khronos layer reports while a case runs fails that case.
 //
-// That closes the loop the other Vulkan tests leave open:
+// That closes the loop the other device tests leave open:
 //
-//   VulkanCorpusValidationTests   is this layout *legal*        (Khronos says)
-//   SlangWalkerCorpusTests        is this layout *reported right* (the Slang team says)
-//   this file                     does a host binding by it *work* (the driver says)
+//   NriDeviceTests             is this layout *legal*          (Khronos and D3D12 say)
+//   SlangWalkerCorpusTests     is this layout *reported right* (the Slang team says)
+//   this file                  does a host binding by it *work* (the driver says)
 
 using SharpSlang.Native;
+using SharpSlang.Pipeline.NRI;
 using SharpSlang.Reflection;
-using SharpSlang.Vulkan;
-using Vortice.Vulkan;
+using SharpNRI;
+using SharpNRI.Native;
+using SharpNRI.Testing;
 
 namespace SharpSlang.Tests;
 
-public sealed class SlangComputeCorpusTests(Xunit.Abstractions.ITestOutputHelper output) : IDisposable
+public sealed class SlangComputeCorpusTests(Xunit.Abstractions.ITestOutputHelper output)
 {
-    private readonly VulkanTestDevice? _vulkan =
-        VulkanTestDevice.Unavailable is null && SlangNative.Available ? new VulkanTestDevice() : null;
-
-    public void Dispose() => _vulkan?.Dispose();
-
     /// <summary>What happened to one case.</summary>
-    private enum Outcome { Matched, Differed, OutOfReach, Threw }
+    private enum Outcome { Matched, Differed, OutOfReach, Threw, Invalid }
 
     private sealed record Result(string Case, Outcome Outcome, string Detail);
 
     // ---------------------------------------------------------------- running one shader
 
-    private Result Run(SlangTestCorpus.ComputeCase test)
+    private static Result Run(SlangTestCorpus.ComputeCase test, NriTestDevice fixture)
     {
-        var device = _vulkan!;
         var entryPoints = new List<SlangEntryPoint>();
+        var before = fixture.Messages.Count;
 
         try
         {
@@ -68,22 +66,37 @@ public sealed class SlangComputeCorpusTests(Xunit.Abstractions.ITestOutputHelper
             entryPoints.Add(module.FindEntryPoint("computeMain", SlangStage.SLANG_STAGE_COMPUTE));
 
             using var program = session.Link(module, [.. entryPoints]);
-            var layout = program.Reflect();
-            var vulkan = layout.ToVulkan();
-
+            var projection = program.Reflect().ToNri();
             var spirv = program.GetEntryPointCodeBytes(0);
 
-            var pipelines = new VulkanPipelines(device);
-            using var built = pipelines.BuildLayout(vulkan);
+            var device = fixture.Device;
+            using var layout = device.CreatePipelineLayout(projection.Layout);
+            using var pipeline = device.CreateComputePipeline(new NriComputePipelineDesc
+            {
+                PipelineLayout = layout,
+                Shader = new NriShaderDesc(StageBits.COMPUTE_SHADER, spirv, program.GetSpirvEntryPoint(0).Name),
+            });
 
-            // Built owns the module; adding it here is what gets it destroyed.
-            var shaderModule = pipelines.CreateModule(spirv);
-            built.Modules.Add(shaderModule);
+            var result = Execute(test, projection, layout, pipeline, device);
 
-            pipelines.CreateComputePipeline(built, new StageModule(
-                VkShaderStageFlags.Compute, shaderModule, program.GetSpirvEntryPoint(0).Name));
+            // A case whose calls NRI's validation or the layer objected to proves nothing about the
+            // numbers, whatever came back. The one excused error is about NRI, not about anything
+            // this harness or the projection said, and only where its cause is in the case.
+            var errors = fixture.Messages.Skip(before).Where(m => m.IsError).ToList();
+            var excused = test.Images.Any(i => i.Storage && i.Dimensions == 3)
+                ? errors.Where(IsNriThreeDimensionalSliceLayout).ToList()
+                : [];
+            errors = [.. errors.Except(excused)];
 
-            return Execute(test, vulkan, built, device);
+            if (errors.Count > 0)
+            {
+                return new Result(test.Source, Outcome.Invalid,
+                    $"[{result.Outcome}: {result.Detail}] " + string.Join(" / ", errors.Select(m => Oneline(m.Text, 1000)).Distinct()));
+            }
+
+            return excused.Count == 0
+                ? result
+                : result with { Detail = $"{result.Detail}; {excused.Count} NRI 3D-slice layout error(s) excused" };
         }
         catch (SlangTestCorpus.OutOfReachException e)
         {
@@ -99,147 +112,161 @@ public sealed class SlangComputeCorpusTests(Xunit.Abstractions.ITestOutputHelper
         }
     }
 
+    /// <summary>
+    /// The Khronos layer reporting a slice other than the first of a 3D storage texture in the
+    /// wrong layout at submit: a defect of NRI's barriers, not of the projection or this harness.
+    /// </summary>
+    /// <remarks>
+    /// Measured on the RTX 4070 SUPER with SharpNRI 191.0.0-beta.4 (NRI v191) and the Vulkan SDK's
+    /// 1.4.363 layer: for each of rw-texture-simple's three <c>RWTexture3D</c>s (4x4x4) the layer
+    /// reports <c>VUID-vkCmdDraw-None-09600</c> for <c>arrayLayer = 1</c>, <c>2</c> and <c>3</c>,
+    /// "expects ... to be in layout VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL--instead, current layout
+    /// is VK_IMAGE_LAYOUT_UNDEFINED", nine errors, and nothing about slice 0. NRI creates a 3D
+    /// texture with <c>VK_IMAGE_CREATE_2D_ARRAY_COMPATIBLE_BIT</c> (nri/Source/VK/DeviceVK.hpp,
+    /// "allow 3D demotion to a set of layers"), enables VK_KHR_maintenance9 where the device has it,
+    /// under which a 3D image's barrier range names slices, and gives a 3D texture's barrier
+    /// <c>layerCount</c> = <c>TextureDesc.layerNum</c>, 1 (nri/Source/VK/CommandBufferVK.hpp): so its
+    /// upload helper moves slice 0 alone. The readback matched the values Slang recorded anyway.
+    /// lavapipe under WSL, with the same layer, reports none of the nine for the same case.
+    /// A third-party defect, so excused here and recorded rather than patched; matched on the VUID
+    /// and on a slice index above 0, and only for a case that declares a 3D storage texture, so
+    /// the same VUID about anything else still fails.
+    /// </remarks>
+    private static bool IsNriThreeDimensionalSliceLayout(NriMessage m) =>
+        m.Text.Contains("VUID-vkCmdDraw-None-09600", StringComparison.Ordinal)
+        && !m.Text.Contains("arrayLayer = 0)", StringComparison.Ordinal)
+        && m.Text.Contains("arrayLayer = ", StringComparison.Ordinal);
+
+    /// <summary>The one range the projection names this, with its set, or the reason there is not exactly one.</summary>
+    private static ((ProjectedDescriptorSet Set, ProjectedDescriptorRange Range)? Found, string? Why) Place(
+        NriPipelineProjection projection, string name)
+    {
+        var found = projection.DescriptorSets
+            .SelectMany(s => s.Ranges.Select(r => (Set: s, Range: r)))
+            .Where(x => string.Equals(x.Range.Name, name, StringComparison.Ordinal))
+            .ToList();
+
+        return found.Count == 1
+            ? (found[0], null)
+            : (null, $"the projection reports {found.Count} ranges named '{name}'; the corpus declares one "
+                   + "resource under that name. Bound parameters are "
+                   + string.Join(", ", projection.DescriptorSets.SelectMany(s => s.Ranges).Select(r => r.Name)));
+    }
+
     private static Result Execute(
         SlangTestCorpus.ComputeCase test,
-        VulkanPipelineLayout vulkan,
-        VulkanPipelines.Built built,
-        VulkanTestDevice device)
+        NriPipelineProjection projection,
+        NriPipelineLayout layout,
+        NriPipeline pipeline,
+        NriDevice device)
     {
-        using var runner = new VulkanComputeRunner(device);
+        using var runner = new NriComputeRunner(device);
 
         // Where each declared buffer is bound, according to the projection and nothing else. A
         // name the projection does not know is the finding, not a reason to guess an index.
-        var placed = new List<(SlangTestCorpus.BufferInput Input, uint Set, VulkanBinding Binding)>();
+        var placed = new List<(SlangTestCorpus.BufferInput Input, ProjectedDescriptorSet Set, ProjectedDescriptorRange Range)>();
 
         foreach (var input in test.Inputs)
         {
-            var found = vulkan.DescriptorSets
-                .SelectMany(s => s.Bindings.Select(b => (Set: s.Set, Binding: b)))
-                .Where(x => string.Equals(x.Binding.Name, input.Name, StringComparison.Ordinal))
-                .ToList();
+            var (found, why) = Place(projection, input.Name);
+            if (found is not { } f) return new Result(test.Source, Outcome.OutOfReach, why!);
 
-            if (found.Count != 1)
+            if (f.Range.Desc.descriptorType is not (DescriptorType.CONSTANT_BUFFER
+                or DescriptorType.STRUCTURED_BUFFER or DescriptorType.STORAGE_STRUCTURED_BUFFER))
             {
                 return new Result(test.Source, Outcome.OutOfReach,
-                    $"the projection reports {found.Count} bindings named '{input.Name}'; the "
-                    + "corpus declares one buffer under that name. Bound parameters are "
-                    + string.Join(", ", vulkan.DescriptorSets.SelectMany(s => s.Bindings).Select(b => b.Name)));
+                    $"'{input.Name}' is projected as {f.Range.Desc.descriptorType}, which this harness "
+                    + "only binds as a buffer");
             }
 
-            placed.Add((input, found[0].Set, found[0].Binding));
+            placed.Add((input, f.Set, f.Range));
         }
 
         // Images first: a format the device cannot store to is a device limit, not a finding, and
         // it has to be reported before any of the work below happens.
-        var placedImages = new List<(SlangTestCorpus.ImageInput Input, uint Set, VulkanBinding Binding, VkFormat Format)>();
+        var placedImages = new List<(SlangTestCorpus.ImageInput Input, ProjectedDescriptorSet Set, ProjectedDescriptorRange Range, Format Format)>();
 
         foreach (var image in test.Images)
         {
             if (SlangTestCorpus.ImageFormat(image.Format) is not { } name
-                || !Enum.TryParse<VkFormat>(name, out var format))
+                || !Enum.TryParse<Format>(name, out var format))
             {
                 return new Result(test.Source, Outcome.OutOfReach,
                     $"'{image.Name}' declares format {image.Format}, which this harness does not map");
             }
 
-            if (!device.SupportsStorageImageFormat(format))
+            var wantedSupport = image.Storage ? FormatSupportBits.STORAGE_TEXTURE : FormatSupportBits.TEXTURE;
+            if ((device.GetFormatSupport(format) & wantedSupport) == 0)
             {
                 return new Result(test.Source, Outcome.OutOfReach,
-                    $"this device cannot use {format} as a storage image");
+                    $"this device cannot use {format} as a{(image.Storage ? " storage" : " sampled")} texture");
             }
 
-            var found = vulkan.DescriptorSets
-                .SelectMany(s => s.Bindings.Select(b => (Set: s.Set, Binding: b)))
-                .Where(x => string.Equals(x.Binding.Name, image.Name, StringComparison.Ordinal))
-                .ToList();
+            var (found, why) = Place(projection, image.Name);
+            if (found is not { } f) return new Result(test.Source, Outcome.OutOfReach, why!);
 
-            if (found.Count != 1)
-            {
-                return new Result(test.Source, Outcome.OutOfReach,
-                    $"the projection reports {found.Count} bindings named '{image.Name}'");
-            }
-
-            var wanted = image.Storage
-                ? VulkanDescriptorType.StorageImage
-                : VulkanDescriptorType.SampledImage;
-
-            if (found[0].Binding.DescriptorType != wanted)
+            var wanted = image.Storage ? DescriptorType.STORAGE_TEXTURE : DescriptorType.TEXTURE;
+            if (f.Range.Desc.descriptorType != wanted)
             {
                 return new Result(test.Source, Outcome.Differed,
                     $"'{image.Name}' is a{(image.Storage ? "n RW" : " ")}Texture{image.Dimensions}D "
-                    + $"and the projection calls it {found[0].Binding.DescriptorType}, not {wanted}");
+                    + $"and the projection calls it {f.Range.Desc.descriptorType}, not {wanted}");
             }
 
-            placedImages.Add((image, found[0].Set, found[0].Binding, format));
+            placedImages.Add((image, f.Set, f.Range, format));
         }
 
+        var placedSamplers = new List<(ProjectedDescriptorSet Set, ProjectedDescriptorRange Range)>();
         foreach (var sampler in test.Samplers)
         {
-            var found = vulkan.DescriptorSets
-                .SelectMany(s => s.Bindings.Select(b => (Set: s.Set, Binding: b)))
-                .Where(x => string.Equals(x.Binding.Name, sampler.Name, StringComparison.Ordinal))
-                .ToList();
+            var (found, why) = Place(projection, sampler.Name);
+            if (found is not { } f) return new Result(test.Source, Outcome.OutOfReach, why!);
 
-            if (found.Count != 1)
-            {
-                return new Result(test.Source, Outcome.OutOfReach,
-                    $"the projection reports {found.Count} bindings named '{sampler.Name}'");
-            }
-
-            if (found[0].Binding.DescriptorType != VulkanDescriptorType.Sampler)
+            if (f.Range.Desc.descriptorType != DescriptorType.SAMPLER)
             {
                 return new Result(test.Source, Outcome.Differed,
                     $"'{sampler.Name}' is a SamplerState and the projection calls it "
-                    + $"{found[0].Binding.DescriptorType}, not Sampler");
+                    + $"{f.Range.Desc.descriptorType}, not SAMPLER");
             }
+
+            placedSamplers.Add(f);
         }
 
-        var sets = runner.AllocateSets(built.SetLayouts);
-        var buffers = new Dictionary<string, VulkanComputeRunner.Buffer>(StringComparer.Ordinal);
-
-        foreach (var (image, set, binding, format) in placedImages)
+        // Generous and uniform rather than counted per type. Getting a count wrong is refused by
+        // NRI, which reads as a harness bug and is one.
+        using var pool = device.CreateDescriptorPool(new DescriptorPoolDesc
         {
-            var created = image.Storage
-                ? runner.CreateStorageImage(image.Dimensions, format, image.Size)
-                : runner.CreateSampledImage(image.Dimensions, format, image.Size);
+            descriptorSetMaxNum = (uint)Math.Max(8, projection.DescriptorSets.Count),
+            samplerMaxNum = 64,
+            constantBufferMaxNum = 64,
+            textureMaxNum = 64,
+            storageTextureMaxNum = 64,
+            structuredBufferMaxNum = 64,
+            storageStructuredBufferMaxNum = 64,
+        });
 
-            runner.BindImage(sets[(int)set], binding.Binding, created, image.Storage);
-        }
+        var sets = projection.DescriptorSets.ToDictionary(
+            s => s.SetIndex,
+            s => pool.AllocateDescriptorSet(layout, s.SetIndex));
 
-        foreach (var sampler in test.Samplers)
-        {
-            var placement = vulkan.DescriptorSets
-                .SelectMany(s => s.Bindings.Select(b => (Set: s.Set, Binding: b)))
-                .Single(x => string.Equals(x.Binding.Name, sampler.Name, StringComparison.Ordinal));
+        foreach (var (image, set, range, format) in placedImages)
+            sets[set.SetIndex].Update(range.RangeIndex, 0, runner.CreateTexture(image.Dimensions, format, image.Size, image.Storage));
 
-            runner.BindSampler(sets[(int)placement.Set], placement.Binding.Binding, runner.CreateSampler());
-        }
+        foreach (var (set, range) in placedSamplers)
+            sets[set.SetIndex].Update(range.RangeIndex, 0, runner.CreateSampler());
 
-        foreach (var (input, set, binding) in placed)
+        var buffers = new Dictionary<string, (NriBuffer Buffer, AccessBits Access)>(StringComparer.Ordinal);
+        foreach (var (input, set, range) in placed)
         {
             // Room for what the shader may write, not only for what was declared: an output buffer
             // is usually declared as four zeroes and the expected result may be longer.
             var words = Math.Max(input.Words.Length, test.ExpectedValues.Count() * 2);
-            var buffer = runner.CreateStorageBuffer(words * sizeof(uint));
+            var access = NriComputeRunner.AccessFor(range.Desc.descriptorType);
+            var buffer = runner.CreateBuffer(
+                words * sizeof(uint), System.Runtime.InteropServices.MemoryMarshal.AsBytes<uint>(input.Words), access);
 
-            runner.Write(buffer, System.Runtime.InteropServices.MemoryMarshal.AsBytes<uint>(input.Words));
-            buffers[$"{input.Name}[{input.ArrayIndex}]"] = buffer;
-
-            var type = binding.DescriptorType switch
-            {
-                VulkanDescriptorType.StorageBuffer => VkDescriptorType.StorageBuffer,
-                VulkanDescriptorType.UniformBuffer => VkDescriptorType.UniformBuffer,
-                _ => (VkDescriptorType?)null,
-            };
-
-            if (type is null)
-            {
-                return new Result(test.Source, Outcome.OutOfReach,
-                    $"'{input.Name}' is projected as {binding.DescriptorType}, which this harness "
-                    + "only binds as a buffer");
-            }
-
-            runner.BindBuffer(sets[(int)set], binding.Binding, type.Value, buffer, input.ArrayIndex);
+            buffers[$"{input.Name}[{input.ArrayIndex}]"] = (buffer, access);
+            sets[set.SetIndex].Update(range.RangeIndex, input.ArrayIndex, runner.CreateView(buffer, range.Desc.descriptorType));
         }
 
         // One thread group unless the directive says otherwise. The shader's [numthreads] decides
@@ -248,13 +275,16 @@ public sealed class SlangComputeCorpusTests(Xunit.Abstractions.ITestOutputHelper
         // asks for three groups, and semantic.slang records twelve words for its numthreads(4,1,1)
         // precisely because of it.
         var (gx, gy, gz) = DispatchSize(test.Arguments);
-        runner.Dispatch(built.Pipeline, built.Layout, sets, gx, gy, gz);
 
         var target = test.Inputs.First(i => i.IsOutput);
-        var readback = runner.Read(buffers[$"{target.Name}[{target.ArrayIndex}]"]);
-        var produced = System.Runtime.InteropServices.MemoryMarshal
-            .Cast<byte, uint>(readback).ToArray();
+        var (outputBuffer, outputAccess) = buffers[$"{target.Name}[{target.ArrayIndex}]"];
+        var readback = runner.Dispatch(
+            layout, pipeline, pool,
+            [.. sets.Select(kv => (kv.Key, kv.Value))],
+            gx, gy, gz,
+            outputBuffer, outputAccess);
 
+        var produced = System.Runtime.InteropServices.MemoryMarshal.Cast<byte, uint>(readback).ToArray();
         return Compare(test, produced);
     }
 
@@ -392,10 +422,10 @@ public sealed class SlangComputeCorpusTests(Xunit.Abstractions.ITestOutputHelper
         }
     }
 
-    private static string Oneline(string s)
+    private static string Oneline(string s, int limit = 200)
     {
         var text = s.Replace("\r\n", " ", StringComparison.Ordinal).Replace('\n', ' ');
-        return text.Length > 200 ? text[..200] + "..." : text;
+        return text.Length > limit ? text[..limit] + "..." : text;
     }
 
     // ---------------------------------------------------------------- the tests
@@ -403,13 +433,17 @@ public sealed class SlangComputeCorpusTests(Xunit.Abstractions.ITestOutputHelper
     private static readonly Lazy<IReadOnlyList<SlangTestCorpus.ComputeCase>> LazyCases =
         new(() => SlangTestCorpus.Compute);
 
-    // Per instance, not static: Run needs the device this instance owns, and xUnit builds a fresh
-    // instance for each test method. Two runs of the corpus, about four seconds each.
-    private IReadOnlyList<Result>? _results;
+    // Once per process, on one validated Vulkan device: the corpus runs once and both facts below
+    // read the same results. The device is disposed as soon as the last case has run.
+    private static readonly Lazy<IReadOnlyList<Result>> LazyResults = new(() =>
+    {
+        using var fixture = NriTestDevice.Create(GraphicsAPI.VK);
+        return [.. LazyCases.Value.Select(c => Run(c, fixture))];
+    });
 
-    private IReadOnlyList<Result> Results => _results ??= [.. LazyCases.Value.Select(Run)];
+    private static IReadOnlyList<Result> Results => LazyResults.Value;
 
-    [VulkanValidationFact]
+    [NriVulkanFact]
     public void The_compute_corpus_has_cases_to_run()
     {
         var cases = LazyCases.Value;
@@ -457,7 +491,7 @@ public sealed class SlangComputeCorpusTests(Xunit.Abstractions.ITestOutputHelper
             + "their own target.",
     };
 
-    [VulkanValidationFact]
+    [NriVulkanFact]
     public void Nothing_differs_but_the_case_declared_to()
     {
         var results = Results;
@@ -479,12 +513,9 @@ public sealed class SlangComputeCorpusTests(Xunit.Abstractions.ITestOutputHelper
             + string.Join("", stale.Select(c => $"    {c} — was: {ExpectedToDiffer[c]}\n")));
     }
 
-    [VulkanValidationFact]
+    [NriVulkanFact]
     public void Binding_by_the_projection_produces_the_numbers_Slang_recorded()
     {
-        Assert.True(_vulkan!.SupportsCompute,
-            "queue family 0 on this device does not do compute, so nothing here can dispatch");
-
         var results = Results;
 
         foreach (var group in results.GroupBy(r => r.Outcome).OrderBy(g => g.Key))
@@ -501,13 +532,14 @@ public sealed class SlangComputeCorpusTests(Xunit.Abstractions.ITestOutputHelper
 
         var wrong = results
             .Where(r => r.Outcome == Outcome.Threw
+                     || r.Outcome == Outcome.Invalid
                      || (r.Outcome == Outcome.Differed && !ExpectedToDiffer.ContainsKey(r.Case)))
             .ToList();
 
         Assert.True(wrong.Count == 0,
             $"{wrong.Count} of {results.Count} shader(s) did not produce the output Slang's own test "
-            + $"suite records. A wrong word here is a binding, an offset or a stride that reflection "
-            + $"reported and the hardware disagreed with:\n"
+            + $"suite records, or ran with a validation error. A wrong word here is a binding, an offset or a "
+            + $"stride that reflection reported and the hardware disagreed with:\n"
             + string.Join("", wrong.Select(r => $"    {r.Outcome} {r.Case}\n        {r.Detail}\n")));
     }
 }

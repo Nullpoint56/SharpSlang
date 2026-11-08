@@ -8,17 +8,15 @@ name: Publish
 # the README's "Status" line cannot disagree; manual runs have no tag and build whatever <Version>
 # says.
 #
-# Five packages, deliberately:
-#   SharpSlang             Slang-neutral. Compilation and reflection.
-#   SharpSlang.Pipeline     Reads baked shaders in the shipped game. No compiler, no native payload.
-#   SharpSlang.Vulkan      The Vulkan reading of a reflection snapshot. Opt-in, so a D3D12 or Metal
-#                          consumer never pulls Vulkan concepts in.
-#   SharpSlang.Pipeline.NRI         The NRI (NVIDIA Render Interface) reading of a reflection snapshot, onto
-#                          SharpNRI's descs. Opt-in like the Vulkan one.
-#   SharpSlang.Dxc  Copies Microsoft's dxc into the app's output, where SharpSlang loads it
-#                          for Slang, so Slang can emit DXIL. No binary of its own: a dependency on
-#                          Microsoft.Direct3D.DXC and a targets file that copies from it. Opt-in,
-#                          for D3D12 only.
+# Four packages, deliberately:
+#   SharpSlang               Slang-neutral. Compilation and reflection.
+#   SharpSlang.Pipeline      Reads baked shaders in the shipped game. No compiler, no native payload.
+#   SharpSlang.Pipeline.NRI  The NRI (NVIDIA Render Interface) reading of a reflection snapshot, onto
+#                            SharpNRI's descs. Opt-in.
+#   SharpSlang.Dxc           Copies Microsoft's dxc into the app's output, where SharpSlang loads it
+#                            for Slang, so Slang can emit DXIL. No binary of its own: a dependency on
+#                            Microsoft.Direct3D.DXC and a targets file that copies from it. Opt-in,
+#                            for D3D12 only.
 #
 # Unlike PrismUSD, the native payload is not committed: runtimes/ is gitignored and fetched from
 # the release pinned in Directory.Build.props. So this workflow stages every RID before packing —
@@ -74,7 +72,7 @@ jobs:
         env:
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
-          $projects = 'pipeline/SharpSlang.Pipeline.csproj', 'dotnet/SharpSlang.csproj', 'vulkan/SharpSlang.Vulkan.csproj',
+          $projects = 'pipeline/SharpSlang.Pipeline.csproj', 'dotnet/SharpSlang.csproj',
                       'pipeline-nri/SharpSlang.Pipeline.NRI.csproj', 'dxc/SharpSlang.Dxc.csproj'
           $versions = foreach ($p in $projects) {
             if ((Get-Content $p -Raw) -notmatch '<Version>([^<]+)</Version>') { throw "<Version> not found in $p" }
@@ -179,7 +177,7 @@ jobs:
           $v = "${{ steps.version.outputs.value }}"
           $extra = @()
           if ($v) { $extra += "-p:Version=$v" }
-          foreach ($proj in @('pipeline/SharpSlang.Pipeline.csproj', 'dotnet/SharpSlang.csproj', 'vulkan/SharpSlang.Vulkan.csproj', 'pipeline-nri/SharpSlang.Pipeline.NRI.csproj', 'dxc/SharpSlang.Dxc.csproj')) {
+          foreach ($proj in @('pipeline/SharpSlang.Pipeline.csproj', 'dotnet/SharpSlang.csproj', 'pipeline-nri/SharpSlang.Pipeline.NRI.csproj', 'dxc/SharpSlang.Dxc.csproj')) {
             dotnet pack $proj -c Release -o artifacts --no-build @extra
             if ($LASTEXITCODE -ne 0) { throw "pack failed for $proj" }
           }

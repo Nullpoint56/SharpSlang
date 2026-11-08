@@ -1,12 +1,11 @@
 // The acceptance criterion for the assembly split, asserted rather than asserted-to.
 //
 // The acceptance criterion, verbatim: a project referencing only the package assembly can
-// ReadFromFile, project a ProgramLayout to a VulkanPipelineLayout, call VulkanSpecialization.Pack
-// and VulkanEnvironment.Require, and walk FieldLayout.UniformOffset — and its build output contains
-// no slang-compiler.dll, no slang-glslang.dll, and no runtimes/ payload.
+// ReadFromFile, project a ProgramLayout to an NRI pipeline layout desc, read its specialization
+// constants, and walk FieldLayout.UniformOffset — and its build output contains no slang-compiler.dll, no slang-glslang.dll, and no runtimes/ payload.
 //
 // Both halves are checked here. The first half is tests/SharpSlang.Pipeline.Consumer, which does
-// exactly those five things and would not compile if any of them needed the compiler; this runs it
+// exactly those four things and would not compile if any of them needed the compiler; this runs it
 // against a real baked package. The second half is a directory listing, because "no payload" is a
 // property of the deployment closure and reasoning about project references is not the same claim.
 
@@ -49,7 +48,7 @@ public class AssemblySplitTests
             .ToList();
 
         Assert.True(offenders.Count == 0,
-            $"a project referencing only SharpSlang.Pipeline, SharpSlang.Vulkan and SharpSlang.Pipeline.NRI "
+            $"a project referencing only SharpSlang.Pipeline and SharpSlang.Pipeline.NRI "
             + $"picked up native files. Something grew a reference to the compiler or to NRI:\n"
             + string.Join("", offenders.Select(f => $"    {f}\n")));
 
@@ -92,7 +91,6 @@ public class AssemblySplitTests
                 "SharpSlang.Pipeline.Consumer.dll",
                 "SharpSlang.Pipeline.NRI.dll",
                 "SharpSlang.Pipeline.dll",
-                "SharpSlang.Vulkan.dll",
             ],
             assemblies);
     }
@@ -130,7 +128,7 @@ public class AssemblySplitTests
             Assert.Contains("root constant block(s)", output);
             Assert.Contains("specialization:", output);
             Assert.Contains("stride", output);
-            Assert.Contains("OK - read, projected and packed", output);
+            Assert.Contains("OK - read and projected", output);
         }
         finally
         {

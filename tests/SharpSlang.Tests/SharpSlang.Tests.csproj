@@ -47,30 +47,18 @@
     <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
 
     <!--
-      Renders an assembly's public surface as C#. Three packages carry a semver promise the moment
+      Renders an assembly's public surface as C#. The packages carry a semver promise the moment
       one of them is 1.0, and nothing was checking the promise: a member could be removed, a
       parameter reordered or a type made internal, and the only signal would be a consumer's build
       breaking. The approved files beside PublicApiTests are that signal, moved to review time.
     -->
     <PackageReference Include="PublicApiGenerator" Version="11.4.6" />
-
-    <!--
-      The oracle for VulkanEnums, and the only reason this dependency exists. SharpSlang.Vulkan
-      mirrors ~48 Vulkan enum values by hand so that it ships standalone — a consumer should not
-      inherit somebody else's choice of Vulkan binding behind a small mapping. That reasoning is
-      about the *package*, and it says nothing about the test assembly, which can depend on
-      whatever gives it a real answer.
-
-      Vortice.Vulkan is generated from the Khronos vk.xml registry, so agreeing with it is
-      agreeing with the specification. See VulkanEnumTests, and docs .
-    -->
-    <PackageReference Include="Vortice.Vulkan" Version="3.2.3" />
   </ItemGroup>
 
   <!--
-    The device behind the NRI projection, and the same reasoning as Vortice above: the package
-    references SharpNRI.Descs and nothing with a native library in it, so that a cooker can project
-    on a machine with no driver, while the tests can carry whatever gives them a real answer.
+    The device behind the NRI projection. The package references SharpNRI.Descs and nothing with a
+    native library in it, so that a cooker can project on a machine with no driver, while the tests
+    can carry whatever gives them a real answer.
     SharpNRI is NRI itself, which creates the pipeline layouts and pipelines the projection
     describes; SharpNRI.Testing is its validated headless device, with NRI's own validation and the
     Vulkan layers on and every message recorded. Both from nuget.org at the version pinned in
@@ -93,7 +81,6 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\dotnet\SharpSlang.csproj" />
-    <ProjectReference Include="..\..\vulkan\SharpSlang.Vulkan.csproj" />
     <ProjectReference Include="..\..\pipeline-nri\SharpSlang.Pipeline.NRI.csproj" />
 
     <!--

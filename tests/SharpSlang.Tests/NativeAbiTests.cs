@@ -23,7 +23,7 @@
 // pointer-to-member type needs no vtable to exist.
 //
 // Skips with a reason where no C++ compiler is installed, in the shape NativeFact and
-// VulkanValidationFact already use — a machine without one still runs everything else.
+// NriVulkanFact already use — a machine without one still runs everything else.
 
 using System.Diagnostics;
 using System.Globalization;

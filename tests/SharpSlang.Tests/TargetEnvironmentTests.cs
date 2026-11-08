@@ -6,7 +6,6 @@
 using SharpSlang.Interop;
 using SharpSlang.Native;
 using SharpSlang.Spirv;
-using SharpSlang.Vulkan;
 
 namespace SharpSlang.Tests;
 
@@ -156,46 +155,17 @@ public class TargetEnvironmentTests
         Assert.Contains("fragmentMain", code.AsText());
     }
 
-    // ---------------------------------------------------------------- the Vulkan reading of it
-
-    [Theory]
-    [InlineData(VulkanApiVersion.V1_0, SpirvVersion.V1_0)]
-    [InlineData(VulkanApiVersion.V1_1, SpirvVersion.V1_3)]
-    [InlineData(VulkanApiVersion.V1_2, SpirvVersion.V1_5)]
-    [InlineData(VulkanApiVersion.V1_3, SpirvVersion.V1_6)]
-    [InlineData(VulkanApiVersion.V1_4, SpirvVersion.V1_6)]
-    public void Vulkan_versions_cap_spirv_versions(VulkanApiVersion vulkan, SpirvVersion max) =>
-        Assert.Equal(max, VulkanEnvironment.MaxSpirvVersion(vulkan));
-
-    [Fact]
-    public void A_module_too_new_for_the_device_is_caught_before_the_driver_sees_it()
-    {
-        Assert.True(VulkanEnvironment.Accepts(VulkanApiVersion.V1_4, SpirvVersion.V1_5));
-        Assert.True(VulkanEnvironment.Accepts(VulkanApiVersion.V1_4, SpirvVersion.V1_6));
-        Assert.False(VulkanEnvironment.Accepts(VulkanApiVersion.V1_2, SpirvVersion.V1_6));
-
-        // Unspecified is not "anything goes" — it means nothing was recorded, which is not a
-        // module a loader should accept on trust.
-        Assert.False(VulkanEnvironment.Accepts(VulkanApiVersion.V1_4, SpirvVersion.Unspecified));
-
-        var ex = Assert.Throws<ArgumentException>(
-            () => VulkanEnvironment.Require(VulkanApiVersion.V1_2, SpirvVersion.V1_6, "shadow.vert"));
-        Assert.Contains("shadow.vert", ex.Message);
-        Assert.Contains("1.6", ex.Message);
-        Assert.Contains("1.5", ex.Message);
-    }
+    // ---------------------------------------------------------------- through the artifact
 
     [NativeFact]
-    public void A_bake_for_a_1_4_device_fits_a_1_4_device()
+    public void A_bake_records_the_spirv_version_it_was_compiled_for()
     {
-        // End to end, in the shape the engine actually asks the question: pick a target
-        // environment, compile, and check the artifact against the device before shipping it.
-        const VulkanApiVersion Device = VulkanApiVersion.V1_4;
-
+        // End to end: pin the target environment, compile, and read the version back off the
+        // artifact, which is what a loader checks against its device before handing the bytes over.
         using var global = SlangGlobalSession.Create();
         using var session = global.CreateSession(new SessionOptions
         {
-            Targets = [new TargetOptions { SpirvVersion = VulkanEnvironment.MaxSpirvVersion(Device) }],
+            Targets = [new TargetOptions { SpirvVersion = SpirvVersion.V1_6 }],
         });
         using var module = session.LoadModuleFromSource("t", "t.slang", Trivial);
         using var ep = module.FindEntryPoint("fragmentMain");
@@ -205,7 +175,6 @@ public class TargetEnvironmentTests
         var baked = Assert.Single(package.EntryPoints);
 
         Assert.Equal(SpirvVersion.V1_6, baked.SpirvVersion);
-        VulkanEnvironment.Require(Device, baked.SpirvVersion, baked.Name);
     }
 
     /// <summary>Restores the process-wide diagnostic policy and handler however the test exits.</summary>

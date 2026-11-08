@@ -4,7 +4,7 @@
 // type a binding becomes, what a stage is called, which format a float3 attribute has. Underneath
 // that is a layer that is not: which leaf attributes the vertex stage reads and at which locations,
 // which outputs the fragment stage writes, which blocks are push constants, and what a descriptor
-// slot is called. SharpSlang.Vulkan discovered each of those the hard way — a matrix attribute
+// slot is called. The Vulkan projection that used to sit beside the NRI one discovered each of those the hard way — a matrix attribute
 // spanning four locations, a builtin with no location at all, a push-constant block whose size is
 // not knowable — and a second projection would have re-discovered them one by one.
 //

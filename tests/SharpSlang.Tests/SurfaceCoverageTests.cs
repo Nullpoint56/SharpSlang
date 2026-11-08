@@ -53,7 +53,7 @@ public class SurfaceCoverageTests
             + "descriptor range on SPIR-V: a ParameterBlock takes a register space of its own, and "
             + "the descriptor it does occupy is reported as CONSTANT_BUFFER for the implicit "
             + "uniform buffer. It appears only as a *binding* range at global scope, with "
-            + "descriptorSetIndex -1. VulkanProjection maps it to UniformBuffer anyway; that arm "
+            + "descriptorSetIndex -1. NriProjection maps it to CONSTANT_BUFFER anyway; that arm "
             + "is unreachable for this target and this test is the record of that",
     };
 

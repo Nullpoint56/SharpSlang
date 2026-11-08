@@ -2,7 +2,7 @@
 //
 // Still Slang-neutral. The descriptor-set model here is Slang's own — it is what drives D3D12 root
 // signatures as much as Vulkan descriptor set layouts — so it belongs in the core package. The
-// Vulkan reading of it lives in SharpSlang.Vulkan.
+// NRI reading of it lives in SharpSlang.Pipeline.NRI.
 
 using System.Text.Json;
 using System.Text.Json.Serialization;

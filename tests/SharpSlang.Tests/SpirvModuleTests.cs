@@ -162,7 +162,7 @@ public class SpirvModuleTests
     [Fact]
     public void Versions_are_ordered_by_value()
     {
-        // VulkanEnvironment compares them with <=, so the encoding has to sort correctly.
+        // a host compares them with <= against its device's limit, so the encoding has to sort correctly.
         Assert.True(SpirvVersion.V1_0 < SpirvVersion.V1_3);
         Assert.True(SpirvVersion.V1_3 < SpirvVersion.V1_5);
         Assert.True(SpirvVersion.V1_5 < SpirvVersion.V1_6);

@@ -39,7 +39,6 @@
   </Folder>
   <Project Path="pipeline/SharpSlang.Pipeline.csproj" />
   <Project Path="dotnet/SharpSlang.csproj" />
-  <Project Path="vulkan/SharpSlang.Vulkan.csproj" />
   <Project Path="pipeline-nri/SharpSlang.Pipeline.NRI.csproj" />
   <Project Path="dxc/SharpSlang.Dxc.csproj" />
   <Project Path="tests/SharpSlang.Tests/SharpSlang.Tests.csproj" />

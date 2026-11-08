@@ -14,7 +14,7 @@
 //   3. Is this SPIR-V at all?  A truncated or misaligned blob is worth catching at bake time.
 //
 // Everything here is Vulkan-neutral: SPIR-V is the target format, not the API. The Vulkan reading
-// of it (which SPIR-V version a given Vulkan version accepts) lives in SharpSlang.Vulkan.
+// of it (which SPIR-V version a given Vulkan version accepts) is the host's.
 
 using System.Runtime.InteropServices;
 using System.Text;

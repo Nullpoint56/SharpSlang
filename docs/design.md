@@ -511,7 +511,7 @@ flat-copy for `ProjectReference` — with three changes:
   | `bin/slang-glslang.dll` | 6 MB | glslang **and `spirv-opt`**. See below. |
   | `bin/slang-standard-module-*/` | 5.7 MB | loose `.slang-module` files |
   | `bin/slang-glsl-module.dll` | 1.5 MB | GLSL *input* only |
-  | `bin/gfx.dll` | 1 MB | Slang's own graphics layer. We use Vortice. |
+  | `bin/gfx.dll` | 1 MB | Slang's own graphics layer. Not used. |
   | `bin/slang*.exe`, `bin/slang.dll` | — | tooling; legacy proxy |
 
   `tools/fetch-native.ps1` stages three profiles from this. **Measured win-x64: 29.8 MB minimal,

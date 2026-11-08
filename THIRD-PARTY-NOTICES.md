@@ -10,7 +10,6 @@ is a dependency rather than a redistribution.
 | Package | Bundles |
 |---|---|
 | `SharpSlang.Pipeline` | nothing. MIT only. |
-| `SharpSlang.Vulkan` | nothing. MIT only. Its enum values are transcribed from the Vulkan specification's `vk.xml`; values are facts, not expression. |
 | `SharpSlang.Pipeline.NRI` | nothing. MIT only. It references the `SharpNRI.Descs` package (MIT) for NRI's descriptor types and redistributes no NRI binary. |
 | **`SharpSlang`** | binaries from the [Slang](https://github.com/shader-slang/slang) project, one set per runtime identifier |
 | `SharpSlang.Dxc` | nothing. MIT only. It depends on Microsoft's `Microsoft.Direct3D.DXC` package and copies `dxcompiler.dll` and `dxil.dll` out of it into the application's output; see below. Opt-in: nothing else depends on it. |

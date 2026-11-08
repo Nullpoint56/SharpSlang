@@ -16,7 +16,6 @@
 using SharpSlang.Native;
 using SharpSlang.Reflection;
 using SharpSlang.Spirv;
-using SharpSlang.Vulkan;
 
 namespace SharpSlang.Tests;
 
@@ -158,24 +157,22 @@ public class ModuleAgreementTests
     private static HashSet<string> LayoutFacts(ProgramLayout layout)
     {
         var facts = new HashSet<string>(StringComparer.Ordinal);
-        var vulkan = layout.ToVulkan();
-
-        foreach (var set in vulkan.DescriptorSets)
+        // The API-neutral reading both projections were built on, and the NRI one still is
+        // (NriProjectionTests holds it to this): on SPIR-V a set's space is the set index and a
+        // range's index offset is the binding.
+        foreach (var (space, range, name) in Descriptors(layout))
         {
-            foreach (var b in set.Bindings)
-            {
-                facts.Add($"descriptor {b.Name ?? "(unnamed)"} = set {set.Set} binding {b.Binding}");
-                if (b.InputAttachmentIndex is { } index)
-                    facts.Add($"attachment {b.Name ?? "(unnamed)"} = {index}");
-            }
+            facts.Add($"descriptor {name ?? "(unnamed)"} = set {space} binding {range.IndexOffset}");
+            if (range.InputAttachmentIndex is { } index)
+                facts.Add($"attachment {name ?? "(unnamed)"} = {index}");
         }
 
         // A field spanning several locations is one variable in the module and several attributes
         // here — a float4x4 becomes name[0]..name[3]. Compare the declaration, at its base location.
-        foreach (var group in vulkan.VertexInputs.GroupBy(v => Base(v.Name)))
+        foreach (var group in layout.VertexInputs().GroupBy(v => Base(v.Name)))
             facts.Add($"input {group.Key} = location {group.Min(v => v.Location)}");
 
-        foreach (var group in vulkan.FragmentOutputs.GroupBy(o => Base(o.Name)))
+        foreach (var group in layout.FragmentOutputs().GroupBy(o => Base(o.Name)))
             facts.Add($"output {group.Key} = location {group.Min(o => o.Location)}");
 
         foreach (var c in layout.SpecializationConstants)
@@ -295,6 +292,24 @@ public class ModuleAgreementTests
     };
 
     /// <summary>Strips the <c>[i]</c> a multi-location attribute is split by.</summary>
+    /// <summary>
+    /// Every descriptor range of the layout outside push-constant storage, with the space it is in and
+    /// its name: the range's own where the walk attributed one, the parameter at its index otherwise.
+    /// </summary>
+    internal static IEnumerable<(uint Space, DescriptorRange Range, string? Name)> Descriptors(ProgramLayout layout)
+    {
+        foreach (var set in layout.DescriptorSets.OrderBy(s => s.SpaceOffset))
+        {
+            foreach (var range in set.Ranges.OrderBy(r => r.IndexOffset))
+            {
+                if (range.BindingType == SlangBindingType.SLANG_BINDING_TYPE_PUSH_CONSTANT) continue;
+                var name = range.Name
+                    ?? layout.DescriptorNames(set.SpaceOffset, range.Category).GetValueOrDefault(range.IndexOffset);
+                yield return (set.SpaceOffset, range, name);
+            }
+        }
+    }
+
     private static string Base(string name)
     {
         var bracket = name.IndexOf('[');
@@ -332,4 +347,115 @@ public class ModuleAgreementTests
     private static bool IsSynthetic(string name) =>
         name.StartsWith("__", StringComparison.Ordinal)
         || string.Equals(name, "data", StringComparison.Ordinal);
+
+    // ---------------------------------------------------------------- two facts about the module alone
+
+    [NativeFact]
+    public void The_sample_interpolation_modifier_declares_SampleRateShading()
+    {
+        // Slang's `sample` interpolation modifier becomes `OpDecorate … Sample`, and on
+        // slang-compiler 2026.14.1 the module did not declare OpCapability SampleRateShading (35)
+        // alongside it. spirv-val rejected that as malformed — not as unsupported: it was a
+        // property of the module, so no device feature and no enabled extension changed the
+        // answer. Found by the corpus driver on its first complete run, and the third thing in this
+        // project the validation layers said about Slang's own output rather than about SharpSlang's
+        // reading of it.
+        //
+        // Recorded rather than reported upstream, and pinned the other way round until 2026.21,
+        // which declares the capability. The case is in NriDeviceTests' Vulkan corpus theory like any
+        // other, and this keeps the module-level fact, which does not depend on which layers are installed.
+        var shaderCase = ShaderCorpus.Case("interpolation-modifiers");
+
+        using var global = SlangGlobalSession.Create();
+        using var session = global.CreateSession(new SessionOptions
+        {
+            Targets = [new TargetOptions { UseEntryPointNameInSpirv = true }],
+        });
+        using var module = session.LoadModuleFromSource(
+            "im", "im.slang", shaderCase.Source);
+
+        var entryPoints = shaderCase.EntryPoints.Select(module.FindEntryPoint).ToList();
+        try
+        {
+            using var program = session.Link(module, [.. entryPoints]);
+
+            for (var i = 0; i < entryPoints.Count; i++)
+            {
+                var code = program.GetEntryPointCodeBytes(i);
+                if (!Decorations(code).Contains(SampleDecoration)) continue;
+
+                Assert.Contains(SampleRateShadingCapability, Capabilities(code));
+                return;
+            }
+
+            Assert.Fail(
+                "no stage of interpolation-modifiers carries the Sample decoration any more. "
+                + "Either the shader changed or Slang stopped emitting it, and this no longer tests "
+                + "what it is named for.");
+        }
+        finally
+        {
+            foreach (var e in entryPoints) e.Dispose();
+        }
+    }
+
+    [NativeFact]
+    public void A_matrix_vertex_input_carries_no_member_Offset()
+    {
+        // VUID-StandaloneSpirv-Offset-12509: "the Input interface variable must not have Offset on
+        // any member decoration". slang-compiler 2026.14.1 broke it on vertex-interface's float4x4
+        // input, wrapping the matrix in a _MatrixStorage struct and decorating its member Offset 0;
+        // 2026.21 does not, and the SDK's spirv-val passes its module where it refuses 2026.14.1's.
+        // Measured with Vulkan SDK 1.4.363.0, whose layers check the rule, and the check below
+        // finds the struct in the module slangc 2026.14.1 emits for this shader, row- and
+        // column-major alike, and nothing in 2026.21's.
+        //
+        // Pinned here as well as left to NriDeviceTests' Vulkan corpus theory, because the theory
+        // only sees it where a layer that knows the rule is installed, and linux-arm64 runs no NRI
+        // device test at all. So this is the check that holds on every leg. Recorded rather than reported upstream.
+        var shaderCase = ShaderCorpus.Case("vertex-interface");
+
+        using var global = SlangGlobalSession.Create();
+        using var session = global.CreateSession(new SessionOptions
+        {
+            Targets = [new TargetOptions { UseEntryPointNameInSpirv = true }],
+        });
+        using var module = session.LoadModuleFromSource("vi", "vi.slang", shaderCase.Source);
+        using var entryPoint = module.FindEntryPoint(Assert.Single(shaderCase.EntryPoints));
+        using var program = session.Link(module, entryPoint);
+
+        Assert.Empty(SpirvDecorations.InputStructsWithMemberOffsets(program.GetEntryPointCodeBytes(0)));
+    }
+
+    /// <summary><c>Capability::SampleRateShading</c>.</summary>
+    private const uint SampleRateShadingCapability = 35;
+
+    /// <summary><c>Decoration::Sample</c>. Its neighbours are Centroid (16) and Invariant (18).</summary>
+    private const uint SampleDecoration = 17;
+
+    /// <summary>Every <c>OpCapability</c> operand in the module.</summary>
+    private static HashSet<uint> Capabilities(byte[] spirv) => Operands(spirv, opcode: 17, operand: 0);
+
+    /// <summary>Every decoration id used by <c>OpDecorate</c>.</summary>
+    private static HashSet<uint> Decorations(byte[] spirv) => Operands(spirv, opcode: 71, operand: 1);
+
+    /// <summary>One operand of every instruction with this opcode.</summary>
+    private static HashSet<uint> Operands(byte[] spirv, ushort opcode, int operand)
+    {
+        var words = System.Runtime.InteropServices.MemoryMarshal.Cast<byte, uint>(spirv);
+        var found = new HashSet<uint>();
+
+        for (var i = 5; i < words.Length;)
+        {
+            var count = (int)(words[i] >> 16);
+            if (count <= 0 || i + count > words.Length) break;
+
+            if ((ushort)(words[i] & 0xFFFF) == opcode && count > operand + 1)
+                found.Add(words[i + 1 + operand]);
+
+            i += count;
+        }
+
+        return found;
+    }
 }

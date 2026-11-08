@@ -83,7 +83,7 @@ public static unsafe class ReflectionWalker
     /// <para>
     /// The one fact in this snapshot that reflection cannot supply. Slang's global-scope view does
     /// not attribute a parameter to the entry points that use it, which is why
-    /// <c>VulkanProjection</c> reported every stage on every binding for as long as it existed.
+    /// the projections reported every stage on every binding for as long as it existed.
     /// <c>IMetadata</c> knows, per entry point, whether the generated code touches a location — so
     /// asking it once per stage per range produces the attribution the layout view lacks.
     /// </para>
@@ -1144,7 +1144,7 @@ public static unsafe class ReflectionWalker
     /// <para>
     /// The binding type comes from the resource shape. Only the subpass case is mapped, because
     /// only the subpass case is known to go missing; anything else lands as
-    /// <c>SLANG_BINDING_TYPE_UNKNOWN</c>, which <c>VulkanProjection.ToDescriptorType</c> refuses
+    /// <c>SLANG_BINDING_TYPE_UNKNOWN</c>, which <c>NriProjection.ToDescriptorType</c> refuses
     /// loudly. A hole reported as unknown is a bug report; a hole silently given a plausible type
     /// is the class of defect this whole exercise keeps finding.
     /// </para>

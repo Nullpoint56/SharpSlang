@@ -7,9 +7,9 @@
 // rather than a clean crash.
 //
 // Everything is Slang-neutral. Sizes and offsets are what Slang computed for the configured
-// target; nothing here interprets them for a specific graphics API. The Vulkan reading of this
-// data lives in the separate SharpSlang.Vulkan package so that a D3D12 or Metal consumer never
-// pays for it.
+// target; nothing here interprets them for a specific graphics API. The NRI reading of this
+// data lives in the separate SharpSlang.Pipeline.NRI package so that a consumer that does not talk
+// to NRI never pays for it.
 
 using System.Text.Json.Serialization;
 using SharpSlang.Native;

@@ -16,13 +16,17 @@
 using SharpSlang.Baking;
 using SharpSlang.Native;
 using SharpSlang.Reflection;
-using SharpSlang.Vulkan;
+using SharpSlang.Pipeline.NRI;
+using SharpNRI.Native;
 
 namespace SharpSlang.Tests;
 
 public class PipelineLayoutTests
 {
-    private sealed record Compiled(ProgramLayout Layout, VulkanPipelineLayout Vulkan, byte[] Code);
+    private sealed record Compiled(ProgramLayout Layout, NriPipelineProjection Nri, byte[] Code);
+
+    /// <summary>The cap for an unbounded array, which the shader cannot state and NRI must be told.</summary>
+    private static readonly NriProjectionOptions Capped = new() { UnboundedArrayCap = 64 };
 
     private static Compiled Compile(string source, string entryPoint = "fragmentMain")
     {
@@ -33,7 +37,7 @@ public class PipelineLayoutTests
         using var program = session.Link(module, ep);
 
         var layout = program.Reflect();
-        return new Compiled(layout, layout.ToVulkan(), program.GetEntryPointCodeBytes(0));
+        return new Compiled(layout, layout.ToNri(Capped), program.GetEntryPointCodeBytes(0));
     }
 
     /// <summary>Asserts every descriptor the module declares is reported at the same coordinates.</summary>
@@ -41,10 +45,11 @@ public class PipelineLayoutTests
     {
         var expected = SpirvDecorations.Descriptors(c.Code);
 
-        var actual = c.Vulkan.DescriptorSets
-            .SelectMany(s => s.Bindings.Select(b => (b.Name, Set: s.Set, b.Binding)))
-            .Where(b => b.Name is not null)
-            .ToDictionary(b => b.Name!, b => (b.Set, b.Binding));
+        // NRI's Vulkan backend makes registerSpace the set index and baseRegisterIndex the binding.
+        var actual = c.Nri.DescriptorSets
+            .SelectMany(s => s.Ranges.Select(r => (r.Name, s.RegisterSpace, r.Desc.baseRegisterIndex)))
+            .Where(r => r.Name is not null)
+            .ToDictionary(r => r.Name!, r => (r.RegisterSpace, r.baseRegisterIndex));
 
         Assert.Equal(
             expected.OrderBy(kv => kv.Key),
@@ -80,13 +85,13 @@ public class PipelineLayoutTests
         // A matrix is decorated once and consumes four consecutive locations, so the projection
         // reports four attributes where the module reports one variable. Compare the base.
         var actual = new Dictionary<string, uint>();
-        foreach (var v in c.Vulkan.VertexInputs)
+        foreach (var v in c.Nri.VertexAttributes)
         {
             var name = v.Name.EndsWith("[0]", StringComparison.Ordinal)
                 ? v.Name[..^3]
                 : v.Name;
             if (!v.Name.EndsWith(']') || v.Name.EndsWith("[0]", StringComparison.Ordinal))
-                actual[name] = v.Location;
+                actual[name] = v.Desc.Location;
         }
 
         Assert.Equal(expected.OrderBy(kv => kv.Key), actual.OrderBy(kv => kv.Key));
@@ -104,19 +109,19 @@ public class PipelineLayoutTests
     {
         var c = Compile(VertexStruct, "vertexMain");
 
-        var rows = c.Vulkan.VertexInputs
+        var rows = c.Nri.VertexAttributes
             .Where(v => v.Name.StartsWith("instanceXform", StringComparison.Ordinal))
-            .OrderBy(v => v.Location)
+            .OrderBy(v => v.Desc.Location)
             .ToList();
 
         Assert.Equal(4, rows.Count);
-        Assert.Equal([1u, 2u, 3u, 4u], rows.Select(r => r.Location));
-        Assert.All(rows, r => Assert.Equal(VulkanFormat.R32G32B32A32Sfloat, r.Format));
+        Assert.Equal([1u, 2u, 3u, 4u], rows.Select(r => r.Desc.Location));
+        Assert.All(rows, r => Assert.Equal(Format.RGBA32_SFLOAT, r.Desc.Format));
 
         // Nothing else may share those locations.
         Assert.Equal(
-            c.Vulkan.VertexInputs.Count,
-            c.Vulkan.VertexInputs.Select(v => v.Location).Distinct().Count());
+            c.Nri.VertexAttributes.Count,
+            c.Nri.VertexAttributes.Select(v => v.Desc.Location).Distinct().Count());
     }
 
     [NativeFact]
@@ -136,10 +141,10 @@ public class PipelineLayoutTests
         var c = Compile(WithBuiltin, "vertexMain");
         var expected = SpirvDecorations.InputLocations(c.Code);
 
-        Assert.DoesNotContain(c.Vulkan.VertexInputs, v => v.Name == "vid");
+        Assert.DoesNotContain(c.Nri.VertexAttributes, v => v.Name == "vid");
         Assert.Equal(
             expected.OrderBy(kv => kv.Key),
-            c.Vulkan.VertexInputs.ToDictionary(v => v.Name, v => v.Location).OrderBy(kv => kv.Key));
+            c.Nri.VertexAttributes.ToDictionary(v => v.Name, v => v.Desc.Location).OrderBy(kv => kv.Key));
     }
 
     [NativeFact]
@@ -150,8 +155,8 @@ public class PipelineLayoutTests
         //
         // This used to use double3x3, on the grounds that it maps to R64G64B64Sfloat per row. It
         // does — and each of those rows takes two locations while Slang assigns one, so the rows
-        // overlap and the layout is refused before it can be inspected. That case moved to
-        // VulkanEnumTests; what belongs here is the mapping, which float3x3 exercises identically.
+        // overlap and the layout is refused before it can be inspected (and NRI's Format has no
+        // 64-bit types at all). What belongs here is the mapping, which float3x3 exercises identically.
         const string Matrix = """
             struct VIn { float3 position; float3x3 weird; };
             struct VOut { float4 pos : SV_Position; };
@@ -168,7 +173,7 @@ public class PipelineLayoutTests
         var located = SpirvDecorations.InputLocations(c.Code);
         foreach (var name in located.Keys)
         {
-            Assert.Contains(c.Vulkan.VertexInputs,
+            Assert.Contains(c.Nri.VertexAttributes,
                 v => v.Name == name || v.Name.StartsWith($"{name}[", StringComparison.Ordinal));
         }
     }
@@ -197,10 +202,10 @@ public class PipelineLayoutTests
 
         // The numbers, spelled out: the entry point's block starts after the three globals, and
         // its two parameters are numbered from zero within it.
-        var set = Assert.Single(c.Vulkan.DescriptorSets);
-        Assert.Equal(5, set.Bindings.Count);
-        Assert.Equal(3u, Assert.Single(set.Bindings, b => b.Name == "epTex").Binding);
-        Assert.Equal(4u, Assert.Single(set.Bindings, b => b.Name == "epSamp").Binding);
+        var set = Assert.Single(c.Nri.DescriptorSets);
+        Assert.Equal(5, set.Ranges.Count);
+        Assert.Equal(3u, set.Range("epTex")!.Desc.baseRegisterIndex);
+        Assert.Equal(4u, set.Range("epSamp")!.Desc.baseRegisterIndex);
     }
 
     [NativeFact]
@@ -214,10 +219,10 @@ public class PipelineLayoutTests
 
         var c = Compile(EpValue);
 
-        var range = Assert.Single(c.Vulkan.PushConstants);
-        Assert.Equal(VulkanShaderStages.Fragment, range.StageFlags);
-        Assert.Equal(0u, range.Offset);
-        Assert.True(range.Size >= 20, $"expected at least float4+float = 20 bytes, got {range.Size}");
+        var block = Assert.Single(c.Nri.RootConstants);
+        Assert.Equal(StageBits.FRAGMENT_SHADER, block.Desc.shaderStages);
+        Assert.Equal(0u, block.Index);
+        Assert.True(block.Desc.size >= 20, $"expected at least float4+float = 20 bytes, got {block.Desc.size}");
     }
 
     [NativeFact]
@@ -239,14 +244,14 @@ public class PipelineLayoutTests
         var c = Compile(PushAndDescriptors);
         AssertDescriptorsMatchModule(c);
 
-        var set = Assert.Single(c.Vulkan.DescriptorSets);
-        Assert.Equal("albedo", Assert.Single(set.Bindings, b => b.Binding == 0).Name);
-        Assert.Equal("samp", Assert.Single(set.Bindings, b => b.Binding == 1).Name);
-        Assert.DoesNotContain(set.Bindings, b => b.Name == "push");
+        var set = Assert.Single(c.Nri.DescriptorSets);
+        Assert.Equal("albedo", Assert.Single(set.Ranges, r => r.Desc.baseRegisterIndex == 0).Name);
+        Assert.Equal("samp", Assert.Single(set.Ranges, r => r.Desc.baseRegisterIndex == 1).Name);
+        Assert.DoesNotContain(set.Ranges, r => r.Name == "push");
 
-        var range = Assert.Single(c.Vulkan.PushConstants);
-        Assert.Equal("push", range.Name);
-        Assert.Equal(80u, range.Size);
+        var block = Assert.Single(c.Nri.RootConstants);
+        Assert.Equal("push", block.Name);
+        Assert.Equal(80u, block.Desc.size);
     }
 
     [NativeFact]
@@ -284,19 +289,19 @@ public class PipelineLayoutTests
         var c = Compile(Bindless);
         AssertDescriptorsMatchModule(c);
 
-        var set = Assert.Single(c.Vulkan.DescriptorSets);
+        var set = Assert.Single(c.Nri.DescriptorSets);
 
-        var bounded = Assert.Single(set.Bindings, b => b.Name == "fixed8");
+        var bounded = set.Range("fixed8")!;
         Assert.False(bounded.IsUnbounded);
-        Assert.Equal(8u, bounded.DescriptorCount);
+        Assert.Equal(8u, bounded.Desc.descriptorNum);
 
-        var runtime = Assert.Single(set.Bindings, b => b.Name == "unbounded");
+        var runtime = set.Range("unbounded")!;
         Assert.True(runtime.IsUnbounded);
 
         // 0xFFFFFFFF is what Slang says and it is not a count. Anything that reaches
-        // VkDescriptorSetLayoutBinding::descriptorCount unexamined is a bug.
-        Assert.NotEqual(uint.MaxValue, runtime.DescriptorCount);
-        Assert.Equal(0u, runtime.DescriptorCount);
+        // DescriptorRangeDesc::descriptorNum unexamined is a bug: the count NRI gets is the host's cap.
+        Assert.NotEqual(uint.MaxValue, runtime.Desc.descriptorNum);
+        Assert.Equal(64u, runtime.Desc.descriptorNum);
 
         // The neutral layer must not pass the sentinel through either.
         Assert.All(c.Layout.DescriptorSets.SelectMany(s => s.Ranges),
@@ -343,12 +348,12 @@ public class PipelineLayoutTests
 
         Assert.Equal(
             SpirvDecorations.OutputLocations(c.Code).OrderBy(kv => kv.Key),
-            c.Vulkan.FragmentOutputs.ToDictionary(o => o.Name, o => o.Location).OrderBy(kv => kv.Key));
+            c.Nri.FragmentOutputs.ToDictionary(o => o.Name, o => o.Location).OrderBy(kv => kv.Key));
 
-        // The count is what sizes VkPipelineColorBlendStateCreateInfo::attachmentCount.
-        Assert.Equal(3, c.Vulkan.FragmentOutputs.Count);
-        Assert.Equal(VulkanFormat.R32G32Sfloat,
-            Assert.Single(c.Vulkan.FragmentOutputs, o => o.Name == "motion").Format);
+        // The count is what sizes the output merger's colour attachment array.
+        Assert.Equal(3, c.Nri.FragmentOutputs.Count);
+        Assert.Equal(Format.RG32_SFLOAT,
+            Assert.Single(c.Nri.FragmentOutputs, o => o.Name == "motion").Format);
     }
 
     [NativeFact]
@@ -359,9 +364,9 @@ public class PipelineLayoutTests
             float4 fragmentMain() : SV_Target { return float4(1,0,0,1); }
             """);
 
-        var output = Assert.Single(c.Vulkan.FragmentOutputs);
+        var output = Assert.Single(c.Nri.FragmentOutputs);
         Assert.Equal(0u, output.Location);
-        Assert.Equal(VulkanFormat.R32G32B32A32Sfloat, output.Format);
+        Assert.Equal(Format.RGBA32_SFLOAT, output.Format);
     }
 
     [NativeFact]
@@ -382,7 +387,7 @@ public class PipelineLayoutTests
 
         Assert.Equal(["colour"], SpirvDecorations.OutputLocations(c.Code).Keys);
 
-        var output = Assert.Single(c.Vulkan.FragmentOutputs);
+        var output = Assert.Single(c.Nri.FragmentOutputs);
         Assert.Equal("colour", output.Name);
         Assert.Equal(0u, output.Location);
     }
@@ -405,14 +410,14 @@ public class PipelineLayoutTests
 
         Assert.Equal(
             SpirvDecorations.OutputLocations(c.Code).OrderBy(kv => kv.Key),
-            c.Vulkan.FragmentOutputs.ToDictionary(o => o.Name, o => o.Location).OrderBy(kv => kv.Key));
-        Assert.Equal(2, c.Vulkan.FragmentOutputs.Count);
+            c.Nri.FragmentOutputs.ToDictionary(o => o.Name, o => o.Location).OrderBy(kv => kv.Key));
+        Assert.Equal(2, c.Nri.FragmentOutputs.Count);
     }
 
     [NativeFact]
     public void A_vertex_only_program_has_no_fragment_outputs()
     {
-        Assert.Empty(Compile(VertexStruct, "vertexMain").Vulkan.FragmentOutputs);
+        Assert.Empty(Compile(VertexStruct, "vertexMain").Nri.FragmentOutputs);
     }
 
     // ---------------------------------------------------------------- through the artifact
@@ -450,15 +455,18 @@ public class PipelineLayoutTests
         ShaderPackageBaker.Bake(program, Everything).WriteTo(buffer);
         buffer.Position = 0;
 
-        var before = program.Reflect().ToVulkan();
-        var after = ShaderPackage.ReadFrom(buffer).Layout.ToVulkan();
+        var reflected = program.Reflect();
+        var reloaded = ShaderPackage.ReadFrom(buffer).Layout;
+        var before = reflected.ToNri(Capped);
+        var after = reloaded.ToNri(Capped);
 
-        Assert.Equal(before.VertexInputs, after.VertexInputs);
+        Assert.Equal(before.VertexAttributes, after.VertexAttributes);
         Assert.Equal(before.FragmentOutputs, after.FragmentOutputs);
-        Assert.Equal(before.PushConstants, after.PushConstants);
-        Assert.Equal(before.SpecializationConstants, after.SpecializationConstants);
+        Assert.Equal(before.RootConstants, after.RootConstants);
+        Assert.Equal(before.Stages, after.Stages);
+        Assert.Equal(reflected.SpecializationConstants, reloaded.SpecializationConstants);
         Assert.Equal(
-            before.DescriptorSets.SelectMany(s => s.Bindings),
-            after.DescriptorSets.SelectMany(s => s.Bindings));
+            before.DescriptorSets.SelectMany(s => s.Ranges),
+            after.DescriptorSets.SelectMany(s => s.Ranges));
     }
 }

@@ -9,7 +9,8 @@ using SharpSlang.Baking;
 using SharpSlang.Native;
 using SharpSlang.Reflection;
 using SharpSlang.Spirv;
-using SharpSlang.Vulkan;
+using SharpSlang.Pipeline.NRI;
+using SharpNRI.Native;
 
 namespace SharpSlang.Tests;
 
@@ -25,6 +26,18 @@ public class ComputeAndAttachmentTests
 
         return (program.GetEntryPointCodeBytes(0), program.Reflect());
     }
+
+    /// <summary>Each descriptor the NRI projection describes, by name: its register space and register.</summary>
+    /// <remarks>
+    /// On Vulkan those are the set and the binding the module decorates the variable with, which
+    /// is what SpirvDecorations.Descriptors reads back (NRI's Vulkan backend uses registerSpace as
+    /// the set index and baseRegisterIndex as the binding).
+    /// </remarks>
+    private static Dictionary<string, (uint, uint)> Descriptors(ProgramLayout layout) => layout
+        .ToNri()
+        .DescriptorSets
+        .SelectMany(s => s.Ranges.Select(r => (r.Name, s.RegisterSpace, r.Desc.baseRegisterIndex)))
+        .ToDictionary(r => r.Name!, r => (r.RegisterSpace, r.baseRegisterIndex));
 
     // ---------------------------------------------------------------- workgroup size
 
@@ -109,50 +122,32 @@ public class ComputeAndAttachmentTests
 
         Assert.Null(layout.EntryPoints[0].ThreadGroupSize);
         Assert.Null(SpirvModule.Read(code).EntryPoints[0].WorkgroupSize);
-        Assert.Null(layout.ToVulkan().Stage("fragmentMain")!.WorkgroupSize);
+        Assert.Null(layout.ToNri().Stage("fragmentMain")!.ThreadGroupSize);
     }
 
     // ---------------------------------------------------------------- dispatch
 
     [NativeFact]
-    public void The_projection_can_size_a_dispatch()
+    public void The_projection_carries_the_compute_stage_and_its_thread_group_size()
     {
         var (_, layout) = Compile(FixedCompute, "computeMain");
-        var stage = layout.ToVulkan().Stage("computeMain")!;
+        var stage = layout.ToNri().Stage("computeMain")!;
 
-        Assert.Equal(VulkanShaderStages.Compute, stage.Stage);
-        Assert.Equal(new VulkanWorkgroupSize(8, 4, 2), stage.WorkgroupSize);
-
-        // Rounded up, not truncated: 1920/8 exactly, 1080/4 = 270 exactly, 5/2 -> 3.
-        Assert.Equal((240u, 270u, 3u), stage.WorkgroupSize!.GroupCountFor(1920, 1080, 5));
-        Assert.Equal((1u, 1u, 1u), stage.WorkgroupSize.GroupCountFor(1));
+        Assert.Equal(StageBits.COMPUTE_SHADER, stage.Stage);
+        Assert.Equal(new ThreadGroupSize(8, 4, 2), stage.ThreadGroupSize);
     }
 
     [NativeFact]
-    public void A_specialized_dispatch_is_refused_rather_than_divided_by_zero()
+    public void A_specialized_thread_group_size_reaches_the_projection_marked_as_specialized()
     {
-        var (code, layout) = Compile(SpecializedCompute, "computeMain");
-        var stage = layout.ToVulkan().Stage("computeMain")!;
+        // Slang reports [0, 1, 1] for it, so a host dividing by the projected size would divide by
+        // zero; the flag is what tells it to read the module's defaults and constant ids instead
+        // (The_module_carries_the_constant_id_and_the_declared_default).
+        var (_, layout) = Compile(SpecializedCompute, "computeMain");
+        var stage = layout.ToNri().Stage("computeMain")!;
 
-        Assert.True(stage.WorkgroupSize!.IsSpecialized);
-        var e = Assert.Throws<InvalidOperationException>(() => stage.WorkgroupSize.GroupCountFor(1920));
-        Assert.Contains("specialization constant", e.Message);
-
-        // Resolved against the values the pipeline will actually use, it dispatches.
-        var fromModule = SpirvModule.Read(code).EntryPoints[0].WorkgroupSize!;
-        var resolved = VulkanWorkgroupSize.From(fromModule, new Dictionary<uint, uint> { [0] = 128 });
-
-        Assert.False(resolved.IsSpecialized);
-        Assert.Equal(15u, resolved.GroupCountFor(1920).X);
-
-        // An empty dictionary is a real answer — "I supply nothing", so Vulkan uses the shader's
-        // defaults — and that determines the size just as well.
-        var defaulted = VulkanWorkgroupSize.From(fromModule, new Dictionary<uint, uint>());
-        Assert.False(defaulted.IsSpecialized);
-        Assert.Equal(30u, defaulted.GroupCountFor(1920).X);
-
-        // Saying nothing at all is not the same as saying nothing is supplied, and still refuses.
-        Assert.True(VulkanWorkgroupSize.From(fromModule).IsSpecialized);
+        Assert.True(stage.ThreadGroupSize!.Value.IsSpecialized);
+        Assert.Null(stage.ThreadGroupSize.Value.Resolved);
     }
 
     [NativeFact]
@@ -221,9 +216,7 @@ public class ComputeAndAttachmentTests
         var (code, layout) = Compile(SubpassShader, "fragmentMain");
 
         var expected = SpirvDecorations.Descriptors(code);
-        var actual = layout.ToVulkan().DescriptorSets
-            .SelectMany(s => s.Bindings.Select(b => (b.Name, Set: s.Set, b.Binding)))
-            .ToDictionary(b => b.Name!, b => (b.Set, b.Binding));
+        var actual = Descriptors(layout);
 
         Assert.Equal(expected, actual);
     }
@@ -232,11 +225,11 @@ public class ComputeAndAttachmentTests
     public void They_are_input_attachments_and_carry_their_attachment_index()
     {
         var (code, layout) = Compile(SubpassShader, "fragmentMain");
-        var bindings = layout.ToVulkan().Set(0)!.Bindings.ToDictionary(b => b.Name!);
+        var bindings = layout.ToNri().Set(0)!.Ranges.ToDictionary(r => r.Name!);
 
-        Assert.Equal(VulkanDescriptorType.InputAttachment, bindings["gGbufferA"].DescriptorType);
-        Assert.Equal(VulkanDescriptorType.InputAttachment, bindings["gGbufferB"].DescriptorType);
-        Assert.Equal(VulkanDescriptorType.SampledImage, bindings["gOrdinary"].DescriptorType);
+        Assert.Equal(DescriptorType.INPUT_ATTACHMENT, bindings["gGbufferA"].Desc.descriptorType);
+        Assert.Equal(DescriptorType.INPUT_ATTACHMENT, bindings["gGbufferB"].Desc.descriptorType);
+        Assert.Equal(DescriptorType.TEXTURE, bindings["gOrdinary"].Desc.descriptorType);
 
         // The attachment index is a separate number from the binding, and here they differ from
         // each other's ordering only because the shader keeps them aligned — the module is the
@@ -258,9 +251,9 @@ public class ComputeAndAttachmentTests
             """;
 
         var (code, layout) = Compile(Source, "fragmentMain");
-        var binding = Assert.Single(layout.ToVulkan().Set(0)!.Bindings);
+        var binding = Assert.Single(layout.ToNri().Set(0)!.Ranges);
 
-        Assert.Equal(VulkanDescriptorType.InputAttachment, binding.DescriptorType);
+        Assert.Equal(DescriptorType.INPUT_ATTACHMENT, binding.Desc.descriptorType);
         Assert.Equal(SpirvDecorations.InputAttachmentIndices(code)["gA"], binding.InputAttachmentIndex);
     }
 
@@ -285,19 +278,17 @@ public class ComputeAndAttachmentTests
             """;
 
         var (code, layout) = Compile(Source, "fragmentMain");
-        var vulkan = layout.ToVulkan();
+        var nri = layout.ToNri();
 
         // The module names them gFrame, gFrame.shadow, gFrame.shadowSampler; reflection reports
         // each by its declared leaf name, which is what SpirvVariable.LeafName strips to.
         var expected = SpirvDecorations.Descriptors(code);
-        var actual = vulkan.DescriptorSets
-            .SelectMany(s => s.Bindings.Select(b => (b.Name, Set: s.Set, b.Binding)))
-            .ToDictionary(b => b.Name!, b => (b.Set, b.Binding));
+        var actual = Descriptors(layout);
 
         Assert.Equal(expected, actual);
         Assert.Equal(
-            VulkanDescriptorType.UniformBuffer,
-            vulkan.Set(1)!.Bindings.Single(b => b.Name == "gFrame").DescriptorType);
+            DescriptorType.CONSTANT_BUFFER,
+            nri.Set(1)!.Range("gFrame")!.Desc.descriptorType);
     }
 
     [NativeTheory]
@@ -329,12 +320,10 @@ public class ComputeAndAttachmentTests
         var (code, layout) = Compile(source, "fragmentMain");
 
         var expected = SpirvDecorations.Descriptors(code);
-        var actual = layout.ToVulkan().DescriptorSets
-            .SelectMany(s => s.Bindings.Select(b => (b.Name, Set: s.Set, b.Binding)))
-            .ToDictionary(b => b.Name!, b => (b.Set, b.Binding));
+        var actual = Descriptors(layout);
 
         Assert.Equal(expected, actual);
-        Assert.Equal(2, layout.ToVulkan().DescriptorSets.Count);
+        Assert.Equal(2, layout.ToNri().DescriptorSets.Count);
     }
 
     [NativeFact]
@@ -355,9 +344,7 @@ public class ComputeAndAttachmentTests
         var (code, layout) = Compile(Source, "fragmentMain");
 
         var expected = SpirvDecorations.Descriptors(code);
-        var actual = layout.ToVulkan().DescriptorSets
-            .SelectMany(s => s.Bindings.Select(b => (b.Name, Set: s.Set, b.Binding)))
-            .ToDictionary(b => b.Name!, b => (b.Set, b.Binding));
+        var actual = Descriptors(layout);
 
         Assert.Equal(expected, actual);
         Assert.Contains("extra", actual.Keys);
@@ -392,7 +379,7 @@ public class ComputeAndAttachmentTests
         // and ProberTests — but the guard and this shader both stay, because the cost of keeping
         // them is a branch and the cost of being wrong is a dead process.
         var (code, layout) = Compile(Source, "computeMain");
-        var bindings = layout.ToVulkan().Set(0)!.Bindings.ToDictionary(b => b.Name!);
+        var bindings = layout.ToNri().Set(0)!.Ranges.ToDictionary(r => r.Name!);
 
         Assert.Equal(SlangImageFormat.SLANG_IMAGE_FORMAT_rgba8, bindings["gFormatted"].ImageFormat);
         Assert.Equal(SlangImageFormat.SLANG_IMAGE_FORMAT_unknown, bindings["gPlain"].ImageFormat);

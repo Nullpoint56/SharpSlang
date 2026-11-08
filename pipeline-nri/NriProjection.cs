@@ -4,8 +4,7 @@
 // with one authority behind it: NRI's own Vulkan backend (Source/VK/PipelineLayoutVK.hpp at NRI's
 // v191 tag, the revision SharpNRI.Descs is generated from), which is what turns the desc into the
 // VkPipelineLayout the SPIR-V is bound against. Each rule below names the line of that backend it
-// answers to. Where a mapping is genuinely ambiguous the code says so rather than guessing quietly,
-// as SharpSlang.Vulkan does.
+// answers to. Where a mapping is genuinely ambiguous the code says so rather than guessing quietly.
 
 using SharpSlang.Baking;
 using SharpSlang.Native;
@@ -216,7 +215,7 @@ public static class NriProjection
     /// </summary>
     /// <remarks>
     /// <para>
-    /// The same judgement SharpSlang.Vulkan makes on <c>TEXTURE</c>: Slang emits separate images
+    /// The one judgement call is <c>TEXTURE</c>. Slang emits separate images
     /// and samplers for SPIR-V, so a bare texture is <c>TEXTURE</c> (a sampled image in NRI's
     /// Vulkan backend), a mutable one <c>STORAGE_TEXTURE</c>. NRI has no combined image sampler
     /// at all, so <c>COMBINED_TEXTURE_SAMPLER</c> — Slang's <c>Sampler2D</c> — is refused rather
@@ -307,7 +306,7 @@ public static class NriProjection
     /// A scalar or vector type read as a vertex attribute format, or <c>UNKNOWN</c> if NRI has none.
     /// </summary>
     /// <remarks>
-    /// The 32-bit and 16-bit-float families, as SharpSlang.Vulkan maps them, minus what NRI's
+    /// The 32-bit and 16-bit-float families, minus what NRI's
     /// <c>Format</c> lacks: there is no 64-bit format at all and no three-component 16-bit one, so
     /// a <c>double</c> or <c>half3</c> attribute comes back <c>UNKNOWN</c> and
     /// <see cref="ToNri"/> refuses it. Packed and normalised formats are not inferable from a
@@ -375,7 +374,7 @@ public static class NriProjection
     /// real layout, and it is still not one this projection can use for a second block: Slang
     /// reports a push-constant block's offset as a buffer index, not a byte offset, and the
     /// SPIR-V for two blocks is two push-constant blocks each starting at byte 0, which Vulkan
-    /// does not allow in one entry point. So, exactly as SharpSlang.Vulkan does, a program with
+    /// does not allow in one entry point. So a program with
     /// more than one push-constant buffer is refused with the blocks named.
     /// </remarks>
     private static List<ProjectedRootConstants> RootConstants(
@@ -557,7 +556,7 @@ public static class NriProjection
     /// <see cref="PipelineInterface.VertexInputs"/>. This gives each leaf an NRI <c>Format</c>
     /// and its D3D semantic, and refuses one it has no format for rather than dropping it: a
     /// dropped attribute leaves every location after it one short, silently. No distinct-location
-    /// check is needed here, unlike SharpSlang.Vulkan: the only attributes that take two locations
+    /// check is needed here: the only attributes that take two locations
     /// are the wide 64-bit vectors, and NRI has no format for those, so they are refused first.
     /// </remarks>
     private static List<ProjectedVertexAttribute> VertexAttributes(ProgramLayout layout)

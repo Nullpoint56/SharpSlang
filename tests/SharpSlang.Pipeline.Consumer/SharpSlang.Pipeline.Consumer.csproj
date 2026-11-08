@@ -3,8 +3,8 @@
   <!--
     The acceptance criterion for the assembly split, written as a project rather than as a claim.
 
-    It references SharpSlang.Pipeline, SharpSlang.Vulkan and SharpSlang.Pipeline.NRI and NOTHING ELSE — no
-    SharpSlang, no Vortice, no SharpNRI proper, no test framework. If any of those ever picks up a
+    It references SharpSlang.Pipeline and SharpSlang.Pipeline.NRI and NOTHING ELSE — no
+    SharpSlang, no SharpNRI proper, no test framework. If any of those ever picks up a
     transitive edge to the compiler, slang-compiler.dll and the runtimes/ tree land in this
     project's output; if SharpSlang.Pipeline.NRI ever references SharpNRI rather than SharpNRI.Descs, NRI.dll
     does. AssemblySplitTests notices either.
@@ -24,7 +24,6 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\pipeline\SharpSlang.Pipeline.csproj" />
-    <ProjectReference Include="..\..\vulkan\SharpSlang.Vulkan.csproj" />
     <ProjectReference Include="..\..\pipeline-nri\SharpSlang.Pipeline.NRI.csproj" />
   </ItemGroup>
 

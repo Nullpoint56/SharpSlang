@@ -28,7 +28,6 @@
 using System.Runtime.CompilerServices;
 using SharpSlang.Pipeline.NRI;
 using SharpSlang.Reflection;
-using SharpSlang.Vulkan;
 using SharpNRI;
 using SharpNRI.Native;
 using SharpNRI.Testing;
@@ -76,17 +75,12 @@ public class AllocationTests
     {
         var layout = NriProjectionTests.Reflect(Shader, "vertexMain", "fragmentMain");
         var nri = layout.ToNri();
-        var vk = layout.ToVulkan();
-        var size = new VulkanWorkgroupSize(8, 8, 1);
 
         AssertZero("NriPipelineProjection.Range(name)", () => nri.Range("albedo"));
         AssertZero("NriPipelineProjection.Range(name) for a miss", () => nri.Range("nothing"));
         AssertZero("NriPipelineProjection.Set(space)", () => nri.Set(2));
         AssertZero("NriPipelineProjection.Stage(name)", () => nri.Stage("fragmentMain"));
         AssertZero("ProjectedDescriptorSet.Range(name)", () => nri.DescriptorSets[0].Range("outBuffer"));
-        AssertZero("VulkanPipelineLayout.Set(index)", () => vk.Set(2));
-        AssertZero("VulkanPipelineLayout.Stage(name)", () => vk.Stage("vertexMain"));
-        AssertZero("VulkanWorkgroupSize.GroupCountFor", () => size.GroupCountFor(1920, 1080));
         // Read into a typed sink rather than GC.KeepAlive(object): the first version of this
         // test boxed the DescriptorRangeDesc struct into that parameter and reported 40 bytes the
         // library never allocated.
@@ -101,15 +95,13 @@ public class AllocationTests
     {
         // Not a ceiling anyone tuned; an order of magnitude, so a projection that starts
         // allocating a megabyte per shader is a red test rather than a slow load. Measured on the
-        // first run: ToNri 5,184 bytes, ToVulkan 4,848 bytes for the shader above.
+        // first run: ToNri 5,184 bytes for the shader above.
         var layout = NriProjectionTests.Reflect(Shader, "vertexMain", "fragmentMain");
         var options = new NriProjectionOptions();
 
         var toNri = BytesPerCall(() => layout.ToNri(options), iterations: 200);
-        var toVulkan = BytesPerCall(() => layout.ToVulkan(), iterations: 200);
 
         Assert.True(toNri > 0 && toNri < 64 * 1024, $"ToNri allocated {toNri:N0} bytes per call");
-        Assert.True(toVulkan > 0 && toVulkan < 64 * 1024, $"ToVulkan allocated {toVulkan:N0} bytes per call");
     }
 
     // ---------------------------------------------------------------- a whole frame

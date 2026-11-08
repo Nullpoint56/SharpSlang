@@ -481,15 +481,15 @@ public static partial class SlangTestCorpus
         return named.Success ? new SamplerInput(named.Groups["name"].Value) : null;
     }
 
-    /// <summary>The Vulkan format Slang's texture-format name means.</summary>
+    /// <summary>The NRI <c>Format</c> name Slang's texture-format name means.</summary>
     public static string? ImageFormat(string slang) => slang switch
     {
-        "R16Float" => "R16Sfloat",
-        "RG16Float" => "R16G16Sfloat",
-        "RGBA16Float" => "R16G16B16A16Sfloat",
-        "R32Float" => "R32Sfloat",
-        "RG32Float" => "R32G32Sfloat",
-        "RGBA32Float" => "R32G32B32A32Sfloat",
+        "R16Float" => "R16_SFLOAT",
+        "RG16Float" => "RG16_SFLOAT",
+        "RGBA16Float" => "RGBA16_SFLOAT",
+        "R32Float" => "R32_SFLOAT",
+        "RG32Float" => "RG32_SFLOAT",
+        "RGBA32Float" => "RGBA32_SFLOAT",
         _ => null,
     };
 

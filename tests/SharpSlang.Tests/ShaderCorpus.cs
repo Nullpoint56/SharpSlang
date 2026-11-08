@@ -23,9 +23,9 @@ namespace SharpSlang.Tests;
 /// </param>
 /// <param name="ValidationVertex">
 /// A vertex entry point to pair with a fragment-only shader, for
-/// <see cref="VulkanCorpusValidationTests"/>. Sixteen of these shaders declare a fragment stage and
-/// nothing else, which reflects perfectly well and is not a graphics pipeline — Vulkan has no such
-/// thing without a vertex stage. The driver supplies a trivial one that writes only
+/// <see cref="NriDeviceTests"/>. Sixteen of these shaders declare a fragment stage and nothing else,
+/// which reflects perfectly well and is not a graphics pipeline — neither Vulkan nor D3D12 has such
+/// a thing without a vertex stage. The driver supplies a trivial one that writes only
 /// <c>SV_Position</c>; a fragment stage that reads a varying needs the vertex stage to write it,
 /// and says so here. Getting it wrong is not silent: an unwritten fragment input is
 /// <c>VUID-RuntimeSpirv-OpEntryPoint-08743</c>.
@@ -259,7 +259,8 @@ public static class ShaderCorpus
 
         // Added on the back of the VkFormat transcription bug. Only the one-location 64-bit types
         // are here: a double3 or double4 takes two locations, Slang assigns it one, and the
-        // resulting overlap has no valid pipeline layout — VulkanEnumTests covers that refusal.
+        // resulting overlap has no valid pipeline layout — NriValidationTests puts that overlap in
+        // front of the validation layers.
         new("wide-vertex-inputs", """
             struct WvIn
             {
@@ -769,6 +770,70 @@ public static class ShaderCorpus
             foreach (var entryPoint in shader.EntryPoints)
                 data.Add(shader.Name, entryPoint);
         return data;
+    }
+
+    // ---------------------------------------------------------------- pairing a vertex stage
+
+    /// <summary>The entry point name of the vertex stage the device tests supply.</summary>
+    private const string SuppliedVertex = "pvValidationVertex";
+
+    /// <summary>
+    /// A vertex stage that writes only <c>SV_Position</c> — enough to make a pipeline out of a
+    /// fragment stage that reads no varyings.
+    /// </summary>
+    private const string TrivialVertex = $$"""
+
+        [shader("vertex")]
+        float4 {{SuppliedVertex}}() : SV_Position { return float4(0, 0, 0, 1); }
+        """;
+
+    /// <summary>
+    /// The case's source and entry points, with a vertex stage added if it needs one.
+    /// </summary>
+    /// <remarks>
+    /// Sixteen corpus shaders declare a fragment stage and nothing else. That is a perfectly good
+    /// thing to reflect and it is not a graphics pipeline, so without this the device tests would
+    /// build nothing for most of the corpus and report success — the shape of failure this project
+    /// has hit before, where a gate that excludes everything is indistinguishable from a gate that
+    /// excludes nothing. The added stage is checked for consequence by the Vulkan theory in
+    /// <see cref="NriDeviceTests"/>.
+    /// </remarks>
+    public static (string Source, List<string> EntryPoints) PairedWithAVertexStage(ShaderCase c)
+    {
+        var stages = c.Source;
+        var needsVertex =
+            stages.Contains("[shader(\"fragment\")]", StringComparison.Ordinal)
+            && !stages.Contains("[shader(\"vertex\")]", StringComparison.Ordinal);
+
+        if (!needsVertex) return (c.Source, [.. c.EntryPoints]);
+
+        var vertex = c.ValidationVertex is null
+            ? TrivialVertex
+            : $"\n{c.ValidationVertex}\n";
+
+        // The case's own name for it when it supplied one, so the declaration reads as ordinary
+        // Slang rather than as something with a magic name.
+        var name = c.ValidationVertex is null
+            ? SuppliedVertex
+            : VertexEntryPointNameIn(c.ValidationVertex);
+
+        return (c.Source + vertex, [.. c.EntryPoints, name]);
+    }
+
+    /// <summary>The function name following the <c>[shader("vertex")]</c> attribute.</summary>
+    private static string VertexEntryPointNameIn(string slang)
+    {
+        var match = System.Text.RegularExpressions.Regex.Match(
+            slang, @"\[shader\(""vertex""\)\]\s*\S+\s+(\w+)\s*\(");
+
+        if (!match.Success)
+        {
+            throw new InvalidOperationException(
+                "a ShaderCase.ValidationVertex must declare exactly one [shader(\"vertex\")] entry "
+                + "point on the line after the attribute; this one does not:\n" + slang);
+        }
+
+        return match.Groups[1].Value;
     }
 
     /// <summary>Finds a case by name.</summary>

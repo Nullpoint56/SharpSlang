@@ -1,27 +1,28 @@
 // The NRI projection, put in front of a device.
 //
-// NriProjectionTests pins what the projection says and checks that it says the same thing as the
-// Vulkan projection. Both of those are arithmetic over one reflection snapshot, so neither can tell
-// whether what the projection says is something NRI will *take*: a range flag NRI's Vulkan backend
-// reads differently than the comment beside it claims, a register space with a hole in it, a root
-// constant block whose size NRI rounds, a vertex format NRI's own conversion table maps to a
-// different VkFormat than the Vulkan projection chose. All of those survive agreement. This file is
-// where NRI, and behind it the Vulkan validation layers, decide.
+// NriProjectionTests pins what the projection says and checks that it says what the API-neutral
+// layout says, which ModuleAgreementTests holds to the emitted module. All of that is arithmetic
+// over one reflection snapshot, so none of it can tell whether what the projection says is
+// something NRI will *take*: a range flag NRI's Vulkan backend reads differently than the comment
+// beside it claims, a register space with a hole in it, a root constant block whose size NRI
+// rounds, a vertex format NRI describes differently from the type the shader declared. All of
+// those survive agreement. This file is where NRI, and behind it the Vulkan validation layers and
+// the D3D12 debug layer, decide.
 //
-// Four questions, cheapest first:
+// The questions, cheapest first:
 //
 //   1. Does SharpNRI marshal every desc the projection emits? The NONE backend validates nothing
 //      and allocates nothing, so what it answers is purely the managed side — array pins, counts,
 //      the tree of native structs — and it answers it on the win-x64 and linux-x64 CI legs.
 //   2. Does a validated Vulkan device accept the layout and the pipelines built from it, for the
-//      whole corpus? The VulkanCorpusValidationTests twin, with NRI between the projection and the
-//      driver instead of hand-written Vortice calls.
+//      whole corpus? The Khronos validation layer checks every pipeline layout against the SPIR-V
+//      it is created with, so this is the oracle that is not Slang describing itself.
 //   3. Does data reach the shader through what the projection named? A layout the layers accept
 //      can still bind a buffer to the wrong range index or a root constant to the wrong block, and
 //      only a dispatch that reads back what the shader wrote can tell. Two of those: a descriptor
-//      and a root constant.
-//   4. Does NRI's own NRI-to-VkFormat table agree with the Vulkan projection's choice for every
-//      vertex attribute and fragment output? The one place a third party judges the format mapping.
+//      and a root constant. SlangComputeCorpusTests asks the same of Slang's own compute tests.
+//   4. Does NRI's own description of every projected vertex and output format agree with the type
+//      the shader declared? The one place a third party judges the format mapping.
 //   5. Questions 2 and 3 again on D3D12, with the shader compiled to DXIL. A different oracle, not
 //      a repeat: D3D12 checks the root signature against the registers the DXIL reads when it
 //      creates a pipeline, D3D links stages by register and inputs by semantic, and a DXIL layout
@@ -32,10 +33,10 @@
 // a stale entry is a failing test, so they cannot quietly grow to excuse a regression.
 
 using SharpSlang.Baking;
+using SharpSlang.Native;
 using SharpSlang.Pipeline.NRI;
 using SharpSlang.Reflection;
 using SharpSlang.Spirv;
-using SharpSlang.Vulkan;
 using SharpNRI;
 using SharpNRI.Native;
 using SharpNRI.Testing;
@@ -181,7 +182,7 @@ public sealed class NriDeviceTests(Xunit.Abstractions.ITestOutputHelper output)
     public void A_pipeline_built_from_the_projection_passes_nri_and_vulkan_validation(string caseName)
     {
         var shaderCase = ShaderCorpus.Case(caseName);
-        var (source, entryPointNames) = VulkanCorpusValidationTests.PairedWithAVertexStage(shaderCase);
+        var (source, entryPointNames) = ShaderCorpus.PairedWithAVertexStage(shaderCase);
 
         // So each stage's module names its entry point as the shader does. NRI hands the name to
         // pName, and without this every stage is `main` — legal, but a two-stage pipeline would
@@ -197,6 +198,7 @@ public sealed class NriDeviceTests(Xunit.Abstractions.ITestOutputHelper output)
 
         var projection = compiled.Layout.ToNri(Capped);
         Assert.Equal(entryPointNames.Count, projection.Stages.Count);
+        RequireTheAddedStageChangedNothing(shaderCase, projection);
 
         using var fixture = NriTestDevice.Create(GraphicsAPI.VK);
         var device = fixture.Device;
@@ -223,10 +225,11 @@ public sealed class NriDeviceTests(Xunit.Abstractions.ITestOutputHelper output)
 
         foreach (var m in fixture.Messages) output.WriteLine(m.ToString());
 
-        // No message is filtered. The Vulkan driver excuses two VUIDs (pCode-08740 and -08742, a
-        // module capability or extension the device lacks); on the RTX 4070 SUPER, with the 55
-        // device extensions NRI enables there, neither appeared for any case, so there is nothing
-        // here to excuse and no filter to drift into swallowing something.
+        // No message is filtered. The raw-Vulkan corpus driver this replaced excused two VUIDs
+        // (pCode-08740 and -08742, a module capability or extension the device lacks); on the RTX
+        // 4070 SUPER, with the 55 device extensions NRI enables there, neither appeared for any
+        // case, so there is nothing here to excuse and no filter to drift into swallowing
+        // something.
         //
         // And the oracle was watched failing before it was trusted to pass, because a first run
         // where all 32 cases are green is exactly what a switched-off layer looks like. Two faults
@@ -243,10 +246,45 @@ public sealed class NriDeviceTests(Xunit.Abstractions.ITestOutputHelper output)
             + string.Join("\n", fixture.Messages.Select(m => "  " + m)));
     }
 
+    /// <summary>
+    /// The descriptor sets, root constants and fragment outputs are the ones the case produces on
+    /// its own.
+    /// </summary>
+    /// <remarks>
+    /// Adding an entry point to a program is not obviously inert — Slang assigns bindings across
+    /// the whole linked program, and a stage that consumed a register would shift everything after
+    /// it. The supplied vertex stages touch no resources, so they should shift nothing, and
+    /// "should" is exactly the word that means this needs asserting: without it the device could be
+    /// validating a layout no consumer will ever see.
+    /// </remarks>
+    private static void RequireTheAddedStageChangedNothing(ShaderCase c, NriPipelineProjection paired)
+    {
+        if (paired.Stages.Count == c.EntryPoints.Count) return;   // nothing was added
+
+        var alone = Compile(c.Name, c.Source, c.EntryPoints, new TargetOptions { UseEntryPointNameInSpirv = true })
+            .Layout.ToNri(Capped);
+
+        Assert.Equal(Describe(alone), Describe(paired));
+    }
+
+    /// <summary>Everything about a projection the added vertex stage must not have moved.</summary>
+    private static string Describe(NriPipelineProjection projection) => string.Join("\n",
+        projection.DescriptorSets
+            .SelectMany(s => s.Ranges.Select(r =>
+                $"space {s.RegisterSpace} register {r.Desc.baseRegisterIndex} {r.Desc.descriptorType} "
+                + $"x{r.Desc.descriptorNum} {r.Name}"))
+            .Order(StringComparer.Ordinal)
+            .Concat(projection.RootConstants
+                .Select(r => $"root {r.Index} {r.Desc.size} {r.Name}")
+                .Order(StringComparer.Ordinal))
+            .Concat(projection.FragmentOutputs
+                .Select(o => $"output {o.Location} {o.Format} {o.Name}")
+                .Order(StringComparer.Ordinal)));
+
     /// <summary>Why this device cannot take the layout at all, or null.</summary>
     /// <remarks>
     /// Decided from <c>device.Desc</c> before anything is created, rather than by filtering the
-    /// messages afterwards. VulkanCorpusValidationTests learned that the hard way: its first filter
+    /// messages afterwards. The raw-Vulkan corpus driver this replaced learned that the hard way: its first filter
     /// matched message prose, two implementations worded the same rejection differently, and a
     /// filter that matches prose is one rewording away from swallowing a real defect. A tier or a
     /// feature bit does not get reworded.
@@ -369,7 +407,7 @@ public sealed class NriDeviceTests(Xunit.Abstractions.ITestOutputHelper output)
     /// (see ProjectedStage) — and pName has to match the bytes. The same reading the Vulkan driver
     /// does.
     /// </remarks>
-    private static NriShaderDesc SpirvShaderDesc(StageBits stage, byte[] code) =>
+    internal static NriShaderDesc SpirvShaderDesc(StageBits stage, byte[] code) =>
         new(stage, code, SpirvModule.Read(code).EntryPoints[0].Name);
 
     /// <summary>Each attribute in its own stream, at offset zero.</summary>
@@ -379,7 +417,7 @@ public sealed class NriDeviceTests(Xunit.Abstractions.ITestOutputHelper output)
     /// assumptions of this harness's own, and a 128-byte stride covers the widest attribute any
     /// format can describe.
     /// </remarks>
-    private static NriVertexInputDesc? VertexInput(NriPipelineProjection projection)
+    internal static NriVertexInputDesc? VertexInput(NriPipelineProjection projection)
     {
         if (projection.VertexAttributes.Count == 0) return null;
 
@@ -411,7 +449,7 @@ public sealed class NriDeviceTests(Xunit.Abstractions.ITestOutputHelper output)
     /// <c>UNKNOWN</c>, which NRI passes on as <c>VK_FORMAT_UNDEFINED</c> — how dynamic rendering
     /// spells an unused attachment.
     /// </remarks>
-    private static ColorAttachmentDesc[] ColourAttachments(NriPipelineProjection projection)
+    internal static ColorAttachmentDesc[] ColourAttachments(NriPipelineProjection projection)
     {
         if (projection.FragmentOutputs.Count == 0) return [];
 
@@ -621,19 +659,20 @@ public sealed class NriDeviceTests(Xunit.Abstractions.ITestOutputHelper output)
     // ---------------------------------------------------------------- 4. NRI's format table
 
     [NriNoneFact]
-    public void Projected_vertex_formats_agree_with_nris_own_vulkan_conversion_table()
+    public void Projected_formats_are_what_nri_says_the_declared_types_are()
     {
-        // NriProjectionTests compares the two projections' format *names*, derived one from the
-        // other by string surgery — which proves they agree with each other and nothing more. NRI
-        // ships its own Format-to-VkFormat table, used by its Vulkan backend for exactly these
-        // attributes and attachments, and VulkanFormat values are VkFormat numbers by construction
-        // (VulkanEnumTests pins them against vk.xml). So this asks a third party: for every vertex
-        // attribute and fragment output in the corpus, is the format the NRI projection chose the
-        // one that becomes the VkFormat the Vulkan projection chose?
+        // The projection picks an NRI Format for every vertex attribute and fragment output from
+        // the Slang type alone. NRI describes each of its formats in its own table
+        // (nriGetFormatProps: channel bits, float or integer, signed or not) and converts each to
+        // the VkFormat its Vulkan backend hands the driver (nriConvertNRIFormatToVK). So this asks
+        // a third party, for every attribute and output in the corpus: is the format the
+        // projection chose one NRI describes as the declared type — the same number of channels,
+        // each the scalar's width, and the same numeric class — and one NRI's Vulkan backend has a
+        // VkFormat for?
         //
-        // A NONE fact rather than a Vulkan one, deliberately: nriConvertNRIFormatToVK is a static
-        // table in NRI.dll and needs no device, so gating it on a Vulkan driver would switch it off
-        // on hosted Windows for nothing.
+        // A NONE fact rather than a Vulkan one, deliberately: both are static tables in NRI.dll
+        // and need no device, so gating them on a Vulkan driver would switch them off on hosted
+        // Windows for nothing.
         var mismatches = new List<string>();
         var compared = 0;
         var unknown = 0;
@@ -644,18 +683,19 @@ public sealed class NriDeviceTests(Xunit.Abstractions.ITestOutputHelper output)
 
             var layout = NriProjectionTests.Reflect(c.Source, [.. c.EntryPoints]);
             var nri = layout.ToNri(Capped);
-            var vulkan = layout.ToVulkan();
 
-            var vertexFormats = vulkan.VertexInputs.ToDictionary(v => v.Name, v => v.Format);
+            // The declared type of each attribute; a matrix is already its rows there, name[0] to
+            // name[n], each typed as the vector one location holds.
+            var inputTypes = layout.VertexInputs().ToDictionary(v => v.Name, v => v.Type);
             foreach (var a in nri.VertexAttributes)
-                Compare(c.Name, "vertex attribute", a.Name, a.Desc.Format, vertexFormats);
+                Compare(c.Name, "vertex attribute", a.Name, a.Desc.Format, inputTypes.GetValueOrDefault(a.Name));
 
-            var outputFormats = vulkan.FragmentOutputs.ToDictionary(o => o.Name, o => o.Format);
+            var outputTypes = layout.FragmentOutputs().ToDictionary(o => o.Name, o => o.Type);
             foreach (var o in nri.FragmentOutputs)
-                Compare(c.Name, "fragment output", o.Name, o.Format, outputFormats);
+                Compare(c.Name, "fragment output", o.Name, o.Format, outputTypes.GetValueOrDefault(o.Name));
         }
 
-        output.WriteLine($"{compared} formats compared through NRI's table, {unknown} UNKNOWN outputs skipped");
+        output.WriteLine($"{compared} formats compared against NRI's table, {unknown} UNKNOWN outputs skipped");
 
         // A comparison that compared nothing would be green. Measured: 30 formats compared, every
         // one agreeing, and no UNKNOWN output in the corpus. The floor is that number, so a loop
@@ -663,9 +703,9 @@ public sealed class NriDeviceTests(Xunit.Abstractions.ITestOutputHelper output)
         // only raises the count.
         Assert.True(compared >= 30, $"only {compared} formats were compared; the corpus had 30 when this was written");
         Assert.True(mismatches.Count == 0,
-            "NRI's own conversion table disagrees with the Vulkan projection:\n" + string.Join("\n", mismatches));
+            "NRI's own format table disagrees with the declared type:\n" + string.Join("\n", mismatches));
 
-        void Compare(string shader, string kind, string name, Format format, Dictionary<string, VulkanFormat> vulkanFormats)
+        void Compare(string shader, string kind, string name, Format format, TypeLayout? declared)
         {
             // UNKNOWN is the projection saying NRI has no format for this type (see
             // ProjectedFragmentOutput.Format); there is nothing to put through the table.
@@ -675,17 +715,46 @@ public sealed class NriDeviceTests(Xunit.Abstractions.ITestOutputHelper output)
                 return;
             }
 
-            if (!vulkanFormats.TryGetValue(name, out var expected))
+            var (scalar, channels) = declared switch
             {
-                mismatches.Add($"  {shader}: {kind} '{name}' is in the NRI projection and not the Vulkan one");
+                ScalarLayout s => (s.ScalarType, 1),
+                VectorLayout v => (v.ElementType, v.ElementCount),
+                _ => (SlangScalarType.SLANG_SCALAR_TYPE_NONE, 0),
+            };
+
+            if (channels == 0)
+            {
+                mismatches.Add($"  {shader}: {kind} '{name}' has format {format} and no scalar or vector type in the layout");
                 return;
             }
 
             compared++;
-            var converted = SharpNRI.Nri.ConvertNRIFormatToVK(format);
-            if (converted != (uint)expected)
-                mismatches.Add($"  {shader}: {kind} '{name}' — NRI {format} converts to VkFormat {converted}, "
-                             + $"the Vulkan projection chose {expected} ({(uint)expected})");
+            var props = SharpNRI.Nri.GetFormatProps(format);
+            var bits = new[] { props.redBits, props.greenBits, props.blueBits, props.alphaBits }.Where(b => b != 0).ToList();
+            var (width, isFloat, isSigned) = scalar switch
+            {
+                SlangScalarType.SLANG_SCALAR_TYPE_FLOAT32 => (32, true, true),
+                SlangScalarType.SLANG_SCALAR_TYPE_FLOAT16 => (16, true, true),
+                SlangScalarType.SLANG_SCALAR_TYPE_INT32 => (32, false, true),
+                SlangScalarType.SLANG_SCALAR_TYPE_UINT32 => (32, false, false),
+                SlangScalarType.SLANG_SCALAR_TYPE_INT16 => (16, false, true),
+                SlangScalarType.SLANG_SCALAR_TYPE_UINT16 => (16, false, false),
+                _ => (0, false, false),
+            };
+
+            var agrees = bits.Count == channels
+                && bits.All(b => b == width)
+                && (props.isFloat != 0) == isFloat
+                && (props.isInteger != 0) == !isFloat
+                && (props.isSigned != 0) == isSigned
+                && SharpNRI.Nri.ConvertNRIFormatToVK(format) != 0;
+
+            if (!agrees)
+            {
+                mismatches.Add($"  {shader}: {kind} '{name}' is {scalar} x{channels}, and NRI describes {format} as "
+                             + $"{bits.Count} channel(s) of [{string.Join(", ", bits)}] bits, float {props.isFloat}, "
+                             + $"integer {props.isInteger}, signed {props.isSigned}, VkFormat {SharpNRI.Nri.ConvertNRIFormatToVK(format)}");
+            }
         }
     }
 
@@ -765,7 +834,7 @@ public sealed class NriDeviceTests(Xunit.Abstractions.ITestOutputHelper output)
     }
 
     /// <summary>
-    /// <see cref="VulkanCorpusValidationTests.PairedWithAVertexStage"/>, with each supplied vertex
+    /// <see cref="ShaderCorpus.PairedWithAVertexStage"/>, with each supplied vertex
     /// stage's <c>SV_Position</c> moved behind the varyings it writes.
     /// </summary>
     /// <remarks>
@@ -789,7 +858,7 @@ public sealed class NriDeviceTests(Xunit.Abstractions.ITestOutputHelper output)
     /// </remarks>
     private static (string Source, List<string> EntryPoints) PairedForD3D12(ShaderCase c)
     {
-        var (source, entryPoints) = VulkanCorpusValidationTests.PairedWithAVertexStage(c);
+        var (source, entryPoints) = ShaderCorpus.PairedWithAVertexStage(c);
         if (c.ValidationVertex is null) return (source, entryPoints);
 
         var reordered = System.Text.RegularExpressions.Regex.Replace(

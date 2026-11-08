@@ -3,7 +3,7 @@
   <!--
     SharpSlang.Pipeline.NRI — the Slang-to-NRI reading of a reflection snapshot.
 
-    The second projection, beside SharpSlang.Vulkan and built the same way: a separate assembly and
+    The projection onto NRI, built as a separate assembly and
     a separate package, so a consumer that talks to the GPU through NRI (NVIDIA Render Interface)
     takes this and a consumer that talks Vulkan directly never hears of it. Everything the two
     projections agree on — which leaf attributes the vertex stage reads, which outputs the fragment
@@ -46,7 +46,7 @@
   </PropertyGroup>
 
   <!--
-    SharpSlang.Pipeline, not SharpSlang, for the reason SharpSlang.Vulkan gives: projecting a layout
+    SharpSlang.Pipeline, not SharpSlang: projecting a layout
     is arithmetic over managed data and never touches the compiler, so referencing the compiler
     would drag a 36 MB per-RID payload behind a small assembly for every consumer.
 

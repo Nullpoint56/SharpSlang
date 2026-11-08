@@ -12,7 +12,8 @@
 
 using SharpSlang.Native;
 using SharpSlang.Reflection;
-using SharpSlang.Vulkan;
+using SharpSlang.Pipeline.NRI;
+using SharpNRI.Native;
 
 namespace SharpSlang.Tests;
 
@@ -102,19 +103,20 @@ public class AppendCounterTests(Xunit.Abstractions.ITestOutputHelper output)
     }
 
     [NativeFact]
-    public void The_projection_carries_the_pairing_through_to_Vulkan()
+    public void The_projection_carries_the_pairing_through_to_NRI()
     {
-        // Where a renderer actually reads it: VkDescriptorSetLayoutBinding does not have a concept
-        // of a counter, so the pairing has to survive the projection or it is lost at the last step.
-        var vulkan = Reflect().ToVulkan();
-        var set = Assert.Single(vulkan.DescriptorSets);
+        // Where a renderer actually reads it: NRI's DescriptorRangeDesc does not have a concept of
+        // a counter, so the pairing has to survive the projection or it is lost at the last step.
+        var nri = Reflect().ToNri();
+        var set = Assert.Single(nri.DescriptorSets);
 
-        var append = set.Bindings.Single(b => b.Name == "abAppend");
-        Assert.Equal(append.Binding + 1, append.CounterBinding);
+        var append = set.Range("abAppend")!;
+        var counter = set.Ranges[(int)append.CounterRangeIndex!.Value];
+        Assert.Equal(append.Desc.baseRegisterIndex + 1, counter.Desc.baseRegisterIndex);
 
-        // Every binding, counters included, is a storage buffer the host must supply.
-        Assert.All(set.Bindings, b => Assert.Equal(VulkanDescriptorType.StorageBuffer, b.DescriptorType));
-        Assert.Equal(5, set.Bindings.Count);
+        // Every range, counters included, is a storage buffer the host must supply.
+        Assert.All(set.Ranges, r => Assert.Equal(DescriptorType.STORAGE_STRUCTURED_BUFFER, r.Desc.descriptorType));
+        Assert.Equal(5, set.Ranges.Count);
     }
 
     [NativeFact]

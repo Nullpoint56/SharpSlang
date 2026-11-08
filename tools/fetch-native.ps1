@@ -13,7 +13,7 @@
     bin/slang-compiler.dll    25 MB   the compiler itself. Required.
     bin/slang-glslang.dll      6 MB   glslang + spirv-opt.
     bin/slang-glsl-module.dll  1.5 MB GLSL *input* support.
-    bin/gfx.dll                1 MB   Slang's own graphics layer. We use Vortice.Vulkan.
+    bin/gfx.dll                1 MB   Slang's own graphics layer. Not used.
     bin/slang*.exe                    tooling.
     bin/slang.dll                     legacy proxy; upstream removes it end of 2026.
 

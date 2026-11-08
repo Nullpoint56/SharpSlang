@@ -1,4 +1,4 @@
-// The public surface of all four packages, written down.
+// The public surface of all three packages that ship an assembly, written down.
 //
 // These are libraries an engine builds against, and the moment one of them is 1.0 its surface is a
 // promise. Nothing was checking the promise. A member removed, a parameter reordered, a type
@@ -41,7 +41,7 @@ public class PublicApiTests(Xunit.Abstractions.ITestOutputHelper output)
     };
 
     private static readonly string[] Packages =
-        ["SharpSlang", "SharpSlang.Pipeline", "SharpSlang.Vulkan", "SharpSlang.Pipeline.NRI"];
+        ["SharpSlang", "SharpSlang.Pipeline", "SharpSlang.Pipeline.NRI"];
 
     public static TheoryData<string> Assemblies()
     {
@@ -97,7 +97,7 @@ public class PublicApiTests(Xunit.Abstractions.ITestOutputHelper output)
     public void Every_package_has_an_approved_surface()
     {
         // A missing file would make the test above fail with a clear message, but only for the
-        // package someone remembered to list. This catches a fourth package added without one.
+        // package someone remembered to list. This catches another package added without one.
         foreach (var name in Packages)
             Assert.True(File.Exists(ApprovedPath(name)), $"{name} has no approved surface on disk");
     }
@@ -106,7 +106,6 @@ public class PublicApiTests(Xunit.Abstractions.ITestOutputHelper output)
     {
         "SharpSlang" => typeof(SlangGlobalSession).Assembly,
         "SharpSlang.Pipeline" => typeof(Reflection.ProgramLayout).Assembly,
-        "SharpSlang.Vulkan" => typeof(Vulkan.VulkanPipelineLayout).Assembly,
         "SharpSlang.Pipeline.NRI" => typeof(Pipeline.NRI.NriPipelineProjection).Assembly,
         _ => throw new ArgumentOutOfRangeException(nameof(name), name, "not a package of this repo"),
     };

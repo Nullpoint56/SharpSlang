@@ -27,8 +27,8 @@ public sealed class TargetOptions
     /// because "whatever the compiler felt like" is not a target environment.
     /// </summary>
     /// <remarks>
-    /// A Vulkan device accepts SPIR-V up to a version fixed by its API version
-    /// (<c>VulkanEnvironment.MaxSpirvVersion</c> in SharpSlang.Vulkan maps that); above it,
+    /// A Vulkan device accepts SPIR-V up to a version fixed by its API version (1.0 for Vulkan 1.0,
+    /// 1.3 for 1.1, 1.5 for 1.2, 1.6 from 1.3, per the Vulkan specification); above it,
     /// <c>vkCreateShaderModule</c> fails with nothing useful to say.
     ///
     /// Measured against slang-compiler 2026.21: the profile is the only knob that moves the

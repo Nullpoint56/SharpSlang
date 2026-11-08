@@ -11,7 +11,7 @@
 
 using SharpSlang.Native;
 using SharpSlang.Reflection;
-using SharpSlang.Vulkan;
+using SharpSlang.Pipeline.NRI;
 
 namespace SharpSlang.Tests;
 
@@ -112,10 +112,11 @@ public class UnknownSizeTests
             """;
 
         var layout = Compile(Source, "fragmentMain");
-        var binding = layout.ToVulkan().Set(0)!.Bindings.Single(b => b.Name == "gTextures");
+        var range = layout.ToNri(new NriProjectionOptions { UnboundedArrayCap = 64 }).Range("gTextures")!.Value.Range;
 
-        Assert.True(binding.IsUnbounded);
-        Assert.Equal(0u, binding.DescriptorCount);
+        // Unbounded, and the count NRI is given is the host's cap: the shader has no number to offer.
+        Assert.True(range.IsUnbounded);
+        Assert.Equal(64u, range.Desc.descriptorNum);
     }
 
     [NativeTheory]
@@ -140,7 +141,7 @@ public class UnknownSizeTests
         // Slang placed it nowhere, and says so by reporting no bindings at all.
         Assert.Empty(layout.Parameter("gUnsized")!.Bindings);
 
-        var e = Assert.Throws<NotSupportedException>(() => layout.ToVulkan());
+        var e = Assert.Throws<NotSupportedException>(() => layout.ToNri());
         Assert.Contains("gUnsized", e.Message);
         Assert.Contains("specialization constant", e.Message);
     }
@@ -166,7 +167,7 @@ public class UnknownSizeTests
         // The texture is fine; only the unsized buffer is not.
         Assert.Single(layout.Parameter("gAlbedo")!.Bindings);
 
-        var e = Assert.Throws<NotSupportedException>(() => layout.ToVulkan());
+        var e = Assert.Throws<NotSupportedException>(() => layout.ToNri());
         Assert.Contains("gTransforms", e.Message);
         Assert.Contains("no binding of any kind", e.Message);
     }
@@ -182,10 +183,10 @@ public class UnknownSizeTests
             float4 fragmentMain() : SV_Target { return gPush.values[0]; }
             """;
 
-        var range = Assert.Single(Compile(Source, "fragmentMain").ToVulkan().PushConstants);
+        var block = Assert.Single(Compile(Source, "fragmentMain").ToNri().RootConstants);
 
-        Assert.Equal(64u, range.Size);
-        Assert.Equal(0u, range.Offset);
+        Assert.Equal(64u, block.Desc.size);
+        Assert.Equal(0u, block.Index);
     }
 
     [NativeFact]

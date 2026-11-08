@@ -1,18 +1,15 @@
 // Tests for the NRI projection.
 //
-// Two kinds. The first pin the mappings, as VulkanProjectionTests does for the other projection:
-// which DescriptorType a binding kind becomes, which StageBits a stage is, which Format a leaf
-// type gets, and the few places NRI's vocabulary has no word for what Slang said and the
-// projection must refuse. The second compares the two projections against each other over the
-// whole corpus: both read the same PipelineInterface, so every set, binding, count, stage, push
-// constant, vertex location and fragment output has to agree, and a disagreement is one of them
-// drifting. Neither test needs NRI's native library; NriDeviceTests is where a device judges.
+// They pin the mappings: which DescriptorType a binding kind becomes, which StageBits a stage is,
+// which Format a leaf type gets, and the few places NRI's vocabulary has no word for what Slang
+// said and the projection must refuse. None of them needs NRI's native library; NriDeviceTests is
+// where a device judges, and ModuleAgreementTests and PipelineLayoutTests hold the projected
+// registers and locations to the emitted module.
 
 using System.Reflection;
 using SharpSlang.Native;
 using SharpSlang.Pipeline.NRI;
 using SharpSlang.Reflection;
-using SharpSlang.Vulkan;
 using SharpNRI;
 using SharpNRI.Native;
 
@@ -20,7 +17,7 @@ namespace SharpSlang.Tests;
 
 public class NriProjectionTests
 {
-    /// <summary>The same shader VulkanProjectionTests reads, so the two files pin the same facts.</summary>
+    /// <summary>One shader with a constant buffer, a texture and sampler, a storage buffer and vertex inputs.</summary>
     private const string Shader = """
         struct Uniforms { float4x4 mvp; float3 tint; float exposure; };
         ConstantBuffer<Uniforms> u;
@@ -545,15 +542,12 @@ public class NriProjectionTests
         }
     }
     [Fact]
-    public void Core_and_vulkan_packages_do_not_reference_the_nri_package()
+    public void The_pipeline_package_does_not_reference_the_nri_package()
     {
         // The whole point of the split, in both directions: the NRI package depends on SharpNRI's
-        // descs, and nothing a Vulkan-only consumer takes may.
-        foreach (var assembly in new[] { typeof(ProgramLayout).Assembly, typeof(VulkanPipelineLayout).Assembly })
-        {
-            Assert.DoesNotContain(assembly.GetReferencedAssemblies(),
-                a => a.Name?.Contains("NRI", StringComparison.OrdinalIgnoreCase) == true);
-        }
+        // descs, and the reader package under it does not.
+        Assert.DoesNotContain(typeof(ProgramLayout).Assembly.GetReferencedAssemblies(),
+            a => a.Name?.Contains("NRI", StringComparison.OrdinalIgnoreCase) == true);
 
         // And the NRI package depends on the descs, not on the binding with the native library.
         var nri = typeof(NriPipelineProjection).Assembly.GetReferencedAssemblies().Select(a => a.Name).ToList();
@@ -561,12 +555,12 @@ public class NriProjectionTests
         Assert.DoesNotContain("SharpNRI", nri);
     }
 
-    // ---------------------------------------------------------------- the two projections agree
+    // ---------------------------------------------------------------- the corpus
 
     /// <summary>Corpus cases the NRI projection refuses, and the construct each message must name.</summary>
     /// <remarks>
-    /// Exact, like VulkanCorpusValidationTests.OutOfReach: a refusal that stops happening fails the
-    /// test, because it means either NRI grew a type or the projection started guessing.
+    /// Exact, like NriDeviceTests' own lists: a refusal that stops happening fails the test,
+    /// because it means either NRI grew a type or the projection started guessing.
     /// </remarks>
     private static readonly Dictionary<string, string> RefusedByNri = new(StringComparer.Ordinal)
     {
@@ -583,11 +577,14 @@ public class NriProjectionTests
 
     [NativeTheory]
     [MemberData(nameof(Cases))]
-    public void The_nri_and_vulkan_projections_agree_on_every_corpus_shader(string caseName)
+    public void The_projection_states_what_the_layout_states_on_every_corpus_shader(string caseName)
     {
+        // The projection only re-spells the API-neutral reading in ProgramLayout and
+        // PipelineInterface, which ModuleAgreementTests holds to the emitted module over the same
+        // corpus. So every space, register, count, name, root constant, location and stage here
+        // has to be that reading's, and a difference is the projection drifting from it.
         var c = ShaderCorpus.Case(caseName);
         var layout = Reflect(c.Source, [.. c.EntryPoints]);
-        var vulkan = layout.ToVulkan();
 
         if (RefusedByNri.TryGetValue(caseName, out var named))
         {
@@ -598,39 +595,34 @@ public class NriProjectionTests
 
         var nri = layout.ToNri(Capped);
 
-        // Sets: same spaces, same bindings, same counts, same names, same stages.
-        Assert.Equal(vulkan.DescriptorSets.Select(s => s.Set), nri.DescriptorSets.Select(s => s.RegisterSpace));
-        foreach (var (vk, n) in vulkan.DescriptorSets.Zip(nri.DescriptorSets))
+        // Descriptors: same spaces, registers, names, counts and per-range facts, in order.
+        var neutral = ModuleAgreementTests.Descriptors(layout).ToList();
+        var projected = nri.DescriptorSets.SelectMany(s => s.Ranges.Select(r => (s.RegisterSpace, r))).ToList();
+        Assert.Equal(
+            neutral.Select(d => (d.Space, d.Range.IndexOffset, d.Name)),
+            projected.Select(p => (p.RegisterSpace, p.r.Desc.baseRegisterIndex, p.r.Name)));
+        foreach (var (d, p) in neutral.Zip(projected))
         {
-            Assert.Equal(vk.Bindings.Select(b => b.Binding), n.Ranges.Select(r => r.Desc.baseRegisterIndex));
-            foreach (var (b, r) in vk.Bindings.Zip(n.Ranges))
-            {
-                Assert.Equal(b.Name, r.Name);
-                Assert.Equal(b.IsUnbounded, r.IsUnbounded);
-                Assert.Equal(b.IsUnbounded ? 64u : b.DescriptorCount, r.Desc.descriptorNum);
-                Assert.Equal(b.InputAttachmentIndex, r.InputAttachmentIndex);
-                Assert.Equal(b.ImageFormat, r.ImageFormat);
-                Assert.Equal(Stages(b.StageFlags), r.Desc.shaderStages);
-                Assert.Contains(r.Desc.descriptorType, Equivalents(b.DescriptorType));
-                Assert.Equal(b.CounterBinding is not null, r.CounterRangeIndex is not null);
-            }
+            Assert.Equal(d.Range.IsUnbounded, p.r.IsUnbounded);
+            Assert.Equal(d.Range.IsUnbounded ? 64u : d.Range.DescriptorCount, p.r.Desc.descriptorNum);
+            Assert.Equal(d.Range.InputAttachmentIndex, p.r.InputAttachmentIndex);
+            Assert.Equal(d.Range.ImageFormat, p.r.ImageFormat);
+            Assert.Equal(d.Range.CounterBinding is not null, p.r.CounterRangeIndex is not null);
         }
 
-        // Push constants: same blocks, sizes and stages.
-        Assert.Equal(vulkan.PushConstants.Select(p => (Name: p.Name ?? "", p.Size, Stages(p.StageFlags))),
-                     nri.RootConstants.Select(r => (r.Name, r.Desc.size, r.Desc.shaderStages)));
+        // Root constants: the push-constant blocks, by name and size.
+        Assert.Equal(layout.PushConstantBlocks().Select(b => (b.Name, (uint)b.Size)),
+                     nri.RootConstants.Select(r => (r.Name, r.Desc.size)));
 
-        // Vertex inputs: same names at the same locations, equivalent formats.
-        Assert.Equal(vulkan.VertexInputs.Select(v => (v.Name, v.Location)),
-                     nri.VertexAttributes.Select(a => (a.Name, a.Desc.Location)));
-        foreach (var (v, a) in vulkan.VertexInputs.Zip(nri.VertexAttributes))
-            Assert.Equal(NriNameOf(v.Format), a.Desc.Format.ToString());
+        // Vertex attributes and fragment outputs: the same ones at the same locations (a matrix is
+        // its rows in both).
+        Assert.Equal(
+            layout.VertexInputs().Where(v => v.LocationsConsumed > 0).Select(v => (v.Name, v.Location)),
+            nri.VertexAttributes.Select(a => (a.Name, a.Desc.Location)));
+        Assert.Equal(layout.FragmentOutputs().Select(o => (o.Name, o.Location)),
+                     nri.FragmentOutputs.Select(o => (o.Name, o.Location)));
 
-        // Fragment outputs and stages.
-        Assert.Equal(vulkan.FragmentOutputs.Select(o => (o.Name, o.Location, NriNameOf(o.Format))),
-                     nri.FragmentOutputs.Select(o => (o.Name, o.Location, o.Format.ToString())));
-        Assert.Equal(vulkan.Stages.Select(s => (s.Name, Stages(s.Stage))),
-                     nri.Stages.Select(s => (s.Name, s.Stage)));
+        Assert.Equal(layout.EntryPoints.Select(e => e.Name), nri.Stages.Select(s => s.Name));
     }
 
     [Fact]
@@ -638,79 +630,5 @@ public class NriProjectionTests
     {
         var unknown = RefusedByNri.Keys.Where(name => ShaderCorpus.All.All(c => c.Name != name)).ToList();
         Assert.True(unknown.Count == 0, "RefusedByNri names shaders the corpus does not have: " + string.Join(", ", unknown));
-    }
-
-    /// <summary>The NRI descriptor types one Vulkan descriptor type may become.</summary>
-    private static DescriptorType[] Equivalents(VulkanDescriptorType type) => type switch
-    {
-        VulkanDescriptorType.Sampler => [DescriptorType.SAMPLER],
-        VulkanDescriptorType.SampledImage => [DescriptorType.TEXTURE],
-        VulkanDescriptorType.StorageImage => [DescriptorType.STORAGE_TEXTURE],
-        VulkanDescriptorType.UniformBuffer => [DescriptorType.CONSTANT_BUFFER],
-        VulkanDescriptorType.UniformTexelBuffer => [DescriptorType.BUFFER],
-        VulkanDescriptorType.StorageTexelBuffer => [DescriptorType.STORAGE_BUFFER],
-        // Both NRI kinds are VK_DESCRIPTOR_TYPE_STORAGE_BUFFER on Vulkan; the split is for D3D12.
-        VulkanDescriptorType.StorageBuffer => [DescriptorType.STRUCTURED_BUFFER, DescriptorType.STORAGE_STRUCTURED_BUFFER],
-        VulkanDescriptorType.InputAttachment => [DescriptorType.INPUT_ATTACHMENT],
-        VulkanDescriptorType.AccelerationStructureKhr => [DescriptorType.ACCELERATION_STRUCTURE],
-        _ => [],
-    };
-
-    /// <summary>A Vulkan stage mask as NRI stage bits, bit by bit.</summary>
-    private static StageBits Stages(VulkanShaderStages flags)
-    {
-        (VulkanShaderStages, StageBits)[] pairs =
-        [
-            (VulkanShaderStages.Vertex, StageBits.VERTEX_SHADER),
-            (VulkanShaderStages.TessellationControl, StageBits.TESS_CONTROL_SHADER),
-            (VulkanShaderStages.TessellationEvaluation, StageBits.TESS_EVALUATION_SHADER),
-            (VulkanShaderStages.Geometry, StageBits.GEOMETRY_SHADER),
-            (VulkanShaderStages.Fragment, StageBits.FRAGMENT_SHADER),
-            (VulkanShaderStages.Compute, StageBits.COMPUTE_SHADER),
-            (VulkanShaderStages.RaygenKhr, StageBits.RAYGEN_SHADER),
-            (VulkanShaderStages.AnyHitKhr, StageBits.ANY_HIT_SHADER),
-            (VulkanShaderStages.ClosestHitKhr, StageBits.CLOSEST_HIT_SHADER),
-            (VulkanShaderStages.MissKhr, StageBits.MISS_SHADER),
-            (VulkanShaderStages.IntersectionKhr, StageBits.INTERSECTION_SHADER),
-            (VulkanShaderStages.CallableKhr, StageBits.CALLABLE_SHADER),
-            (VulkanShaderStages.TaskExt, StageBits.TASK_SHADER),
-            (VulkanShaderStages.MeshExt, StageBits.MESH_SHADER),
-        ];
-
-        var result = StageBits.ALL;
-        var remaining = flags;
-        foreach (var (vk, n) in pairs)
-        {
-            if ((flags & vk) == 0) continue;
-            result |= n;
-            remaining &= ~vk;
-        }
-
-        Assert.True(remaining == VulkanShaderStages.None, $"no NRI bit for Vulkan stage(s) {remaining}");
-        return result;
-    }
-
-    /// <summary>
-    /// The NRI <c>Format</c> name a Vulkan format corresponds to: <c>R32G32B32Sfloat</c> is
-    /// <c>RGB32_SFLOAT</c>. Derived from the names rather than tabulated, so a new entry in
-    /// either enum is covered by construction.
-    /// </summary>
-    private static string NriNameOf(VulkanFormat format)
-    {
-        if (format == VulkanFormat.Undefined) return nameof(Format.UNKNOWN);
-
-        var name = format.ToString();
-        var channels = "";
-        var bits = "";
-        var i = 0;
-        while (i < name.Length && char.IsUpper(name[i]) && i + 1 < name.Length && char.IsDigit(name[i + 1]))
-        {
-            channels += name[i++];
-            var start = i;
-            while (i < name.Length && char.IsDigit(name[i])) i++;
-            bits = name[start..i];
-        }
-
-        return $"{channels}{bits}_{name[i..].ToUpperInvariant()}";
     }
 }
