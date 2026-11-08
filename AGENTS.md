@@ -795,6 +795,7 @@ packages).
 | Patch | Defect | What |
 |---|---|---|
 | `0001-specialize-type-diagnose-argument-count` | U4 | `Linkage::specializeType` diagnoses an argument count that does not match (38025) instead of asserting it, so no build can drop the check |
+| `0002-element-count-of-a-specialization-sized-array` | U1 | `GetSpecializedElementCount` returns `SLANG_UNKNOWN_SIZE` for a length that is not a constant instead of throwing out of `getIntVal` |
 
 Every Slang defect in `docs/upstream.md` gets a patch, test first, and the registry says what became
 of each (owner, 2026-11-08: "All of them and we roll a registry of them so we can clearly see if they
@@ -1373,7 +1374,9 @@ in `docs/upstream.md`.
   v2026.21 prober, all four legs), though `slang.h:2633-2642` documents `SLANG_UNKNOWN_SIZE` for
   exactly this case. `slangc -reflection-json` dies the same way on the same shader (0xC0000409,
   v2026.14.1), so it is not the binding's calling. U1. Handled: the walk reads the size marker first
-  and never asks; `GetSpecializedElementCount` is called only by the prober.
+  and never asks; `GetSpecializedElementCount` is called only by the prober. Patched (0002): both
+  calls return `SLANG_UNKNOWN_SIZE` (source builds of the tag, win-x64 and linux-x64). The guard
+  and the unbound `GetSpecializedElementCount` stay while the packages carry the release (Patches).
 - **A resource array sized by a specialization constant cannot be reflected**:
   `Texture2D t[kCount]` makes `spReflectionTypeLayout_getBindingRangeCount` throw
   `Slang::InternalError` through `extern "C"`. win-x64: SEH carries it to the CLR as a catchable

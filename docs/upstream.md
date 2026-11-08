@@ -24,7 +24,7 @@ carry until the switch (`AGENTS.md`, Decisions), has none of them.
 <!-- patch-registry:begin (generated from docs/upstream.json by tools/ci/patch-registry.ps1 -Write; do not edit) -->
 | # | Defect | Area | Kind | Patch | Test | State | Verified |
 |---|---|---|---|---|---|---|---|
-| U1 | `spReflectionType_GetElementCount` / `GetSpecializedElementCount` crash on an array sized by a link-time constant | reflection | Slang defect |  | `ProberTests.The_resolving_element_count_is_the_one_call_the_library_will_not_make` | unpatched | v2026.21 |
+| U1 | `spReflectionType_GetElementCount` / `GetSpecializedElementCount` crash on an array sized by a link-time constant | reflection | Slang defect | `0002-element-count-of-a-specialization-sized-array.patch` | `ProberTests.The_element_count_of_a_specialization_sized_array_is_unknown` | patched | v2026.21 |
 | U2 | `getBindingRangeCount` throws a C++ exception through `extern "C"` for a resource array sized by a link-time constant | reflection | Slang defect |  | `ProberTests.A_specialization_sized_resource_array_never_reflects_successfully` | unpatched | v2026.21 |
 | U3 | `spReflection_specializeGeneric` access-violates on a mismatched argument list | reflection | Slang defect |  | `ProberTests.A_mismatched_generic_argument_kind_crashes_on_two_platforms_and_diagnoses_on_the_third` | unpatched | v2026.21 |
 | U4 | `spReflection_specializeType` on a non-generic type segfaults on Linux (an assert that removes its own check) | reflection | Slang defect | `0001-specialize-type-diagnose-argument-count.patch` | `ProberTests.Specializing_a_non_generic_type_is_refused_with_a_diagnostic` | patched | v2026.21 |
@@ -89,11 +89,32 @@ unresolved generic parameters or link-time constants." `slang-deprecated.h:478-4
 size queries on the same array already return `SLANG_UNKNOWN_SIZE` (`GetSize(UNIFORM)` and the next
 field's offset are `0xFFFFFFFFFFFFFFFE`), so only the element-count path is unhandled.
 
-**Cause.** Not located yet; the size and offset paths were fixed by the #9045 work and the element
-count was not.
+**Cause.** `spReflectionType_GetSpecializedElementCount` (`source/slang/slang-reflection-api.cpp`)
+ends with
+
+```cpp
+return isUnsized                       ? 0
+       : elementCount->isLinkTimeVal() ? SLANG_UNKNOWN_SIZE
+                                       : (size_t)getIntVal(elementCount);   // 653-655
+```
+
+The length of an array sized by a specialization constant is a `DeclRefIntVal` that is not a
+link-time value (`DeclRefIntVal::_isLinkTimeValOverride` checks for `extern`), and `tryFoldIntVal`
+does not fold it, so `getIntVal` is reached; `getIntVal` of anything but a `ConstantIntVal` is
+`SLANG_UNEXPECTED` (`source/slang/slang-syntax.cpp:898-905`), and the `Slang::InternalError` leaves
+the `extern "C"` function. The size and offset paths were fixed by the #9045 work and this one was
+not.
+
+**Fix.** Return the value of a `ConstantIntVal` and `SLANG_UNKNOWN_SIZE` for any other length, the
+answer a link-time constant already gets. Every count returned before is returned unchanged; only
+the lengths that threw now report `SLANG_UNKNOWN_SIZE`. Regression test:
+`tools/slang-unit-test/unit-test-specialization-sized-array-reflection.cpp`. Carried as
+`patches/0002-element-count-of-a-specialization-sized-array.patch`.
 
 **Measurement.** v2026.21, all four platforms: the call ends the process (non-zero exit; the type
-reports `SLANG_TYPE_KIND_ARRAY` before the call).
+reports `SLANG_TYPE_KIND_ARRAY` before the call); on win-x64 the exception surfaces as a structured
+exception. With the fix, both calls return `0xFFFFFFFFFFFFFFFE` (win-x64 with MSVC, linux-x64 with
+GCC 13.3, the tag built from source).
 
 **Repro.**
 

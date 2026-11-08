@@ -7,9 +7,9 @@
       "title": "`spReflectionType_GetElementCount` / `GetSpecializedElementCount` crash on an array sized by a link-time constant",
       "area": "reflection",
       "kind": "Slang defect",
-      "patch": null,
-      "test": "ProberTests.The_resolving_element_count_is_the_one_call_the_library_will_not_make",
-      "state": "unpatched",
+      "patch": "0002-element-count-of-a-specialization-sized-array.patch",
+      "test": "ProberTests.The_element_count_of_a_specialization_sized_array_is_unknown",
+      "state": "patched",
       "verified": "v2026.21"
     },
     {

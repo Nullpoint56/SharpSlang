@@ -301,7 +301,7 @@ public class ProberTests(ITestOutputHelper output)
         }
     }
 
-    [NativeFact]
+    [ReleasePayloadFact("U1")]
     public void The_resolving_element_count_is_the_one_call_the_library_will_not_make()
     {
         // Every other function in Slang's reflection API is now reached from somewhere — the
@@ -338,6 +338,22 @@ public class ProberTests(ITestOutputHelper output)
         Assert.DoesNotContain("\nspecialized", outcome.Stdout.ReplaceLineEndings("\n"), StringComparison.Ordinal);
         Assert.Contains("E38025", outcome.Stdout, StringComparison.Ordinal);
         Assert.Contains("wrong number of specialization arguments", outcome.Stdout, StringComparison.Ordinal);
+    }
+
+    [PatchedFact("U1")]
+    public void The_element_count_of_a_specialization_sized_array_is_unknown()
+    {
+        // U1 (AGENTS.md#sizes-slang-does-not-know), patch 0002. What slang.h:2633-2642 documents
+        // for a size that depends on a link-time constant: SLANG_UNKNOWN_SIZE, from both the
+        // resolving call and the deprecated one, where the release ends the process.
+        var outcome = Run("specialized-element-count");
+        output.WriteLine(outcome.ToString());
+
+        const ulong unknown = ulong.MaxValue - 1;   // SLANG_UNKNOWN_SIZE
+        Assert.True(outcome.ExitCode == 0, $"asking the element count of a specialization-sized array ended the process:\n{outcome}");
+        Assert.Contains("array kind=SLANG_TYPE_KIND_ARRAY", outcome.Stdout, StringComparison.Ordinal);
+        Assert.Contains($"GetSpecializedElementCount -> {unknown}", outcome.Stdout, StringComparison.Ordinal);
+        Assert.Contains($"GetElementCount -> {unknown}", outcome.Stdout, StringComparison.Ordinal);
     }
 
     [NativeFact]

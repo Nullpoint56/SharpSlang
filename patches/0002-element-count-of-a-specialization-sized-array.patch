@@ -1,0 +1,136 @@
+Report SLANG_UNKNOWN_SIZE for the element count of an array whose length is not a constant.
+
+spReflectionType_GetSpecializedElementCount (source/slang/slang-reflection-api.cpp), which
+spReflectionType_GetElementCount and TypeReflection::getElementCount forward to, ends with:
+
+    return isUnsized                       ? 0
+           : elementCount->isLinkTimeVal() ? SLANG_UNKNOWN_SIZE
+                                           : (size_t)getIntVal(elementCount);       // 653-655
+
+An array sized by a specialization constant ([vk::constant_id(0)] const int kCount) has a
+DeclRefIntVal length that is not a link-time value (DeclRefIntVal::_isLinkTimeValOverride checks
+for extern), and tryFoldIntVal does not fold it, so getIntVal is reached, and getIntVal of anything
+but a ConstantIntVal is SLANG_UNEXPECTED (source/slang/slang-syntax.cpp:898-905). The resulting
+Slang::InternalError leaves the extern "C" function: a structured exception on Windows, a call to
+std::terminate on Linux and macOS. slangc -reflection-json stops the same way on such a shader.
+slang.h:2633-2638 documents SLANG_UNKNOWN_SIZE for exactly this case, and the size and offset
+queries on the same array already return it.
+
+This returns the value of a ConstantIntVal and SLANG_UNKNOWN_SIZE for any other length, the answer
+already given for a link-time constant. Every count that was returned before is returned unchanged;
+only the lengths that threw now report SLANG_UNKNOWN_SIZE. A regression test is added as
+tools/slang-unit-test/unit-test-specialization-sized-array-reflection.cpp.
+
+Measured on v2026.21 with struct SeBlock { float4 seItems[kSeCount]; float seTail; }: before,
+both calls end the process (win-x64: the exception surfaces as a structured exception); after,
+both return 0xFFFFFFFFFFFFFFFE (win-x64, linux-x64).
+diff --git a/source/slang/slang-reflection-api.cpp b/source/slang/slang-reflection-api.cpp
+index 35e27abad..3f7940272 100644
+--- a/source/slang/slang-reflection-api.cpp
++++ b/source/slang/slang-reflection-api.cpp
+@@ -650,9 +650,16 @@ SLANG_API size_t spReflectionType_GetSpecializedElementCount(
+         }
+     }
+ 
+-    return isUnsized                       ? 0
+-           : elementCount->isLinkTimeVal() ? SLANG_UNKNOWN_SIZE
+-                                           : (size_t)getIntVal(elementCount);
++    if (isUnsized)
++        return 0;
++
++    // An element count that is not a constant, such as a link-time constant or a
++    // specialization constant, is not known until the program is linked or specialized.
++    //
++    if (auto constantElementCount = as<ConstantIntVal>(elementCount))
++        return (size_t)constantElementCount->getValue();
++
++    return SLANG_UNKNOWN_SIZE;
+ }
+ 
+ SLANG_API SlangReflectionType* spReflectionType_GetElementType(SlangReflectionType* inType)
+diff --git a/tools/slang-unit-test/unit-test-specialization-sized-array-reflection.cpp b/tools/slang-unit-test/unit-test-specialization-sized-array-reflection.cpp
+new file mode 100644
+index 000000000..0f58650ee
+--- /dev/null
++++ b/tools/slang-unit-test/unit-test-specialization-sized-array-reflection.cpp
+@@ -0,0 +1,79 @@
++// unit-test-specialization-sized-array-reflection.cpp
++
++#include "slang-com-ptr.h"
++#include "slang.h"
++#include "unit-test/slang-unit-test.h"
++
++using namespace Slang;
++
++// The length of an array sized by a specialization constant is not known until the program is
++// specialized. This test checks that reflection reports such a length as `SLANG_UNKNOWN_SIZE`
++// instead of failing to evaluate it.
++
++static slang::IModule* loadSpecializationSizedArrayModule(
++    slang::IGlobalSession* globalSession,
++    ComPtr<slang::ISession>& outSession,
++    const char* name,
++    const char* source)
++{
++    slang::TargetDesc targetDesc = {};
++    targetDesc.format = SLANG_SPIRV;
++    targetDesc.profile = globalSession->findProfile("spirv_1_5");
++
++    slang::SessionDesc sessionDesc = {};
++    sessionDesc.targetCount = 1;
++    sessionDesc.targets = &targetDesc;
++
++    if (SLANG_FAILED(globalSession->createSession(sessionDesc, outSession.writeRef())))
++        return nullptr;
++
++    ComPtr<slang::IBlob> diagnosticBlob;
++    return outSession->loadModuleFromSourceString(name, name, source, diagnosticBlob.writeRef());
++}
++
++SLANG_UNIT_TEST(specializationSizedArrayElementCount)
++{
++    const char* source = R"(
++        [vk::constant_id(0)] const int kCount = 3;
++
++        struct Block
++        {
++            float4 items[kCount];
++            float tail;
++        }
++
++        ConstantBuffer<Block> gBlock;
++
++        [shader("fragment")]
++        float4 fragmentMain() : SV_Target
++        {
++            return gBlock.items[0] + gBlock.tail;
++        }
++        )";
++
++    ComPtr<slang::IGlobalSession> globalSession;
++    SLANG_CHECK_ABORT(
++        slang_createGlobalSession(SLANG_API_VERSION, globalSession.writeRef()) == SLANG_OK);
++
++    ComPtr<slang::ISession> session;
++    auto module = loadSpecializationSizedArrayModule(
++        globalSession,
++        session,
++        "specializationSizedArrayElementCount",
++        source);
++    SLANG_CHECK_ABORT(module != nullptr);
++
++    auto layout = module->getLayout();
++    SLANG_CHECK_ABORT(layout != nullptr);
++
++    auto blockType = layout->findTypeByName("Block");
++    SLANG_CHECK_ABORT(blockType != nullptr);
++    SLANG_CHECK_ABORT(blockType->getFieldCount() == 2);
++
++    auto arrayType = blockType->getFieldByIndex(0)->getType();
++    SLANG_CHECK_ABORT(arrayType != nullptr);
++    SLANG_CHECK_ABORT(arrayType->getKind() == slang::TypeReflection::Kind::Array);
++
++    SLANG_CHECK(arrayType->getElementCount() == SLANG_UNKNOWN_SIZE);
++    SLANG_CHECK(arrayType->getElementCount((SlangReflection*)layout) == SLANG_UNKNOWN_SIZE);
++}
+\ No newline at end of file

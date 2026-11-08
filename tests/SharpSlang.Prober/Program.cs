@@ -869,6 +869,10 @@ internal static class Cases
 
         Console.Out.WriteLine("GetSpecializedElementCount -> "
             + SlangApi.spReflectionType_GetSpecializedElementCount(arrayType, shader));
+        Console.Out.Flush();
+
+        // The deprecated call forwards to the same function without a program (slang-reflection-api.cpp).
+        Console.Out.WriteLine("GetElementCount -> " + SlangApi.spReflectionType_GetElementCount(arrayType));
     }
 
     private static unsafe void ImageFormatOnParameterBlock()
