@@ -1559,6 +1559,33 @@ v2026.21 on the workstation (Tests and skips has the counts).
   is the same records and arrays: its lookups allocate 0 bytes and the same NONE frame bound
   through it allocates 0 over 300 frames (branch `sharpslang-bake`, workstation); reading it is
   load-time work, asserted under 64 KB per shader.
+- **Zero allocation per frame is default-deny** (the template's rule; branch
+  `sharpslang-workflows`). Every public method and computed property of `SharpSlang.Pipeline` and
+  `SharpSlang.Pipeline.NRI` counts as per-frame unless it creates an object (`Creates`, 10) or is
+  named in `NotPerFrame` with its reason (20: writing, hashing and staleness at bake time, the
+  pipeline-interface builders that return a new collection once per pipeline, the declaration
+  iterator, the hand-written `ToString`s). `AllocationCoverageTests` reads the IL of the measured
+  loops (the `Frame...` local functions of `AllocationTests` and `ProjectedFrame.Run`) and fails
+  naming each member none of them calls, and on a name in either list that no longer exists: 38
+  members measured, every one at 0 bytes. Measured first, before the fixes: the reader's by-name
+  lookups (`ProgramLayout.Parameter`, `EntryPoint`, `SpecializationConstant`, `StructLayout.Field`,
+  `ShaderPackage.EntryPoint`) 480 bytes over the six calls of one pass, a LINQ closure and its
+  delegate each; `ShaderParameter.DescriptorSet` and `InputAttachmentIndex` 48 bytes each, a
+  `foreach` boxing the list's enumerator; `EntryPointLayout.BaseOffset` 80, a closure over the
+  category. All are indexed loops now. The LINQ calls without a capture (`PrimaryBinding`,
+  `OccupiesDescriptorSlot`, `IsSpecializationConstant`, the uniform offset and size) measured 0 on
+  a layout read back from a package, whose lists are `List<T>`. The whole NRI frame runs on a NONE
+  device created on NRI's `NriCountingAllocator`: 0 host allocations and 0 reallocations over the
+  300 frames, and the two packages declare no P/Invoke and no module reference (from metadata), so
+  the host allocations of a frame are SharpNRI's alone. Falsified: a member removed from a loop
+  fails naming it (`ProgramLayout.SpecializationConstant(String)`), a planted exclusion for a
+  member that does not exist fails naming it, and a LINQ closure planted in
+  `NriPipelineProjection.Set` fails both projection loops at 80 bytes.
+- **The binding has no per-frame API** (the owner's rule, Rules): every `SharpSlang` call is a Slang
+  call that compiles, links, reflects or hands out code, once per shader variant, and the
+  reflection objects are read once by the walker into the snapshot (Decisions); the cooker
+  (`SharpSlang.Pipeline.Bake`) runs in the asset build. A game that compiles at run time, for a hot
+  reload, still compiles once per change.
 
 ### NRI projection
 
@@ -1676,7 +1703,7 @@ Oracles, each outside the binding:
 | the stored projection is the projection | `NriPackageTests`: on every corpus shader, SPIR-V and DXIL, what a package's NRI section reads back equals a fresh `ToNri`, every public field of every desc struct; `NriDeviceTests` and `PixelTests` dispatch and render through the loaded descs on Vulkan and D3D12 |
 | the loaded parts are the built ones | `VersionGuardTests`: the native build tag and the loaded Descs' Slang release and package version against SharpSlang's metadata, and `SHARPSLANG004` / `SHARPSLANG005` from builds of temporary projects |
 | public surface | `PublicApiTests` against approved files |
-| lookups allocate nothing | `AllocationTests` |
+| per-frame calls allocate nothing | `AllocationTests` (GC counters over measured loops; NRI's counting allocator over the whole frame) and `AllocationCoverageTests` (the loops' IL against the two packages' public surface, default-deny) |
 
 Each compile target is held to its strongest outside oracle (owner, 2026-11-08; Decisions): a
 device where one runs here, a validator where the target has one, a compiler where its output is
