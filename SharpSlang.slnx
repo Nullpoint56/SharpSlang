@@ -40,6 +40,14 @@
     <File Path="tools/coverage/BoundSurface/BoundSurface.csproj" />
     <File Path="tools/coverage/BoundSurface/Program.cs" />
   </Folder>
+  <Folder Name="/tools/consume/">
+    <File Path="tools/consume/consume.ps1" />
+    <File Path="tools/consume/SharpSlang.Consume.csproj" />
+    <File Path="tools/consume/Program.cs" />
+    <File Path="tools/consume/nuget.config" />
+    <File Path="tools/consume/Directory.Build.props" />
+    <File Path="tools/consume/Directory.Build.targets" />
+  </Folder>
   <Folder Name="/tools/ci/">
     <File Path="tools/ci/check-docs.sh" />
     <File Path="tools/ci/ci-gate.ps1" />

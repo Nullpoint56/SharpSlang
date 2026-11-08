@@ -1,0 +1,48 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Package consumption smoke test: the packed .nupkg files as an outside project sees them, through
+    PackageReference, runtimes/<rid>/native, deps.json and the packages' build files, not the
+    repository's ProjectReference copy. Not in the solution. tools/consume/consume.ps1 drives it:
+    each run is a copy of this folder under _build/consume/<run>/ (its own bin/ and obj/), restoring
+    from the packed folder into one emptied packages folder, built and run portable, with `run -r`,
+    `publish -r`, Native AOT, and each optional package alone; the script checks the output.
+
+    What each run references comes from consume.ps1, through the generated file it passes as
+    -p:SharpSlangConsumeProps (PackageReference items at the packed versions, the namespaces as
+    global usings, and the mode as a define: CONSUME_CORE, CONSUME_READER, CONSUME_DXC), so the
+    package list stays in tools/ci/packages.psd1.
+
+    -p:SharpSlangConsumeDxcOverride=<version> adds an explicit Microsoft.Direct3D.DXC reference of
+    another version, which the dxc package must refuse at build time.
+
+    Based on tests/PrismSlang.PackageConsumer (publish.yml's portable check), which it replaces.
+  -->
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net11.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <AnalysisLevel>latest-recommended</AnalysisLevel>
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+    <!-- consume.ps1 points every run at one emptied folder (-p:RestorePackagesPath) -->
+    <RestorePackagesPath Condition="'$(RestorePackagesPath)' == ''">$(MSBuildThisFileDirectory)obj/packages</RestorePackagesPath>
+  </PropertyGroup>
+
+  <Import Project="$(SharpSlangConsumeProps)" Condition="'$(SharpSlangConsumeProps)' != '' And Exists('$(SharpSlangConsumeProps)')" />
+
+  <ItemGroup Condition="'$(SharpSlangConsumeDxcOverride)' != ''">
+    <PackageReference Include="Microsoft.Direct3D.DXC" Version="$(SharpSlangConsumeDxcOverride)" NoWarn="NU1608;NU1605" />
+  </ItemGroup>
+
+  <Target Name="SharpSlangConsumeRequireProps" BeforeTargets="_GenerateRestoreProjectSpec;Restore;CollectPackageReferences"
+          Condition="'$(SharpSlangConsumeProps)' == '' Or !Exists('$(SharpSlangConsumeProps)')">
+    <Error Text="Run this project through tools/consume/consume.ps1, which generates the package references it restores (-p:SharpSlangConsumeProps)." />
+  </Target>
+
+</Project>
