@@ -120,9 +120,9 @@
       "title": "`ISession::loadModule*` returns a borrowed reference; the header does not say so",
       "area": "API header",
       "kind": "Slang documentation defect",
-      "patch": null,
-      "test": "LifetimeTests.A_module_can_be_disposed_and_loaded_again",
-      "state": "unpatched",
+      "patch": "0007-document-loaded-module-ownership.patch",
+      "test": "HeaderDocumentationTests.The_header_says_a_loaded_module_is_owned_by_the_session",
+      "state": "patched",
       "verified": "v2026.21"
     },
     {
