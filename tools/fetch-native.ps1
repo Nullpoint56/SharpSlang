@@ -4,7 +4,7 @@
 
 .DESCRIPTION
   SharpSlang vendors no native source. It consumes Slang's own prebuilt release, pinned exactly,
-  because Slang's public ABI is not stable (docs/design.md §3.5).
+  because Slang's public ABI is not stable (AGENTS.md#pin-and-payload).
 
   The published archives are large (54 MB win-x64, 76 MB linux-x64) and most of that is irrelevant
   to a Vulkan renderer embedding the compiler:

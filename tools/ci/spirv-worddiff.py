@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Is the difference between two SPIR-V modules a renumbering, or different code?
 
-§9.34 got as far as "same word count, same opcode histogram, different bytes" for the three corpus
+An earlier round got as far as "same word count, same opcode histogram, different bytes" for the three corpus
 shaders that use SV_VertexID, and concluded a renumbering was much the most likely explanation. That
 is evidence rather than proof, and the difference matters: a renumbering is cosmetic, a differing
 literal is a behavioural change wearing the same shape.
@@ -20,7 +20,7 @@ The answer, the first time it was pointed at the real thing: **not a renumbering
 code either. Nothing is renumbered — x64 and aarch64 use the same IDs. Slang creates the two builtin
 inputs behind `SV_VertexID` in the opposite order, so which variable is `VertexIndex` and which is
 `BaseVertex` swaps, the two entries swap places in the OpEntryPoint interface list, and the operands
-of the compensating OpISub swap with them. Both modules compute `VertexIndex - BaseVertex`. §9.38.
+of the compensating OpISub swap with them. Both modules compute `VertexIndex - BaseVertex`. AGENTS.md#cross-platform-behaviour.
 
 That is why the report below lists *every* differing word once the verdict is negative, not only the
 words that failed the bijection. The OpISub swap fit the mapping perfectly — a transposition is a
@@ -91,7 +91,7 @@ def assemble(instructions):
 # The definitions are the point. A renumbering moves an ID everywhere, its definition included, so a
 # fixture whose IDs are never defined cannot tell a renumbering from a swap of two uses. The first
 # set of fixtures written for this tool was exactly that, and passed a version of the tool that got
-# the distinction wrong — the §9.35 mistake, made twice in the same file. §9.38.
+# the distinction wrong — an earlier mistake, made twice in the same file.
 _BASE = [
     (21, [1, 32, 1]),        # %1 = OpTypeInt 32 1
     (59, [1, 4, 1]),         # %4 = OpVariable %1 Input
@@ -188,7 +188,7 @@ def compare(a, b):
     # A renumbering moves *every* occurrence of an ID. So if an ID the mapping moves also sits
     # somewhere the two modules already agree, the mapping is not describing a renumbering — it is
     # describing operands that traded places while their definitions stayed where they were. That is
-    # §9.38's case: `%22 = OpLoad …` at the same word in both, and an OpISub below it using %22
+    # The SV_VertexID case: `%22 = OpLoad …` at the same word in both, and an OpISub below it using %22
     # where the other module uses %25.
     #
     # Without this the tool answers RENUMBERING to a bare operand swap, which is the one direction

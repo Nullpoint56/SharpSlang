@@ -93,7 +93,7 @@ public partial class VtableOrderTests(Xunit.Abstractions.ITestOutputHelper outpu
         output.WriteLine($"{Emitted.Count} interfaces, {slots} vtable slots");
         Assert.InRange(slots, 300, 500);
 
-        DocumentedFactsTests.Documents("docs/design.md", $"all {slots} slot indices",
+        DocumentedFactsTests.Documents("AGENTS.md", $"all {slots} slot indices",
             $"the generated layer has {slots} vtable slots");
     }
 
@@ -273,8 +273,8 @@ public partial class VtableOrderTests(Xunit.Abstractions.ITestOutputHelper outpu
         ["ISlangBlob"] = (1, "queryInterface. getBufferPointer and getBufferSize are the surface"),
 
         ["ICompileRequest"] = (78,
-            "the entire legacy compile-request API — Tier 4, deliberately unbound (docs/design.md "
-            + "§3.3). It is generated only because slang.h includes slang-deprecated.h, and every "
+            "the entire legacy compile-request API, deliberately unbound (AGENTS.md#unbound-surface). "
+            + "It is generated only because slang.h includes slang-deprecated.h, and every "
             + "one of its 84 slots duplicates something ISession and IComponentType do better"),
 
         ["IGlobalSession"] = (28,

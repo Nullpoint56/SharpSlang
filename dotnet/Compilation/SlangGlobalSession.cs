@@ -39,7 +39,7 @@ public sealed class GlobalSessionOptions
     /// </summary>
     /// <remarks>
     /// On by default. Slang states its public ABI is not stable and directs redistributors to ship
-    /// the libraries they built against (docs/design.md §3.5), so this is not defensive
+    /// the libraries they built against (AGENTS.md#pin-and-payload), so this is not defensive
     /// housekeeping: <c>dotnet/Native/</c> indexes vtable slots by ordinal, taken from one specific
     /// header. A payload with a reordered interface still links, still calls, and calls the wrong
     /// function — the failure mode that <c>regen</c> guards against upstream and this guards
@@ -80,7 +80,7 @@ public sealed unsafe class SlangGlobalSession : SlangObject<IGlobalSession>
         if (options.RequirePinnedSlangVersion) RequirePinnedVersion();
 
         // Defaults.GlobalSessionDesc restores the C++ default member initializers ClangSharp drops
-        // — notably structureSize, which Slang uses to version the struct. See docs §4.5.
+        // — notably structureSize, which Slang uses to version the struct. See AGENTS.md#descriptor-defaults-and-result-codes.
         var desc = Defaults.GlobalSessionDesc();
         desc.enableGLSL = options.EnableGlsl ? (byte)1 : (byte)0;
 

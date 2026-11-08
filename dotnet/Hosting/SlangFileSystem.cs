@@ -3,7 +3,7 @@
 // Everything below L4 is the consumer side of an interface — calling a vtable Slang implements.
 // This is the implementor side: synthesising a native vtable that Slang can call, backed by a
 // managed object. Binding generators emit the former and never the latter, so this is hand-written
-// by necessity rather than by preference (docs §4.5).
+// by necessity rather than by preference (AGENTS.md#descriptor-defaults-and-result-codes).
 //
 // Why a host needs it: an engine that loads assets from packs through its own virtual filesystem.
 // Without this, `import` and `#include` in a .slang file can only reach the OS filesystem, which
@@ -17,7 +17,7 @@
 //     nativeObject ──> [0] vtable*  ──> [ queryInterface, addRef, release, ... ]
 //                      [1] GCHandle
 //
-// This is also where ClangSharp's Thiscall misinference lived (docs §4.3): the callback function
+// This is also where ClangSharp's Thiscall misinference lived (AGENTS.md#generator-and-abi): the callback function
 // pointer in enumeratePathContents. A wrong calling convention here would corrupt the stack rather
 // than fail to compile.
 

@@ -1,7 +1,7 @@
 // L3 — the type tree, as immutable managed data.
 //
 // This is a snapshot, not a proxy. Every native reflection pointer is read during the walk and
-// discarded; nothing here holds one. That is deliberate (docs §4.4): SlangReflectionTypeLayout* is
+// discarded; nothing here holds one. That is deliberate (AGENTS.md#reflection-snapshot): SlangReflectionTypeLayout* is
 // an interior pointer owned by the IComponentType that produced it, so a proxy would become a
 // use-after-free the moment the program is disposed — presenting as corrupt descriptor bindings
 // rather than a clean crash.

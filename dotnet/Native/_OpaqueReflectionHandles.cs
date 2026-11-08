@@ -5,7 +5,7 @@
 // and ClangSharp's attempt does not compile (C++ `this` is a pointer; C# struct `this` is not).
 // They are excluded from generation and declared here only so the COM interfaces returning T*
 // have a type to point at. The managed object model over them is hand-written in L3 against the
-// flat SlangApi functions. See docs/design.md §3.2 and §4.4.
+// flat SlangApi functions. See AGENTS.md#reflection-snapshot.
 //
 // NOTE: SlangAttribute, not Attribute — a type named `Attribute` in this namespace shadows
 // System.Attribute and breaks every generated [NativeTypeName]/[VtblIndex] helper attribute.

@@ -33,9 +33,9 @@ name: CI
 #
 # The cross-platform matrix is not box-ticking: the first linux-x64 run of this project found a
 # heap-corrupting ownership bug that had been passing green on Windows since the first commit
-# (ISession::loadModule* returns a borrowed pointer — see docs/guide.md ). glibc
+# (ISession::loadModule* returns a borrowed pointer: AGENTS.md#ownership-and-lifetime). glibc
 # aborts on it; the Windows heap does not. Keeping Linux in the matrix is the control for that
-# entire class of bug — and it has paid twice: 's fifth Slang crash returns null on Windows
+# entire class of bug, and it has paid twice: specializeType on a non-generic type returns null on Windows
 # and segfaults on Linux, and was found by this leg aborting a run that was green here.
 #
 # linux-arm64 and osx-arm64 are the third and fourth legs, each added for an axis the others do
@@ -128,7 +128,7 @@ jobs:
   # from the pinned slang.h.
   #
   # Vtable *reordering* is a silent ABI break: the code still compiles and calls the wrong function.
-  # Reviewing that diff is the control (docs §4.3), so this fails if the committed bindings do not
+  # Reviewing that diff is the control (AGENTS.md#generator-and-abi), so this fails if the committed bindings do not
   # match the generator's output for the pinned header. It was its own workflow, regen.yml, and is
   # a job here so that one manual run covers a branch. The gate runs it only when its inputs
   # changed: the SlangVersion pin in Directory.Build.props, tools/generate-native.ps1, and
@@ -176,13 +176,12 @@ jobs:
           }
           Write-Host "generated bindings match the pinned header"
 
-  # Links and § references. Needs the source tree, not just docs/: half the check is that every §
-  # a code comment cites resolves to a real heading in design.md. The numbered sections are cited
-  # from code by bare number, so this is what stops a renumbering from silently orphaning them, and
-  # a change that touches no markdown can break it: a § renumbered in a code comment, or a file
-  # renamed out from under SharpSlang.slnx. It was docs.yml plus a step of the linux-x64 leg, and
-  # is one job here, so a documentation-only branch is still checked by its one manual run while
-  # the test legs skip.
+  # Links and AGENTS.md anchors. Needs the source tree, not just docs/: half the check is that every
+  # AGENTS.md#<anchor> a code comment cites resolves to a real heading in AGENTS.md, so a renamed
+  # heading cannot silently orphan the comments that cite it, and a change that touches no markdown
+  # can break it: an anchor mistyped in a code comment, or a file renamed out from under
+  # SharpSlang.slnx. It was docs.yml plus a step of the linux-x64 leg, and is one job here, so a
+  # documentation-only branch is still checked by its one manual run while the test legs skip.
   docs:
     name: links and section references
     needs: gate
@@ -404,8 +403,8 @@ jobs:
       # were written to look for it. glibc fills freshly malloc'd memory with the complement of the
       # byte and freed memory with the byte itself, so a use-after-free reads 0xa5a5a5a5a5a5a5a5 —
       # non-canonical on x86-64, therefore a segfault the moment it is dereferenced as a pointer —
-      # instead of the stale-but-intact data that makes these bugs pass. Both bugs in  lived on
-      # paths LifetimeTests had no reason to walk; this covers all 393.
+      # instead of the stale-but-intact data that makes these bugs pass. Both ownership bugs in
+      # AGENTS.md#ownership-and-lifetime lived on paths LifetimeTests had no reason to walk; this covers them all.
       #
       # Set unconditionally rather than gated on the RID: MALLOC_PERTURB_ is a glibc variable, so
       # Windows and macOS ignore it, and a conditional would be more machinery than the thing it
@@ -423,7 +422,7 @@ jobs:
       # something real" look identical from here. So they came off, one variable at a time.
       #
       # The baseline they were waiting for now exists. osx-arm64 is green without them (a0eb587,
-      # 470 passed), after the two ownership bugs the leg found —  — were fixed. Any
+      # 470 passed), after the two ownership bugs the leg found (AGENTS.md#ownership-and-lifetime) were fixed. Any
       # crash from here is attributable to the poisoning, and unlike last time there is somewhere
       # to look: tools/ci/macos-backtrace.sh runs on failure and produces a stack.
       #
