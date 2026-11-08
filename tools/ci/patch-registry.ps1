@@ -79,6 +79,8 @@ $states = [ordered]@{
     filed       = '^filed: https://github\.com/shader-slang/slang/(issues|pull)/\d+$'
     fork        = '^upstream PR from fork: https://github\.com/shader-slang/slang/pull/\d+$'
     unpatchable = '^not patchable: \S.*$'
+    # Owner's call (2026-11-08): a defect whose fix is a compiler feature, left to Slang for now.
+    known       = '^known issue: \S.*$'
     unpatched   = '^unpatched$'
 }
 # The states in which our build carries the entry's patch.
@@ -106,7 +108,7 @@ foreach ($e in $entries) {
     if ($kinds -cnotcontains $e.kind) { Fail "$($e.id): kind '$($e.kind)' is not one of: $($kinds -join ', ')" }
     if ($e.verified -cnotmatch "^$version$") { Fail "$($e.id): verified '$($e.verified)' is not a Slang version" }
     $state = Get-StateName $e.state
-    if (-not $state) { Fail "$($e.id): state '$($e.state)' is not one of: patched; fixed upstream in vYYYY.RR; filed: <issue or PR URL>; upstream PR from fork: <PR URL>; not patchable: <reason>; unpatched"; continue }
+    if (-not $state) { Fail "$($e.id): state '$($e.state)' is not one of: patched; fixed upstream in vYYYY.RR; filed: <issue or PR URL>; upstream PR from fork: <PR URL>; not patchable: <reason>; known issue: <reason>; unpatched"; continue }
 
     if ($carrying -contains $state) {
         if (-not $e.patch) { Fail "$($e.id) is '$($e.state)' and names no patch" }
