@@ -14,6 +14,7 @@
 // The standard modules are build-native.ps1 -StandardModules All, the default and what the official
 // release carries; a payload staged with WithoutNeuralNumerics fails here, naming the missing files.
 
+using System.Runtime.CompilerServices;
 using System.Buffers.Binary;
 using System.Reflection;
 using System.Reflection.PortableExecutable;
@@ -121,7 +122,8 @@ public sealed class NativePayloadTests
     /// <summary>A fact that needs the staged payload, and optionally a host OS to read its binaries on.</summary>
     private sealed class PayloadFactAttribute : FactAttribute
     {
-        public PayloadFactAttribute(string? os = null) => Skip = SkipReason(os);
+        public PayloadFactAttribute(string? os = null, [CallerFilePath] string? sourceFilePath = null, [CallerLineNumber] int sourceLineNumber = -1)
+            : base(sourceFilePath, sourceLineNumber) => Skip = SkipReason(os);
     }
 
     [PayloadFact]
@@ -234,7 +236,8 @@ public sealed class NativePayloadTests
     // host (build-native.ps1 -AllowNewerGlibc) is let through only with SHARPSLANG_ALLOW_NEWER_GLIBC=1.
     private sealed class GlibcFloorFactAttribute : FactAttribute
     {
-        public GlibcFloorFactAttribute()
+        public GlibcFloorFactAttribute([CallerFilePath] string? sourceFilePath = null, [CallerLineNumber] int sourceLineNumber = -1)
+            : base(sourceFilePath, sourceLineNumber)
         {
             Skip = SkipReason("linux");
             if (Skip is null && Environment.GetEnvironmentVariable("SHARPSLANG_ALLOW_NEWER_GLIBC") == "1")
