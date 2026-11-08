@@ -1,0 +1,99 @@
+name: Slang payload
+description: >
+  Stages runtimes/<rid>/ from the cache, or on a miss from Slang's release archive (source release,
+  tools/fetch-native.ps1) or from the slang/ submodule (source build, tools/build-native.ps1), and
+  saves it to the cache right after, before anything is tested. A build also keeps its native
+  symbols in obj/native-symbols/<rid>/, cached with the payload, for the release's symbol zips.
+
+# The key is the git object ids of everything the payload is made from, this file included
+# (tools/ci/native-payload-key.ps1), the same on every OS. This file is "the workflow" of the
+# template's key: every workflow that stages a payload does it through here, so the steps that
+# make one live in one place and an edit to anything else does not rebuild Slang
+# (AGENTS.md#actions-budget). A hit restores in seconds and fetches no Slang source.
+
+inputs:
+  rid:
+    description: win-x64, linux-x64, linux-arm64 or osx-arm64
+    required: true
+  source:
+    description: release (Slang's archive, what CI stages until the repository is public) or build (from the submodule)
+    required: true
+  token:
+    description: the job token, for fetch-native.ps1's API fallback route
+    required: false
+    default: ''
+
+outputs:
+  cache-hit:
+    description: "'true' when the payload came from the cache"
+    value: ${{ steps.restore.outputs.cache-hit }}
+  key:
+    description: the cache key
+    value: ${{ steps.key.outputs.cache }}
+
+runs:
+  using: composite
+  steps:
+    - name: Payload cache key
+      id: key
+      shell: pwsh
+      run: |
+        $source = if ('${{ inputs.source }}' -eq 'build') { 'Build' } elseif ('${{ inputs.source }}' -eq 'release') { 'Release' } else { throw "source must be build or release, not '${{ inputs.source }}'" }
+        $line = ./tools/ci/native-payload-key.ps1 -Source $source
+        "cache=slang-${{ inputs.source }}-${{ inputs.rid }}-$($line -replace '^key=', '')" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
+    - name: Restore the payload
+      id: restore
+      uses: actions/cache/restore@v6
+      with:
+        path: |
+          runtimes/${{ inputs.rid }}
+          obj/native-symbols/${{ inputs.rid }}
+        key: ${{ steps.key.outputs.cache }}
+
+    # ---------------------------------------------------------------- release: Slang's archive
+    - name: Fetch Slang's release
+      if: steps.restore.outputs.cache-hit != 'true' && inputs.source == 'release'
+      shell: pwsh
+      env:
+        GH_TOKEN: ${{ inputs.token }}   # only for the API fallback route; see fetch-native.ps1
+      run: ./tools/fetch-native.ps1 -Rid ${{ inputs.rid }} -Profile Spirv
+
+    # ---------------------------------------------------------------- build: the submodule
+    # Slang and its own submodules (external/, about 1.4 GB checked out), only on a miss.
+    - name: Fetch the Slang submodule
+      if: steps.restore.outputs.cache-hit != 'true' && inputs.source == 'build'
+      shell: bash
+      run: git -c submodule.fetchJobs=8 submodule update --init --recursive slang
+
+    # From the image's apt lists, refreshed only after a failed install (the template's rule).
+    - name: Install Ninja
+      if: steps.restore.outputs.cache-hit != 'true' && inputs.source == 'build' && runner.os != 'Windows'
+      shell: bash
+      run: |
+        command -v ninja && exit 0
+        if [ "$RUNNER_OS" = macOS ]; then brew install ninja; exit; fi
+        sudo apt-get install -y -qq ninja-build || { sudo apt-get update -qq && sudo apt-get install -y -qq ninja-build; }
+
+    - name: Build the payload
+      if: steps.restore.outputs.cache-hit != 'true' && inputs.source == 'build'
+      shell: pwsh
+      run: ./tools/build-native.ps1 -Rid ${{ inputs.rid }}
+
+    # The symbols the same link wrote beside each staged library, with the hash of the library they
+    # belong to, so a cached payload keeps its symbols (tools/ci/native-symbols.ps1).
+    - name: Keep the native symbols
+      if: steps.restore.outputs.cache-hit != 'true' && inputs.source == 'build'
+      shell: pwsh
+      run: ./tools/ci/native-symbols.ps1 -Rid ${{ inputs.rid }} -Collect
+
+    # Right after the payload is made and before any test: a red test run still leaves the next run
+    # a cached payload.
+    - name: Save the payload
+      if: steps.restore.outputs.cache-hit != 'true'
+      uses: actions/cache/save@v6
+      with:
+        path: |
+          runtimes/${{ inputs.rid }}
+          obj/native-symbols/${{ inputs.rid }}
+        key: ${{ steps.key.outputs.cache }}
