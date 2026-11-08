@@ -54,7 +54,7 @@ archive, which CI tests until the switch (`AGENTS.md`, Decisions), has none of t
 | U28 | Metal: a matrix vertex input at one `[[attribute]]` | Metal | Slang defect |  | `TargetValidationTests.Metal_compiles_to_air` | unpatched | v2026.21 |
 | U29 | Metal: an array of device pointers as a kernel input | Metal | Slang defect |  | `TargetValidationTests.Slang_compute_corpus_metal_compiles_to_air` | unpatched | v2026.21 |
 | U30 | A component type linked a second time ignores the second link's options | linking | Slang defect |  | `CompositeTests.Linking_with_options_one_call_at_a_time_emits_what_Link_emits` | unpatched | v2026.21 |
-| U31 | A second module loaded from source at an already-used path ends in an internal assert | diagnostics | Slang defect |  | `CompilationTests.A_second_module_from_source_at_the_same_path_ends_in_an_internal_assert` | unpatched | v2026.21 |
+| U31 | A second module loaded from source at an already-used path ends in an internal assert | diagnostics | Slang defect | `0005-module-path-already-loaded.patch` | `CompilationTests.A_second_module_from_source_at_the_same_path_is_diagnosed_naming_the_path` | patched | v2026.21 |
 <!-- patch-registry:end -->
 
 Related upstream items found while checking whether these were known: the layout-query robustness
@@ -877,6 +877,15 @@ module loads.
 **Expected.** A diagnostic naming the path the session already holds a module for, or both modules
 loaded.
 
-**Measurement.** v2026.21, Windows (the workstation),
-`CompilationTests.A_second_module_from_source_at_the_same_path_ends_in_an_internal_assert`, which
-asserts the wrong answer so a fix fails it. Filed: no.
+**Cause.** `Linkage::loadModuleFromBlob` (`source/slang/slang-session.cpp`) checks only the module's
+name against `mapNameToLoadedModules`. A new name at a used path reaches `Linkage::loadParsedModule`,
+whose `mapPathToLoadedModule.add` (1261) asserts on the existing key.
+
+**Fix.** Check the path before loading, and diagnose a new error, E38208
+`module-path-already-loaded`, naming the path and the module (`patches/0005-module-path-already-loaded.patch`,
+with a `SLANG_UNIT_TEST`).
+
+**Measurement.** v2026.21, win-x64 (the workstation): before, null with the assert text and no code
+(`CompilationTests.A_second_module_from_source_at_the_same_path_ends_in_an_internal_assert`, on the release
+payload); after, null with E38208 naming `shared.slang`, and a module at another path still loads
+(`CompilationTests.A_second_module_from_source_at_the_same_path_is_diagnosed_naming_the_path`). Filed: no.
