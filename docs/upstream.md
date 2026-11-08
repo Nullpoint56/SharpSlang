@@ -38,10 +38,10 @@ archive, which CI tests until the switch (`AGENTS.md`, Decisions), has none of t
 | U12 | `ISession::loadModule*` returns a borrowed reference; the header does not say so | API header | Slang documentation defect | `0007-document-loaded-module-ownership.patch` | `HeaderDocumentationTests.The_header_says_a_loaded_module_is_owned_by_the_session` | patched |  | v2026.21 |
 | U13 | Releasing a session's last reference from `~Linkage` destroys the global session inside it | lifetime | Slang defect |  | `LifetimeTests.The_global_session_is_never_destroyed_from_inside_the_linkage` | known issue: macOS only and last measured on v2026.14.1; re-measuring needs a Mac; left to Slang (owner, 2026-11-08) |  | v2026.14.1 |
 | U14 | `isBinaryModuleUpToDate` answers from the session's file cache | modules | Slang defect | `0006-binary-module-up-to-date-reads-afresh.patch` | `ModuleSerializationTests.The_staleness_check_reads_the_files_afresh_in_the_session_that_loaded_the_module` | patched |  | v2026.21 |
-| U15 | Reflection queries that answer nothing, and facts reflection does not carry | reflection | Slang defect |  | `SecondOpinionTests.The_calls_that_report_nothing_are_pinned_reporting_nothing` | unpatched |  | v2026.21 |
+| U15 | Reflection queries that answer nothing, and facts reflection does not carry | reflection | Slang defect |  | `SecondOpinionTests.The_calls_that_report_nothing_are_pinned_reporting_nothing` | known issue: small reflection gaps, several possibly by design, each answered by another route the binding reads; the one with a clear defect, the parameter block's space offset, is U33 and patched (owner, 2026-11-08: the moderate and large ones patched, the rest known issues) |  | v2026.21 |
 | U16 | `linkWithOptions` silently ignores most compiler options | linking | Slang defect | `0018-link-time-options.patch` | `LinkOptionsTests.A_link_time_option_takes_effect_or_says_it_cannot` | patched |  | v2026.21 |
-| U17 | SPIR-V for `SV_VertexID` differs between x86-64 and aarch64 builds | SPIR-V | Slang defect |  | `SpirvDigestTests.The_corpus_compiles_deterministically_and_records_a_digest_for_every_shader` | unpatched |  | v2026.21 |
-| U18 | GLSL: a hull shader's patch-constant function returns its struct with a bare `return;` | GLSL | Slang defect | `0009-glsl-patch-constant-function-void.patch` | `TargetValidationTests.Glsl_a_hull_shaders_patch_constant_function_compiles` | patched | [#14335](https://github.com/shader-slang/slang/issues/14335) | v2026.21 |
+| U17 | SPIR-V for `SV_VertexID` differs between x86-64 and aarch64 builds | SPIR-V | Slang defect | `0021-vertex-id-loads-in-source-order.patch` | `SpirvDigestTests.SV_VertexID_builtins_are_numbered_in_source_order` | patched |  | v2026.21 |
+| U18 | GLSL: a hull shader's patch-constant function returns its struct with a bare `return;` | GLSL | Slang defect | `0009-glsl-patch-constant-function-void.patch` | `TargetValidationTests.Glsl_a_hull_shaders_patch_constant_function_returns_void` | patched | [#14335](https://github.com/shader-slang/slang/issues/14335) | v2026.21 |
 | U19 | GLSL: a domain shader's per-vertex input is sized by the patch, which GLSL forbids | GLSL | Slang defect | `0010-glsl-domain-input-unsized.patch` | `TargetValidationTests.Glsl_a_domain_shaders_patch_input_compiles` | patched | [#14335](https://github.com/shader-slang/slang/issues/14335) | v2026.21 |
 | U20 | WGSL: a `const` is initialised from an `override` | WGSL | Slang defect | `0012-wgsl-override-not-const.patch` | `TargetValidationTests.Wgsl_a_value_computed_from_a_specialization_constant_is_not_const` | patched | [#14285](https://github.com/shader-slang/slang/issues/14285) | v2026.21 |
 | U21 | WGSL: a matrix vertex input is written at one `@location` | WGSL | Slang defect |  | `TargetValidationTests.Wgsl_passes_naga` | known issue: the fix splits a matrix vertex input into one location per column and reassembles it, a varying-legalization feature (the TODO at slang-ir-legalize-varying-params.cpp:880); left to Slang (owner, 2026-11-08) | [#13736](https://github.com/shader-slang/slang/issues/13736) | v2026.21 |
@@ -55,8 +55,10 @@ archive, which CI tests until the switch (`AGENTS.md`, Decisions), has none of t
 | U29 | Metal: an array of device pointers as a kernel input | Metal | Slang defect |  | `TargetValidationTests.Slang_compute_corpus_metal_compiles_to_air` | known issue: device-pointer arrays as kernel inputs need an argument-buffer lowering, a feature; left to Slang (owner, 2026-11-08) |  | v2026.21 |
 | U30 | A component type linked a second time ignores the second link's options | linking | Slang defect | `0008-link-with-options-owns-its-options.patch` | `CompositeTests.A_composite_linked_a_second_time_emits_what_its_second_links_options_say` | patched |  | v2026.21 |
 | U31 | A second module loaded from source at an already-used path ends in an internal assert | diagnostics | Slang defect | `0005-module-path-already-loaded.patch` | `CompilationTests.A_second_module_from_source_at_the_same_path_is_diagnosed_naming_the_path` | patched |  | v2026.21 |
-| U32 | C++: an append or consume structured buffer ends in an internal error | C++ output | Slang defect |  |  | unpatched |  | v2026.21 |
+| U32 | C++: an append or consume structured buffer ends in an internal error | C++ output | Slang defect | `0020-cpp-append-consume-counter.patch` | `TargetValidationTests.Cpp_append_and_consume_buffers_compile` | patched |  | v2026.21 |
 | U33 | A top-level parameter block's sub-object range reports space offset 0 | reflection | Slang defect | `0019-parameter-block-space-offset.patch` | `SecondOpinionTests.A_top_level_parameter_blocks_sub_object_range_reports_its_space` | patched |  | v2026.21 |
+| U34 | GLSL: the tessellation stages declare no `layout(vertices = N) out` or input primitive | GLSL output | Slang defect | `0022-glsl-tessellation-layouts.patch` | `TargetValidationTests.Glsl_the_tessellation_stages_declare_their_layouts` | patched |  | v2026.21 |
+| U35 | GLSL: a hull shader's per-vertex output is indexed with `uint(gl_InvocationID)` | GLSL output | Slang defect |  | `TargetValidationTests.Glsl_compiles_with_glslang` | known issue: GLSL output only, the SPIR-V target is valid; a fix is an emitter special case for one builtin's cast, left to Slang (owner, 2026-11-08: the moderate and large ones patched, the rest known issues) |  | v2026.21 |
 <!-- patch-registry:end -->
 
 Related upstream items found while checking whether these were known: the layout-query robustness
@@ -323,6 +325,15 @@ buffer while the shader reads `gUnsized.values[0]`.
 error saying the buffer cannot be laid out before specialization. A block that also has a
 fixed-size member does get its binding.
 
+**Cause.** The layout of `ConstantBuffer<T>` and `ParameterBlock<T>` (`source/slang/slang-type-layout.cpp`)
+allocates the buffer's own binding only when the element type uses ordinary data, which
+`_usesResourceKind` decides as `count.compare(0) == std::partial_ordering::greater`. The uniform size of a
+block holding only a link-time-sized array is `LayoutSize::invalid()` until specialization, which compares
+unordered, so the buffer is treated as empty.
+
+**Fix.** Count a resource whose size compares unordered as used, so the buffer keeps its binding
+(`patches/0016-specialization-sized-constant-buffer-binding.patch`, with a `SLANG_UNIT_TEST`).
+
 **Measurement.** Reflection half: v2026.21, all four platforms. Module half: v2026.14.1, to be
 re-measured on v2026.21 with `spirv-dis` before filing.
 
@@ -350,6 +361,15 @@ at location 2, component 0". Reflection reports the same numbering, so a host bu
 state from reflection builds the overlapping one. `slangc` alone produces the module.
 
 **Expected.** `after` at location 3.
+
+**Cause.** `DefaultVaryingLayoutRulesImpl::GetVectorLayout` (`source/slang/slang-type-layout.cpp`) gives
+every vector one varying slot, with a TODO noting that vectors of `double` may need other handling. The
+Vulkan specification ("Location Assignment") and GLSL 4.60 (4.4.1) give a three- or four-component
+64-bit vector two consecutive locations.
+
+**Fix.** `GLSLVaryingLayoutRulesImpl`, used for the GLSL and SPIR-V targets, returns two slots for a 64-bit
+vector of more than two components (`patches/0014-wide-vertex-input-two-locations.patch`, with a
+`SLANG_UNIT_TEST`). Slang issue #13427 reports the same defect.
 
 **Measurement.** v2026.21, `slangc` and the API agree; spirv-val rejects the module. Rechecked with
 `slangc` only at v2026.14.1 (2026-08-10), with no other tool in the process:
@@ -419,6 +439,15 @@ later compiles in the same session are unoptimised and say nothing.
 on every affected compile. An error-severity diagnostic attached to success, once, is the
 combination a host cannot act on reliably.
 
+**Cause.** `Session::getOrLoadDownstreamCompiler` (`source/slang/slang-check.cpp`) reports the failed load
+as an error, and only on the session's first attempt, because the attempt is remembered; the SPIR-V back
+end (`source/slang/slang-emit.cpp`) then emits unoptimized and returns success.
+
+**Fix.** Load spirv-opt for optimization and validation without the load's diagnostics, and warn E00118
+`spirv-optimizer-unavailable` on every compile it affects; a compile that must link several SPIR-V modules
+keeps the load's diagnostics (`patches/0017-warn-on-each-unoptimized-spirv.patch`; no unit test, since the
+library must be absent).
+
 **Measurement.** v2026.14.1 (the diagnostics, the sizes and the once-per-session behaviour). Not
 re-measured on v2026.21: do that before filing.
 
@@ -447,6 +476,16 @@ never searched. The comment at `slang-platform.cpp:189` lists that directory fir
 a full path before the search-order load, matching what the rpaths give Linux and macOS.
 `IGlobalSession::setDownstreamCompilerPath` may serve as a per-compiler workaround today; not
 tried.
+
+**Cause.** `SharedLibrary::loadWithPlatformPath` (`source/core/slang-platform.cpp`) tries
+`LoadLibraryExW(name, nullptr, LOAD_LIBRARY_SEARCH_DEFAULT_DIRS)` and then `LoadLibraryW(name)`.
+`LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR` applies only to a fully qualified name, so a bare name never searches
+the directory of `slang-compiler.dll`.
+
+**Fix.** A third attempt for a name without a path: the directory of the module the code is linked into,
+found with `GetModuleHandleExW` and `GetModuleFileNameW`, loaded by full path
+(`patches/0015-windows-load-beside-the-compiler.patch`; no unit test, since it depends on how the process
+is launched).
 
 **Measurement.** Windows 11, Slang 2026.14.1: a host started from another directory failed to load
 `spirv-opt` with `SLANG_E_NOT_FOUND`; with the library preloaded by full path from the compiler's
@@ -533,6 +572,14 @@ declaration (`slang.h:4790-4801`) documents true when the primary source cannot 
 the fresh session does not do for the absent path, and documents nothing about the cache, which is
 why the same-session answer for a changed file is true.
 
+**Cause.** `Linkage::isBinaryModuleUpToDate` (`source/slang/slang-session.cpp`) hashes the dependencies
+through `Linkage::loadSourceFile`, that is, through the session's `CacheFileSystem` and source manager,
+which keep what they read when the module was loaded.
+
+**Fix.** Read the dependencies through a new `CacheFileSystem` over the same underlying file system and a
+source manager of its own, as a new session reads them; a caller-supplied `CacheFileSystem` is read as
+before (`patches/0006-binary-module-up-to-date-reads-afresh.patch`, with a `SLANG_UNIT_TEST`).
+
 **Measurement.** v2026.21, all four platforms.
 
 **Repro.** Load `mslib.slang` with `loadModule("mslib")`, `serialize()` it, rewrite the file, then
@@ -547,7 +594,7 @@ Each measured on v2026.21; filed, if at all, as one issue listing them.
   behind it (`spReflectionVariableLayout_GetVariable` is null), so a sub-object range has no name;
   the name is reachable only through `getBindingRangeLeafVariable` of the binding range it points at.
 - `spReflectionTypeLayout_getSubObjectRangeSpaceOffset` returns 0 for a parameter block in set 1 and
-  for one in set 2.
+  for one in set 2. Split out as U33 and patched.
 - `spReflectionType_getSpecializedTypeArgCount` returns 0 on every path tried, including a type
   written `Wrapper<Lambert>` in source and a type produced by specialization; the arguments are
   readable only from `GetFullName`.
@@ -574,6 +621,15 @@ Measured by diffing the emitted SPIR-V: `Optimization` (None 2,052 bytes, defaul
 **Expected.** A diagnostic for an option that has no effect at link time, or the list of link-time
 options documented on `linkWithOptions`.
 
+**Cause.** `TargetProgram::getHLSLToVulkanLayoutOptions` (`source/slang/slang-target-program.h`) returns
+the target request's options, built from the session's and the target's option sets only, so every option
+they carry is ignored at link time. Capability and Profile are fixed on the target request when the
+session creates it.
+
+**Fix.** Build the program's own HLSL-to-Vulkan layout options from its merged option set when it carries
+options of its own, and warn E00136 `link-time-option-has-no-effect` for Capability or Profile given at
+link time (`patches/0018-link-time-options.patch`, with a `SLANG_UNIT_TEST`).
+
 **Measurement.** v2026.14.1. Re-measure on v2026.21 before filing.
 
 ## U17 — SPIR-V for `SV_VertexID` differs between x86-64 and aarch64 builds
@@ -589,11 +645,20 @@ the `OpISub` computing `VertexIndex - BaseVertex` swap with them.
 **Expected.** Output that depends only on the input and options, so content hashes of compiled
 shaders agree across a build farm of mixed architectures.
 
-**Cause.** Not located. An iteration whose order depends on pointer values or on an
-architecture-dependent hash would produce exactly this.
+**Cause.** The SPIR-V legalization (`source/slang/slang-ir-glsl-legalize.cpp`) replaces each load of
+`SV_VertexID` with `builder.emitSub(type, builder.emitLoad(vertexIndex), builder.emitLoad(baseVertex))`,
+and `SV_InstanceID` the same way. C++ leaves the evaluation order of the two arguments unspecified;
+the x86-64 builds emit the `BaseVertex` load first and the aarch64 builds the `VertexIndex` load. The
+SPIR-V emitter numbers a builtin variable when it first sees it, so the IDs follow.
+
+**Fix.** Emit each load as a statement of its own, in source order
+(`patches/0021-vertex-id-loads-in-source-order.patch`, with a `SLANG_UNIT_TEST`).
 
 **Measurement.** v2026.21, three of 33 shaders in a corpus (every one that uses `SV_VertexID`, and
-no other), on all four platforms, word by word.
+no other), on all four platforms, word by word. On win-x64 `BaseVertex` is `%20` and `VertexIndex`
+`%22` in `stage-narrowing`; with the patch `VertexIndex` comes first
+(`SpirvDigestTests.SV_VertexID_builtins_are_numbered_in_source_order`). That the patched x86-64
+module equals the aarch64 one is checked by the digests comparison once CI builds from source.
 
 **Repro.** A reduction, not yet confirmed to reproduce on its own (the three shaders that do are
 larger; reduce and confirm before filing):
@@ -615,6 +680,13 @@ as `TePatch_0 teConstants_0(TeControl_0 patch_0[3])`, writes the tessellation le
 must return a value". The SPIR-V target compiles the same shader to a module spirv-val accepts.
 
 **Expected.** A `void` function, or a `return` of the struct.
+
+**Cause.** `invokePatchConstantFuncInHullShader` (`source/slang/slang-ir-glsl-legalize.cpp`) rewrites the
+patch-constant function's returns to return nothing, then calls `fixUpFuncType(constantFunc)`, which keeps
+the declared result type; the entry point beside it gets `fixUpFuncType(entryPoint, builder.getVoidType())`.
+
+**Fix.** Give the patch-constant function a void result type, as the entry point has
+(`patches/0009-glsl-patch-constant-function-void.patch`, with a `SLANG_UNIT_TEST`).
 
 **Measurement.** v2026.21, Windows x64 (the GLSL target's text does not depend on the host).
 
@@ -649,6 +721,15 @@ The SPIR-V target's module for the same shader passes spirv-val.
 **Expected.** `in vec3 patch_tePosition_0[];` (implicitly sized), as GLSL 4.50 requires for a
 tessellation evaluation input.
 
+**Cause.** `legalizePatchParam` (`source/slang/slang-ir-glsl-legalize.cpp`) turns an `InputPatch` or
+`OutputPatch` parameter into a global varying array sized by the patch, for every stage and target.
+
+**Fix.** The GLSL emitter declares a hull or domain shader's array-typed input that is neither a per-patch
+input (the `patch` decoration) nor a system value as an unsized array, through a new
+`getGlobalParamDeclaredType` hook on the C-like emitter; the IR keeps the patch size, which
+legalization and layout use (`patches/0010-glsl-domain-input-unsized.patch`, with a
+`SLANG_UNIT_TEST`).
+
 **Measurement.** v2026.21, Windows x64.
 
 **Repro.** U18's `TeControl`, plus:
@@ -671,6 +752,14 @@ expression as a `const`: `@id(0) override scCascades_0 : i32 = i32(3);` then, in
 override is not one. naga 30.0.1: "Unexpected override-expression".
 
 **Expected.** `let _S1 : f32 = f32(scCascades_0);` (or an `override` declaration).
+
+**Cause.** `isStaticConst` (`source/slang/slang-emit-wgsl.cpp`) calls any module-scope instruction a
+constant, and a specialization constant is one, emitted as an `override`; a value computed from it is
+therefore declared `const`.
+
+**Fix.** `isStaticConst` is false for a module-scope value laid out as a specialization constant, so
+values computed from it are declared with `var` (`patches/0012-wgsl-override-not-const.patch`, with a
+`SLANG_UNIT_TEST`).
 
 **Measurement.** v2026.21, Windows x64.
 
@@ -752,12 +841,20 @@ with an internal error rather than a diagnostic naming the construct and the tar
   `internal error[E99999]: unimplemented feature in Slang compiler: this target doesn't support this
   system-defined varying parameter` (or "user-defined"). The same targets report a hull, geometry or
   mesh stage properly, as `E36107` "uses features that are not available in ... stage".
-- C++ source, an `AppendStructuredBuffer` / `ConsumeStructuredBuffer`:
-  `internal error[E99999]: unimplemented feature in Slang compiler: unexpected IR opcode during code
-  emit`.
 
 **Expected.** A diagnostic in the family the targets already use for what they lack (`E36107`,
 `E55202`, `E56105`), naming the construct.
+
+**Cause.** The WGSL and Metal emitters reach `SLANG_UNEXPECTED` for a `double` type or literal
+(`source/slang/slang-emit-wgsl.cpp`, `source/slang/slang-emit-metal.cpp`); the varying-parameter
+legalization for C++ and CUDA reports `Diagnostics::Unimplemented`
+(`source/slang/slang-ir-legalize-varying-params.cpp`).
+
+**Fix.** Two diagnostics: the error E56110 `type-not-supported-on-target`, naming the type and the target,
+and the fatal E56111 `varying-parameter-not-supported-on-target`, naming whether the parameter is
+system-defined or user-defined. E56111 is fatal, as `Unimplemented` was, because the legalization goes on
+to use the value it returns (`patches/0013-diagnose-unsupported-double-and-varyings.patch`, with a
+`SLANG_UNIT_TEST`).
 
 **Measurement.** v2026.21, Windows x64, from `getEntryPointCode`; the messages are Slang's.
 
@@ -784,6 +881,12 @@ of the corpus with `-target cpp`.
 `double` (lines 371-372 at v2026.21) and not for `half`.
 
 **Expected.** `SLANG_FLOAT_VECTOR_OPS(half)`, or a diagnostic for half vectors on the C++ target.
+
+**Cause.** `prelude/slang-cpp-types-core.h` instantiates `SLANG_FLOAT_VECTOR_OPS` for `float` and `double`
+(lines 371-372) and not for `half`.
+
+**Fix.** Instantiate `SLANG_FLOAT_VECTOR_OPS(half)` beside the other two
+(`patches/0011-cpp-prelude-half-vector-ops.patch`).
 
 **Measurement.** v2026.21, Windows x64, `clang++ -std=c++17 -fsyntax-only` with the prelude
 directory at the tag on the include path. Slang's own `tests/compute/half-vector-calc.slang` and
@@ -863,6 +966,16 @@ first link's: `SLANG_OPTIMIZATION_LEVEL_NONE` first and `MAXIMAL` second both em
 
 **Expected.** Each link applies its own options, or the second call is refused.
 
+**Cause.** `ComponentType::linkWithOptions` (`source/slang/slang-linkable.cpp`) links, then loads the
+options into the component type the link returned. `ComponentType::link` returns `fillRequirements(this)`,
+which returns its argument unchanged when nothing is left to fill
+(`source/slang/slang-check-shader.cpp:3153-3171`), so the options go into the caller's own composite, and
+the code generated for it is cached there.
+
+**Fix.** When the link returned the caller's component type, compose a component type of its own around
+it and load the options into that (`patches/0008-link-with-options-owns-its-options.patch`, with a
+`SLANG_UNIT_TEST`).
+
 **Measurement.** v2026.21, Windows (the workstation), `CompositeTests.Linking_with_options_one_call_at_a_time_emits_what_Link_emits`,
 which asserts the wrong answer so a fix fails it. Filed: no.
 
@@ -891,3 +1004,117 @@ with a `SLANG_UNIT_TEST`).
 (`CompilationTests.A_second_module_from_source_at_the_same_path_ends_in_an_internal_assert`, on the release
 payload); after, null with E38208 naming `shared.slang`, and a module at another path still loads
 (`CompilationTests.A_second_module_from_source_at_the_same_path_is_diagnosed_naming_the_path`). Filed: no.
+
+## U32 — C++: an append or consume structured buffer ends in an internal error
+
+**Observed.** Compiling a shader that declares an `AppendStructuredBuffer` or a
+`ConsumeStructuredBuffer` to C++ source ends compilation with `internal error[E99999]:
+unimplemented feature in Slang compiler: unexpected IR opcode during code emit`. The same shader
+compiles to SPIR-V, DXIL and HLSL.
+
+**Expected.** C++ source for the buffer, or a diagnostic naming the construct and the target, as
+the C++ target gives for barriers and atomics (`E36107`).
+
+**Cause.** `lowerAppendConsumeStructuredBuffers`
+(`source/slang/slang-ir-lower-append-consume-structured-buffer.cpp`) turns each buffer into an
+element buffer and a counter of `Atomic<int>`, and `Append` and `Consume` into an `AtomicInc` or
+`AtomicDec` of the counter. The C++ emitter (`source/slang/slang-emit-cpp.cpp`) emits `AtomicAdd`
+through the prelude's `_slang_atomic_add_*` helpers and has no case for the other two, which reach
+`diagnoseUnhandledInst`.
+
+**Fix.** Emit `AtomicInc` and `AtomicDec` as an add of 1 and of -1 through the same helpers, which
+return the prior value, as the HLSL emitter's `InterlockedAdd` does for the two
+(`patches/0020-cpp-append-consume-counter.patch`, with a `SLANG_UNIT_TEST`).
+
+**Measurement.** v2026.21, Windows x64, from `getEntryPointCode` on the `append-buffers` corpus
+shader (`TargetValidationTests.Declared`, the C++ row); with the patch the output compiles with
+`clang++ -std=c++17 -fsyntax-only` against the prelude
+(`TargetValidationTests.Cpp_append_and_consume_buffers_compile`). Split out of U23, where it was
+listed with the other internal errors, because it is the emitter's and not the varying-parameter
+legalization's. Filed: no.
+
+## U33 — A top-level parameter block's sub-object range reports space offset 0
+
+**Observed.** `spReflectionTypeLayout_getSubObjectRangeSpaceOffset` returns 0 for the sub-object
+range of every top-level `ParameterBlock`. With a loose global texture beside two parameter blocks,
+the blocks occupy spaces 1 and 2 (their descriptor sets say so), and both ranges report 0.
+
+**Expected.** The space offset of the range, 1 and 2, as the descriptor sets report.
+
+**Cause.** `ExtendedTypeLayoutContext` (`source/slang/slang-reflection-api.cpp`) reads the range's
+space offset from the variable layout's `SubElementRegisterSpace` entry, the kind a nested block is
+laid out with. A top-level block that starts a space of its own is laid out with `RegisterSpace`,
+which is not read, so the offset stays 0.
+
+**Fix.** Read the index for whichever of the two kinds the block is laid out with
+(`patches/0019-parameter-block-space-offset.patch`, with a `SLANG_UNIT_TEST`).
+
+**Repro.**
+
+```hlsl
+struct SoMaterial { float4 tint; Texture2D albedo; };
+Texture2D soLoose;
+ParameterBlock<SoMaterial> soFirst;
+ParameterBlock<SoMaterial> soSecond;
+SamplerState soSamp;
+
+[shader("fragment")]
+float4 soFragment(float2 uv : TEXCOORD0) : SV_Target
+{
+    return soLoose.Sample(soSamp, uv) + soFirst.tint + soSecond.tint;
+}
+```
+
+Through the C API: the global scope's type layout, each sub-object range's
+`getSubObjectRangeSpaceOffset`.
+
+**Measurement.** v2026.21, win-x64 (the workstation): 0 and 0 on the release payload
+(`SecondOpinionTests.A_top_level_parameter_blocks_sub_object_range_reports_space_0`), 1 and 2 with
+the patch (`SecondOpinionTests.A_top_level_parameter_blocks_sub_object_range_reports_its_space`).
+Filed: no.
+
+## U34 — GLSL: the tessellation stages declare no `layout(vertices = N) out` or input primitive
+
+**Observed.** The GLSL Slang emits for a hull shader has no `layout(vertices = N) out;`, and for a
+domain shader no `layout(triangles) in;` (or `quads`, `isolines`), although the HLSL source carries
+`[outputcontrolpoints(3)]` and `[domain("tri")]`. glslang refuses each stage when it is linked on
+its own: "At least one shader must specify an output layout(vertices=...)" and "At least one shader
+must specify an input layout primitive". The SPIR-V target's modules carry the `OutputVertices`
+and `Triangles` execution modes.
+
+**Expected.** Both layouts declared.
+
+**Cause.** `GLSLSourceEmitter::emitEntryPointAttributesImpl` (`source/slang/slang-emit-glsl.cpp`)
+declares the geometry stage's layouts and has no case for the hull or the domain stage, so
+`OutputControlPointsDecoration` and `DomainDecoration` are not written.
+
+**Fix.** Declare `layout(vertices = N) out;` on the hull stage and the abstract patch on the domain
+stage. Spacing and vertex order, which GLSL declares on the evaluation shader, are the hull
+shader's attributes in HLSL and unknown to a domain shader compiled alone, so GLSL's defaults
+apply (`patches/0022-glsl-tessellation-layouts.patch`, with a `SLANG_UNIT_TEST`).
+
+**Measurement.** v2026.21, win-x64 (the workstation), `glslangValidator -V --target-env vulkan1.2`
+on the `tessellation` corpus case once U18 and U19 were patched; the layouts' presence is held by
+`TargetValidationTests.Glsl_the_tessellation_stages_declare_their_layouts`, and the stages'
+validity by the U18 and U19 tests, which need all three patches. Found while patching U18 and U19,
+whose errors had hidden it. Filed: no.
+
+## U35 — GLSL: a hull shader's per-vertex output is indexed with `uint(gl_InvocationID)`
+
+**Observed.** For a hull shader whose `SV_OutputControlPointID` parameter is a `uint`, as HLSL
+declares it, the GLSL target writes the returned control point as
+`entryPointParam_teHull_tePosition_0[uint(gl_InvocationID)] = ...;`. GLSL requires a tessellation
+control shader's per-vertex output to be indexed with `gl_InvocationID` itself, and glslang refuses
+it: "'[]' : tessellation-control per-vertex output l-value must be indexed with gl_InvocationID".
+The SPIR-V target's module is valid.
+
+**Expected.** `entryPointParam_teHull_tePosition_0[gl_InvocationID] = ...;`.
+
+**Cause.** `SV_OutputControlPointID` is legalized to `gl_InvocationID`, an `int` in GLSL, behind a
+cast to the parameter's `uint`, and the output store is indexed with the cast value
+(`source/slang/slang-ir-glsl-legalize.cpp`, the hull branch beside `rewriteReturnToOutputStore`).
+
+**Measurement.** v2026.21, win-x64 (the workstation), `glslangValidator -V --target-env vulkan1.2
+-S tesc` on the `tessellation` corpus case's hull shader once U18, U19 and U34 were patched, which
+had hidden it (`TargetValidationTests.Declared`, the GLSL row). Recorded as a known issue. Filed:
+no.

@@ -1,39 +1,106 @@
-Declare a domain shader's patch input implicitly sized on the GLSL target.
+Declare the tessellation stages' per-vertex inputs implicitly sized on the GLSL target.
 
 legalizePatchParam (source/slang/slang-ir-glsl-legalize.cpp) turns an InputPatch or OutputPatch
-parameter into a global varying array sized by the patch: `layout(location = 0) in vec3
-patch_tePosition_0[3];` for `const OutputPatch<TeControl, 3> patch` in a domain shader. GLSL 4.50
-requires a tessellation evaluation shader's per-vertex inputs to be implicitly sized or sized
-gl_MaxPatchVertices, and glslang refuses the declaration: "'[]' : tessellation input array size
-must be gl_MaxPatchVertices or implicitly sized". The SPIR-V target's module for the same shader
-is valid.
+parameter into global varying arrays sized by the patch, and the GLSL emitter declares them with
+that size: `layout(location = 0) in vec3 patch_tePosition_0[3];` for `const OutputPatch<TeControl,
+3> patch` in a domain shader, and the same for a hull shader's `InputPatch<TeControl, 3>`. GLSL 4.50
+requires the per-vertex inputs of the tessellation control and evaluation shaders to be implicitly
+sized or sized gl_MaxPatchVertices, and glslang refuses the declarations: "'[]' : tessellation
+input array size must be gl_MaxPatchVertices or implicitly sized". The SPIR-V target's modules for
+the same shaders are valid.
 
-This leaves the array unsized for a domain shader on targets other than SPIR-V, which the GLSL
-emitter writes as `[]`. The SPIR-V target, and hull shaders, keep the patch size. A regression
-test is added as tools/slang-unit-test/unit-test-glsl-domain-input-unsized.cpp.
+This gives the C-like emitter's global parameter declaration a hook for the declared type,
+getGlobalParamDeclaredType, and the GLSL emitter declares a hull or domain shader's array-typed
+input that is neither a per-patch input (the `patch` decoration) nor a system value as an unsized
+array. The IR keeps the patch size, which legalization and layout use. A regression test is added
+as tools/slang-unit-test/unit-test-glsl-domain-input-unsized.cpp.
 
-Measured on v2026.21: glslangValidator -V --target-env vulkan1.2 -S tese refused the domain
-shader's GLSL.
-diff --git a/source/slang/slang-ir-glsl-legalize.cpp b/source/slang/slang-ir-glsl-legalize.cpp
-index d4a5713aa..257e3f84d 100644
---- a/source/slang/slang-ir-glsl-legalize.cpp
-+++ b/source/slang/slang-ir-glsl-legalize.cpp
-@@ -3319,7 +3319,14 @@ static void legalizePatchParam(
- {
-     auto builder = context->getBuilder();
-     auto elementType = patchType->getElementType();
--    auto elementCount = patchType->getElementCount();
-+    IRInst* elementCount = patchType->getElementCount();
-+
-+    // GLSL requires the per-vertex inputs of a tessellation evaluation shader to be implicitly sized
-+    // (or sized gl_MaxPatchVertices); declaring them with the patch's size is an error there. The
-+    // SPIR-V target takes the size.
-+    //
-+    if (context->stage == Stage::Domain && !isSPIRV(codeGenContext->getTargetFormat()))
-+        elementCount = nullptr;
-     auto arrayType = builder->getArrayType(elementType, elementCount);
+Measured on v2026.21: glslangValidator -V --target-env vulkan1.2 refused the hull and the domain
+shader's GLSL (-S tesc, -S tese).
+diff --git a/source/slang/slang-emit-c-like.cpp b/source/slang/slang-emit-c-like.cpp
+index c272c67..31941a8 100644
+--- a/source/slang/slang-emit-c-like.cpp
++++ b/source/slang/slang-emit-c-like.cpp
+@@ -5213,7 +5213,7 @@ void CLikeSourceEmitter::emitGlobalParam(IRGlobalParam* varDecl)
  
-     auto globalPatchVal = createGLSLGlobalVaryings(
+     emitRateQualifiersAndAddressSpace(varDecl);
+     emitVarKeyword(varType, varDecl);
+-    emitType(varType, getName(varDecl));
++    emitType(getGlobalParamDeclaredType(varDecl, varType), getName(varDecl));
+ 
+     emitSemantics(varDecl);
+ 
+diff --git a/source/slang/slang-emit-c-like.h b/source/slang/slang-emit-c-like.h
+index a413518..f5a4dfa 100644
+--- a/source/slang/slang-emit-c-like.h
++++ b/source/slang/slang-emit-c-like.h
+@@ -732,6 +732,14 @@ protected:
+     virtual void emitInterface(IRInterfaceType* interfaceType);
+     virtual void emitRTTIObject(IRRTTIObject* rttiObject);
+ 
++    /// The type a global shader parameter is declared with, which a target may write differently
++    /// from the parameter's value type.
++    virtual IRType* getGlobalParamDeclaredType(IRGlobalParam* varDecl, IRType* varType)
++    {
++        SLANG_UNUSED(varDecl);
++        return varType;
++    }
++
+     virtual bool tryEmitGlobalParamImpl(IRGlobalParam* varDecl, IRType* varType)
+     {
+         SLANG_UNUSED(varDecl);
+diff --git a/source/slang/slang-emit-glsl.cpp b/source/slang/slang-emit-glsl.cpp
+index 4b33c21..ff5a606 100644
+--- a/source/slang/slang-emit-glsl.cpp
++++ b/source/slang/slang-emit-glsl.cpp
+@@ -1832,6 +1832,34 @@ void GLSLSourceEmitter::_emitGLSLPerVertexVaryingFragmentInput(IRGlobalParam* pa
+     m_writer->emit(";\n\n");
+ }
+ 
++IRType* GLSLSourceEmitter::getGlobalParamDeclaredType(IRGlobalParam* varDecl, IRType* varType)
++{
++    // GLSL requires the per-vertex inputs of the tessellation control and evaluation shaders to be
++    // declared implicitly sized (or sized gl_MaxPatchVertices); declared with the patch's size, as
++    // the hull shader's `InputPatch<T, N>` and the domain shader's `OutputPatch<T, N>` legalize
++    // them, they are an error. The size stays in the IR, where legalization and layout use it, and
++    // only the declaration drops it. Per-patch inputs carry the `patch` decoration, and system
++    // values are built in.
++    //
++    if (m_entryPointStage != Stage::Hull && m_entryPointStage != Stage::Domain)
++        return varType;
++    auto arrayType = as<IRArrayType>(varType);
++    if (!arrayType)
++        return varType;
++    auto ptrType = as<IRPtrTypeBase>(varDecl->getDataType());
++    if (!ptrType || ptrType->getAddressSpace() != AddressSpace::Input)
++        return varType;
++    if (varDecl->findDecoration<IRGLSLPatchDecoration>())
++        return varType;
++    if (auto layout = getVarLayout(varDecl))
++    {
++        if (layout->findSystemValueSemanticAttr())
++            return varType;
++    }
++    IRBuilder builder(varDecl);
++    return builder.getUnsizedArrayType(arrayType->getElementType());
++}
++
+ bool GLSLSourceEmitter::tryEmitGlobalParamImpl(IRGlobalParam* varDecl, IRType* varType)
+ {
+     // There are a number of types that are (or can be)
+diff --git a/source/slang/slang-emit-glsl.h b/source/slang/slang-emit-glsl.h
+index afae19a..c5e4324 100644
+--- a/source/slang/slang-emit-glsl.h
++++ b/source/slang/slang-emit-glsl.h
+@@ -74,6 +74,8 @@ protected:
+     virtual void handleRequiredCapabilitiesImpl(IRInst* inst) SLANG_OVERRIDE;
+ 
+     virtual bool tryEmitGlobalParamImpl(IRGlobalParam* varDecl, IRType* varType) SLANG_OVERRIDE;
++    virtual IRType* getGlobalParamDeclaredType(IRGlobalParam* varDecl, IRType* varType)
++        SLANG_OVERRIDE;
+     virtual bool tryEmitInstExprImpl(IRInst* inst, const EmitOpInfo& inOuterPrec) SLANG_OVERRIDE;
+     virtual bool tryEmitInstStmtImpl(IRInst* inst) SLANG_OVERRIDE;
+ 
 diff --git a/tools/slang-unit-test/unit-test-glsl-domain-input-unsized.cpp b/tools/slang-unit-test/unit-test-glsl-domain-input-unsized.cpp
 new file mode 100644
 index 000000000..373cb99f5

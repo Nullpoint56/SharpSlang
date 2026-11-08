@@ -288,9 +288,38 @@ public sealed class TargetValidationTests(ITestOutputHelper output)
         }
     }
 
+    [PatchedFact("U34")]
+    public void Glsl_the_tessellation_stages_declare_their_layouts()
+    {
+        // U34, patched (0022): the hull shader declares its output control points and the domain
+        // shader its abstract patch, which GLSL requires of each stage and HLSL carries as
+        // [outputcontrolpoints(3)] and [domain("tri")]. Read from the text, so it holds apart from the
+        // stages' other GLSL defects (U18, U19).
+        using var global = SlangGlobalSession.Create();
+        var emitted = EmitCase(global, ShaderCorpus.Case("tessellation"), TargetNamed("glsl").Options())
+            .ToDictionary(e => e.Key, e => e.Code is null ? e.Refusal! : System.Text.Encoding.UTF8.GetString(e.Code));
+        Assert.Contains("layout(vertices = 3) out;", emitted["tessellation/teHull"], StringComparison.Ordinal);
+        Assert.Contains("layout(triangles) in;", emitted["tessellation/teDomain"], StringComparison.Ordinal);
+    }
+
+    [PatchedFact("U32")]
+    public void Cpp_append_and_consume_buffers_compile() =>
+        RequirePatchedCaseValid("cpp", "append-buffers/abCompute", Validator.HostCxx);
+
     [PatchedFact("U18")]
-    public void Glsl_a_hull_shaders_patch_constant_function_compiles() =>
-        RequirePatchedCaseValid("glsl", "tessellation/teHull", Validator.GlslangValidator);
+    public void Glsl_a_hull_shaders_patch_constant_function_returns_void()
+    {
+        // U18, patched (0009): the patch-constant function, whose returns legalization rewrites to
+        // return nothing, is declared void. Read from the text: glslang still refuses the hull stage
+        // for its output index (U35, a known issue), so validity cannot be this test's oracle.
+        using var global = SlangGlobalSession.Create();
+        var hull = EmitCase(global, ShaderCorpus.Case("tessellation"), TargetNamed("glsl").Options())
+            .Single(e => e.Key == "tessellation/teHull");
+        Assert.True(hull.Code is not null, $"glsl tessellation/teHull: Slang refused: {hull.Refusal}");
+        var glsl = System.Text.Encoding.UTF8.GetString(hull.Code);
+        Assert.Contains("void teConstants_0(", glsl, StringComparison.Ordinal);
+        Assert.DoesNotContain("TePatch_0 teConstants_0(", glsl, StringComparison.Ordinal);
+    }
 
     /// <summary>The registry test of a patch that fixes a compute case's output on <paramref name="target"/>.</summary>
     private static void RequirePatchedComputeValid(string target, Validator validator, params string[] keys)
@@ -553,8 +582,8 @@ public sealed class TargetValidationTests(ITestOutputHelper output)
             (["compute-specialized/csCompute"], new(Outcome.SlangRefuses, SpecializedNumthreads, NoSpecializedNumthreads)));
 
         public static readonly Dictionary<string, Expected> Glsl = Table(
-            (["tessellation/teHull"], new(Outcome.ValidatorRejects, "non-void function must return a value", "U18: the patch-constant function is declared to return its struct and ends in a bare return", FixedBy: "U18")),
-            (["tessellation/teDomain"], new(Outcome.ValidatorRejects, "tessellation input array size must be gl_MaxPatchVertices or implicitly sized", "U19: the domain stage's per-vertex input is declared with the patch size")));
+            (["tessellation/teHull"], new(Outcome.ValidatorRejects, "non-void function must return a value", "U18: the patch-constant function is declared to return its struct and ends in a bare return; with it patched, U35: the per-vertex output is indexed with uint(gl_InvocationID)", FixedBy: "U18", FixedWords: "must be indexed with gl_InvocationID")),
+            (["tessellation/teDomain"], new(Outcome.ValidatorRejects, "tessellation input array size must be gl_MaxPatchVertices or implicitly sized", "U19: the domain stage's per-vertex input is declared with the patch size; with U19 and U34 patched it is valid", FixedBy: "U19")));
 
         public static readonly Dictionary<string, Expected> Metal = Table(
             (["tessellation/teHull", "tessellation/teDomain", "geometry/gsGeometry", .. RayTracing, "append-buffers/abCompute"],
@@ -607,7 +636,7 @@ public sealed class TargetValidationTests(ITestOutputHelper output)
             (["compute-specialized/csCompute"], new(Outcome.SlangRefuses, SpecializedNumthreads, NoSpecializedNumthreads)),
             (Fragments, new(Outcome.SlangRefuses, SystemVarying, NoRasterStage, FixedBy: "U23", FixedWords: "56111")),
             (UserVaryings, new(Outcome.SlangRefuses, UserVarying, NoRasterStage, FixedBy: "U23", FixedWords: "56111")),
-            (["append-buffers/abCompute"], new(Outcome.SlangRefuses, "unexpected IR opcode during code emit", "U23: append and consume buffers on the C++ target end in an internal error, E99999")),
+            (["append-buffers/abCompute"], new(Outcome.SlangRefuses, "unexpected IR opcode during code emit", "U32: append and consume buffers on the C++ target end in an internal error, E99999", FixedBy: "U32")),
             (["compute:atomics-groupshared.slang", "compute:atomics.slang", "compute:groupshared.slang", "compute:half-rw-texture-convert2.slang"],
                 new(Outcome.SlangRefuses, NotInStage, NoStageForTarget)),
             (["compute:half-vector-calc.slang", "compute:half-vector-compare.slang"],

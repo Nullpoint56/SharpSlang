@@ -35,6 +35,7 @@ public class SpirvDigestTests(ITestOutputHelper output)
     // only ever be compared one way.
     private const string SpirvFile = "spirv-digests.txt";
     private const string LayoutFile = "layout-digests.txt";
+    private const string PatchesFile = "payload-patches.txt";
 
     [NativeFact]
     public void The_corpus_compiles_deterministically_and_records_a_digest_for_every_shader()
@@ -84,6 +85,10 @@ public class SpirvDigestTests(ITestOutputHelper output)
         // the CI job rather than after.
         Write(SpirvFile, spirv);
         Write(LayoutFile, layouts);
+        // The patches the staged payload carries, one file name a line (none for Slang's release),
+        // because which shaders may differ between architectures depends on them: 0021 removes the
+        // SV_VertexID difference tools/ci/cross-arch-differences.txt declares for the release.
+        Write(PatchesFile, [.. StagedPayload.Patches.Select(p => p.File)]);
         WriteModules();
 
         output.WriteLine($"{spirv.Count} shaders");
@@ -120,6 +125,60 @@ public class SpirvDigestTests(ITestOutputHelper output)
 
             output.WriteLine($"-> {directory}");
         }
+    }
+
+    // The three corpus shaders that read SV_VertexID, which tools/ci/cross-arch-differences.txt
+    // names as the ones x86-64 and aarch64 builds of Slang's release disagree on (U17).
+    private static readonly string[] VertexIdShaders = ["stage-narrowing", "system-values", "vertex-interface"];
+
+    [PatchedFact("U17")]
+    public void SV_VertexID_builtins_are_numbered_in_source_order()
+    {
+        // U17, patched (0021): VertexIndex is loaded before BaseVertex (and InstanceIndex before
+        // BaseInstance) whatever order the host compiler evaluates arguments in, so the builtin
+        // that is read first is numbered first, on every architecture.
+        foreach (var name in VertexIdShaders)
+        {
+            var ids = BuiltinIds(Compile(ShaderCorpus.Case(name)).Code);
+            Assert.True(ids[VertexIndex] < ids[BaseVertex],
+                $"{name}: VertexIndex is %{ids[VertexIndex]}, BaseVertex %{ids[BaseVertex]}");
+            if (ids.TryGetValue(InstanceIndex, out var instanceIndex) && ids.TryGetValue(BaseInstance, out var baseInstance))
+                Assert.True(instanceIndex < baseInstance, $"{name}: InstanceIndex is %{instanceIndex}, BaseInstance %{baseInstance}");
+        }
+    }
+
+    [ReleasePayloadFact("U17")]
+    public void SV_VertexID_builtins_are_numbered_by_the_host_compilers_argument_order()
+    {
+        // U17, asserted as wrong on Slang's release: the two loads are the arguments of one call, so
+        // the order they are emitted in, and the builtins numbered in, is the host compiler's. The
+        // x86-64 builds number BaseVertex first and the aarch64 builds VertexIndex first, which is
+        // the cross-architecture difference tools/ci/cross-arch-differences.txt declares.
+        var vertexIndexFirst = RuntimeInformation.ProcessArchitecture == Architecture.Arm64;
+        foreach (var name in VertexIdShaders)
+        {
+            var ids = BuiltinIds(Compile(ShaderCorpus.Case(name)).Code);
+            Assert.True(vertexIndexFirst == ids[VertexIndex] < ids[BaseVertex],
+                $"{name} on {RuntimeInformation.ProcessArchitecture}: VertexIndex is %{ids[VertexIndex]}, BaseVertex %{ids[BaseVertex]}");
+        }
+    }
+
+    private const uint VertexIndex = 42, InstanceIndex = 43, BaseVertex = 4424, BaseInstance = 4425;
+
+    /// <summary>The result ID each <c>OpDecorate ... BuiltIn</c> names, by builtin.</summary>
+    private static Dictionary<uint, uint> BuiltinIds(byte[] code)
+    {
+        var words = MemoryMarshal.Cast<byte, uint>(code);
+        var ids = new Dictionary<uint, uint>();
+        for (var i = 5; i < words.Length;)
+        {
+            var count = (int)(words[i] >> 16);
+            if (count == 0) break;
+            if ((words[i] & 0xFFFF) == 71 && count >= 4 && words[i + 2] == 11) // OpDecorate, BuiltIn
+                ids[words[i + 3]] = words[i + 1];
+            i += count;
+        }
+        return ids;
     }
 
     private static (string Spirv, int Words, string Ops, string Layout, byte[] Code) Compile(ShaderCase shaderCase)

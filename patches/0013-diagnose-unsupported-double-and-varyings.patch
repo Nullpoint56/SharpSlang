@@ -12,10 +12,15 @@ diagnostic naming them:
   this target doesn't support this system-defined (user-defined) varying parameter"
   (source/slang/slang-ir-legalize-varying-params.cpp).
 
-This adds two errors and reports them instead: E56110 type-not-supported-on-target, naming the
-type and the target, and E56111 varying-parameter-not-supported-on-target, naming whether the
-parameter is system-defined or user-defined. The emitters write f32 or float in place of the
-type so that the text stays well formed until compilation stops on the error. A regression test
+This adds two diagnostics and reports them instead: the error E56110 type-not-supported-on-target,
+naming the type and the target, and E56111 varying-parameter-not-supported-on-target, naming whether
+the parameter is system-defined or user-defined. The emitters write f32 or float in place of the
+type so that the text stays well formed until compilation stops on the error. E56111 is fatal, as
+Unimplemented was: the legalization goes on to use the value it returns, and an empty value there
+dereferences null. TargetProgram::getOrCreateEntryPointResult (source/slang/slang-target-program.cpp)
+reported every exception out of code generation as E99997 compilation-aborted-due-to-exception,
+the abort that follows a fatal diagnostic included, which added an internal error after it; it
+now returns on an abort without reporting it again. A regression test
 is added as tools/slang-unit-test/unit-test-unsupported-construct-diagnosed.cpp.
 
 Measured on v2026.21 (win-x64): E99997 for a double4 vertex input, double members of a constant
@@ -36,7 +41,7 @@ index 1d7fa801b..8aab09cee 100644
 +    span { loc = "location", message = "the '~typeName' type is not supported for the '~target' target." }
 +)
 +
-+err(
++fatal(
 +    "varying-parameter-not-supported-on-target",
 +    56111,
 +    "this target does not support ~kind varying parameters",
@@ -128,6 +133,23 @@ index 24d59498a..e55a90d7c 100644
              .location = getUnsupportedVaryingDiagnosticLoc()});
  
          return LegalizedVaryingVal();
+diff --git a/source/slang/slang-target-program.cpp b/source/slang/slang-target-program.cpp
+index 6492f6c..cb20928 100644
+--- a/source/slang/slang-target-program.cpp
++++ b/source/slang/slang-target-program.cpp
+@@ -159,6 +159,12 @@ IArtifact* TargetProgram::getOrCreateEntryPointResult(Int entryPointIndex, Diagn
+         return _createEntryPointResult(entryPointIndex, sink);
+     }
+ #if SLANG_HAS_EXCEPTIONS
++    catch (const AbortCompilationException&)
++    {
++        // A fatal diagnostic aborts compilation once it has been reported, so the sink already
++        // says why; reporting the abort as an exception as well would add an internal error.
++        return nullptr;
++    }
+     catch (const Exception& e)
+     {
+         sink->diagnose(Diagnostics::CompilationAbortedDueToException{
 diff --git a/tools/slang-unit-test/unit-test-unsupported-construct-diagnosed.cpp b/tools/slang-unit-test/unit-test-unsupported-construct-diagnosed.cpp
 new file mode 100644
 index 000000000..603627e8e

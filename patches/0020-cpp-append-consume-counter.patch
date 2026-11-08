@@ -1,0 +1,120 @@
+Emit the atomic counter of an append or consume structured buffer on the C++ target.
+
+lowerAppendConsumeStructuredBuffers (source/slang/slang-ir-lower-append-consume-structured-buffer.cpp)
+turns an AppendStructuredBuffer or ConsumeStructuredBuffer into an element buffer and a counter of
+Atomic<int>, and its Append and Consume into an AtomicInc or AtomicDec of the counter. The C++
+emitter (source/slang/slang-emit-cpp.cpp) emits AtomicAdd through the prelude's
+_slang_atomic_add_* helpers and has no case for AtomicInc or AtomicDec, which therefore reach the
+default and are reported as E99999 "unimplemented feature in Slang compiler: unexpected IR opcode
+during code emit". The SPIR-V, DXIL and HLSL targets compile the same shader.
+
+This emits AtomicInc and AtomicDec as an add of 1 and of -1 through the same helpers, which return
+the prior value, as the HLSL emitter's InterlockedAdd does for the two. A regression test is added
+as tools/slang-unit-test/unit-test-cpp-append-consume-buffer.cpp.
+
+Measured on v2026.21 (win-x64): E99999 for a compute shader with an append and a consume buffer on
+the C++ target.
+diff --git a/source/slang/slang-emit-cpp.cpp b/source/slang/slang-emit-cpp.cpp
+index 2974d07..3bba444 100644
+--- a/source/slang/slang-emit-cpp.cpp
++++ b/source/slang/slang-emit-cpp.cpp
+@@ -1365,7 +1365,15 @@ bool CPPSourceEmitter::tryEmitInstStmtImpl(IRInst* inst)
+             return true;
+         }
+     case kIROp_AtomicAdd:
+-        {
++    case kIROp_AtomicInc:
++    case kIROp_AtomicDec:
++        {
++            // AtomicInc and AtomicDec are an add of 1 and of -1 through the same helpers, and like
++            // them return the prior value, as HLSL's InterlockedAdd does for these two. They are the
++            // counter of an AppendStructuredBuffer or ConsumeStructuredBuffer, which
++            // lowerAppendConsumeStructuredBuffers (slang-ir-lower-append-consume-structured-buffer.cpp)
++            // turns into an atomic increment or decrement of an Atomic<int>.
++            //
+             // Lower AtomicAdd on a pointer-to-uint/int slot to a call
+             // through the CPU prelude helpers. Matches HLSL/GLSL
+             // semantics: returns the prior value as the inst result.
+@@ -1415,7 +1423,12 @@ bool CPPSourceEmitter::tryEmitInstStmtImpl(IRInst* inst)
+             // chosen by `emitOperand` from the IR operand's type, so
+             // the literal width here matches the chosen `helper`
+             // signature automatically.
+-            emitOperand(inst->getOperand(1), getInfo(EmitOp::General));
++            if (inst->getOp() == kIROp_AtomicInc)
++                m_writer->emit("1");
++            else if (inst->getOp() == kIROp_AtomicDec)
++                m_writer->emit("-1");
++            else
++                emitOperand(inst->getOperand(1), getInfo(EmitOp::General));
+             // Operand 2 (memory order) is consumed by the prelude
+             // helpers in `slang-cpp-prelude.h`, not threaded through
+             // here; see those helpers for the per-toolchain ordering
+diff --git a/tools/slang-unit-test/unit-test-cpp-append-consume-buffer.cpp b/tools/slang-unit-test/unit-test-cpp-append-consume-buffer.cpp
+new file mode 100644
+index 0000000..80317cb
+--- /dev/null
++++ b/tools/slang-unit-test/unit-test-cpp-append-consume-buffer.cpp
+@@ -0,0 +1,63 @@
++// unit-test-cpp-append-consume-buffer.cpp
++
++#include "slang-com-ptr.h"
++#include "slang.h"
++#include "unit-test/slang-unit-test.h"
++
++using namespace Slang;
++
++// An AppendStructuredBuffer and a ConsumeStructuredBuffer are lowered to an element buffer and an
++// atomic counter, which the C++ target emits through its atomic-add helpers.
++
++SLANG_UNIT_TEST(cppAppendConsumeBuffer)
++{
++    const char* source = R"(
++        AppendStructuredBuffer<float4> abOut;
++        ConsumeStructuredBuffer<float4> abIn;
++
++        [shader("compute")]
++        [numthreads(1, 1, 1)]
++        void abCompute() { abOut.Append(abIn.Consume()); }
++        )";
++
++    ComPtr<slang::IGlobalSession> globalSession;
++    SLANG_CHECK_ABORT(
++        slang_createGlobalSession(SLANG_API_VERSION, globalSession.writeRef()) == SLANG_OK);
++
++    slang::TargetDesc targetDesc = {};
++    targetDesc.format = SLANG_CPP_SOURCE;
++
++    slang::SessionDesc sessionDesc = {};
++    sessionDesc.targetCount = 1;
++    sessionDesc.targets = &targetDesc;
++
++    ComPtr<slang::ISession> session;
++    SLANG_CHECK_ABORT(globalSession->createSession(sessionDesc, session.writeRef()) == SLANG_OK);
++
++    ComPtr<slang::IBlob> diagnostics;
++    auto module = session->loadModuleFromSourceString(
++        "cppAppendConsumeBuffer",
++        "cppAppendConsumeBuffer.slang",
++        source,
++        diagnostics.writeRef());
++    SLANG_CHECK_ABORT(module != nullptr);
++
++    ComPtr<slang::IEntryPoint> entryPoint;
++    SLANG_CHECK_ABORT(
++        SLANG_SUCCEEDED(module->findEntryPointByName("abCompute", entryPoint.writeRef())));
++    slang::IComponentType* components[] = {module, entryPoint};
++    ComPtr<slang::IComponentType> program;
++    SLANG_CHECK_ABORT(SLANG_SUCCEEDED(session->createCompositeComponentType(
++        components,
++        2,
++        program.writeRef(),
++        diagnostics.writeRef())));
++    ComPtr<slang::IComponentType> linked;
++    SLANG_CHECK_ABORT(SLANG_SUCCEEDED(program->link(linked.writeRef(), diagnostics.writeRef())));
++
++    ComPtr<slang::IBlob> code;
++    SLANG_CHECK_ABORT(
++        SLANG_SUCCEEDED(linked->getEntryPointCode(0, 0, code.writeRef(), diagnostics.writeRef())));
++    auto cpp = UnownedStringSlice((const char*)code->getBufferPointer(), code->getBufferSize());
++    SLANG_CHECK(cpp.indexOf(UnownedStringSlice("_slang_atomic_add_i32")) != -1);
++}

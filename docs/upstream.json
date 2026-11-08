@@ -152,7 +152,7 @@
       "kind": "Slang defect",
       "patch": null,
       "test": "SecondOpinionTests.The_calls_that_report_nothing_are_pinned_reporting_nothing",
-      "state": "unpatched",
+      "state": "known issue: small reflection gaps, several possibly by design, each answered by another route the binding reads; the one with a clear defect, the parameter block's space offset, is U33 and patched (owner, 2026-11-08: the moderate and large ones patched, the rest known issues)",
       "verified": "v2026.21"
     },
     {
@@ -170,9 +170,9 @@
       "title": "SPIR-V for `SV_VertexID` differs between x86-64 and aarch64 builds",
       "area": "SPIR-V",
       "kind": "Slang defect",
-      "patch": null,
-      "test": "SpirvDigestTests.The_corpus_compiles_deterministically_and_records_a_digest_for_every_shader",
-      "state": "unpatched",
+      "patch": "0021-vertex-id-loads-in-source-order.patch",
+      "test": "SpirvDigestTests.SV_VertexID_builtins_are_numbered_in_source_order",
+      "state": "patched",
       "verified": "v2026.21"
     },
     {
@@ -181,7 +181,7 @@
       "area": "GLSL",
       "kind": "Slang defect",
       "patch": "0009-glsl-patch-constant-function-void.patch",
-      "test": "TargetValidationTests.Glsl_a_hull_shaders_patch_constant_function_compiles",
+      "test": "TargetValidationTests.Glsl_a_hull_shaders_patch_constant_function_returns_void",
       "state": "patched",
       "verified": "v2026.21",
       "upstream": [
@@ -349,9 +349,9 @@
       "title": "C++: an append or consume structured buffer ends in an internal error",
       "area": "C++ output",
       "kind": "Slang defect",
-      "patch": null,
-      "test": null,
-      "state": "unpatched",
+      "patch": "0020-cpp-append-consume-counter.patch",
+      "test": "TargetValidationTests.Cpp_append_and_consume_buffers_compile",
+      "state": "patched",
       "verified": "v2026.21"
     },
     {
@@ -362,6 +362,26 @@
       "patch": "0019-parameter-block-space-offset.patch",
       "test": "SecondOpinionTests.A_top_level_parameter_blocks_sub_object_range_reports_its_space",
       "state": "patched",
+      "verified": "v2026.21"
+    },
+    {
+      "id": "U34",
+      "title": "GLSL: the tessellation stages declare no `layout(vertices = N) out` or input primitive",
+      "area": "GLSL output",
+      "kind": "Slang defect",
+      "patch": "0022-glsl-tessellation-layouts.patch",
+      "test": "TargetValidationTests.Glsl_the_tessellation_stages_declare_their_layouts",
+      "state": "patched",
+      "verified": "v2026.21"
+    },
+    {
+      "id": "U35",
+      "title": "GLSL: a hull shader's per-vertex output is indexed with `uint(gl_InvocationID)`",
+      "area": "GLSL output",
+      "kind": "Slang defect",
+      "patch": null,
+      "test": "TargetValidationTests.Glsl_compiles_with_glslang",
+      "state": "known issue: GLSL output only, the SPIR-V target is valid; a fix is an emitter special case for one builtin's cast, left to Slang (owner, 2026-11-08: the moderate and large ones patched, the rest known issues)",
       "verified": "v2026.21"
     }
   ]

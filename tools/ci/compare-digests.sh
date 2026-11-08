@@ -8,8 +8,8 @@
 # The first run of this check found two things at once. The layout — the half SharpSlang produces —
 # is identical everywhere. The module is identical between *operating systems* (win-x64 and
 # linux-x64 agree byte for byte) and differs between *architectures*, for exactly the three corpus
-# shaders that use SV_VertexID. That is Slang's codegen, not ours, and it is not something this
-# repository can fix. .
+# shaders that use SV_VertexID. That is Slang's codegen, not ours: U17, which patches/0021 fixes in
+# a payload built from source; the release keeps it.
 #
 # So one flat "everything must match" is the wrong shape: it would be permanently red and would stop
 # reporting anything. The rules that are actually true:
@@ -136,6 +136,17 @@ if [ -n "$x64_file" ] && [ -n "$arm_file" ]; then
     # First field of every line that differs, which is the shader name.
     differing="$(diff "$x64_file" "$arm_file" | grep -E '^[<>]' | awk '{print $2}' | sort -u)"
     expected_names="$(grep -vE '^\s*(#|$)' "$expected_list" | awk '{print $1}' | sort -u)"
+
+    # The list is Slang's release's. A payload built with patches/0021 loads the two SV_VertexID
+    # builtins in source order on every host compiler, so when both architectures' payloads carry
+    # it no shader may differ. Each leg's payload-patches.txt sits beside its digests.
+    carries_vertex_id_fix() {   # <spirv-digests.txt of one leg>
+        grep -qx '0021-vertex-id-loads-in-source-order.patch' "$(dirname "$1")/payload-patches.txt" 2>/dev/null
+    }
+    if carries_vertex_id_fix "$x64_file" && carries_vertex_id_fix "$arm_file"; then
+        echo "    both architectures' payloads carry patch 0021: no shader may differ"
+        expected_names=""
+    fi
 
     unexpected="$(comm -23 <(printf '%s\n' "$differing") <(printf '%s\n' "$expected_names"))"
     healed="$(comm -13 <(printf '%s\n' "$differing") <(printf '%s\n' "$expected_names"))"

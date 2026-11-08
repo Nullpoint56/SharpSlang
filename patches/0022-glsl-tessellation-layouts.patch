@@ -1,0 +1,159 @@
+Declare the tessellation stages' layouts on the GLSL target.
+
+GLSL requires a tessellation control shader to declare its output control point count,
+`layout(vertices = N) out;`, and a tessellation evaluation shader its abstract patch,
+`layout(triangles) in;` (or quads, or isolines). HLSL carries the two as `[outputcontrolpoints(N)]`
+on the hull shader and `[domain(...)]` on the domain shader, which Slang keeps as
+OutputControlPointsDecoration and DomainDecoration. The SPIR-V emitter turns them into the
+OutputVertices and Triangles execution modes; the GLSL emitter
+(GLSLSourceEmitter::emitEntryPointAttributesImpl, source/slang/slang-emit-glsl.cpp) has no case for
+either stage and declares neither. glslang refuses both stages: "At least one shader must specify
+an output layout(vertices=...)" and "At least one shader must specify an input layout primitive".
+
+This declares both. The spacing and the vertex order, which GLSL also declares on the evaluation
+shader, are attributes of the hull shader in HLSL and are not known to a domain shader compiled on
+its own, so GLSL's defaults apply there. A regression test is added as
+tools/slang-unit-test/unit-test-glsl-tessellation-layouts.cpp.
+
+Measured on v2026.21 (win-x64): glslangValidator -V --target-env vulkan1.2 refused the GLSL of a hull
+and a domain shader for the two missing layouts, once their other errors were patched.
+diff --git a/source/slang/slang-emit-glsl.cpp b/source/slang/slang-emit-glsl.cpp
+index 4b33c21..6d5834c 100644
+--- a/source/slang/slang-emit-glsl.cpp
++++ b/source/slang/slang-emit-glsl.cpp
+@@ -1677,6 +1677,32 @@ void GLSLSourceEmitter::emitEntryPointAttributesImpl(
+                 }
+             }
+             break;
++        case Stage::Hull:
++            // GLSL declares the number of output control points on the tessellation control
++            // shader, where HLSL has `[outputcontrolpoints(N)]`.
++            if (auto decor = as<IROutputControlPointsDecoration>(decoration))
++            {
++                m_writer->emit("layout(vertices = ");
++                m_writer->emit(Int(getIntVal(decor->getControlPointCount())));
++                m_writer->emit(") out;\n");
++            }
++            break;
++        case Stage::Domain:
++            // GLSL declares the abstract patch on the tessellation evaluation shader, where HLSL has
++            // `[domain(...)]`. The spacing and the vertex order, which GLSL also takes here, are the
++            // hull shader's attributes in HLSL and are not known to a domain shader compiled alone;
++            // GLSL's defaults (`equal_spacing`, `ccw`) apply.
++            if (auto decor = as<IRDomainDecoration>(decoration))
++            {
++                auto domain = decor->getDomain()->getStringSlice();
++                if (domain.startsWithCaseInsensitive(toSlice("tri")))
++                    m_writer->emit("layout(triangles) in;\n");
++                else if (domain.caseInsensitiveEquals(toSlice("quad")))
++                    m_writer->emit("layout(quads) in;\n");
++                else if (domain.caseInsensitiveEquals(toSlice("isoline")))
++                    m_writer->emit("layout(isolines) in;\n");
++            }
++            break;
+         case Stage::Pixel:
+             if (as<IREarlyDepthStencilDecoration>(decoration))
+             {
+diff --git a/tools/slang-unit-test/unit-test-glsl-tessellation-layouts.cpp b/tools/slang-unit-test/unit-test-glsl-tessellation-layouts.cpp
+new file mode 100644
+index 0000000..a8fece7
+--- /dev/null
++++ b/tools/slang-unit-test/unit-test-glsl-tessellation-layouts.cpp
+@@ -0,0 +1,97 @@
++// unit-test-glsl-tessellation-layouts.cpp
++
++#include "slang-com-ptr.h"
++#include "slang.h"
++#include "unit-test/slang-unit-test.h"
++
++using namespace Slang;
++
++// The GLSL target declares a hull shader's output control point count as
++// `layout(vertices = N) out;` and a domain shader's abstract patch as `layout(triangles) in;`,
++// which GLSL requires of the tessellation control and evaluation stages.
++
++static String compileToGlsl(slang::ISession* session, slang::IModule* module, const char* name)
++{
++    ComPtr<slang::IBlob> diagnostics;
++    ComPtr<slang::IEntryPoint> entryPoint;
++    SLANG_CHECK_ABORT(SLANG_SUCCEEDED(module->findEntryPointByName(name, entryPoint.writeRef())));
++    slang::IComponentType* components[] = {module, entryPoint};
++    ComPtr<slang::IComponentType> program;
++    SLANG_CHECK_ABORT(SLANG_SUCCEEDED(session->createCompositeComponentType(
++        components,
++        2,
++        program.writeRef(),
++        diagnostics.writeRef())));
++    ComPtr<slang::IComponentType> linked;
++    SLANG_CHECK_ABORT(SLANG_SUCCEEDED(program->link(linked.writeRef(), diagnostics.writeRef())));
++    ComPtr<slang::IBlob> code;
++    SLANG_CHECK_ABORT(
++        SLANG_SUCCEEDED(linked->getEntryPointCode(0, 0, code.writeRef(), diagnostics.writeRef())));
++    return String(UnownedStringSlice((const char*)code->getBufferPointer(), code->getBufferSize()));
++}
++
++SLANG_UNIT_TEST(glslTessellationLayouts)
++{
++    const char* source = R"(
++        struct TeControl { float3 tePosition : POSITION; };
++        struct TePatch { float teEdges[3] : SV_TessFactor; float teInner : SV_InsideTessFactor; };
++        struct TeOut { float4 teClip : SV_Position; };
++
++        TePatch teConstants(InputPatch<TeControl, 3> patch)
++        {
++            TePatch c;
++            c.teEdges[0] = c.teEdges[1] = c.teEdges[2] = 1;
++            c.teInner = 1;
++            return c;
++        }
++
++        [shader("hull")]
++        [domain("tri")]
++        [partitioning("integer")]
++        [outputtopology("triangle_cw")]
++        [outputcontrolpoints(3)]
++        [patchconstantfunc("teConstants")]
++        TeControl teHull(InputPatch<TeControl, 3> patch, uint i : SV_OutputControlPointID)
++        {
++            return patch[i];
++        }
++
++        [shader("domain")]
++        [domain("tri")]
++        TeOut teDomain(TePatch c, float3 bary : SV_DomainLocation, const OutputPatch<TeControl, 3> patch)
++        {
++            TeOut o;
++            o.teClip = float4(patch[0].tePosition * bary.x, 1);
++            return o;
++        }
++        )";
++
++    ComPtr<slang::IGlobalSession> globalSession;
++    SLANG_CHECK_ABORT(
++        slang_createGlobalSession(SLANG_API_VERSION, globalSession.writeRef()) == SLANG_OK);
++
++    slang::TargetDesc targetDesc = {};
++    targetDesc.format = SLANG_GLSL;
++    targetDesc.profile = globalSession->findProfile("glsl_450");
++
++    slang::SessionDesc sessionDesc = {};
++    sessionDesc.targetCount = 1;
++    sessionDesc.targets = &targetDesc;
++
++    ComPtr<slang::ISession> session;
++    SLANG_CHECK_ABORT(globalSession->createSession(sessionDesc, session.writeRef()) == SLANG_OK);
++
++    ComPtr<slang::IBlob> diagnostics;
++    auto module = session->loadModuleFromSourceString(
++        "glslTessellationLayouts",
++        "glslTessellationLayouts.slang",
++        source,
++        diagnostics.writeRef());
++    SLANG_CHECK_ABORT(module != nullptr);
++
++    auto hull = compileToGlsl(session, module, "teHull");
++    SLANG_CHECK(hull.indexOf(UnownedStringSlice("layout(vertices = 3) out;")) != -1);
++
++    auto domain = compileToGlsl(session, module, "teDomain");
++    SLANG_CHECK(domain.indexOf(UnownedStringSlice("layout(triangles) in;")) != -1);
++}
