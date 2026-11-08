@@ -308,6 +308,11 @@ The archive is cached in `obj/slang-dist/<version>/`. A C++ compiler (clang++, o
 install path on Windows) is wanted: `NativeAbiTests` skips without one, and CI fails a leg where it
 skipped.
 
+The target validators are wanted too, each found at run time (Tests and skips): `spirv-val` and
+`glslangValidator` (the Vulkan SDK, or `apt install spirv-tools glslang-tools`), naga (`cargo
+install naga-cli --locked`), a CUDA toolkit for NVRTC, Xcode for `metal`. dxc's two DLLs come with
+the test project. A missing tool skips its rows with the tool's name.
+
 ### Linux (WSL2 Ubuntu 24.04)
 
 ```bash
@@ -622,8 +627,9 @@ staged by path; its pointer moves only by `git update-index --cacheinfo 160000,<
   provides the devices the pipeline tests use.
 - **Each compile target is held to its strongest outside oracle** (owner, 2026-11-08): a pixel or
   readback test where a runnable device exists (SPIR-V on Vulkan, DXIL on D3D12, both through
-  SharpNRI) and validators for the rest, on the condition "make sure we truly try our best to test as
-  much as possible".
+  SharpNRI; "every backend" means those two) and validators for the rest where one exists,
+  compile-only otherwise and named as such, on the condition "make sure we truly try our best to
+  test as much as possible". The table under Tests and skips is the result.
 - **The legacy compile-request API and the language server are unbound** (owner, 2026-11-08;
   Unbound surface).
 - **Zero allocation per frame applies to `SharpSlang.Pipeline`, not the binding** (owner, 2026-11-08).
@@ -1173,7 +1179,47 @@ in `docs/upstream.md`.
   which D3D12 ignores.
 - D3D12 links a vertex stage to a pixel stage by hardware register in declaration order, not by
   location: the harness puts `SV_Position` last in its supplied vertex stages.
+- **NRI's viewport origin is top-left on both backends** (`Viewport.originBottomLeft` 0, the
+  default): the same clip-space positions land on the same pixels on Vulkan and D3D12, so
+  `PixelTests` has one CPU reference, and both backends match it exactly (RTX 4070 SUPER, WARP).
 
+### The other targets
+
+What `TargetValidationTests` measured of Slang's output for the targets without a device here, at
+v2026.21 on the workstation (Tests and skips has the counts).
+
+- **GLSL is Vulkan GLSL**: it declares sets and bindings, so it is judged by glslang compiling for
+  Vulkan (`-V --target-env vulkan1.2`, Slang's default SPIR-V version's environment); an OpenGL
+  compile would refuse it for reasons that are not defects. Tessellation is wrong in two ways the
+  SPIR-V target is not: the hull stage's patch-constant function is declared to return its struct
+  and ends in `return;` (U18), and the domain stage's per-vertex input is sized by the patch, which
+  GLSL forbids (U19).
+- **HLSL** carries Vulkan-only constructs through: `SubpassInput` and a `double` stage input are
+  written into the HLSL, and dxc refuses both, as on the DXIL target, where the refusal comes from
+  inside Slang's compile instead. Slang's HLSL keeps each entry point's Slang name, so dxc is run
+  with `-E` set to it.
+- **WGSL**: Slang diagnoses most of what WGSL lacks (`E36107`, `E55202`, `E55205`, `E56105`,
+  `E56106`) but not all of it. A `double` ends in an internal error (U23); `u64` is written although
+  WGSL has none (U25); a `const` is initialised from an `override` (U20); a matrix vertex input sits
+  at one `@location` (U21); arrays of textures and samplers are `binding_array`, which naga takes
+  only behind its own `enable` (U22, to be confirmed against the specification and Tint). Two
+  rejections are naga 30.0.1's and are not called Slang defects: the `immediate_address_space`
+  language extension Slang requires for push constants, and WGSL's `subgroups` extension, which
+  naga has not implemented.
+- **Metal**: the same `double` internal error (U23), and a mesh shader writing its output per
+  member is diagnosed (`E56104`). What `xcrun metal` makes of the rest is not measured: it runs on
+  the `osx-arm64` leg only, which has not run this tree.
+- **CUDA** source needs two things a consumer must supply: `SLANG_CUDA_ENABLE_HALF` (the prelude's
+  own instruction, `slang-cuda-prelude.h:21`) and an architecture NVRTC's default is older than;
+  with both, as Slang's own NVRTC path sets them (`compute_75` for NVRTC 12.8 and later), all 56 of
+  Slang's compute tests compile. Ray-tracing stages call OptiX, whose header is the OptiX SDK's: the
+  five that use it are rejected here, where no OptiX SDK is installed. Rasterization stages end in
+  an internal error, `E99999`, not a diagnostic (U23).
+- **C++** compiles against Slang's prelude (`prelude/` at the tag, fetched into
+  `obj/slang-headers/<version>/prelude/`; the release ships it in `include/`). Half vectors do not
+  compile: the prelude defines vector arithmetic and comparison for `float` and `double` only (U24).
+  Rasterization stages and append buffers end in internal errors (U23); barriers and atomics are
+  diagnosed (`E36107`).
 ### Threads
 
 - **A global session and everything made from it belong to one thread at a time**
@@ -1308,6 +1354,8 @@ Oracles, each outside the binding:
 | offsets and binding indices work | `SlangComputeCorpusTests` dispatches 56 shaders from Slang's `tests/compute` on SharpNRI's validated Vulkan device (`NriComputeRunner`: buffers, storage and sampled textures and samplers bound at the register space and range the NRI projection reports) and compares the readback with Slang's recorded words; 55 match, the one that does not is declared, and any validation error fails a case except the one excused under NRI projection |
 | the projection's pipeline state is valid | `NriDeviceTests`: every corpus shader built into NRI pipeline layouts and pipelines on validated Vulkan (SPIR-V) and D3D12 (DXIL) devices, compute dispatched through the projection and read back; `NriValidationTests`: a material graphics pipeline, a compute pipeline and the 64-bit vertex input judged by NRI's validation and the Khronos layer |
 | DXIL is signed and loadable | `DxilTests`: every corpus entry point has a non-zero container digest |
+| the whole stack renders | `PixelTests`: a vertex and fragment program compiled to SPIR-V and DXIL, projected, built into an NRI graphics pipeline on validated Vulkan and D3D12 devices, drawn, read back and compared with a CPU reference, all 1,024 pixels exactly; a constant buffer filled at the reflected offsets, a two-attribute vertex input in the projected formats, a texture and a sampler bound where the projection names them |
+| each target's output is valid there | `TargetValidationTests`: ShaderCorpus (42 entry points) and Slang's `tests/compute` (56) compiled to eight targets and judged by each target's own tool (the table below); each tool is also shown broken output and must refuse it |
 | Slang's enum surface is exercised | `SurfaceCoverageTests` fails on a value the corpus has never produced and nobody has declared untried |
 | every platform cooks the same asset | the `digests` job across legs, with the declared cross-architecture exceptions |
 | reader carries no compiler | `AssemblySplitTests` builds a reader-only consumer and checks its output (the reader, the projection, `SharpSlang.Descs`, `SharpNRI.Descs`, nothing native), and reads `SharpSlang.Descs` from metadata: no P/Invoke, no reference but `System.Runtime` |
@@ -1315,11 +1363,45 @@ Oracles, each outside the binding:
 | public surface | `PublicApiTests` against approved files |
 | lookups allocate nothing | `AllocationTests` |
 
+Each compile target is held to its strongest outside oracle (owner, 2026-11-08; Decisions): a
+device where one runs here, a validator where the target has one, a compiler where its output is
+source. Tools are found at run time (`TargetValidators`: PATH, then `$VULKAN_SDK/bin`,
+`$CARGO_HOME/bin` or `~/.cargo/bin`, `$CUDA_PATH`, the test output for dxc); a missing one is a skip
+naming it and how to get it. Measured on the workstation at v2026.21 (every tool but xcrun), and the
+Linux tools under WSL (Test runner):
+
+| Target | Device | Tool | ShaderCorpus, 42 entry points | `tests/compute`, 56 | Defects |
+|---|---|---|---|---|---|
+| SPIR-V | Vulkan (`PixelTests`, `NriDeviceTests`, the compute dispatches) | `spirv-val` 2026.4 (SDK) / 2025.1 (Ubuntu), `--target-env` from the module's version | 42 valid (one with `--allow-localsizeid`: LocalSizeId needs maintenance4) | 56 valid | none new |
+| DXIL | D3D12 (`PixelTests`, `NriDeviceTests`) | `IDxcValidator` in `dxil.dll` 1.9 | 39 valid, 3 refused by dxc inside Slang | 56 valid | none |
+| GLSL | none | `glslangValidator` 16.6.0, `-V --target-env vulkan1.2` | 40 valid, 2 rejected | 56 valid | U18, U19 |
+| HLSL | none | dxc's `IDxcCompiler3`, `-T <stage>_6_5` | 39 valid, 1 refused, 2 rejected (the Vulkan-only and `double` inputs dxc refuses on the DXIL target too) | 56 valid | none |
+| WGSL | none | naga 30.0.1 | 15 valid, 21 refused, 6 rejected | 49 valid, 6 refused, 1 rejected | U20, U21, U22, U23, U25 |
+| Metal | none | `xcrun -sdk macosx metal` to AIR, macOS only | 14 refused by Slang (measured without the tool); xcrun's verdict on the other 28 not measured | 1 refused; 55 not measured | U23 |
+| CUDA | none | NVRTC 12.9, `compute_75`, `SLANG_CUDA_ENABLE_HALF` | 6 valid, 31 refused, 5 rejected (OptiX: no OptiX SDK here) | 56 valid | U23 |
+| C++ | none | the host compiler (`NativeAbiTests`' search), `-std=c++17 -fsyntax-only`, Slang's prelude | 1 valid, 41 refused | 50 valid, 4 refused, 2 rejected | U23, U24 |
+
+"Refused" is Slang declining a construct the target lacks, with its words; "rejected" is the tool
+refusing what Slang emitted. Both are declared per entry point in `TargetValidationTests.Declared`,
+exact and checked both ways, each with its reason, so a fix in Slang or in a tool fails a row.
+HLSL and C++ are compile-only: there is no HLSL device but D3D12, which DXIL covers, and no C++
+runtime harness; compiling is the strongest judge either has here. CUDA is compile-only short of a
+CUDA device harness.
+
 - **Skip attributes name the capability**: `[NativeFact]` / `[NativeTheory]` (the payload loads),
   `[AbiFact]` (a C++ compiler), `[DxcFact]` / `[DxcTheory]` (dxc loadable), and
   `[NriNoneFact]`, `[NriVulkanFact]`, `[NriD3D12Fact]` with their theories (NRI's library and that
   backend's device, D3D12 also dxc; SharpNRI's test device gives the reason, including an
-  older Khronos layer's first error).
+  older Khronos layer's first error), `[ValidatorFact]` / `[ValidatorTheory]` (a target's tool,
+  named with how to install it).
+- **The skip audit** (2026-11-08) read every skip against the template's rule. Three were not
+  skips naming a capability, and are now: `NriDeviceTests`' device-limit rows (no ray tracing tier,
+  mesh, geometry or tessellation shaders) and `DxilTests`' session-without-dxc fact returned green
+  without asserting, and are `Assert.Skip` with the feature named; `NativePayloadTests`' "a windows
+  binary format question" names the staged payload instead. The device-limit skip is taken on no
+  device measured (the RTX 4070 SUPER, WARP, lavapipe); the DXIL one wherever dxc is loadable (the
+  workstation, and win-x64, whose gate expects it); the payload rows off their OS, as before. Every
+  other skip already named a library, a file, a compiler, a backend's device or an owner decision.
 - **Platform-keyed skips**: linux-arm64 skips every NRI-backed test, the Vulkan validation and the
   compute dispatches included, because SharpNRI ships no `libNRI.so` for it (a missing file);
   macOS skips them by decision, "not an engine target yet", which is
@@ -1373,8 +1455,19 @@ Oracles, each outside the binding:
   header and corpus oracles at least 14 passed and none skipped on every leg; `NriDeviceTests`
   exactly 70 on win-x64 (35 NONE, 35 D3D12 on WARP) and 70 on linux-x64 (35 NONE, 35 Vulkan on
   lavapipe with the 1.4.363 layer), each measured locally the way the runner runs; `DxilTests` 74
-  and none skipped on win-x64. A new corpus case adds a row to two theories: raise the NRI counts by
-  two.
+  and one skipped (the session without dxc) on win-x64. A new corpus case adds a row to two
+  theories: raise the NRI counts by two. The pixel test: the D3D12 row passed on win-x64 (WARP), the
+  Vulkan row on linux-x64 (lavapipe). The target validators: 35 rows per target and none skipped
+  (33 ShaderCorpus rows, the `tests/compute` fact, the broken-output fact), for dxil, hlsl and cpp on
+  win-x64, spirv, glsl, wgsl and cpp on linux-x64, spirv, glsl and cpp on linux-arm64, metal and cpp
+  on osx-arm64.
+- **Validators on the runners**: both Linux legs install `spirv-tools` and `glslang-tools` from the
+  image's apt lists (noble-updates); linux-arm64 too, because its SPIR-V differs (Cross-platform
+  behaviour). naga is built once per version with the image's cargo (`cargo install naga-cli
+  --version 30.0.1 --locked --root obj/naga`) and cached, linux-x64 only. Hosted Windows needs
+  nothing installed: dxc comes with the test project and clang++ with the image's LLVM. macOS uses
+  Xcode's `metal` and `clang++`. No leg has a CUDA toolkit, so NVRTC rows run on the workstation
+  only and skip in CI naming it; no leg is gated on them.
 - **Hang bound**: the Test step has a 20-minute timeout. A win-x64 run of the .NET 11 migration went
   quiet one minute in and was cancelled by hand at 22 minutes with no record of the test; with the
   bound, the diagnostic log names the test that was running.
