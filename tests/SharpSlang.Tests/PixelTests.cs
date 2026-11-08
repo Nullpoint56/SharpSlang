@@ -116,7 +116,20 @@ public sealed class PixelTests(ITestOutputHelper output)
         using var fixture = NriTestDevice.Create(GraphicsAPI.VK);
         Assert.NotEqual(0, fixture.Device.Desc.features.shaderBytecodeSPIRV);
 
-        Render(fixture, compiled,
+        Render(fixture, compiled, compiled.Layout.ToNri(),
+            NriDeviceTests.SpirvShaderDesc(StageBits.VERTEX_SHADER, compiled.Code[0]),
+            NriDeviceTests.SpirvShaderDesc(StageBits.FRAGMENT_SHADER, compiled.Code[1]));
+    }
+
+    [NriVulkanFact]
+    public void A_scene_drawn_with_the_projection_stored_at_bake_time_renders_on_vulkan_exactly_as_computed()
+    {
+        // The path a game takes when the engine projects at bake time: the pipeline built from the
+        // NRI section read back out of the package, never from ToNri.
+        var compiled = NriDeviceTests.Compile("pixels", Source, ["vertexMain", "fragmentMain"], new TargetOptions());
+        using var fixture = NriTestDevice.Create(GraphicsAPI.VK);
+
+        Render(fixture, compiled, Stored(compiled),
             NriDeviceTests.SpirvShaderDesc(StageBits.VERTEX_SHADER, compiled.Code[0]),
             NriDeviceTests.SpirvShaderDesc(StageBits.FRAGMENT_SHADER, compiled.Code[1]));
     }
@@ -129,9 +142,29 @@ public sealed class PixelTests(ITestOutputHelper output)
         Assert.NotEqual(0, fixture.Device.Desc.features.shaderBytecodeDXIL);
 
         // A DXIL container holds one entry point and D3D12 never asks its name (AGENTS.md#dxil).
-        Render(fixture, compiled,
+        Render(fixture, compiled, compiled.Layout.ToNri(),
             new NriShaderDesc(StageBits.VERTEX_SHADER, compiled.Code[0], "main"),
             new NriShaderDesc(StageBits.FRAGMENT_SHADER, compiled.Code[1], "main"));
+    }
+
+    [NriD3D12Fact]
+    public void A_scene_drawn_with_the_projection_stored_at_bake_time_renders_on_d3d12_exactly_as_computed()
+    {
+        var compiled = NriDeviceTests.Compile("pixels", Source, ["vertexMain", "fragmentMain"], NriDeviceTests.Dxil);
+        using var fixture = NriTestDevice.Create(GraphicsAPI.D3D12);
+
+        Render(fixture, compiled, Stored(compiled),
+            new NriShaderDesc(StageBits.VERTEX_SHADER, compiled.Code[0], "main"),
+            new NriShaderDesc(StageBits.FRAGMENT_SHADER, compiled.Code[1], "main"));
+    }
+
+    /// <summary>The projection stored in a package at bake time, read back as a game reads it, equal to a fresh one.</summary>
+    private static NriPipelineProjection Stored(NriDeviceTests.Compiled compiled)
+    {
+        var package = NriPackageTests.ThroughBytes(NriPackageTests.Package(compiled.Layout).WithNriProjection());
+        var stored = package.ReadNriProjection() ?? throw new InvalidOperationException("the package carries no stored projection");
+        NriPackageTests.AssertSameProjection(compiled.Layout.ToNri(), stored);
+        return stored;
     }
 
     /// <summary>The image the scene must produce, from the same math the shaders do.</summary>
@@ -166,10 +199,10 @@ public sealed class PixelTests(ITestOutputHelper output)
         return image;
     }
 
-    private void Render(NriTestDevice fixture, NriDeviceTests.Compiled compiled, NriShaderDesc vertex, NriShaderDesc fragment)
+    private void Render(
+        NriTestDevice fixture, NriDeviceTests.Compiled compiled, NriPipelineProjection projection, NriShaderDesc vertex, NriShaderDesc fragment)
     {
         var device = fixture.Device;
-        var projection = compiled.Layout.ToNri();
 
         // ---------------------------------------------------------------- what the projection says
 

@@ -22,17 +22,27 @@ namespace SharpSlang.Baking
         public System.Collections.Generic.IReadOnlyList<SharpSlang.Baking.ShaderDependency> Dependencies { get; init; }
         public required System.Collections.Generic.IReadOnlyList<SharpSlang.Baking.BakedEntryPoint> EntryPoints { get; init; }
         public required SharpSlang.Reflection.ProgramLayout Layout { get; init; }
+        public System.Collections.Generic.IReadOnlyList<SharpSlang.Baking.ShaderPackageSection> Sections { get; init; }
         public required string SlangVersion { get; init; }
         public required byte[] SourceHash { get; init; }
+        public static uint ContainerFormatVersion { get; }
         public SharpSlang.Baking.BakedEntryPoint? EntryPoint(string name) { }
         public bool IsCurrent(string currentSlangVersion) { }
         public bool IsUpToDate(string source, string currentSlangVersion) { }
+        public SharpSlang.Baking.ShaderPackageSection? Section(string name) { }
         public System.Collections.Generic.IReadOnlyList<string> StaleDependencies() { }
+        public SharpSlang.Baking.ShaderPackage WithSection(SharpSlang.Baking.ShaderPackageSection section) { }
         public void WriteTo(System.IO.Stream stream) { }
         public void WriteToFile(string path) { }
         public static byte[] HashSource(string source) { }
         public static SharpSlang.Baking.ShaderPackage ReadFrom(System.IO.Stream stream) { }
         public static SharpSlang.Baking.ShaderPackage ReadFromFile(string path) { }
+    }
+    public sealed class ShaderPackageSection : System.IEquatable<SharpSlang.Baking.ShaderPackageSection>
+    {
+        public ShaderPackageSection(string Name, byte[] Data) { }
+        public byte[] Data { get; init; }
+        public string Name { get; init; }
     }
 }
 namespace SharpSlang.Reflection

@@ -90,6 +90,82 @@ public class BakingTests
     }
 
     [NativeFact]
+    public void Sections_round_trip_by_name_whole_and_in_order()
+    {
+        // Format 5's optional sections: what another package wrote at bake time, kept whole by a
+        // reader that does not know what is in it.
+        var original = BakeShader()
+            .WithSection(new ShaderPackageSection("first", [1, 2, 3]))
+            .WithSection(new ShaderPackageSection("second", []))
+            .WithSection(new ShaderPackageSection("first", [4, 5]));
+
+        Assert.Equal(["second", "first"], original.Sections.Select(x => x.Name));
+
+        using var buffer = new MemoryStream();
+        original.WriteTo(buffer);
+        buffer.Position = 0;
+        var restored = ShaderPackage.ReadFrom(buffer);
+
+        Assert.Equal(["second", "first"], restored.Sections.Select(x => x.Name));
+        Assert.Equal(new byte[] { 4, 5 }, restored.Section("first")!.Data);
+        Assert.Empty(restored.Section("second")!.Data);
+        Assert.Null(restored.Section("absent"));
+
+        // Everything else is the same package.
+        Assert.Equal(original.EntryPoints.Select(e => e.Code), restored.EntryPoints.Select(e => e.Code));
+        Assert.Equal(original.Layout.ToJson(), restored.Layout.ToJson());
+    }
+
+    [NativeFact]
+    public void A_package_without_sections_writes_an_empty_list_and_reads_none()
+    {
+        var original = BakeShader();
+        Assert.Empty(original.Sections);
+
+        using var buffer = new MemoryStream();
+        original.WriteTo(buffer);
+
+        // The last four bytes are the section count, zero.
+        Assert.Equal(0u, BitConverter.ToUInt32(buffer.ToArray(), (int)buffer.Length - 4));
+        buffer.Position = 0;
+        Assert.Empty(ShaderPackage.ReadFrom(buffer).Sections);
+    }
+
+    [NativeFact]
+    public void Two_sections_of_one_name_are_refused_on_write_and_on_read()
+    {
+        var original = BakeShader();
+
+        // Built around WithSection, which replaces: the writer refuses a list that names one twice.
+        var doubled = new ShaderPackage
+        {
+            SlangVersion = original.SlangVersion,
+            SourceHash = original.SourceHash,
+            Layout = original.Layout,
+            EntryPoints = original.EntryPoints,
+            Sections = [new("twice", [1]), new("twice", [2])],
+        };
+        Assert.Throws<InvalidOperationException>(() => doubled.WriteTo(new MemoryStream()));
+
+        // And a file that carries two anyway is not a package.
+        var single = original.WithSection(new ShaderPackageSection("twice", [1]));
+        using var buffer = new MemoryStream();
+        single.WriteTo(buffer);
+        var bytes = buffer.ToArray();
+
+        // Rewrite the count to 2 and append the same section again: name (7-bit length + text),
+        // length, data.
+        var tail = new byte[] { 5, (byte)'t', (byte)'w', (byte)'i', (byte)'c', (byte)'e', 1, 0, 0, 0, 1 };
+        var countAt = bytes.Length - tail.Length - 4;
+        Assert.Equal(1u, BitConverter.ToUInt32(bytes, countAt));
+        BitConverter.TryWriteBytes(bytes.AsSpan(countAt, 4), 2u);
+        var forged = bytes.Concat(tail).ToArray();
+
+        var e = Assert.Throws<InvalidDataException>(() => ShaderPackage.ReadFrom(new MemoryStream(forged)));
+        Assert.Contains("two sections named 'twice'", e.Message, StringComparison.Ordinal);
+    }
+
+    [NativeFact]
     public void Round_tripped_package_carries_usable_descriptor_sets()
     {
         // The point of baking: everything the renderer needs, with no compiler in the process.

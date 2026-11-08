@@ -31,8 +31,12 @@ foreach (var entryPoint in package.EntryPoints)
 
 // The snapshot read for NRI: a SharpNRI pipeline layout desc, built with no device and no NRI
 // binary in this process. A renderer hands nri.Layout to NriDevice.CreatePipelineLayout and binds
-// each descriptor by the set and range index the projection reports.
-var nri = package.Layout.ToNri(new NriProjectionOptions { UnboundedArrayCap = 64 });
+// each descriptor by the set and range index the projection reports. The cooker stored it in the
+// package at bake time, so the game reads it back rather than projecting (and projects only a
+// package baked without it).
+var stored = package.ReadNriProjection();
+var nri = stored ?? package.Layout.ToNri(new NriProjectionOptions { UnboundedArrayCap = 64 });
+Console.WriteLine(stored is null ? "  NRI: projected at load (the package stores none)" : "  NRI: read back from the package (stored at bake time)");
 Console.WriteLine($"  NRI: {nri.Layout.DescriptorSets.Length} descriptor set(s), " +
                   $"{nri.RootConstants.Count} root constant block(s), " +
                   $"{nri.VertexAttributes.Count} vertex attribute(s), " +

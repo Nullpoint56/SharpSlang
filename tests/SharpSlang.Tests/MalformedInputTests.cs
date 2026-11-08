@@ -230,6 +230,20 @@ public class MalformedInputTests
         Assert.Contains("Rebake", e.Message);
     }
 
+    [NativeFact]
+    public void A_package_of_the_previous_format_says_to_rebake()
+    {
+        // 5 added the optional sections (the NRI projection's among them). A version 4 package
+        // has none to read, and the reader refuses it rather than guessing an empty list.
+        var valid = ValidPackage();
+        Assert.Equal(5u, BitConverter.ToUInt32(valid, 4));
+        Assert.Equal(5u, ShaderPackage.ContainerFormatVersion);
+
+        BitConverter.TryWriteBytes(valid.AsSpan(4, 4), 4u);
+        var e = Assert.Throws<InvalidDataException>(() => ShaderPackage.ReadFrom(new MemoryStream(valid)));
+        Assert.Contains("format version 4, this build reads 5. Rebake.", e.Message, StringComparison.Ordinal);
+    }
+
     [Fact]
     public void Something_that_is_not_a_package_at_all_is_rejected_by_its_magic()
     {

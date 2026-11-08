@@ -12,6 +12,7 @@
 using System.Diagnostics;
 using System.Reflection;
 using SharpSlang.Baking;
+using SharpSlang.Pipeline.NRI;
 
 namespace SharpSlang.Tests;
 
@@ -247,7 +248,9 @@ public class AssemblySplitTests
             Assert.True(process.ExitCode == 0,
                 $"the consumer failed with exit code {process.ExitCode}.\n{output}\n{errors}");
 
-            // Everything the criterion named, in the order the consumer prints it.
+            // Everything the criterion named, in the order the consumer prints it, the projection
+            // read back from the package rather than computed (stored at bake time below).
+            Assert.Contains("NRI: read back from the package", output);
             Assert.Contains("descriptor set(s)", output);
             Assert.Contains("root constant block(s)", output);
             Assert.Contains("specialization:", output);
@@ -298,6 +301,10 @@ public class AssemblySplitTests
         using var fragment = module.FindEntryPoint("fragmentMain");
         using var program = session.Link(module, vertex, fragment);
 
-        ShaderPackageBaker.Bake(program, Source).WriteToFile(path);
+        // The engine projects at bake time (owner, 2026-11-08): the cooker stores the NRI
+        // projection in the package, and the reader-only consumer reads it back.
+        ShaderPackageBaker.Bake(program, Source)
+            .WithNriProjection(new NriProjectionOptions { UnboundedArrayCap = 64 })
+            .WriteToFile(path);
     }
 }

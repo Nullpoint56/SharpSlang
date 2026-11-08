@@ -1048,6 +1048,66 @@ public sealed class NriDeviceTests(ITestOutputHelper output)
         // content is the one message recorded here.
     }
 
+    // ---------------------------------------------------------------- 6. the projection stored at bake time
+
+    [NriVulkanFact]
+    public void A_dispatch_bound_through_the_projection_stored_in_the_package_reaches_the_shader_on_vulkan()
+    {
+        // The engine projects at bake time (owner, 2026-11-08): the cooker stores the projection
+        // in the package and the game builds its pipeline from what it reads back, never calling
+        // ToNri. Root constants and a descriptor, so both channels come off the loaded descs.
+        const int Count = 64;
+        const uint Value = 0xC0FFEE00u;
+
+        var package = NriPackageTests.ThroughBytes(Bake(PushConstantShader, "main").WithNriProjection(Capped));
+        var loaded = package.ReadNriProjection()
+            ?? throw new InvalidOperationException("the package carries no stored projection");
+
+        // The same descs a fresh projection gives, field by field (NriPackageTests holds the corpus).
+        NriPackageTests.AssertSameProjection(package.Layout.ToNri(Capped), loaded);
+
+        var block = Assert.Single(loaded.RootConstants);
+        var (set, range) = loaded.Range("outBuf")
+            ?? throw new InvalidOperationException("the stored projection has no range named outBuf");
+        var value = Value;
+
+        using var fixture = NriTestDevice.Create(GraphicsAPI.VK);
+        var words = DispatchOnce<uint>(fixture.Device, loaded, package.EntryPoints[0].ToNriShaderDesc(), set, range, Count, sizeof(uint),
+            record: cmd => cmd.SetRootConstants(block.Index, in value, 0, BindPoint.COMPUTE));
+
+        for (var i = 0; i < Count; i++) Assert.Equal(Value + (uint)i, words[i]);
+        RequireNoErrors(fixture);
+    }
+
+    [NriD3D12Fact]
+    public void A_dispatch_bound_through_the_projection_stored_in_the_package_reaches_the_shader_on_d3d12()
+    {
+        // The DXIL half: the block promoted to root constants by name at bake time, stored with
+        // the options it was projected with, and read back as root constants at b0.
+        const int Count = 64;
+        const uint Value = 0xC0FFEE00u;
+        var options = Capped with { RootConstantParameters = ["pc"] };
+
+        var package = NriPackageTests.ThroughBytes(Bake(PushConstantShader, "main", Dxil).WithNriProjection(options));
+        var loaded = package.ReadNriProjection()
+            ?? throw new InvalidOperationException("the package carries no stored projection");
+
+        NriPackageTests.AssertSameProjection(package.Layout.ToNri(options), loaded);
+
+        var block = Assert.Single(loaded.RootConstants);
+        Assert.Equal("pc", block.Name);
+        var (set, range) = loaded.Range("outBuf")
+            ?? throw new InvalidOperationException("the stored projection has no range named outBuf");
+        var value = Value;
+
+        using var fixture = NriTestDevice.Create(GraphicsAPI.D3D12);
+        var words = DispatchOnce<uint>(fixture.Device, loaded, package.EntryPoints[0].ToNriShaderDesc(), set, range, Count, sizeof(uint),
+            record: cmd => cmd.SetRootConstants(block.Index, in value, 0, BindPoint.COMPUTE));
+
+        for (var i = 0; i < Count; i++) Assert.Equal(Value + (uint)i, words[i]);
+        RequireNoErrors(fixture);
+    }
+
     // ---------------------------------------------------------------- compiling
 
     internal sealed record Compiled(ProgramLayout Layout, byte[][] Code);

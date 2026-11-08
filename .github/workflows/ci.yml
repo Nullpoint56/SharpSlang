@@ -808,9 +808,10 @@ jobs:
           done
           exit $status
 
-      # And the pixel test, which renders through the whole stack and compares every pixel: one
-      # row per backend, D3D12 on WARP on win-x64 and Vulkan on lavapipe on linux-x64; the other
-      # backend's row skips on each, with the reason.
+      # And the pixel test, which renders through the whole stack and compares every pixel: two
+      # rows per backend, the projection computed and the projection stored in the package at
+      # bake time, D3D12 on WARP on win-x64 and Vulkan on lavapipe on linux-x64; the other
+      # backend's rows skip on each, with the reason.
       - name: The pixel test actually ran
         if: matrix.rid == 'win-x64' || matrix.rid == 'linux-x64'
         shell: bash
@@ -820,7 +821,7 @@ jobs:
             || { echo "$counts"; exit 1; }
           echo "$counts"
           passed=$(echo "$counts" | tail -1 | sed -n 's/.*passed=\([0-9]*\).*/\1/p')
-          if [ "${passed:-0}" -ne 1 ]; then
+          if [ "${passed:-0}" -ne 2 ]; then
             echo "::error::the pixel test did not pass on ${{ matrix.rid }}; nothing rendered through the stack was compared with the CPU reference. The skip reason is above."
             exit 1
           fi
