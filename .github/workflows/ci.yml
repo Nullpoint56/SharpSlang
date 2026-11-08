@@ -1036,7 +1036,9 @@ jobs:
   digests:
     name: every platform cooks the same asset (${{ needs.gate.outputs.count }} legs)
     needs: [gate, test]
-    if: needs.gate.outputs.digests == 'run'
+    # Not the implicit success(): test needs native-from-source, which is skipped until the source build
+    # is switched on, and a skipped ancestor skipped this job silently (run 42503066429).
+    if: ${{ !cancelled() && needs.gate.outputs.digests == 'run' && needs.test.result == 'success' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5       # 5-9 s measured (11 runs, 2026-11-07/08)
     steps:
