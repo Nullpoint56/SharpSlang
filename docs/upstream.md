@@ -1042,11 +1042,12 @@ the blocks occupy spaces 1 and 2 (their descriptor sets say so), and both ranges
 **Expected.** The space offset of the range, 1 and 2, as the descriptor sets report.
 
 **Cause.** `ExtendedTypeLayoutContext` (`source/slang/slang-reflection-api.cpp`) reads the range's
-space offset from the variable layout's `SubElementRegisterSpace` entry, the kind a nested block is
-laid out with. A top-level block that starts a space of its own is laid out with `RegisterSpace`,
-which is not read, so the offset stays 0.
+space offset, the variable's `SubElementRegisterSpace` index, only when `kind`, the resource kind
+the group's binding range is reflected as, is `SubElementRegisterSpace`. For a top-level block
+`kind` is a descriptor kind, so the space is never read and the offset stays 0.
 
-**Fix.** Read the index for whichever of the two kinds the block is laid out with
+**Fix.** Read the variable's `SubElementRegisterSpace` index, or its `RegisterSpace` index where the
+container starts a space, whatever kind the binding range is reflected as
 (`patches/0019-parameter-block-space-offset.patch`, with a `SLANG_UNIT_TEST`).
 
 **Repro.**

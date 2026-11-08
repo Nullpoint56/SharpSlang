@@ -2,39 +2,46 @@ Report a top-level parameter block's space in its sub-object range.
 
 ExtendedTypeLayoutContext (source/slang/slang-reflection-api.cpp) records, for each parameter
 group, a sub-object range whose spaceOffset spReflectionTypeLayout_getSubObjectRangeSpaceOffset
-returns. A parameter block that starts a space of its own is laid out with
-LayoutResourceKind::RegisterSpace, and a nested one with SubElementRegisterSpace, but the range's
-spaceOffset is read only for the nested kind. Every top-level parameter block therefore reports
-space offset 0: two ParameterBlock globals beside a loose global, which occupy spaces 1 and 2,
-both report 0.
+returns. It reads the variable's SubElementRegisterSpace index only when `kind`, the resource kind
+the group's binding range is reflected as, is SubElementRegisterSpace. For a top-level parameter
+block `kind` is a descriptor kind, so the space is never read: two ParameterBlock globals beside a
+loose global, which occupy spaces 1 and 2 (their descriptor sets say so), both report 0.
 
-This reads the variable's index for whichever of the two kinds the block is laid out with. A
-regression test is added as tools/slang-unit-test/unit-test-parameter-block-space-offset.cpp.
+This reads the variable's SubElementRegisterSpace index, or its RegisterSpace index where the
+container starts a space, whatever kind the binding range is reflected as. A regression test is
+added as tools/slang-unit-test/unit-test-parameter-block-space-offset.cpp.
 
 Measured on v2026.21 (win-x64): 0 and 0 for blocks in spaces 1 and 2.
 diff --git a/source/slang/slang-reflection-api.cpp b/source/slang/slang-reflection-api.cpp
-index 9f83ff5fd..234ece0ea 100644
+index 35e27ab..0057478 100644
 --- a/source/slang/slang-reflection-api.cpp
 +++ b/source/slang/slang-reflection-api.cpp
-@@ -2238,10 +2238,15 @@ struct ExtendedTypeLayoutContext
+@@ -2224,13 +2224,20 @@ struct ExtendedTypeLayoutContext
              subObjectRange.bindingRangeIndex = bindingRangeIndex;
              subObjectRange.offsetVarLayout = createOffsetVarLayout(typeLayout, path);
              subObjectRange.spaceOffset = 0;
 -            if (kind == LayoutResourceKind::SubElementRegisterSpace && path.primary)
-+            // A parameter block that starts a space of its own is laid out under `RegisterSpace` (above),
-+            // a nested one under `SubElementRegisterSpace`; either way its space is the variable's
-+            // index for that kind. Reading only the nested kind reported 0 for every top-level block.
++            // The space a parameter block occupies is the variable's index for the space it is laid
++            // out in: `SubElementRegisterSpace` where the target gives the block a space of its own
++            // inside its parent, `RegisterSpace` where the container starts one. `kind` above is
++            // the kind the binding range is reflected as, which for a top-level block is a
++            // descriptor kind, so it is not the test of whether the block has a space.
 +            //
-+            if ((kind == LayoutResourceKind::SubElementRegisterSpace ||
-+                 kind == LayoutResourceKind::RegisterSpace) &&
-+                path.primary)
++            if (path.primary)
              {
 -                if (auto resInfo = path.primary->var->FindResourceInfo(
 -                        LayoutResourceKind::SubElementRegisterSpace))
-+                if (auto resInfo = path.primary->var->FindResourceInfo(kind))
-                 {
+-                {
++                auto resInfo =
++                    path.primary->var->FindResourceInfo(LayoutResourceKind::SubElementRegisterSpace);
++                if (!resInfo)
++                    resInfo = path.primary->var->FindResourceInfo(LayoutResourceKind::RegisterSpace);
++                if (resInfo)
                      subObjectRange.spaceOffset = resInfo->index;
-                 }
+-                }
+             }
+             // It is possible that the sub-object has descriptor ranges
+             // that will need to be exposed upward, into the parent.
 diff --git a/tools/slang-unit-test/unit-test-parameter-block-space-offset.cpp b/tools/slang-unit-test/unit-test-parameter-block-space-offset.cpp
 new file mode 100644
 index 000000000..5dc164aae
