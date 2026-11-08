@@ -206,9 +206,9 @@
       "title": "WGSL: a `const` is initialised from an `override`",
       "area": "WGSL",
       "kind": "Slang defect",
-      "patch": null,
-      "test": "TargetValidationTests.Wgsl_passes_naga",
-      "state": "unpatched",
+      "patch": "0012-wgsl-override-not-const.patch",
+      "test": "TargetValidationTests.Wgsl_a_value_computed_from_a_specialization_constant_is_not_const",
+      "state": "patched",
       "verified": "v2026.21",
       "upstream": [
         "#14285"

@@ -309,6 +309,10 @@ public sealed class TargetValidationTests(ITestOutputHelper output)
         }
     }
 
+    [PatchedFact("U20")]
+    public void Wgsl_a_value_computed_from_a_specialization_constant_is_not_const() =>
+        RequirePatchedCaseValid("wgsl", "specialization-constants/scFragment", Validator.Naga);
+
     [PatchedFact("U24")]
     public void Cpp_half_vector_arithmetic_and_comparison_compile() =>
         RequirePatchedComputeValid("cpp", Validator.HostCxx, "compute:half-vector-calc.slang", "compute:half-vector-compare.slang");
@@ -556,7 +560,7 @@ public sealed class TargetValidationTests(ITestOutputHelper output)
             (["system-values/svVertex", "system-values/svFragment"], new(Outcome.SlangRefuses, "system value semantic", "WGSL has no such builtin; Slang diagnoses it (E55202)")),
             (["descriptor-arrays/daFragment", "buffer-arrays/baFragment"],
                 new(Outcome.ValidatorRejects, "the `wgpu_binding_array` enable extension is not enabled", "U22: binding_array is not WGSL; naga takes it only behind its own enable, which Slang does not write")),
-            (["specialization-constants/scFragment"], new(Outcome.ValidatorRejects, "Unexpected override-expression", "U20: a const declaration initialised from an override")),
+            (["specialization-constants/scFragment"], new(Outcome.ValidatorRejects, "Unexpected override-expression", "U20: a const declaration initialised from an override", FixedBy: "U20")),
             (["vertex-interface/viVertex"], new(Outcome.ValidatorRejects, "Only numeric scalars and vectors are allowed", "U21: a matrix vertex input at one @location")),
             (["push-constants/pcFragment"], new(Outcome.ValidatorRejects, "unknown language extension `immediate_address_space`", "naga 30.0.1 does not know the language extension Slang requires for push constants; not judged as a Slang defect")),
             (["wave-ops/woCompute"], new(Outcome.ValidatorRejects, "the `subgroups` enable-extension is not yet supported", "naga 30.0.1 does not implement WGSL's subgroups extension; not judged as a Slang defect")),
