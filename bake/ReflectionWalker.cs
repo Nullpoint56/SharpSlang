@@ -1174,10 +1174,23 @@ public static class ReflectionWalker
                 if (rebase is not null)
                     index += (uint)rebase.GetOffset(category);
 
+                var leaf = leaves.GetValueOrDefault((s, r));
+
+                // -2 as a SlangInt is SLANG_UNKNOWN_SIZE: a resource array whose length is a
+                // specialization constant, which a Slang carrying patch 0003 reports and the release
+                // throws on before this point (U2, AGENTS.md#sizes-slang-does-not-know). Neither a
+                // count nor unbounded, so refused by name rather than read as either.
+                if (count == -2)
+                {
+                    throw new NotSupportedException(
+                        $"'{leaf.Name ?? "(unnamed)"}' is a resource array sized by a specialization constant: its "
+                        + "descriptor count is not known before the pipeline is specialized, and a descriptor set "
+                        + "layout needs one (U2)");
+                }
+
                 // -1 as a SlangInt is how Slang reports "runtime-sized". It is not a count and
                 // must not be handed to Vulkan as one.
                 var unbounded = count < 0 || (ulong)count >= uint.MaxValue;
-                var leaf = leaves.GetValueOrDefault((s, r));
 
                 ranges.Add(new DescriptorRange(
                     tl.GetDescriptorSetDescriptorRangeType(s, r),

@@ -1,0 +1,124 @@
+Treat a resource array length that is not a constant as unknown when computing binding ranges.
+
+ExtendedTypeLayoutContext::addRangesRec (source/slang/slang-reflection-api.cpp), which builds the
+binding ranges spReflectionTypeLayout_getBindingRangeCount and the other binding-range queries
+report, multiplies the ranges of an array's element by the array's length:
+
+    if (arrayType->isUnsized())
+        elementCount = LayoutSize::infinite();
+    else if (arrayType->getElementCount()->isLinkTimeVal())
+        elementCount = LayoutSize::invalid();
+    else
+        elementCount = LayoutSize::RawValue(getIntVal(arrayType->getElementCount()));   // 2146
+
+For Texture2D t[kCount] with kCount a specialization constant, the length is a DeclRefIntVal that
+is not a link-time value, so getIntVal is reached and raises SLANG_UNEXPECTED
+(source/slang/slang-syntax.cpp:898-905). The Slang::InternalError leaves the extern "C" query: a
+structured exception on Windows, std::terminate (SIGABRT) on Linux and macOS, from the first
+binding-range query on the scope. slangc -reflection-json stops the same way on such a shader,
+while slangc -target spirv compiles it. The array's own layout already treats any length that is
+not a ConstantIntVal as unknown (GetElementCount in source/slang/slang-type-layout.cpp:3085-3128).
+
+This takes the length of a ConstantIntVal and LayoutSize::invalid() for any other, as the link-time
+case already did, so the binding range is reported with a binding count of SLANG_UNKNOWN_SIZE. A
+constant length, an unsized array and a link-time length give the ranges they gave before. A
+regression test is added as
+tools/slang-unit-test/unit-test-specialization-sized-resource-array-reflection.cpp.
+
+Measured on v2026.21 with Texture2D scArray[kCascades]; SamplerState scSampler;: before, the first
+getBindingRangeCount on the global scope throws (win-x64: a structured exception; linux-x64:
+SIGABRT); after, two binding ranges, the texture array's binding count SLANG_UNKNOWN_SIZE and the
+sampler's 1 (win-x64, linux-x64).
+diff --git a/source/slang/slang-reflection-api.cpp b/source/slang/slang-reflection-api.cpp
+index 3f7940272..9f83ff5fd 100644
+--- a/source/slang/slang-reflection-api.cpp
++++ b/source/slang/slang-reflection-api.cpp
+@@ -2147,10 +2147,17 @@ struct ExtendedTypeLayoutContext
+             {
+                 if (arrayType->isUnsized())
+                     elementCount = LayoutSize::infinite();
+-                else if (arrayType->getElementCount()->isLinkTimeVal())
+-                    elementCount = LayoutSize::invalid();
++                else if (
++                    auto constantElementCount = as<ConstantIntVal>(arrayType->getElementCount()))
++                    elementCount = LayoutSize::RawValue(constantElementCount->getValue());
+                 else
+-                    elementCount = LayoutSize::RawValue(getIntVal(arrayType->getElementCount()));
++                {
++                    // An element count that is not a constant, such as a link-time constant
++                    // or a specialization constant, is not known until the program is linked
++                    // or specialized, as for the array's own layout (`GetElementCount` in
++                    // slang-type-layout.cpp).
++                    elementCount = LayoutSize::invalid();
++                }
+             }
+             addRangesRec(elementTypeLayout, path, multiplier * elementCount);
+             return;
+diff --git a/tools/slang-unit-test/unit-test-specialization-sized-resource-array-reflection.cpp b/tools/slang-unit-test/unit-test-specialization-sized-resource-array-reflection.cpp
+new file mode 100644
+index 000000000..c70fb186b
+--- /dev/null
++++ b/tools/slang-unit-test/unit-test-specialization-sized-resource-array-reflection.cpp
+@@ -0,0 +1,61 @@
++// unit-test-specialization-sized-resource-array-reflection.cpp
++
++#include "slang-com-ptr.h"
++#include "slang.h"
++#include "unit-test/slang-unit-test.h"
++
++using namespace Slang;
++
++// The length of a resource array sized by a specialization constant is not known until the
++// program is specialized. This test checks that the binding ranges of such an array are reported,
++// with a binding count of `SLANG_UNKNOWN_SIZE`, instead of failing to evaluate the length.
++SLANG_UNIT_TEST(specializationSizedResourceArrayBindingRanges)
++{
++    const char* source = R"(
++        [vk::constant_id(0)] const int kCount = 4;
++
++        Texture2D gTextures[kCount];
++        SamplerState gSampler;
++
++        [shader("fragment")]
++        float4 fragmentMain() : SV_Target
++        {
++            return gTextures[0].Sample(gSampler, float2(0, 0));
++        }
++        )";
++
++    ComPtr<slang::IGlobalSession> globalSession;
++    SLANG_CHECK_ABORT(
++        slang_createGlobalSession(SLANG_API_VERSION, globalSession.writeRef()) == SLANG_OK);
++
++    slang::TargetDesc targetDesc = {};
++    targetDesc.format = SLANG_SPIRV;
++    targetDesc.profile = globalSession->findProfile("spirv_1_5");
++
++    slang::SessionDesc sessionDesc = {};
++    sessionDesc.targetCount = 1;
++    sessionDesc.targets = &targetDesc;
++
++    ComPtr<slang::ISession> session;
++    SLANG_CHECK_ABORT(globalSession->createSession(sessionDesc, session.writeRef()) == SLANG_OK);
++
++    ComPtr<slang::IBlob> diagnosticBlob;
++    auto module = session->loadModuleFromSourceString(
++        "specializationSizedResourceArrayBindingRanges",
++        "specializationSizedResourceArrayBindingRanges.slang",
++        source,
++        diagnosticBlob.writeRef());
++    SLANG_CHECK_ABORT(module != nullptr);
++
++    auto layout = module->getLayout();
++    SLANG_CHECK_ABORT(layout != nullptr);
++
++    auto globalScope = layout->getGlobalParamsTypeLayout();
++    SLANG_CHECK_ABORT(globalScope != nullptr);
++    SLANG_CHECK_ABORT(globalScope->getBindingRangeCount() == 2);
++
++    SLANG_CHECK(globalScope->getBindingRangeType(0) == slang::BindingType::Texture);
++    SLANG_CHECK(globalScope->getBindingRangeBindingCount(0) == (SlangInt)SLANG_UNKNOWN_SIZE);
++    SLANG_CHECK(globalScope->getBindingRangeType(1) == slang::BindingType::Sampler);
++    SLANG_CHECK(globalScope->getBindingRangeBindingCount(1) == 1);
++}
+\ No newline at end of file

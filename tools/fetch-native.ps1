@@ -228,6 +228,20 @@ if (Test-Path $noticeDir) {
     Write-Warning "no third-party-notices in the $Rid distribution - the release layout changed"
 }
 
+# Where the payload came from, beside native/ and not packed: Slang's release archive, so no patch of
+# ours is in it. build-native.ps1 writes the same file for a source build; the tests that assert
+# patched behaviour read it and skip on this one (AGENTS.md#patches).
+$compiler = $components[0].Canonical
+$provenance = [ordered]@{
+    source   = "release"
+    slang    = $SlangVersion
+    archive  = $asset
+    rid      = $Rid
+    patches  = @()
+    compiler = [ordered]@{ file = "native/$compiler"; sha256 = (Get-FileHash -Algorithm SHA256 (Join-Path $dest $compiler)).Hash.ToLowerInvariant() }
+}
+[System.IO.File]::WriteAllText((Join-Path $licenceRoot "payload.json"), ($provenance | ConvertTo-Json -Depth 4) + "`n")
+
 $total = (Get-ChildItem $dest -Recurse -File | Measure-Object Length -Sum).Sum
 Write-Host ""
 Write-Host ("==> done. {0} payload: {1:N1} MB  (archive was {2:N1} MB)" -f $Rid, ($total / 1MB), ((Get-Item $archive).Length / 1MB))

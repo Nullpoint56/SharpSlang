@@ -103,7 +103,9 @@ $jobName = @{
     docs = 'links and section references'; lint = 'lint'; zero_alloc = 'zero-alloc'; regen = 'generated bindings are current'
 }
 $regenInputs = 'Directory.Build.props', 'tools/generate-native.ps1', 'tools/generate-native-docs.*', 'dotnet/Native/*', '.github/workflows/regen.yml'
+# docs/upstream.json is the patch registry: lint checks it and the patched-behaviour tests read it.
 $noResult    = '*.md', 'docs/*'
+$hasResult   = 'docs/upstream.json'
 $onBranch    = $Ref -like 'refs/heads/*' -and $Ref -ne 'refs/heads/master'
 $isSchedule  = $EventName -eq 'schedule'
 $short       = $Sha.Substring(0, [Math]::Min(7, $Sha.Length))
@@ -193,7 +195,7 @@ try {
     }
 
     if ($null -ne $changed) {
-        $results = @($changed | Where-Object { $f = $_; -not ($noResult | Where-Object { $f -like $_ }) })
+        $results = @($changed | Where-Object { $f = $_; ($hasResult -contains $f -or -not ($noResult | Where-Object { $f -like $_ })) })
         if ($onBranch -and $changed.Count -gt 0 -and $results.Count -eq 0) {
             foreach ($k in @($decision.Keys)) {
                 if ($k -eq 'legs') { $decision.legs = @() }
@@ -223,7 +225,7 @@ try {
     if ($Workflow -eq 'release') {
         foreach ($c in @(git rev-list --first-parent --max-count=30 "$Sha" 2>$null | Select-Object -Skip 1)) {
             $diff = @(git diff --name-only $c $Sha)
-            if (@($diff | Where-Object { $f = $_; -not ($noResult | Where-Object { $f -like $_ }) }).Count -gt 0) { break }
+            if (@($diff | Where-Object { $f = $_; ($hasResult -contains $f -or -not ($noResult | Where-Object { $f -like $_ })) }).Count -gt 0) { break }
             [void]$docsEquivalent.Add($c)
             if (-not $heads.Contains($c)) { $heads.Add($c) }
         }

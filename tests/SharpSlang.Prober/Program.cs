@@ -130,6 +130,11 @@ internal static class Cases
         // because calling it anywhere else would end the caller.
         ["specialized-element-count"] = SpecializedElementCount,
 
+        // AGENTS.md#sizes-slang-does-not-know (U2).
+        // The binding ranges of the same shader as specialization-sized-resource-array, through
+        // the flat calls only: the count, and each range's type and binding count.
+        ["specialization-sized-resource-array-ranges"] = SpecializationSizedResourceArrayRanges,
+
         // AGENTS.md#sizes-slang-does-not-know.
         // getBindingRangeImageFormat on a ParameterBlock's binding range. The receiver and
         // the index are the ones every other binding-range query in the same loop is answered for,
@@ -819,6 +824,11 @@ internal static class Cases
 
         var specialized = SlangApi.spReflection_specializeType(shader, block, 1, args, &diagnostics);
         Console.Out.WriteLine(specialized is null ? "refused" : "specialized");
+        if (diagnostics is not null)
+        {
+            using var blob = new SlangBlob(diagnostics);
+            Console.Out.WriteLine($"diagnostics: {blob.AsText()}");
+        }
     }
 
     private static unsafe void SpecializedElementCount()
@@ -864,6 +874,52 @@ internal static class Cases
 
         Console.Out.WriteLine("GetSpecializedElementCount -> "
             + SlangApi.spReflectionType_GetSpecializedElementCount(arrayType, shader));
+        Console.Out.Flush();
+
+        // The deprecated call forwards to the same function without a program (slang-reflection-api.cpp).
+        Console.Out.WriteLine("GetElementCount -> " + SlangApi.spReflectionType_GetElementCount(arrayType));
+    }
+
+    /// <summary>
+    /// The binding ranges of a resource array sized by a specialization constant, through the flat
+    /// calls alone, so the answer is Slang's and not the walk's.
+    /// </summary>
+    private static unsafe void SpecializationSizedResourceArrayRanges()
+    {
+        const string Source = """
+            [vk::constant_id(0)] const int kCascades = 4;
+
+            Texture2D    scArray[kCascades];
+            SamplerState scSampler;
+
+            [shader("fragment")]
+            float4 scFragment() : SV_Target { return scArray[0].Sample(scSampler, 0); }
+            """;
+
+        using var global = SlangGlobalSession.Create();
+        using var session = global.CreateSession(
+            new SessionOptions { Targets = [new TargetOptions()] });
+        using var module = session.LoadModuleFromSource("sc", "sc.slang", Source);
+        using var entry = module.FindEntryPoint("scFragment");
+        using var program = session.Link(module, entry);
+
+        var shader = (SlangProgramLayout*)program.GetLayout(0).NativeHandle;
+        var scope = SlangApi.spReflection_getGlobalParamsTypeLayout(shader);
+        if (scope is null) throw new InvalidOperationException("no global scope layout");
+
+        Console.Out.WriteLine("asking the binding range count");
+        Console.Out.Flush();
+        var count = SlangApi.spReflectionTypeLayout_getBindingRangeCount(scope);
+        Console.Out.WriteLine($"{count} binding range(s)");
+
+        for (long b = 0; b < count; b++)
+        {
+            var type = SlangApi.spReflectionTypeLayout_getBindingRangeType(scope, b);
+            var bindings = SlangApi.spReflectionTypeLayout_getBindingRangeBindingCount(scope, b);
+            var leaf = SlangApi.spReflectionTypeLayout_getBindingRangeLeafVariable(scope, b);
+            var name = leaf is null ? "(none)" : Utf8.Read(SlangApi.spReflectionVariable_GetName(leaf));
+            Console.Out.WriteLine($"  [{b}] {name} type={type} bindings={bindings}");
+        }
     }
 
     private static unsafe void ImageFormatOnParameterBlock()

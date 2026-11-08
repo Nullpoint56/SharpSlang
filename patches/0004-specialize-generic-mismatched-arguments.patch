@@ -1,0 +1,162 @@
+Return a null declaration from Linkage::specializeGeneric when the generic application fails to check.
+
+Linkage::specializeGeneric (source/slang/slang-session.cpp), behind spReflection_specializeGeneric
+and ProgramLayout::specializeGeneric, checks the application of the generic to the caller's
+arguments and takes the declaration out of the result unconditionally:
+
+    auto specializedDeclRef =
+        as<DeclRefExpr>(visitor.checkGenericAppWithCheckedArgs(genericAppExpr))->declRef;   // 808-809
+
+When the arguments do not match the generic's parameters (an integer where a type parameter
+belongs, or two type arguments for one parameter), checkGenericAppWithCheckedArgs diagnoses it
+("expected a type", "too many arguments") and returns an error expression: the GenericAppExpr
+itself, from CreateErrorExpr in CompleteOverloadCandidate (source/slang/slang-check-overload.cpp,
+the error label). as<DeclRefExpr> of that is null, and the member access dereferences it. The
+behaviour is undefined, and the release shows it: an access violation on Windows x64 and on Linux
+x86-64 and aarch64, and on macOS arm64 a non-null generic returned beside the diagnostic.
+
+This checks the cast and returns a null DeclRef, which spReflection_specializeGeneric returns as
+null alongside the diagnostics the check already produced. A matching argument list takes the
+same path as before. A regression test is added as
+tools/slang-unit-test/unit-test-specialize-generic-mismatch.cpp.
+
+Measured on v2026.21 with struct MgWrapper<T : IMgMaterial>: before, both mismatches access-violate
+(win-x64, 0xC0000005); after, null with "expected a type" and with "too many arguments"
+respectively (win-x64, linux-x64).
+diff --git a/source/slang/slang-session.cpp b/source/slang/slang-session.cpp
+index 15e3a1f51..a7931f933 100644
+--- a/source/slang/slang-session.cpp
++++ b/source/slang/slang-session.cpp
+@@ -805,10 +805,16 @@ DeclRef<Decl> Linkage::specializeGeneric(
+     genericAppExpr->functionExpr = declRefExpr;
+     genericAppExpr->arguments = argExprs;
+ 
+-    auto specializedDeclRef =
+-        as<DeclRefExpr>(visitor.checkGenericAppWithCheckedArgs(genericAppExpr))->declRef;
++    // Checking the application diagnoses an argument list that does not match the generic's
++    // parameters, and the result is then an error expression rather than a reference to the
++    // specialized declaration.
++    //
++    auto specializedDeclRefExpr =
++        as<DeclRefExpr>(visitor.checkGenericAppWithCheckedArgs(genericAppExpr));
++    if (!specializedDeclRefExpr)
++        return DeclRef<Decl>();
+ 
+-    return specializedDeclRef;
++    return specializedDeclRefExpr->declRef;
+ }
+ 
+ SLANG_NO_THROW slang::TypeLayoutReflection* SLANG_MCALL Linkage::getTypeLayout(
+diff --git a/tools/slang-unit-test/unit-test-specialize-generic-mismatch.cpp b/tools/slang-unit-test/unit-test-specialize-generic-mismatch.cpp
+new file mode 100644
+index 000000000..bf120418a
+--- /dev/null
++++ b/tools/slang-unit-test/unit-test-specialize-generic-mismatch.cpp
+@@ -0,0 +1,106 @@
++// unit-test-specialize-generic-mismatch.cpp
++
++#include "slang-com-ptr.h"
++#include "slang.h"
++#include "unit-test/slang-unit-test.h"
++
++using namespace Slang;
++
++// This test exercises the public `specializeGeneric` API with argument lists that do not match
++// the generic's parameters: a value where a type parameter belongs, and more arguments than
++// parameters. The API should report the mismatch as a diagnostic and return `nullptr`.
++
++static void checkMismatchIsDiagnosed(
++    slang::ProgramLayout* layout,
++    slang::GenericReflection* generic,
++    SlangInt argCount,
++    slang::GenericArgType const* argTypes,
++    slang::GenericArgReflection const* args,
++    const char* expectedDiagnostic)
++{
++    ComPtr<slang::IBlob> diagnosticBlob;
++    auto specialized =
++        layout->specializeGeneric(generic, argCount, argTypes, args, diagnosticBlob.writeRef());
++    SLANG_CHECK(specialized == nullptr);
++    SLANG_CHECK_ABORT(diagnosticBlob != nullptr);
++
++    auto diagnostics = UnownedStringSlice(
++        (const char*)diagnosticBlob->getBufferPointer(),
++        diagnosticBlob->getBufferSize());
++    SLANG_CHECK(diagnostics.indexOf(UnownedStringSlice(expectedDiagnostic)) != -1);
++}
++
++SLANG_UNIT_TEST(specializeGenericMismatchedArguments)
++{
++    const char* source = R"(
++        interface IMaterial
++        {
++            float3 shade(float3 albedo);
++        }
++
++        struct Lambert : IMaterial
++        {
++            float3 shade(float3 albedo) { return albedo; }
++        }
++
++        struct Wrapper<T : IMaterial>
++        {
++            T inner;
++            float4 tint;
++        }
++        )";
++
++    ComPtr<slang::IGlobalSession> globalSession;
++    SLANG_CHECK_ABORT(
++        slang_createGlobalSession(SLANG_API_VERSION, globalSession.writeRef()) == SLANG_OK);
++
++    slang::TargetDesc targetDesc = {};
++    targetDesc.format = SLANG_SPIRV;
++    targetDesc.profile = globalSession->findProfile("spirv_1_5");
++
++    slang::SessionDesc sessionDesc = {};
++    sessionDesc.targetCount = 1;
++    sessionDesc.targets = &targetDesc;
++
++    ComPtr<slang::ISession> session;
++    SLANG_CHECK_ABORT(globalSession->createSession(sessionDesc, session.writeRef()) == SLANG_OK);
++
++    ComPtr<slang::IBlob> diagnosticBlob;
++    auto module = session->loadModuleFromSourceString(
++        "specializeGenericMismatchedArguments",
++        "specializeGenericMismatchedArguments.slang",
++        source,
++        diagnosticBlob.writeRef());
++    SLANG_CHECK_ABORT(module != nullptr);
++
++    auto layout = module->getLayout();
++    SLANG_CHECK_ABORT(layout != nullptr);
++
++    auto wrapperType = layout->findTypeByName("Wrapper");
++    SLANG_CHECK_ABORT(wrapperType != nullptr);
++    auto generic = wrapperType->getGenericContainer();
++    SLANG_CHECK_ABORT(generic != nullptr);
++
++    auto lambertType = layout->findTypeByName("Lambert");
++    SLANG_CHECK_ABORT(lambertType != nullptr);
++
++    // A value where the type parameter belongs.
++    {
++        slang::GenericArgType argType = slang::GenericArgType::SLANG_GENERIC_ARG_INT;
++        slang::GenericArgReflection arg = {};
++        arg.intVal = 3;
++        checkMismatchIsDiagnosed(layout, generic, 1, &argType, &arg, "expected a type");
++    }
++
++    // Two type arguments for one type parameter.
++    {
++        slang::GenericArgType argTypes[] = {
++            slang::GenericArgType::SLANG_GENERIC_ARG_TYPE,
++            slang::GenericArgType::SLANG_GENERIC_ARG_TYPE,
++        };
++        slang::GenericArgReflection args[2] = {};
++        args[0].typeVal = lambertType;
++        args[1].typeVal = lambertType;
++        checkMismatchIsDiagnosed(layout, generic, 2, argTypes, args, "too many arguments");
++    }
++}
+\ No newline at end of file

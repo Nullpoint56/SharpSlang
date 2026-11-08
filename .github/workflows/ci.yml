@@ -203,10 +203,13 @@ jobs:
     # NRI device tests skip by decision, with the reason (NriFact.cs). It was
     # macos-14 until 2026-11-07, when GitHub refused that image ("The configuration
     # 'macos-14-arm64-us-xl' is not supported") and cancelled the leg in its first second.
-    needs: gate
+    # native-from-source runs only when the repository variable SHARPSLANG_NATIVE_FROM_SOURCE is
+    # 'true', and is skipped otherwise, which this job accepts; when it runs, the legs wait for the
+    # payload it saves (the Slang payload step below).
+    needs: [gate, native-from-source]
     # The legs come from the gate: none when this tree already passed them, and osx-arm64 only
     # when a manual run or a release asked for it.
-    if: needs.gate.outputs.legs != '[]'
+    if: ${{ !cancelled() && needs.gate.result == 'success' && needs.gate.outputs.legs != '[]' && needs.native-from-source.result != 'failure' }}
     # Windows pinned to windows-2025-vs2026, the image windows-latest ran on every run measured
     # (2026-11-07/08): the leg relies on the image's LLVM for NativeAbiTests and on its WARP for the
     # exact D3D12 counts below. Moving it is a decision, as for Ubuntu.
@@ -249,15 +252,19 @@ jobs:
           key: slang-sources-${{ hashFiles('Directory.Build.props') }}
 
       # The staged payload, cached under the git object ids of what makes it (the slang-payload
-      # action, tools/ci/native-payload-key.ps1), the same key on every OS and in checks.yml's
-      # zero-alloc job, and saved before the build and tests. Slang's release archive until the
-      # repository is public; then source: build (owner, 2026-11-08), which the native-from-source
-      # job below already keys.
+      # action, tools/ci/native-payload-key.ps1), the same key on every OS, and saved before the
+      # build and tests. Slang's release archive while the repository variable
+      # SHARPSLANG_NATIVE_FROM_SOURCE is unset, which it is until the repository is public (owner,
+      # 2026-11-08; AGENTS.md#decisions); with the variable 'true', the payload the
+      # native-from-source job built with patches/ applied, restored and never built here
+      # (restore-only), so the patched-behaviour tests run instead of skipping (AGENTS.md#patches).
+      # The variable is the whole switch.
       - name: Slang payload
         uses: ./.github/actions/slang-payload
         with:
           rid: ${{ matrix.rid }}
-          source: release
+          source: ${{ vars.SHARPSLANG_NATIVE_FROM_SOURCE == 'true' && 'build' || 'release' }}
+          restore-only: ${{ vars.SHARPSLANG_NATIVE_FROM_SOURCE == 'true' && 'true' || 'false' }}
           token: ${{ github.token }}
 
       - name: Payload carries the SPIR-V optimiser
@@ -545,6 +552,20 @@ jobs:
       #
       # Counted from the TRX rather than the console summary, for the reason the step above
       # records: the console logger changes shape with its verbosity and the TRX does not.
+      # With the payload built from source, every patched-behaviour test in the registry ran: one
+      # per entry that carries a patch (docs/upstream.json, AGENTS.md#patches). On Slang's release
+      # they skip by design, naming the patch, and nothing is counted.
+      - name: The patched-behaviour tests actually ran (source-built payload)
+        if: vars.SHARPSLANG_NATIVE_FROM_SOURCE == 'true'
+        shell: pwsh
+        run: |
+          $carried = @((Get-Content docs/upstream.json -Raw | ConvertFrom-Json).defects | Where-Object { $_.patch })
+          $counts = @(./tools/ci/count-tests.ps1 -Trx test-results/results.trx -Class (($carried | ForEach-Object test) -join ',') 6>&1 | ForEach-Object { "$_" })
+          $counts | ForEach-Object { Write-Host $_ }
+          if ($counts[-1] -notmatch "passed=$($carried.Count) skipped=0 failed=0\b") {
+            throw "expected the $($carried.Count) patched-behaviour tests of docs/upstream.json to pass on ${{ matrix.rid }}: $($counts[-1])"
+          }
+
       - name: The header-derived and corpus oracles actually ran
         # Every leg, unlike the lavapipe gate above, so `shell: bash` is explicit — a Windows
         # runner defaults to pwsh and would read the script below as PowerShell.
@@ -941,11 +962,12 @@ jobs:
             }
           } finally { $zip.Dispose() }
 
-  # The payload built from the slang/ submodule (tools/build-native.ps1), cached. NOT IN USE: the
-  # test job above still stages Slang's release with fetch-native.ps1, and this job is skipped,
-  # costing nothing, unless the repository variable SHARPSLANG_NATIVE_FROM_SOURCE is 'true', which
-  # it is not. It is here so the cache design is reviewed with the code it serves; nothing uses the
-  # payload it would save.
+  # The payload built from the slang/ submodule with patches/ applied (tools/build-native.ps1),
+  # cached, for the test legs above. Skipped, costing nothing, unless the repository variable
+  # SHARPSLANG_NATIVE_FROM_SOURCE is 'true', which it is not until the repository is public (owner,
+  # 2026-11-08; AGENTS.md#decisions). With it 'true', the legs wait for this job and restore what it
+  # saved, so the patched-behaviour tests run against the patches; unset, the legs stage Slang's
+  # release and those tests skip, naming the patch.
   #
   # The payload is a function of its inputs, so it is built once per input set, not per run: the key
   # is the git object ids of the slang/ pointer, patches/, the build script, the props, the notices
@@ -954,9 +976,9 @@ jobs:
   # Slang source is fetched. A miss fetches the submodule, builds, and saves the payload right after
   # the build, before any test runs, so a red test run still leaves the next run a cached payload.
   #
-  # Switching over (when the repository goes public; owner, 2026-11-08) is the test job's Slang
-  # payload step changing to source: build, inline, so a hit costs no extra job minute, and this
-  # job going. U4 is patched first (AGENTS.md#patches).
+  # Built here and not in the legs because the Linux build host sets the payload's glibc floor
+  # (below); Windows and macOS build on the legs' own images (windows-2025-vs2026, macos-15). The
+  # macOS path of build-native.ps1 has not run anywhere yet (AGENTS.md#native-build).
   native-from-source:
     name: native payload from source (${{ matrix.rid }})
     needs: gate
@@ -1014,7 +1036,9 @@ jobs:
   digests:
     name: every platform cooks the same asset (${{ needs.gate.outputs.count }} legs)
     needs: [gate, test]
-    if: needs.gate.outputs.digests == 'run'
+    # Not the implicit success(): test needs native-from-source, which is skipped until the source build
+    # is switched on, and a skipped ancestor skipped this job silently (run 42503066429).
+    if: ${{ !cancelled() && needs.gate.outputs.digests == 'run' && needs.test.result == 'success' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5       # 5-9 s measured (11 runs, 2026-11-07/08)
     steps:

@@ -182,7 +182,7 @@ public class ProberTests(ITestOutputHelper output)
         Assert.Contains("unknown case", outcome.Stderr, StringComparison.Ordinal);
     }
 
-    [NativeFact]
+    [ReleasePayloadFact("U2")]
     public void A_specialization_sized_resource_array_never_reflects_successfully()
     {
         // U2: `Texture2D t[kCascades]` where kCascades is a specialization constant. What is
@@ -197,7 +197,7 @@ public class ProberTests(ITestOutputHelper output)
             + $"and that paragraph is what needs rewriting, not this assertion.\n{outcome}");
     }
 
-    [NativeFact]
+    [ReleasePayloadFact("U3")]
     public void A_mismatched_generic_argument_kind_crashes_on_two_platforms_and_diagnoses_on_the_third()
     {
         // U3 (AGENTS.md#reflection-snapshot), corrected by the first macOS run. This was called
@@ -218,7 +218,7 @@ public class ProberTests(ITestOutputHelper output)
         AssertMismatchRefused(Run("generic-argument-kind-mismatch"), "expected a type");
     }
 
-    [NativeFact]
+    [ReleasePayloadFact("U3")]
     public void The_argument_count_has_to_match_too_not_only_the_kinds()
     {
         // The other half of SpecializeGeneric's guard: two type arguments for one type parameter —
@@ -256,7 +256,7 @@ public class ProberTests(ITestOutputHelper output)
         Assert.Contains("error", outcome.Stdout, StringComparison.Ordinal);
     }
 
-    [NativeFact]
+    [ReleasePayloadFact("U4")]
     public void Specializing_a_non_generic_type_segfaults_only_on_Linux()
     {
         // The fifth measured crash, and it cost a green run to find: the call sat in an ordinary
@@ -301,7 +301,7 @@ public class ProberTests(ITestOutputHelper output)
         }
     }
 
-    [NativeFact]
+    [ReleasePayloadFact("U1")]
     public void The_resolving_element_count_is_the_one_call_the_library_will_not_make()
     {
         // Every other function in Slang's reflection API is now reached from somewhere — the
@@ -320,6 +320,79 @@ public class ProberTests(ITestOutputHelper output)
             + $"could be relaxed, and ArrayLayout.IsSpecializationSized reconsidered.\n{outcome}");
 
         Assert.Contains("SLANG_TYPE_KIND_ARRAY", outcome.Stdout, StringComparison.Ordinal);
+    }
+
+    [PatchedFact("U4")]
+    public void Specializing_a_non_generic_type_is_refused_with_a_diagnostic()
+    {
+        // U4 (AGENTS.md#reflection-snapshot), patch 0001. The answer slang.h's error path gives,
+        // on every platform: null, and a diagnostic saying the type takes no arguments. The
+        // release's three answers are the wrong ones asserted above: null with nothing said
+        // (Windows, macOS), SIGSEGV (Linux), and, built by GCC 13.3 without the patch, a type.
+        var outcome = Run("specialize-a-non-generic-type");
+        output.WriteLine(outcome.ToString());
+
+        Assert.True(outcome.ExitCode == 0, $"specializeType on a non-generic type ended the process:\n{outcome}");
+        Assert.Contains("SnBlock kind=SLANG_TYPE_KIND_STRUCT", outcome.Stdout, StringComparison.Ordinal);
+        Assert.Contains("\nrefused", outcome.Stdout.ReplaceLineEndings("\n"), StringComparison.Ordinal);
+        Assert.DoesNotContain("\nspecialized", outcome.Stdout.ReplaceLineEndings("\n"), StringComparison.Ordinal);
+        Assert.Contains("E38025", outcome.Stdout, StringComparison.Ordinal);
+        Assert.Contains("wrong number of specialization arguments", outcome.Stdout, StringComparison.Ordinal);
+    }
+
+    [PatchedFact("U1")]
+    public void The_element_count_of_a_specialization_sized_array_is_unknown()
+    {
+        // U1 (AGENTS.md#sizes-slang-does-not-know), patch 0002. What slang.h:2633-2642 documents
+        // for a size that depends on a link-time constant: SLANG_UNKNOWN_SIZE, from both the
+        // resolving call and the deprecated one, where the release ends the process.
+        var outcome = Run("specialized-element-count");
+        output.WriteLine(outcome.ToString());
+
+        const ulong unknown = ulong.MaxValue - 1;   // SLANG_UNKNOWN_SIZE
+        Assert.True(outcome.ExitCode == 0, $"asking the element count of a specialization-sized array ended the process:\n{outcome}");
+        Assert.Contains("array kind=SLANG_TYPE_KIND_ARRAY", outcome.Stdout, StringComparison.Ordinal);
+        Assert.Contains($"GetSpecializedElementCount -> {unknown}", outcome.Stdout, StringComparison.Ordinal);
+        Assert.Contains($"GetElementCount -> {unknown}", outcome.Stdout, StringComparison.Ordinal);
+    }
+
+    [PatchedFact("U2")]
+    public void A_specialization_sized_resource_array_has_binding_ranges_of_unknown_count()
+    {
+        // U2 (AGENTS.md#sizes-slang-does-not-know), patch 0003. The binding ranges are there and
+        // the array's count is SLANG_UNKNOWN_SIZE, the answer the type layout already gives for its
+        // size, where the release throws Slang::InternalError out of getBindingRangeCount.
+        var outcome = Run("specialization-sized-resource-array-ranges");
+        output.WriteLine(outcome.ToString());
+
+        // SLANG_UNKNOWN_SIZE, which getBindingRangeBindingCount returns as a SlangInt: -2.
+        const long unknown = -2;
+        Assert.True(outcome.ExitCode == 0, $"reflecting the binding ranges of a specialization-sized resource array failed:\n{outcome}");
+        Assert.Contains("2 binding range(s)", outcome.Stdout, StringComparison.Ordinal);
+        Assert.Contains($"scArray type=SLANG_BINDING_TYPE_TEXTURE bindings={unknown}", outcome.Stdout, StringComparison.Ordinal);
+        Assert.Contains("scSampler type=SLANG_BINDING_TYPE_SAMPLER bindings=1", outcome.Stdout, StringComparison.Ordinal);
+    }
+
+    [PatchedFact("U3")]
+    public void A_mismatched_generic_argument_list_is_refused_with_a_diagnostic()
+    {
+        // U3 (AGENTS.md#reflection-snapshot), patch 0004. The diagnostic macOS's release already
+        // reaches, without the non-null generic it returned beside it, on every platform: an int
+        // where a type parameter belongs, and two type arguments for one parameter.
+        foreach (var (probe, diagnostic) in new[]
+                 {
+                     ("generic-argument-kind-mismatch", "expected a type"),
+                     ("generic-argument-count-mismatch", "too many arguments"),
+                 })
+        {
+            var outcome = Run(probe);
+            output.WriteLine($"{probe}: {outcome}");
+
+            Assert.True(outcome.ExitCode == 0, $"'{probe}' ended the process:\n{outcome}");
+            Assert.Contains("\nrefused", "\n" + outcome.Stdout.ReplaceLineEndings("\n"), StringComparison.Ordinal);
+            Assert.Contains("error", outcome.Stdout, StringComparison.Ordinal);
+            Assert.Contains(diagnostic, outcome.Stdout, StringComparison.Ordinal);
+        }
     }
 
     [NativeFact]
@@ -630,7 +703,7 @@ public class ProberTests(ITestOutputHelper output)
         Assert.Contains("0 threw, 0 disagreed", outcome.Stdout, StringComparison.Ordinal);
     }
 
-    [NativeFact]
+    [ReleasePayloadFact("U2")]
     public void How_it_fails_depends_on_the_platform()
     {
         // Measured, and not what an earlier round said. Slang throws a C++ `Slang::InternalError` out through

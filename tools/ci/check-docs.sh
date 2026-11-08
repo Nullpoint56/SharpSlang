@@ -130,6 +130,15 @@ for expected in docs/*.md docs/releases/*.md tools/*.ps1 tools/ci/*.sh README.md
         || echo "$expected exists but no .slnx lists it" >> "$problems"
 done
 
+# ---------------------------------------------------------------- 4. the patch registry
+
+# docs/upstream.md's index is generated from docs/upstream.json, and a change to docs/ alone does not
+# run lint, which checks the rest (AGENTS.md#patches). The registry half only: no network, no slang/.
+echo "==> patch registry"
+pwsh -NoProfile -File tools/ci/patch-registry.ps1 -Index > /dev/null 2>"$problems.registry" \
+    || { echo "the patch registry: $(tr '\n' ' ' < "$problems.registry")" >> "$problems"; }
+rm -f "$problems.registry"
+
 # ---------------------------------------------------------------- verdict
 
 if [ -s "$problems" ]; then

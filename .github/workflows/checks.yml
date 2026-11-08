@@ -80,8 +80,9 @@ jobs:
           GATE_ZERO_ALLOC: ${{ inputs.zero_alloc }}
         run: ./tools/ci/ci-gate.ps1
 
-  # The SDK's own analyzers as errors, the formatter's check and the descs version, exactly as
-  # tools/check.ps1 -Lint does it. No payload: the analyzers need none.
+  # The SDK's own analyzers as errors, the formatter's check, the descs version and the patch registry
+  # (tools/ci/patch-registry.ps1), exactly as tools/check.ps1 -Lint does it. No payload: the analyzers
+  # need none, and the registry fetches the files the patches touch from the pinned tag.
   lint:
     name: lint
     needs: gate
@@ -100,7 +101,7 @@ jobs:
           dotnet-version: '11.0.x'
           dotnet-quality: preview
 
-      - name: Analyzers, formatting, descs version
+      - name: Analyzers, formatting, descs version, patch registry
         shell: pwsh
         run: ./tools/check.ps1 -Lint
 
