@@ -753,6 +753,35 @@ public class ProberTests(ITestOutputHelper output)
         }
     }
 
+    [PatchedFact("U9")]
+    public void Without_the_optimiser_every_compile_warns_and_none_reports_an_error()
+    {
+        // U9, patched (0017): with slang-glslang absent, each SPIR-V compile in a global session
+        // warns E00118 that its module was not optimized, and no compile reports E00100 on success.
+        var copy = Directory.CreateTempSubdirectory("sharpslang-no-optimiser-");
+        try
+        {
+            foreach (var file in Directory.EnumerateFiles(ProberDirectory(), "*", SearchOption.AllDirectories))
+            {
+                var name = Path.GetFileName(file);
+                if (name.Contains("slang-glslang", StringComparison.Ordinal)) continue;
+                var target = Path.Combine(copy.FullName, Path.GetRelativePath(ProberDirectory(), file));
+                Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+                File.Copy(file, target);
+            }
+
+            var outcome = RunUnderMuxer("missing-optimiser", copy.FullName, copy.FullName, withoutPreload: true);
+            output.WriteLine(outcome.ToString());
+            Assert.Equal(0, outcome.ExitCode);
+            Assert.Contains("compile 1:", outcome.Stdout, StringComparison.Ordinal);
+            Assert.DoesNotContain("E00100 True", outcome.Stdout, StringComparison.Ordinal);
+            Assert.Equal(2, outcome.Stdout.Split("W00118 True").Length - 1);
+        }
+        finally
+        {
+            copy.Delete(recursive: true);
+        }
+    }
     [PatchedFact("U10")]
     public void Slang_finds_its_companions_beside_itself_without_the_bindings_preload()
     {

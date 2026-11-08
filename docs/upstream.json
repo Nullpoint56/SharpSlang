@@ -90,10 +90,10 @@
       "title": "A missing `slang-glslang` is an error diagnostic on a successful result, reported once per global session",
       "area": "diagnostics",
       "kind": "Slang defect",
-      "patch": null,
-      "test": "DownstreamCompilerTests.Requiring_the_optimiser_is_the_default_and_succeeds_on_a_correct_payload",
-      "state": "unpatched",
-      "verified": "v2026.14.1"
+      "patch": "0017-warn-on-each-unoptimized-spirv.patch",
+      "test": "ProberTests.Without_the_optimiser_every_compile_warns_and_none_reports_an_error",
+      "state": "patched",
+      "verified": "v2026.21"
     },
     {
       "id": "U10",
