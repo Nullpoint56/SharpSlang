@@ -2,28 +2,18 @@ using System.Runtime.CompilerServices;
 
 namespace SharpSlang.Native;
 
+/// <summary>Cooperative matrix and vector metadata.</summary>
+/// <remarks>
+/// <para>This interface reports the cooperative matrix/vector type information that a compiled target uses, including cooperative matrix types, cooperative vector type-usage records, and certain type combinations required to execute some operations (like matrix multiplication).</para>
+/// <para>Applications can use this metadata to compare shader requirements against the capabilities exposed by the target API/driver (for example Vulkan cooperative matrix/vector property queries, or analogous APIs on other backends).</para>
+/// <para>Metadata is collected from the IR after target-specific lowering, so it only reflects cooperative types that survive as native constructs in the final output. Targets that lower cooperative types into ordinary arrays will report empty lists.</para>
+/// <para>Lists are exposed using <c>get*Count()</c> plus <c>get*ByIndex()</c> methods, where the count returns the number of elements currently available and valid indices are in the range <c>[0, count)</c>.</para>
+/// <para>Cast from an <c>IMetadata*</c> using <c>castAs()</c>.</para>
+/// </remarks>
 [NativeTypeName("struct ICooperativeTypesMetadata : ISlangCastable")]
 public unsafe partial struct ICooperativeTypesMetadata
 {
     public void** lpVtbl;
-
-    [return: NativeTypeName("SlangResult")]
-    public int QueryInterface([NativeTypeName("const struct _GUID &")] Guid* uuid, void** outObject)
-    {
-        return queryInterface(unchecked((SlangUUID*)(uuid)), outObject);
-    }
-
-    [return: NativeTypeName("uint32_t")]
-    public uint AddRef()
-    {
-        return addRef();
-    }
-
-    [return: NativeTypeName("uint32_t")]
-    public uint Release()
-    {
-        return release();
-    }
 
     [VtblIndex(0)]
     [return: NativeTypeName("SlangResult")]
@@ -46,6 +36,11 @@ public unsafe partial struct ICooperativeTypesMetadata
         return ((delegate* unmanaged[Stdcall]<ICooperativeTypesMetadata*, uint>)(lpVtbl[2]))((ICooperativeTypesMetadata*)Unsafe.AsPointer(ref this));
     }
 
+    /// <summary>Can be used to cast to interfaces without reference counting.</summary>
+    /// <remarks>
+    /// <para>Also provides access to internal implementations, when they provide a guid</para>
+    /// <para>Can simulate a 'generated' interface as long as kept in scope by cast from.</para>
+    /// </remarks>
     [VtblIndex(3)]
     public void* castAs([NativeTypeName("const SlangUUID &")] SlangUUID* guid)
     {

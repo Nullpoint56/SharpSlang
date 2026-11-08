@@ -2,28 +2,11 @@ using System.Runtime.CompilerServices;
 
 namespace SharpSlang.Native;
 
+/// <summary>An interface to provide a mechanism to cast, that doesn't require ref counting and doesn't have to return a pointer to a ISlangUnknown derived class</summary>
 [NativeTypeName("struct ISlangCastable : ISlangUnknown")]
 public unsafe partial struct ISlangCastable
 {
     public void** lpVtbl;
-
-    [return: NativeTypeName("SlangResult")]
-    public int QueryInterface([NativeTypeName("const struct _GUID &")] Guid* uuid, void** outObject)
-    {
-        return queryInterface(unchecked((SlangUUID*)(uuid)), outObject);
-    }
-
-    [return: NativeTypeName("uint32_t")]
-    public uint AddRef()
-    {
-        return addRef();
-    }
-
-    [return: NativeTypeName("uint32_t")]
-    public uint Release()
-    {
-        return release();
-    }
 
     [VtblIndex(0)]
     [return: NativeTypeName("SlangResult")]
@@ -46,6 +29,11 @@ public unsafe partial struct ISlangCastable
         return ((delegate* unmanaged[Stdcall]<ISlangCastable*, uint>)(lpVtbl[2]))((ISlangCastable*)Unsafe.AsPointer(ref this));
     }
 
+    /// <summary>Can be used to cast to interfaces without reference counting.</summary>
+    /// <remarks>
+    /// <para>Also provides access to internal implementations, when they provide a guid</para>
+    /// <para>Can simulate a 'generated' interface as long as kept in scope by cast from.</para>
+    /// </remarks>
     [VtblIndex(3)]
     public void* castAs([NativeTypeName("const SlangUUID &")] SlangUUID* guid)
     {

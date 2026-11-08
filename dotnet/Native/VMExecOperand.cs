@@ -2,11 +2,13 @@ namespace SharpSlang.Native;
 
 public unsafe partial struct VMExecOperand
 {
+    /// <summary>Pointer to the section start pointer.</summary>
     [NativeTypeName("uint8_t **")]
     public byte** section;
 
     public uint _bitfield;
 
+    /// <summary>type of the operand data.</summary>
     [NativeTypeName("uint32_t : 8")]
     public uint type
     {

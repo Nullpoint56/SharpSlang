@@ -10,10 +10,8 @@
 # A file pattern may use * and ?, matched against the package's entries (-like); the rest are exact.
 @{
     # Every pin a package version or dependency is spelled with, as the Directory.Build.props
-    # property that holds it. Directory.Build.props holds SlangVersion, DxcPackageVersion and the
-    # two SharpNRI pins today; the three package-version properties are not there yet, and until
-    # they are each falls back to the <Version> of a project whose package uses it (one version,
-    # set in every packed project, as the repository has it now).
+    # property that holds it. A pin missing there falls back to the <Version> of a project whose
+    # package uses it.
     Pins = @{
         Version         = 'SharpSlangVersion'               # the release: tag v<it>
         DescsVersion    = 'SharpSlangDescsVersion'          # SharpSlang.Descs, moved only when the descs change
@@ -80,18 +78,20 @@
                 'licenses/{rid}/Slang/LICENSES/Apache-2.0.txt'
             )
             Forbidden = @('^runtimes/[^/]+/(?!native/)')
-            Dependencies = @{ 'SharpSlang.Pipeline' = '[{PipelineVersion}]' }
-            DependenciesWhenPacked = @{ 'SharpSlang.Descs' = '[{DescsVersion}]' }
-            Props = @{ 'buildTransitive/SharpSlang.props' = @{ SharpSlangPackedVersion = '{Version}'; SharpSlangPipelineDependency = '{PipelineVersion}' } }
+            Dependencies = @{ 'SharpSlang.Descs' = '[{DescsVersion}]'; 'SharpSlang.Pipeline' = '[{PipelineVersion}]' }
+            Props = @{ 'buildTransitive/SharpSlang.props' = @{ SharpSlangPackedVersion = '{Version}'; SharpSlangDescsDependency = '{DescsVersion}'; SharpSlangPipelineDependency = '{PipelineVersion}' } }
+            # SHARPSLANG005: the restored Descs held to the one SharpSlang depends on
+            Contains = @{ 'buildTransitive/SharpSlang.targets' = @('SHARPSLANG005') }
             Description = 'Native'
             Assemblies = $true
         }
         @{
             # The reader: baked packages, the reflection snapshot, the SPIR-V header. No compiler.
             Id = 'SharpSlang.Pipeline'; Project = 'pipeline/SharpSlang.Pipeline.csproj'; Version = 'PipelineVersion'
-            Sources = @('pipeline', 'NativeReaderEnums.props'); SourcesFromProject = $true
+            Sources = @('pipeline'); SourcesFromProject = $true
             Files = @('lib/net11.0/SharpSlang.Pipeline.dll', 'lib/net11.0/SharpSlang.Pipeline.xml', 'lib/net11.0/SharpSlang.Pipeline.pdb', 'README.md')
             Forbidden = @('^runtimes/', '^licenses/', 'slang-compiler')
+            Dependencies = @{ 'SharpSlang.Descs' = '[{DescsVersion}]' }
             Assemblies = $true
         }
         @{
@@ -118,12 +118,10 @@
         }
         @{
             # L0 without the DllImport file, and the managed desc forms: no native dependency.
-            # Not split out yet: no project, so nothing is checked until one is named here.
-            Id = 'SharpSlang.Descs'; Project = $null; Version = 'DescsVersion'
+            Id = 'SharpSlang.Descs'; Project = 'descs/SharpSlang.Descs.csproj'; Version = 'DescsVersion'
             Sources = @('dotnet/Native', ':(exclude)dotnet/Native/SlangApi.cs', 'descs', 'NativeSplit.props'); SourcesFromProject = $true
             Files = @('lib/net11.0/SharpSlang.Descs.dll', 'lib/net11.0/SharpSlang.Descs.xml', 'lib/net11.0/SharpSlang.Descs.pdb', 'README.md')
-            Forbidden = @('^runtimes/', '^licenses/')
-            Optional = $true
+            Forbidden = @('^runtimes/', '^licenses/', '\.(dll|so|dylib)$(?<!SharpSlang\.Descs\.dll)', '^build')
             Assemblies = $true
         }
         @{

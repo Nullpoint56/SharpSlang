@@ -4,6 +4,7 @@ using System.Runtime.InteropServices;
 
 namespace SharpSlang.Native;
 
+/// <summary>Can be requested from ISlangCastable cast to indicate the contained chars are null terminated.</summary>
 public unsafe partial struct SlangTerminatedChars
 {
     [NativeTypeName("char[1]")]
@@ -20,13 +21,7 @@ public unsafe partial struct SlangTerminatedChars
         public sbyte e0;
 
         [UnscopedRef]
-        public ref sbyte this[int index]
-        {
-            get
-            {
-                return ref Unsafe.Add(ref e0, index);
-            }
-        }
+        public ref sbyte this[int index] => ref Unsafe.Add(ref e0, index);
 
         [UnscopedRef]
         public Span<sbyte> AsSpan(int length) => MemoryMarshal.CreateSpan(ref e0, length);

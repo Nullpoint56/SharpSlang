@@ -3,6 +3,7 @@ namespace SharpSlang.Native;
 
 public unsafe partial struct VMExecInstHeader
 {
+    /// <summary>Pointer to the function that executes this instruction.</summary>
     [NativeTypeName("slang::VMExtFunction")]
     public delegate* unmanaged[Cdecl]<IByteCodeRunner*, VMExecInstHeader*, void*, void> functionPtr;
 

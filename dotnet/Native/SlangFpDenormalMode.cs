@@ -1,5 +1,6 @@
 namespace SharpSlang.Native;
 
+/// <summary>Options to control floating-point denormal handling mode for a target.</summary>
 [NativeTypeName("SlangFpDenormalModeIntegral")]
 public enum SlangFpDenormalMode : uint
 {

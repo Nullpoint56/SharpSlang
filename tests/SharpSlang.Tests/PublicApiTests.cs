@@ -1,4 +1,4 @@
-// The public surface of all three packages that ship an assembly, written down.
+// The public surface of all four packages that ship an assembly, written down.
 //
 // These are libraries an engine builds against, and the moment one of them is 1.0 its surface is a
 // promise. Nothing was checking the promise. A member removed, a parameter reordered, a type
@@ -41,7 +41,7 @@ public class PublicApiTests(ITestOutputHelper output)
     };
 
     private static readonly string[] Packages =
-        ["SharpSlang", "SharpSlang.Pipeline", "SharpSlang.Pipeline.NRI"];
+        ["SharpSlang", "SharpSlang.Descs", "SharpSlang.Pipeline", "SharpSlang.Pipeline.NRI"];
 
     public static TheoryData<string> Assemblies()
     {
@@ -105,6 +105,7 @@ public class PublicApiTests(ITestOutputHelper output)
     private static Assembly Load(string name) => name switch
     {
         "SharpSlang" => typeof(SlangGlobalSession).Assembly,
+        "SharpSlang.Descs" => typeof(SlangHeaders).Assembly,
         "SharpSlang.Pipeline" => typeof(Reflection.ProgramLayout).Assembly,
         "SharpSlang.Pipeline.NRI" => typeof(Pipeline.NRI.NriPipelineProjection).Assembly,
         _ => throw new ArgumentOutOfRangeException(nameof(name), name, "not a package of this repo"),

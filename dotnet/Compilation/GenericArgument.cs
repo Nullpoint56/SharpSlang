@@ -61,6 +61,6 @@ public readonly unsafe struct GenericArgument
     {
         SlangReflectionGenericArgType.SLANG_GENERIC_ARG_TYPE => _type?.Name ?? "<unset>",
         SlangReflectionGenericArgType.SLANG_GENERIC_ARG_BOOL => _value != 0 ? "true" : "false",
-        _ => _value.ToString(),
+        _ => _value.ToString(System.Globalization.CultureInfo.InvariantCulture),
     };
 }

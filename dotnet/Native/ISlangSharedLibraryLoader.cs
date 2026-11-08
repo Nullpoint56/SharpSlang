@@ -7,24 +7,6 @@ public unsafe partial struct ISlangSharedLibraryLoader
 {
     public void** lpVtbl;
 
-    [return: NativeTypeName("SlangResult")]
-    public int QueryInterface([NativeTypeName("const struct _GUID &")] Guid* uuid, void** outObject)
-    {
-        return queryInterface(unchecked((SlangUUID*)(uuid)), outObject);
-    }
-
-    [return: NativeTypeName("uint32_t")]
-    public uint AddRef()
-    {
-        return addRef();
-    }
-
-    [return: NativeTypeName("uint32_t")]
-    public uint Release()
-    {
-        return release();
-    }
-
     [VtblIndex(0)]
     [return: NativeTypeName("SlangResult")]
     public int queryInterface([NativeTypeName("const SlangUUID &")] SlangUUID* uuid, void** outObject)
@@ -46,6 +28,10 @@ public unsafe partial struct ISlangSharedLibraryLoader
         return ((delegate* unmanaged[Stdcall]<ISlangSharedLibraryLoader*, uint>)(lpVtbl[2]))((ISlangSharedLibraryLoader*)Unsafe.AsPointer(ref this));
     }
 
+    /// <summary>Load a shared library. In typical usage the library name should *not* contain any platform specific elements. For example on windows a dll name should *not* be passed with a '.dll' extension, and similarly on linux a shared library should *not* be passed with the 'lib' prefix and '.so' extension</summary>
+    /// <remarks>
+    /// <para>path: path The unadorned filename and/or path for the shared library @ param sharedLibraryOut Holds the shared library if successfully loaded</para>
+    /// </remarks>
     [VtblIndex(3)]
     [return: NativeTypeName("SlangResult")]
     public int loadSharedLibrary([NativeTypeName("const char *")] sbyte* path, ISlangSharedLibrary** sharedLibraryOut)

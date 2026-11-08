@@ -4,8 +4,10 @@ using System.Runtime.InteropServices;
 
 namespace SharpSlang.Native;
 
+/// <summary>Argument used for specialization to types/values.</summary>
 public unsafe partial struct SpecializationArg
 {
+    /// <summary>The kind of specialization argument.</summary>
     [NativeTypeName("slang::SpecializationArg::Kind")]
     public SpecializationArg.Kind kind;
 
@@ -53,8 +55,11 @@ public unsafe partial struct SpecializationArg
     [NativeTypeName("int32_t")]
     public enum Kind
     {
+        /// <summary>An invalid specialization argument.</summary>
         Unknown = 0,
+        /// <summary>Specialize to a type.</summary>
         Type = 1,
+        /// <summary>An expression representing a type or value</summary>
         Expr = 2,
     }
 

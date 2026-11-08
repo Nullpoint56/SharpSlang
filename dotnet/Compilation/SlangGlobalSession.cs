@@ -4,7 +4,6 @@
 // compiler registry, and creating one is expensive. Sessions created from it are the cheap,
 // per-configuration objects.
 
-using System.Reflection;
 using SharpSlang.Interop;
 using SharpSlang.Native;
 
@@ -69,15 +68,29 @@ public sealed unsafe class SlangGlobalSession : SlangObject<IGlobalSession>
     /// <exception cref="SlangException">
     /// The compiler could not be initialised, or a required downstream compiler is missing.
     /// </exception>
-    /// <exception cref="DllNotFoundException">The native payload is not next to the executable.</exception>
-    public static SlangGlobalSession Create(GlobalSessionOptions? options = null)
-    {
-        options ??= new GlobalSessionOptions();
+    /// <exception cref="SlangVersionMismatchException">
+    /// The loaded <c>slang-compiler</c> is another Slang release (unless
+    /// <see cref="GlobalSessionOptions.RequirePinnedSlangVersion"/> is off), or the loaded
+    /// <c>SharpSlang.Descs</c> is another Slang release or package version than the one SharpSlang
+    /// depends on.
+    /// </exception>
+    /// <exception cref="DllNotFoundException">
+    /// No <c>slang-compiler</c> could be loaded; the message names the file, the RID, the
+    /// directories looked in and where the library comes from.
+    /// </exception>
+    public static SlangGlobalSession Create(GlobalSessionOptions? options = null) =>
+        NativeLibraryHint.Explained(() => CreateCore(options ?? new GlobalSessionOptions()));
 
-        // Before anything else, and deliberately: spGetBuildTagString is a flat `const char*()`
-        // with no receiver and no vtable, so it is the one call whose ABI cannot be wrong. Every
-        // later call's correctness depends on the answer.
-        if (options.RequirePinnedSlangVersion) RequirePinnedVersion();
+    private static SlangGlobalSession CreateCore(GlobalSessionOptions options)
+    {
+        // Before anything else, and deliberately. The descs: a SharpSlang.Descs of another Slang
+        // release or package version makes every enum and struct crossing the boundary another
+        // release's, whatever the native library is, so it is refused with or without the opt-out
+        // below. Then the native library: spGetBuildTagString is a flat `const char*()` with no
+        // receiver and no vtable, so it is the one call whose ABI cannot be wrong. Every later
+        // call's correctness depends on the answers.
+        RequireDescs();
+        if (options.RequirePinnedSlangVersion) RequirePinnedNative();
 
         // Defaults.GlobalSessionDesc restores the C++ default member initializers ClangSharp drops
         // — notably structureSize, which Slang uses to version the struct. See AGENTS.md#descriptor-defaults-and-result-codes.
@@ -92,7 +105,7 @@ public sealed unsafe class SlangGlobalSession : SlangObject<IGlobalSession>
         IGlobalSession* p = null;
         var hr = SlangApi.slang_createGlobalSession2(&desc, &p);
         if (SlangResult.Failed(hr) || p is null)
-            throw new SlangException(hr, "slang_createGlobalSession2", LastInternalError());
+            throw new SlangException(hr, "slang_createGlobalSession2", Diagnostics.NewInternalError());
 
         var session = new SlangGlobalSession(p);
         try
@@ -183,62 +196,55 @@ public sealed unsafe class SlangGlobalSession : SlangObject<IGlobalSession>
         ArgumentNullException.ThrowIfNull(value);
 
         var bytes = System.Text.Encoding.UTF8.GetBytes(value);
-        fixed (byte* p = bytes)
+        return NativeLibraryHint.Explained(() =>
         {
-            return SlangApi.spComputeStringHash((sbyte*)p, (nuint)bytes.Length);
-        }
+            fixed (byte* p = bytes)
+            {
+                return SlangApi.spComputeStringHash((sbyte*)p, (nuint)bytes.Length);
+            }
+        });
     }
 
     /// <summary>The Slang build this binding is talking to, e.g. <c>2026.21</c>.</summary>
-    public static string BuildTag => Utf8.Read(SlangApi.spGetBuildTagString()) ?? "unknown";
+    /// <exception cref="DllNotFoundException">No <c>slang-compiler</c> could be loaded; the message says where it was looked for.</exception>
+    public static string BuildTag => NativeLibraryHint.Explained(LoadedBuildTag);
+
+    private static string LoadedBuildTag() => Utf8.Read(SlangApi.spGetBuildTagString()) ?? "unknown";
 
     /// <summary>
     /// The Slang release these bindings were generated from, e.g. <c>2026.21</c> — the pin in
-    /// <c>Directory.Build.props</c>, baked in at build time.
+    /// <c>Directory.Build.props</c>, baked in at build time. The same as
+    /// <see cref="Slang.BindingSlangVersion"/>.
     /// </summary>
-    public static string PinnedBuildTag { get; } =
-        typeof(SlangGlobalSession).Assembly
-            .GetCustomAttributes<AssemblyMetadataAttribute>()
-            .FirstOrDefault(a => a.Key == "SlangVersion")?.Value?.TrimStart('v')
-        // Not reachable from a package this repo built: the metadata comes from $(SlangVersion) in
-        // Directory.Build.props, which every project imports. Reachable from a fork that dropped
-        // it, and saying so beats degrading to a check that silently passes.
-        ?? throw new InvalidOperationException(
-            "SharpSlang was built without SlangVersion assembly metadata, so the pinned Slang "
-            + "release is unknown and cannot be verified against the loaded library. The csproj "
-            + "must emit <AssemblyMetadata Include=\"SlangVersion\" Value=\"$(SlangVersion)\" />.");
+    public static string PinnedBuildTag => SlangVersionCheck.Built;
 
     /// <summary>
-    /// Throws unless the loaded library is the pinned release.
+    /// Throws unless what is loaded is what SharpSlang was built against: the native library is
+    /// the pinned release, and the loaded <c>SharpSlang.Descs</c> was generated from that release
+    /// and is the package version SharpSlang depends on.
     /// </summary>
-    /// <exception cref="SlangVersionMismatchException">It is some other release.</exception>
-    public static void RequirePinnedVersion() => Verify(PinnedBuildTag, BuildTag);
+    /// <exception cref="SlangVersionMismatchException">Something loaded is another version; the message names both and the file.</exception>
+    /// <exception cref="DllNotFoundException">No <c>slang-compiler</c> could be loaded.</exception>
+    public static void RequirePinnedVersion() => NativeLibraryHint.Explained(() =>
+    {
+        RequireDescs();
+        RequirePinnedNative();
+        return 0;
+    });
+
+    private static void RequireDescs()
+    {
+        if (SlangVersionCheck.DescsMismatch(SlangVersionCheck.Descs, SlangVersionCheck.DescsPackage) is { } e) throw e;
+    }
+
+    private static void RequirePinnedNative() => Verify(PinnedBuildTag, LoadedBuildTag());
 
     // Split out so the mismatch path is reachable from a test. Provoking it for real would mean
     // staging a second Slang release beside the first; what can go wrong here is the comparison
     // and the message, and both are testable with two strings.
     internal static void Verify(string pinned, string loaded)
     {
-        if (loaded == pinned) return;
-
-        throw new SlangVersionMismatchException(pinned, loaded, $$"""
-            SharpSlang was generated against Slang {{pinned}}, but the loaded
-            slang-compiler reports {{loaded}}.
-
-            Slang does not promise a stable ABI between releases. These bindings call COM vtables
-            by slot ordinal, taken from {{pinned}}'s headers; against a different release those
-            ordinals may name different functions, and the result is not a clean failure.
-
-            Stage the pinned payload:
-
-                pwsh tools/fetch-native.ps1 -Profile Spirv
-
-            If runtimes/ holds a payload from an earlier pin, that is the usual cause — the
-            directory is gitignored, so bumping the version alone does not replace it.
-
-            If running {{loaded}} is deliberate, pass
-            new GlobalSessionOptions { RequirePinnedSlangVersion = false } to Create.
-            """);
+        if (SlangVersionCheck.NativeMismatch(pinned, loaded) is { } e) throw e;
     }
 
     /// <summary>
@@ -302,10 +308,4 @@ public sealed unsafe class SlangGlobalSession : SlangObject<IGlobalSession>
     }
 
     internal IGlobalSession* Handle => Ptr;
-
-    private static string? LastInternalError()
-    {
-        var msg = Utf8.Read(SlangApi.slang_getLastInternalErrorMessage());
-        return string.IsNullOrWhiteSpace(msg) ? null : msg;
-    }
 }

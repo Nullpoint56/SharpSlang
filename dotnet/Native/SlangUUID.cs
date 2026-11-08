@@ -2,6 +2,11 @@ using System.Runtime.CompilerServices;
 
 namespace SharpSlang.Native;
 
+/// <summary>A "Universally Unique Identifier" (UUID)</summary>
+/// <remarks>
+/// <para>The Slang API uses UUIDs to identify interfaces when using <c>queryInterface</c>.</para>
+/// <para>This type is compatible with the <c>GUID</c> type defined by the Component Object Model (COM), but Slang is not dependent on COM.</para>
+/// </remarks>
 public partial struct SlangUUID
 {
     [NativeTypeName("uint32_t")]

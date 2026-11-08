@@ -2,6 +2,7 @@ namespace SharpSlang.Native;
 
 public partial struct CooperativeMatrixType
 {
+    /// <summary>Component type <c>NONE</c> means this type is not valid.</summary>
     public SlangScalarType componentType;
 
     public SlangScope scope;

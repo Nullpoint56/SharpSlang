@@ -737,6 +737,38 @@ public class ProberTests(ITestOutputHelper output)
     }
 
     [NativeFact]
+    public void Without_slang_compiler_the_failure_names_the_file_the_rid_and_where_it_was_looked_for()
+    {
+        // The DllNotFoundException a deployment without the compiler gets, from the first call an
+        // application makes (SlangGlobalSession.Create): explained by NativeLibraryHint, with the
+        // runtime's own message inside. A copy of the prober's output with slang-compiler left out,
+        // launched by the dotnet host from another directory, so nothing else on the load path can
+        // supply it.
+        var copy = Directory.CreateTempSubdirectory("sharpslang-no-compiler-");
+        var elsewhere = Directory.CreateTempSubdirectory("sharpslang-elsewhere-");
+        try
+        {
+            CopyDirectory(ProberDirectory(), copy.FullName, skip: name =>
+                name.Contains("slang-compiler", StringComparison.OrdinalIgnoreCase));
+
+            var outcome = RunUnderMuxer("healthy", copy.FullName, elsewhere.FullName);
+            output.WriteLine(outcome.ToString());
+
+            var file = OperatingSystem.IsWindows() ? "slang-compiler.dll" : OperatingSystem.IsMacOS() ? "libslang-compiler.dylib" : "libslang-compiler.so";
+            Assert.True(outcome.ExitCode == 1, $"with no slang-compiler, Create should have thrown, and exit 1 is that:\n{outcome}");
+            Assert.Contains($"DllNotFoundException: SharpSlang could not load the Slang compiler library ({file}) for {RuntimeInformation.RuntimeIdentifier}.", outcome.Stderr, StringComparison.Ordinal);
+            Assert.Contains(Path.TrimEndingDirectorySeparator(Path.GetFullPath(copy.FullName)), outcome.Stderr, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("No DllImport resolver or ResolvingUnmanagedDll handler supplied one.", outcome.Stderr, StringComparison.Ordinal);
+            Assert.Contains($"pwsh tools/fetch-native.ps1 -Rid {RuntimeInformation.RuntimeIdentifier}", outcome.Stderr, StringComparison.Ordinal);
+        }
+        finally
+        {
+            copy.Delete(recursive: true);
+            elsewhere.Delete(recursive: true);
+        }
+    }
+
+    [NativeFact]
     public void Without_slang_glslang_the_optimiser_guard_still_refuses_after_the_preload()
     {
         // The other half: loading what is present must change nothing about what is absent. A copy

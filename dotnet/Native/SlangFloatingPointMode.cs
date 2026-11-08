@@ -1,5 +1,6 @@
 namespace SharpSlang.Native;
 
+/// <summary>Options to control floating-point precision guarantees for a target.</summary>
 [NativeTypeName("SlangFloatingPointModeIntegral")]
 public enum SlangFloatingPointMode : uint
 {

@@ -23,7 +23,18 @@ public sealed class SlangException(int result, string operation, string? diagnos
     /// <summary>The raw <c>SlangResult</c>.</summary>
     public int Result { get; } = result;
 
-    /// <summary>Compiler diagnostics, if Slang produced any.</summary>
+    /// <summary>
+    /// The Slang call that failed (<c>loadModuleFromSourceString</c>, <c>getEntryPointCode</c>, ...),
+    /// or, for a check the binding makes before calling, what it checked
+    /// (<c>SPIR-V optimiser unavailable</c>). It also leads <see cref="Exception.Message"/>.
+    /// </summary>
+    public string Operation { get; } = operation;
+
+    /// <summary>
+    /// Slang's own text: the diagnostic blob of the call, or, when the call failed and produced
+    /// none, the internal error Slang signalled on the calling thread during it. Null when Slang
+    /// said nothing.
+    /// </summary>
     public string? Diagnostics { get; } = diagnostics;
 
     private static string Compose(int result, string operation, string? diagnostics)
@@ -41,22 +52,34 @@ public sealed class SlangException(int result, string operation, string? diagnos
 }
 
 /// <summary>
-/// The loaded <c>slang-compiler</c> is not the release this binding was generated against.
+/// What is loaded is not what this binding was built against: the <c>slang-compiler</c> library
+/// is another Slang release, or the <c>SharpSlang.Descs</c> assembly is another Slang release or
+/// another package version than the one SharpSlang depends on exactly.
 /// </summary>
 /// <remarks>
 /// Its own exception type because it is not a compiler error and there is no <c>SlangResult</c> to
 /// carry: nothing has been asked of Slang yet. It is a deployment fault, and the two recoveries a
-/// caller might want — re-stage the payload, or accept the mismatch deliberately — both need to
-/// distinguish it from a compile failure. See <c>AGENTS.md#pin-and-payload</c>.
+/// caller might want — re-stage the payload or fix the reference, or accept a native mismatch
+/// deliberately — both need to distinguish it from a compile failure. See
+/// <c>AGENTS.md#pin-and-payload</c>.
 /// </remarks>
 public sealed class SlangVersionMismatchException(string expected, string loaded, string message)
     : Exception(message)
 {
-    /// <summary>The release this assembly's bindings were generated from.</summary>
+    /// <summary>
+    /// The version SharpSlang expects: the Slang release its bindings were generated from, or, for a
+    /// Descs package mismatch, the <c>SharpSlang.Descs</c> package version it depends on.
+    /// </summary>
     public string Expected { get; } = expected;
 
-    /// <summary>What the loaded library reports via <c>spGetBuildTagString</c>.</summary>
+    /// <summary>
+    /// What is loaded: the native library's build tag (<c>spGetBuildTagString</c>), or the loaded
+    /// <c>SharpSlang.Descs</c>' Slang release or package version.
+    /// </summary>
     public string Loaded { get; } = loaded;
+
+    /// <summary>The file the mismatching library or assembly was loaded from, when it could be found.</summary>
+    public string? LibraryPath { get; init; }
 }
 
 /// <summary>How severe a Slang diagnostic is, read from its message prefix.</summary>
@@ -214,7 +237,7 @@ internal static unsafe class Diagnostics
         var text = Consume(diagnostics);
 
         if (SlangResult.Failed(result))
-            throw new SlangException(result, operation, text);
+            throw new SlangException(result, operation, text ?? NewInternalError());
 
         ApplySuccessPolicy(result, operation, text);
     }
@@ -224,9 +247,32 @@ internal static unsafe class Diagnostics
     {
         var text = Consume(diagnostics);
 
-        if (p is null) throw new SlangException(SlangResult.Fail, operation, text);
+        if (p is null) throw new SlangException(SlangResult.Fail, operation, text ?? NewInternalError());
 
         ApplySuccessPolicy(SlangResult.Ok, operation, text);
+    }
+
+    // The text of the last internal error this thread has already attached, so one stale message
+    // is not attached to every later failure.
+    [ThreadStatic] private static string? t_attachedInternalError;
+
+    /// <summary>
+    /// Slang's last internal error on the calling thread, when it is one this thread has not
+    /// attached to an exception before; else null. Failure path only.
+    /// </summary>
+    /// <remarks>
+    /// The template's "error text from the calling thread". <c>slang_getLastInternalErrorMessage</c>
+    /// returns <c>g_lastSignalMessage</c>, a <c>thread_local</c> string that Slang's signal handler
+    /// sets and nothing clears (<c>source/core/slang-signal.cpp</c>), so it can predate the call; it is
+    /// attached only when the call left no diagnostic blob, and the same text only once per thread.
+    /// </remarks>
+    internal static string? NewInternalError() => NewInternalError(Utf8.Read(SlangApi.slang_getLastInternalErrorMessage()));
+
+    internal static string? NewInternalError(string? current)
+    {
+        if (string.IsNullOrWhiteSpace(current) || current == t_attachedInternalError) return null;
+        t_attachedInternalError = current;
+        return current;
     }
 
     /// <summary>

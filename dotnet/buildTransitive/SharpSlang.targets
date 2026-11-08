@@ -1,0 +1,21 @@
+<Project>
+
+  <!--
+    SharpSlang depends on exactly one SharpSlang.Descs (SharpSlangDescsDependency, SharpSlang.props,
+    written at pack time). A direct reference to another version wins the restore with only the
+    warning NU1608, and SlangGlobalSession.Create would then refuse it at run time: fail the build
+    instead (SHARPSLANG005). The resolved version is read from project.assets.json, as SharpNRI's
+    SHARPNRI005 does (AGENTS.md#pin-and-payload).
+  -->
+  <PropertyGroup>
+    <_SharpSlangAssets Condition="'$(ProjectAssetsFile)' != '' and Exists('$(ProjectAssetsFile)')">$([System.IO.File]::ReadAllText('$(ProjectAssetsFile)'))</_SharpSlangAssets>
+    <_SharpSlangDescsResolved>$([System.Text.RegularExpressions.Regex]::Match($(_SharpSlangAssets), '"(?i:sharpslang\.descs)/([^"]+)"').Groups[1].Value)</_SharpSlangDescsResolved>
+  </PropertyGroup>
+
+  <Target Name="SharpSlangDescsCheck" BeforeTargets="Build"
+          Condition="'$(SharpSlangDescsDependency)' != '' and '$(_SharpSlangDescsResolved)' != '' and '$(_SharpSlangDescsResolved)' != '$(SharpSlangDescsDependency)'">
+    <Error Code="SHARPSLANG005"
+           Text="SharpSlang $(SharpSlangPackedVersion) depends on SharpSlang.Descs $(SharpSlangDescsDependency) exactly, and this project restores SharpSlang.Descs $(_SharpSlangDescsResolved) (NU1608). SlangGlobalSession.Create would refuse it: reference SharpSlang.Descs $(SharpSlangDescsDependency), or drop the direct reference." />
+  </Target>
+
+</Project>
