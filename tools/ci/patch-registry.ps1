@@ -155,12 +155,14 @@ foreach ($e in $entries) {
 # ------------------------------------------------------------------------------------------ index
 function Format-Cell([string]$Text) { $Text.Replace('|', '\|') }
 $rows = [System.Collections.Generic.List[string]]::new()
-$rows.Add("| # | Defect | Area | Kind | Patch | Test | State | Verified |")
-$rows.Add("|---|---|---|---|---|---|---|---|")
+$rows.Add("| # | Defect | Area | Kind | Patch | Test | State | Upstream | Verified |")
+$rows.Add("|---|---|---|---|---|---|---|---|---|")
 foreach ($e in ($entries | Sort-Object { [int]($_.id.Substring(1)) })) {
     $patchCell = if ($e.patch) { "``$($e.patch)``" } else { "" }
     $testCell = if ($e.test) { "``$($e.test)``" } else { "" }
-    $rows.Add("| $($e.id) | $(Format-Cell $e.title) | $($e.area) | $($e.kind) | $patchCell | $testCell | $(Format-Cell $e.state) | $($e.verified) |")
+    # Optional: what Slang's tracker already has for it, as "#NNNN" issue or PR numbers.
+    $upstreamCell = if ($e.PSObject.Properties['upstream'] -and $e.upstream) { (@($e.upstream) | ForEach-Object { "[$_](https://github.com/shader-slang/slang/issues/$($_.TrimStart('#')))" }) -join ', ' } else { '' }
+    $rows.Add("| $($e.id) | $(Format-Cell $e.title) | $($e.area) | $($e.kind) | $patchCell | $testCell | $(Format-Cell $e.state) | $upstreamCell | $($e.verified) |")
 }
 $begin = "<!-- patch-registry:begin (generated from docs/upstream.json by tools/ci/patch-registry.ps1 -Write; do not edit) -->"
 $end = "<!-- patch-registry:end -->"

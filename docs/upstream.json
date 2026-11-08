@@ -60,7 +60,10 @@
       "patch": null,
       "test": "NriValidationTests.A_wide_64_bit_vertex_attribute_really_does_consume_two_locations",
       "state": "unpatched",
-      "verified": "v2026.21"
+      "verified": "v2026.21",
+      "upstream": [
+        "#13427"
+      ]
     },
     {
       "id": "U7",
@@ -180,7 +183,10 @@
       "patch": null,
       "test": "TargetValidationTests.Glsl_compiles_with_glslang",
       "state": "unpatched",
-      "verified": "v2026.21"
+      "verified": "v2026.21",
+      "upstream": [
+        "#14335"
+      ]
     },
     {
       "id": "U19",
@@ -190,7 +196,10 @@
       "patch": null,
       "test": "TargetValidationTests.Glsl_compiles_with_glslang",
       "state": "unpatched",
-      "verified": "v2026.21"
+      "verified": "v2026.21",
+      "upstream": [
+        "#14335"
+      ]
     },
     {
       "id": "U20",
@@ -200,7 +209,10 @@
       "patch": null,
       "test": "TargetValidationTests.Wgsl_passes_naga",
       "state": "unpatched",
-      "verified": "v2026.21"
+      "verified": "v2026.21",
+      "upstream": [
+        "#14285"
+      ]
     },
     {
       "id": "U21",
@@ -210,7 +222,10 @@
       "patch": null,
       "test": "TargetValidationTests.Wgsl_passes_naga",
       "state": "unpatched",
-      "verified": "v2026.21"
+      "verified": "v2026.21",
+      "upstream": [
+        "#13736"
+      ]
     },
     {
       "id": "U22",
@@ -230,7 +245,10 @@
       "patch": null,
       "test": "TargetValidationTests.Wgsl_passes_naga",
       "state": "unpatched",
-      "verified": "v2026.21"
+      "verified": "v2026.21",
+      "upstream": [
+        "#10232"
+      ]
     },
     {
       "id": "U24",
@@ -240,7 +258,11 @@
       "patch": null,
       "test": "TargetValidationTests.Slang_compute_corpus_cpp_compiles_with_the_host_compiler",
       "state": "unpatched",
-      "verified": "v2026.21"
+      "verified": "v2026.21",
+      "upstream": [
+        "#14037",
+        "#14194"
+      ]
     },
     {
       "id": "U25",
@@ -250,7 +272,10 @@
       "patch": null,
       "test": "TargetValidationTests.Slang_compute_corpus_wgsl_passes_naga",
       "state": "unpatched",
-      "verified": "v2026.21"
+      "verified": "v2026.21",
+      "upstream": [
+        "#13914"
+      ]
     },
     {
       "id": "U26",
@@ -270,7 +295,10 @@
       "patch": null,
       "test": "TargetValidationTests.Metal_compiles_to_air",
       "state": "unpatched",
-      "verified": "v2026.21"
+      "verified": "v2026.21",
+      "upstream": [
+        "#11970"
+      ]
     },
     {
       "id": "U28",
