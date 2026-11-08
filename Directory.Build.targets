@@ -1,0 +1,56 @@
+<Project>
+
+  <!--
+    Package dependencies between this repository's packages are exact ([v]), not NuGet's default
+    minimum (v, meaning >= v). SharpSlang is compiled against one SharpSlang.Descs, and the enum
+    constants of the descs are compiled into every caller: with a minimum, an application that also
+    references a later SharpSlang.Descs (another Slang version, through another package) would run
+    SharpSlang against it and misread every renumbered value. Likewise SharpSlang against its reader
+    and the pipeline packages against theirs. tools/ci/check-packages.ps1 checks the packed nuspecs.
+    The same target as SharpNRI's (AGENTS.md#native-packages).
+  -->
+  <Target Name="SharpSlangExactProjectReferenceVersions" AfterTargets="_GetProjectReferenceVersions">
+    <ItemGroup>
+      <_ProjectReferencesWithVersions Condition="!$([System.String]::Copy('%(_ProjectReferencesWithVersions.ProjectVersion)').StartsWith('['))">
+        <ProjectVersion>[%(_ProjectReferencesWithVersions.ProjectVersion)]</ProjectVersion>
+      </_ProjectReferencesWithVersions>
+    </ItemGroup>
+  </Target>
+
+  <!--
+    Every package's major is SlangVersion as a fixed-width YYYYRRP (Directory.Build.props): the year,
+    the two-digit release, the one-digit patch, 0 when the tag has none. v2026.21 is 2026210,
+    v2026.18.3 is 2026183, v2026.4 is 2026040. A tag outside that shape (a patch above 9, a
+    three-digit release) has no encoding and fails too: widening it is a decision, not a fallback.
+  -->
+  <PropertyGroup>
+    <_SharpSlangTag>$(SlangVersion.TrimStart('v'))</_SharpSlangTag>
+    <_SharpSlangTag Condition="$([System.Text.RegularExpressions.Regex]::IsMatch('$(_SharpSlangTag)', '^\d{4}\.\d{1,2}$'))">$(_SharpSlangTag).0</_SharpSlangTag>
+    <_SharpSlangTag Condition="$([System.Text.RegularExpressions.Regex]::IsMatch('$(_SharpSlangTag)', '^\d{4}\.\d\.\d$'))">$([System.Text.RegularExpressions.Regex]::Replace('$(_SharpSlangTag)', '^(\d{4})\.(\d)\.', '${1}.0${2}.'))</_SharpSlangTag>
+    <SharpSlangVersionMajor Condition="$([System.Text.RegularExpressions.Regex]::IsMatch('$(_SharpSlangTag)', '^\d{4}\.\d{2}\.\d$'))">$(_SharpSlangTag.Replace('.', ''))</SharpSlangVersionMajor>
+  </PropertyGroup>
+
+  <!--
+    The assembly and file versions cannot carry that major: each of their four parts is 16 bits,
+    and the SDK's default (the package version's numeric part) fails the compile at 2026210 with
+    CS7034 "The specified version string '2026210.0.0.0' does not conform to the required format"
+    (measured, .NET 11 SDK). So the major is split where the encoding joins it: package 2026210.B.F
+    is assembly and file version 2026.210.B.F, which sorts the same way and still names the pin.
+    The informational version stays the package version; the run-time guard reads that one.
+  -->
+  <PropertyGroup Condition="$([System.Text.RegularExpressions.Regex]::IsMatch('$(Version)', '^\d{7}\.\d+\.\d+(-.*)?$'))">
+    <_SharpSlangYear>$([System.Text.RegularExpressions.Regex]::Replace('$(Version)', '^(\d{4})(\d{3})\.(\d+)\.(\d+)(-.*)?$', '${1}'))</_SharpSlangYear>
+    <_SharpSlangReleasePatch>$([System.Text.RegularExpressions.Regex]::Replace('$(Version)', '^(\d{4})(\d{3})\.(\d+)\.(\d+)(-.*)?$', '${2}'))</_SharpSlangReleasePatch>
+    <_SharpSlangBindingFix>$([System.Text.RegularExpressions.Regex]::Replace('$(Version)', '^(\d{4})(\d{3})\.(\d+)\.(\d+)(-.*)?$', '${3}.${4}'))</_SharpSlangBindingFix>
+    <AssemblyVersion>$(_SharpSlangYear).$([System.Int32]::Parse('$(_SharpSlangReleasePatch)')).$(_SharpSlangBindingFix)</AssemblyVersion>
+    <FileVersion>$(AssemblyVersion)</FileVersion>
+  </PropertyGroup>
+
+  <Target Name="SharpSlangVersionMajor" BeforeTargets="Build;GenerateNuspec" Condition="'$(IsPackable)' != 'false'">
+    <Error Code="SHARPSLANG004" Condition="'$(SharpSlangVersionMajor)' == ''"
+           Text="SlangVersion $(SlangVersion) has no YYYYRRP encoding (a four-digit year, a release below 100, a patch below 10): the package major cannot name it (Directory.Build.props)" />
+    <Error Code="SHARPSLANG004" Condition="'$(SharpSlangVersionMajor)' != '' and !$(Version.StartsWith('$(SharpSlangVersionMajor).'))"
+           Text="$(PackageId) $(Version) does not start with $(SharpSlangVersionMajor), the encoding of SlangVersion $(SlangVersion): a new Slang version starts $(SharpSlangVersionMajor).0.0 (Directory.Build.props)" />
+  </Target>
+
+</Project>

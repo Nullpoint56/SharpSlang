@@ -38,7 +38,7 @@
                           legs run, because the digests job compares legs of one run.
     bindings              skip when it passed for this tree. On a branch it runs only when its
                           inputs differ from master, and on a push only when the push changed them:
-                          Directory.Build.props, tools/generate-native.ps1, dotnet/Native.
+                          Directory.Build.props, tools/generate-native.ps1 and -docs, dotnet/Native.
     docs                  skip when it passed for this tree.
     lint                  skip when it passed for this tree.
     release               publish.yml's call. Bindings, docs and lint skip, and the legs follow the
@@ -85,7 +85,7 @@ function Test-Like([string[]]$Files, [string[]]$Patterns) {
 $requested = @('win-x64', 'linux-x64', 'linux-arm64')
 if ($MacOS -eq 'true') { $requested += 'osx-arm64' }
 
-$bindingInputs = 'Directory.Build.props', 'tools/generate-native.ps1', 'dotnet/Native/*'
+$bindingInputs = 'Directory.Build.props', 'tools/generate-native.ps1', 'tools/generate-native-docs.*', 'dotnet/Native/*'
 $noResult      = '*.md', 'docs/*'
 $isRelease     = $Release -eq 'true'
 $onBranch      = $Ref -like 'refs/heads/*' -and $Ref -ne 'refs/heads/master'
@@ -156,7 +156,7 @@ try {
         }
         if ($decision.bindings -eq 'run' -and -not (Test-Like $changed $bindingInputs)) {
             $decision.bindings = 'skip'
-            $notes.Add('The bindings check skips: Directory.Build.props, tools/generate-native.ps1 and dotnet/Native are unchanged.')
+            $notes.Add('The bindings check skips: Directory.Build.props, tools/generate-native.ps1, tools/generate-native-docs.* and dotnet/Native are unchanged.')
         }
     }
 

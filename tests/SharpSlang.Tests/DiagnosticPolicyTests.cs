@@ -189,6 +189,31 @@ public class DiagnosticPolicyTests
         }
     }
 
+    [Fact]
+    public void A_failure_carries_the_call_name_and_slangs_text()
+    {
+        var e = new SlangException(SlangResult.Fail, "loadModuleFromSourceString", "t.slang(3): error 30015: undefined identifier 'x'");
+
+        Assert.Equal("loadModuleFromSourceString", e.Operation);
+        Assert.Equal(SlangResult.Fail, e.Result);
+        Assert.StartsWith("loadModuleFromSourceString failed:", e.Message, StringComparison.Ordinal);
+        Assert.Contains("undefined identifier 'x'", e.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Slangs_last_internal_error_is_attached_once_per_thread()
+    {
+        // slang_getLastInternalErrorMessage is thread-local and never cleared, so the same text
+        // would otherwise be attached to every later failure on the thread.
+        var text = $"assert failure: {Guid.NewGuid():N}";
+
+        Assert.Equal(text, Diagnostics.NewInternalError(text));
+        Assert.Null(Diagnostics.NewInternalError(text));
+        Assert.Null(Diagnostics.NewInternalError(null));
+        Assert.Null(Diagnostics.NewInternalError("  "));
+        Assert.Equal(text + "!", Diagnostics.NewInternalError(text + "!"));
+    }
+
     /// <summary>Restores the process-wide policy and handler however the test exits.</summary>
     private sealed class PolicyScope : IDisposable
     {

@@ -42,16 +42,40 @@ runtime half has no native dependency, so a shipped build carries no compiler.
 
 ```xml
 <!-- asset pipeline -->
-<PackageReference Include="SharpSlang" Version="0.1.0-alpha" />
-<PackageReference Include="SharpSlang.Pipeline.NRI" Version="0.1.0-alpha" />
+<PackageReference Include="SharpSlang" Version="2026210.0.0-beta.1" />
+<PackageReference Include="SharpSlang.Pipeline.NRI" Version="2026210.0.0-beta.1" />
 
 <!-- game -->
-<PackageReference Include="SharpSlang.Pipeline" Version="0.1.0-alpha" />
-<PackageReference Include="SharpSlang.Pipeline.NRI" Version="0.1.0-alpha" />
+<PackageReference Include="SharpSlang.Pipeline" Version="2026210.0.0-beta.1" />
+<PackageReference Include="SharpSlang.Pipeline.NRI" Version="2026210.0.0-beta.1" />
 ```
 
 `ShaderPackage` — the container, its reader, and the staleness checks — is in the runtime half.
 `ShaderPackageBaker`, which is the only thing that needs a compiler, is in `SharpSlang`.
+
+| Package | What it holds | Native content |
+|---|---|---|
+| `SharpSlang` | the binding: compilation, reflection, baking | `slang-compiler` and `slang-glslang` per RID |
+| `SharpSlang.Descs` | Slang's enums, descriptor structs, COM interface layouts and IIDs (`SharpSlang.Native`), generated from `slang.h` | none |
+| `SharpSlang.Dxc` | targets that copy Microsoft's dxc into the output (DXIL) | none; depends on `Microsoft.Direct3D.DXC` |
+| `SharpSlang.Pipeline` | the reader: `ShaderPackage`, `ProgramLayout`, `SpirvModule` | none |
+| `SharpSlang.Pipeline.NRI` | the projection onto SharpNRI's descs | none; depends on `SharpNRI.Descs` |
+
+`SharpSlang` and `SharpSlang.Pipeline` depend on `SharpSlang.Descs` and come with it; reference it
+on its own to name Slang's types (a `SlangStage`, a `SlangParameterCategory`) in a library that
+neither compiles nor reads packages.
+
+**Versions.** Every package's major is the Slang version as `YYYYRRP`: Slang 2026.21 is
+`2026210`, 2026.18.3 would be `2026183`. A new Slang version is a new major, because Slang's ABI is
+not stable between releases. Within one Slang version the second number moves on a breaking
+change of the binding and the third on a fix; `-beta` while the API may still change. The packages
+depend on each other at exact versions. `SharpSlang.Descs` and `SharpSlang.Pipeline` move only
+when they change, so a release of the binding alone can leave them at an earlier version.
+
+**Keep `SharpSlang.Descs` at the version `SharpSlang` depends on.** A direct reference to another
+version wins NuGet's restore with only the warning NU1608; SharpSlang's build targets turn that
+into error `SHARPSLANG005`, and `SlangGlobalSession.Create` refuses a mismatched one at run time
+(see [The payload has to be the pinned one](#the-payload-has-to-be-the-pinned-one)).
 
 ## Referencing SharpSlang from source
 
@@ -641,6 +665,29 @@ using var global = SlangGlobalSession.Create(
     new GlobalSessionOptions { RequirePinnedSlangVersion = false });
 ```
 
+It refuses a mismatched `SharpSlang.Descs` the same way, with or without that option: one generated
+from another Slang release, or another package version than the one `SharpSlang` depends on
+exactly. Either way the exception names both versions and the file that was loaded
+(`SlangVersionMismatchException.LibraryPath`).
+
+The versions, twice: what your code was compiled against, as constants, and what is loaded, read
+at run time.
+
+```csharp
+Slang.SlangVersion          // const: the Slang release the SharpSlang you compiled against was built for
+SlangHeaders.Version        // const: the Slang release of the SharpSlang.Descs you compiled against
+Slang.BindingVersion        // the loaded SharpSlang package version, e.g. "2026210.0.0-beta.1"
+Slang.BindingSlangVersion   // the Slang release the loaded SharpSlang was built for
+Slang.DescsVersion          // the loaded SharpSlang.Descs package version
+Slang.DescsSlangVersion     // the Slang release the loaded SharpSlang.Descs was generated from
+```
+
+**No library at all.** Without `slang-compiler` beside the application the first call into Slang
+(`Create`, `BuildTag`, `RequirePinnedVersion`, `HashString`) throws a `DllNotFoundException` that
+names the file, the RID, the directories the runtime looked in and where the library comes from,
+with the runtime's own exception inside. SharpSlang's `ResolvingUnmanagedDll` handler only notes
+the miss; it never answers or throws, so a handler your application registers still runs.
+
 ## Lifetime
 
 Dispose everything, in any order:
@@ -812,6 +859,7 @@ The section column says where the guide covers it.
 | A link option has no effect | `linkWithOptions` accepts every option and ignores most; only `Optimization` and `FloatingPointMode` take effect there. | [Linking with options](#linking-with-options) |
 | A function found by name appears to take no parameters | It is overloaded: `FindFunction` returns one function with `IsOverloaded` set and an empty signature. Check `IsOverloaded` before `Parameters`. | [Reading a shader's functions](#reading-a-shaders-functions) |
 | `SlangVersionMismatchException` after a version bump | The previous release is still staged in `runtimes/` (git-ignored). Fetch the pinned payload again. | [The payload has to be the pinned one](#the-payload-has-to-be-the-pinned-one) |
+| `SlangVersionMismatchException` naming `SharpSlang.Descs`, or build error `SHARPSLANG005` | A direct `SharpSlang.Descs` reference at another version than `SharpSlang` depends on; NuGet only warns (NU1608). Drop the reference or match the version. | [The two halves](#the-two-halves) |
 | The same shader cooked on x64 and on ARM64 hashes differently | x64 and ARM64 emit byte-identical SPIR-V within an architecture and differ on shaders using `SV_VertexID`: Slang creates the two builtins it lowers to in the opposite order, so the modules are equivalent and never compare equal. Windows and Linux agree exactly. Cook on one architecture, or content-address per architecture. | [Baking and loading](#baking-and-loading) |
 | A hash over a baked layout differs between platforms | It does not: `ProgramLayout.ToJson` writes `\n` on every platform on purpose, so the layout is portable. The SPIR-V beside it carries the row above. | [Baking and loading](#baking-and-loading) |
 

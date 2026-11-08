@@ -131,7 +131,8 @@ jobs:
   # Reviewing that diff is the control (AGENTS.md#generator-and-abi), so this fails if the committed bindings do not
   # match the generator's output for the pinned header. It was its own workflow, regen.yml, and is
   # a job here so that one manual run covers a branch. The gate runs it only when its inputs
-  # changed: the SlangVersion pin in Directory.Build.props, tools/generate-native.ps1, and
+  # changed: the SlangVersion pin in Directory.Build.props, tools/generate-native.ps1 and the
+  # header-comment step it calls (tools/generate-native-docs.ps1, .cs), and
   # dotnet/Native itself. A Directory.Build.props change to another pin runs it too, which is a
   # minute spent rather than a check missed.
   bindings:

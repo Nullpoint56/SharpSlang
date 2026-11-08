@@ -88,11 +88,32 @@ public class AssemblySplitTests
         Assert.Equal(
             [
                 "SharpNRI.Descs.dll",
+                "SharpSlang.Descs.dll",
                 "SharpSlang.Pipeline.Consumer.dll",
                 "SharpSlang.Pipeline.NRI.dll",
                 "SharpSlang.Pipeline.dll",
             ],
             assemblies);
+    }
+
+    [Fact]
+    public void The_descs_assembly_names_no_native_library()
+    {
+        // NativeSplit.props puts SlangApi.cs, the one generated file with DllImports, in SharpSlang
+        // and the rest of L0 in SharpSlang.Descs. Measured from the loaded assembly, so a file moved
+        // across the split, or a hand-written DllImport added to descs/, fails here.
+        var descs = typeof(Native.SlangUUID).Assembly;
+        Assert.Equal("SharpSlang.Descs", descs.GetName().Name);
+
+        var imports = descs.GetTypes()
+            .SelectMany(t => t.GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static | BindingFlags.Instance | BindingFlags.DeclaredOnly))
+            .Where(m => m.Attributes.HasFlag(MethodAttributes.PinvokeImpl))
+            .Select(m => $"{m.DeclaringType}.{m.Name}")
+            .ToList();
+        Assert.True(imports.Count == 0, $"SharpSlang.Descs declares P/Invokes:\n{string.Join("\n", imports)}");
+
+        Assert.Equal(["System.Runtime"], descs.GetReferencedAssemblies().Select(a => a.Name));
+        Assert.Equal("SharpSlang", typeof(Native.SlangApi).Assembly.GetName().Name);
     }
 
     // ---------------------------------------------------------------- and it works
@@ -109,7 +130,7 @@ public class AssemblySplitTests
             var exe = Path.Combine(ConsumerOutput, "SharpSlang.Pipeline.Consumer.dll");
             Assert.True(File.Exists(exe), $"consumer not built at {exe}");
 
-            using var process = Process.Start(new ProcessStartInfo("dotnet")
+            using var process = Process.Start(new ProcessStartInfo(DotnetHost.Path)
             {
                 ArgumentList = { exe, path },
                 RedirectStandardOutput = true,

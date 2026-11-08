@@ -2,28 +2,11 @@ using System.Runtime.CompilerServices;
 
 namespace SharpSlang.Native;
 
+/// <summary>Experimental interface for doing target precompilation of slang modules</summary>
 [NativeTypeName("struct IModulePrecompileService_Experimental : ISlangUnknown")]
 public unsafe partial struct IModulePrecompileService_Experimental
 {
     public void** lpVtbl;
-
-    [return: NativeTypeName("SlangResult")]
-    public int QueryInterface([NativeTypeName("const struct _GUID &")] Guid* uuid, void** outObject)
-    {
-        return queryInterface(unchecked((SlangUUID*)(uuid)), outObject);
-    }
-
-    [return: NativeTypeName("uint32_t")]
-    public uint AddRef()
-    {
-        return addRef();
-    }
-
-    [return: NativeTypeName("uint32_t")]
-    public uint Release()
-    {
-        return release();
-    }
 
     [VtblIndex(0)]
     [return: NativeTypeName("SlangResult")]
@@ -46,6 +29,13 @@ public unsafe partial struct IModulePrecompileService_Experimental
         return ((delegate* unmanaged[Stdcall]<IModulePrecompileService_Experimental*, uint>)(lpVtbl[2]))((IModulePrecompileService_Experimental*)Unsafe.AsPointer(ref this));
     }
 
+    /// <summary>Precompile this module for a target and embed the resulting target library in the module.</summary>
+    /// <remarks>
+    /// <para>This function is experimental and not thread-safe since it mutates the module by adding</para>
+    /// <para>precompiled target IR and temporary export metadata. Callers must externally synchronize</para>
+    /// <para>access to the module and must not use this API concurrently with other operations on the</para>
+    /// <para>same module or session.</para>
+    /// </remarks>
     [VtblIndex(3)]
     [return: NativeTypeName("SlangResult")]
     public int precompileForTarget(SlangCompileTarget target, ISlangBlob** outDiagnostics)

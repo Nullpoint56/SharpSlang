@@ -1,5 +1,6 @@
 namespace SharpSlang.Native;
 
+/// <summary>Identifies different types of writer target</summary>
 [NativeTypeName("SlangWriterChannelIntegral")]
 public enum SlangWriterChannel : uint
 {

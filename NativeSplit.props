@@ -1,0 +1,23 @@
+<Project>
+
+  <!--
+    Where each generated L0 file compiles (AGENTS.md#layers).
+
+    dotnet/Native holds everything tools/generate-native.ps1 writes. Exactly one of those files
+    carries a DllImport: SlangApi.cs, the flat exports (spReflection*, slang_*, the legacy sp*) and
+    the constants of slang.h's anonymous enums. Everything else is data and layout: enums, structs,
+    the COM interface structs whose methods call through the vtable pointer of an object the caller
+    already holds, and the IIDs. None of it names the library, so it compiles into SharpSlang.Descs,
+    which has no native dependency; SlangApi.cs compiles into SharpSlang, which references Descs
+    exactly. Named here so the two projects cannot drift: a file in both is a duplicate type, a file
+    in neither a missing one.
+
+    Adding to the import side is only correct for a file that names the library.
+  -->
+
+  <ItemGroup>
+    <SharpSlangGeneratedImport Include="$(MSBuildThisFileDirectory)dotnet\Native\SlangApi.cs" />
+    <SharpSlangGeneratedDesc Include="$(MSBuildThisFileDirectory)dotnet\Native\*.cs" Exclude="@(SharpSlangGeneratedImport)" />
+  </ItemGroup>
+
+</Project>

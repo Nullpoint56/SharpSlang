@@ -137,14 +137,26 @@ dotnet_diagnostic.IDE0130.severity = none
 # lpVtbl), so the naming rules do not apply. Its layout is ClangSharp's, which the regeneration
 # check compares byte for byte, so the formatting rule does not apply either: reformatting it would
 # make every regeneration a diff. Its structs transcribe C structs field by field and many fields
-# are only ever written by Slang through a pointer, which is what CS0169 and CS0649 report. Every
-# other rule applies.
+# are only ever written by Slang through a pointer, which is what CS0169 and CS0649 report, and
+# they are public fields because the C struct's layout is the type (CA1051). Slang's names also
+# break the naming-shape rules: aliased enum values (ParameterCategory.MetalBuffer is
+# ConstantBuffer, CA1069), an enum named Enum (CompileCoreModuleFlag::Enum, CA1716), members named
+# Int, String or guid (CA1720), and SpecializationArg's enum Kind beside its field kind (CA1708).
+# The raw P/Invokes are public on purpose: they are the last escape hatch (AGENTS.md#layers),
+# which is what CA1401 objects to. Every other rule applies; ClangSharp's own findings are fixed
+# in tools/generate-native.ps1 (AGENTS.md#lint).
 [dotnet/Native/**.cs]
 dotnet_diagnostic.CA1707.severity = none
 dotnet_diagnostic.IDE1006.severity = none
 dotnet_diagnostic.IDE0055.severity = none
 dotnet_diagnostic.CS0169.severity = none
 dotnet_diagnostic.CS0649.severity = none
+dotnet_diagnostic.CA1051.severity = none
+dotnet_diagnostic.CA1069.severity = none
+dotnet_diagnostic.CA1716.severity = none
+dotnet_diagnostic.CA1720.severity = none
+dotnet_diagnostic.CA1708.severity = none
+dotnet_diagnostic.CA1401.severity = none
 
 # ---------------------------------------------------------------- names a baked package carries
 #

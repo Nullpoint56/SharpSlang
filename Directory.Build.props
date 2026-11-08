@@ -37,6 +37,30 @@
     <SlangVersion>v2026.21</SlangVersion>
 
     <!--
+      Package versions (AGENTS.md#decisions): every package's major is the Slang version as a
+      fixed-width YYYYRRP, so v2026.21 is 2026210 and v2026.18.3 is 2026183 (owner, 2026-11-08);
+      Directory.Build.targets fails a build whose package major is not SlangVersion's encoding
+      (SHARPSLANG004). Within one Slang version a breaking binding change moves the second number,
+      a fix the third; beta while the API may change.
+
+        SharpSlangVersion          the release: tag v<it>; SharpSlang, SharpSlang.Dxc,
+                                   SharpSlang.Pipeline.NRI (and .Bake once it is split out)
+        SharpSlangDescsVersion     SharpSlang.Descs, moved only when the descs change
+                                   (tools/ci/descs-version.ps1): a binding-only release reuses the
+                                   published Descs, so a library built on them needs no release
+        SharpSlangPipelineVersion  SharpSlang.Pipeline, the reader, moved only when the reader
+                                   changes, the same way (tools/ci/packages.psd1)
+
+      SharpSlang depends on the Descs and the reader it was built with exactly ([v]); a direct
+      reference to another Descs fails the consumer's build (SHARPSLANG005,
+      dotnet/buildTransitive/SharpSlang.targets), and global-session creation refuses a loaded
+      Descs of another version (AGENTS.md#pin-and-payload).
+    -->
+    <SharpSlangVersion>2026210.0.0-beta.1</SharpSlangVersion>
+    <SharpSlangDescsVersion>2026210.0.0-beta.1</SharpSlangDescsVersion>
+    <SharpSlangPipelineVersion>2026210.0.0-beta.1</SharpSlangPipelineVersion>
+
+    <!--
       The pinned SharpNRI release, from nuget.org: SharpNRI (the binding and NRI's native library)
       and SharpNRI.Testing (its validated headless device) at SharpNriPackageVersion, and
       SharpNRI.Descs (NRI's descriptor structs and enums, no native code) at

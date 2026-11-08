@@ -2,28 +2,11 @@ using System.Runtime.CompilerServices;
 
 namespace SharpSlang.Native;
 
+/// <summary>Compile result for storing and retrieving multiple output blobs. This is needed for features such as separate debug compilation which output both base and debug spirv.</summary>
 [NativeTypeName("struct ICompileResult : ISlangCastable")]
 public unsafe partial struct ICompileResult
 {
     public void** lpVtbl;
-
-    [return: NativeTypeName("SlangResult")]
-    public int QueryInterface([NativeTypeName("const struct _GUID &")] Guid* uuid, void** outObject)
-    {
-        return queryInterface(unchecked((SlangUUID*)(uuid)), outObject);
-    }
-
-    [return: NativeTypeName("uint32_t")]
-    public uint AddRef()
-    {
-        return addRef();
-    }
-
-    [return: NativeTypeName("uint32_t")]
-    public uint Release()
-    {
-        return release();
-    }
 
     [VtblIndex(0)]
     [return: NativeTypeName("SlangResult")]
@@ -46,6 +29,11 @@ public unsafe partial struct ICompileResult
         return ((delegate* unmanaged[Stdcall]<ICompileResult*, uint>)(lpVtbl[2]))((ICompileResult*)Unsafe.AsPointer(ref this));
     }
 
+    /// <summary>Can be used to cast to interfaces without reference counting.</summary>
+    /// <remarks>
+    /// <para>Also provides access to internal implementations, when they provide a guid</para>
+    /// <para>Can simulate a 'generated' interface as long as kept in scope by cast from.</para>
+    /// </remarks>
     [VtblIndex(3)]
     public void* castAs([NativeTypeName("const SlangUUID &")] SlangUUID* guid)
     {

@@ -2,27 +2,13 @@ using System.Runtime.CompilerServices;
 
 namespace SharpSlang.Native;
 
+/// <summary>Base interface for components exchanged through the API.</summary>
+/// <remarks>
+/// <para>This interface definition is compatible with the COM <c>IUnknown</c>, and uses the same UUID, but Slang does not require applications to use or initialize COM.</para>
+/// </remarks>
 public unsafe partial struct ISlangUnknown
 {
     public void** lpVtbl;
-
-    [return: NativeTypeName("SlangResult")]
-    public int QueryInterface([NativeTypeName("const struct _GUID &")] Guid* uuid, void** outObject)
-    {
-        return queryInterface(unchecked((SlangUUID*)(uuid)), outObject);
-    }
-
-    [return: NativeTypeName("uint32_t")]
-    public uint AddRef()
-    {
-        return addRef();
-    }
-
-    [return: NativeTypeName("uint32_t")]
-    public uint Release()
-    {
-        return release();
-    }
 
     [VtblIndex(0)]
     [return: NativeTypeName("SlangResult")]

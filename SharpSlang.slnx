@@ -6,7 +6,8 @@
     <File Path="LICENSE" />
     <File Path="THIRD-PARTY-NOTICES.md" />
     <File Path="Directory.Build.props" />
-    <File Path="NativeReaderEnums.props" />
+    <File Path="Directory.Build.targets" />
+    <File Path="NativeSplit.props" />
     <File Path=".gitignore" />
     <File Path=".gitattributes" />
     <File Path=".editorconfig" />
@@ -28,6 +29,8 @@
     <File Path="tools/check.ps1" />
     <File Path="tools/fetch-native.ps1" />
     <File Path="tools/generate-native.ps1" />
+    <File Path="tools/generate-native-docs.ps1" />
+    <File Path="tools/generate-native-docs.cs" />
     <File Path="tools/.editorconfig" />
     <File Path="tools/coverage.ps1" />
   </Folder>
@@ -77,6 +80,7 @@
     <File Path="tests/SharpSlang.PackageConsumer/Program.cs" />
     <File Path="tests/SharpSlang.PackageConsumer/nuget.config" />
   </Folder>
+  <Project Path="descs/SharpSlang.Descs.csproj" />
   <Project Path="pipeline/SharpSlang.Pipeline.csproj" />
   <Project Path="dotnet/SharpSlang.csproj" />
   <Project Path="pipeline-nri/SharpSlang.Pipeline.NRI.csproj" />

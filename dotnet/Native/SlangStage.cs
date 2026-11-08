@@ -21,5 +21,6 @@ public enum SlangStage : uint
     SLANG_STAGE_DISPATCH = 15,
     SLANG_STAGE_NODE = 16,
     SLANG_STAGE_COUNT,
+    /// <summary>alias:</summary>
     SLANG_STAGE_PIXEL = SLANG_STAGE_FRAGMENT,
 }

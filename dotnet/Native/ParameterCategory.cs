@@ -5,6 +5,7 @@ namespace SharpSlang.Native;
 [NativeTypeName("SlangParameterCategoryIntegral")]
 public enum ParameterCategory : uint
 {
+    /// <summary>TODO: these aren't scoped...</summary>
     None = SLANG_PARAMETER_CATEGORY_NONE,
     Mixed = SLANG_PARAMETER_CATEGORY_MIXED,
     ConstantBuffer = SLANG_PARAMETER_CATEGORY_CONSTANT_BUFFER,
@@ -32,6 +33,7 @@ public enum ParameterCategory : uint
     MetalArgumentBufferElement = SLANG_PARAMETER_CATEGORY_METAL_ARGUMENT_BUFFER_ELEMENT,
     MetalAttribute = SLANG_PARAMETER_CATEGORY_METAL_ATTRIBUTE,
     MetalPayload = SLANG_PARAMETER_CATEGORY_METAL_PAYLOAD,
+    /// <summary>DEPRECATED:</summary>
     VertexInput = SLANG_PARAMETER_CATEGORY_VERTEX_INPUT,
     FragmentOutput = SLANG_PARAMETER_CATEGORY_FRAGMENT_OUTPUT,
 }

@@ -52,7 +52,7 @@
     <TargetFramework>net11.0</TargetFramework>
 
     <PackageId>SharpSlang.Dxc</PackageId>
-    <Version>0.1.0-alpha</Version>
+    <Version>$(SharpSlangVersion)</Version>
     <Authors>szombathy-tamas</Authors>
     <Description>Copies Microsoft's DirectX Shader Compiler (dxcompiler.dll, dxil.dll) into the application's output on win-x64, where SharpSlang loads it for Slang, so Slang can emit DXIL for D3D12. Carries no binary: depends on Microsoft.Direct3D.DXC at a pinned version and copies the two DLLs from it. Optional: without it SharpSlang compiles SPIR-V only.</Description>
     <PackageTags>slang;dxc;dxil;d3d12;shader-compiler</PackageTags>

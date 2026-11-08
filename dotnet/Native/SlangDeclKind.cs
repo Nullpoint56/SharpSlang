@@ -1,5 +1,6 @@
 namespace SharpSlang.Native;
 
+/// <summary>abstract decl reflection</summary>
 [NativeTypeName("SlangDeclKindIntegral")]
 public enum SlangDeclKind : uint
 {

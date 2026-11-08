@@ -4,10 +4,12 @@
     The acceptance criterion for the assembly split, written as a project rather than as a claim.
 
     It references SharpSlang.Pipeline and SharpSlang.Pipeline.NRI and NOTHING ELSE — no
-    SharpSlang, no SharpNRI proper, no test framework. If any of those ever picks up a
-    transitive edge to the compiler, slang-compiler.dll and the runtimes/ tree land in this
-    project's output; if SharpSlang.Pipeline.NRI ever references SharpNRI rather than SharpNRI.Descs, NRI.dll
-    does. AssemblySplitTests notices either.
+    SharpSlang, no SharpNRI proper, no test framework. What it carries is the reader, the
+    projection, and the two descs assemblies they name: SharpSlang.Descs (Slang's enums, no native
+    dependency) and SharpNRI.Descs. If any of those ever picks up a transitive edge to the
+    compiler, slang-compiler.dll and the runtimes/ tree land in this project's output; if
+    SharpSlang.Pipeline.NRI ever references SharpNRI rather than SharpNRI.Descs, NRI.dll does.
+    AssemblySplitTests notices either.
 
     It is an exe rather than a library so that it produces the real deployment closure a game would
     get, including everything a ProjectReference copies flat.

@@ -15,10 +15,11 @@ own prebuilt release, pinned to a version and fetched by a script.
 
 ## Status
 
-`0.1.0-alpha`, against Slang `v2026.21`, on .NET 11.
+`2026210.0.0-beta.1`, against Slang `v2026.21`, on .NET 11. Every package's major is the Slang
+version as `YYYYRRP`: 2026.21 is 2026210.
 
-Alpha because nothing has exercised it but a test suite — thorough, but not a shipping game hitting
-the reflection surface with shaders nobody anticipated, and 1.0 waits on that. Expect breaking
+Beta because nothing has exercised it but a test suite — thorough, but not a shipping game hitting
+the reflection surface with shaders nobody anticipated, and leaving beta waits on that. Expect breaking
 changes until then.
 
 ## What you get
@@ -57,7 +58,9 @@ if (!package.IsCurrent(SlangGlobalSession.BuildTag))    // for the build system,
 
 ### `SharpSlang.Pipeline` — read baked shaders, in the shipped game
 
-No native dependency at all. A game references this and carries no compiler.
+No native dependency at all. A game references this and carries no compiler: it brings
+`SharpSlang.Descs`, Slang's enums and structs generated from `slang.h` as plain types, and nothing
+native.
 
 ```csharp
 var package = ShaderPackage.ReadFromFile("cooked/standard_surface.pslb");
@@ -139,6 +142,7 @@ dotnet add package SharpSlang            # asset pipeline
 dotnet add package SharpSlang.Pipeline    # shipped game
 dotnet add package SharpSlang.Pipeline.NRI        # renderer, talking NRI through SharpNRI
 dotnet add package SharpSlang.Dxc # asset pipeline, only if it emits DXIL for D3D12
+dotnet add package SharpSlang.Descs      # a library that only names Slang's types (the others bring it)
 ```
 
 `SharpSlang.Pipeline.NRI` depends on `SharpNRI.Descs` from nuget.org, at exactly the version pinned as
@@ -213,7 +217,7 @@ the only check in the suite that can see a layout error, and the only one that c
 parameter list on a vtable slot nothing has ever called. They skip with instructions where no
 compiler is found; CI has one on every runner.
 
-**767 tests** run on every leg, against oracles rather than expected values typed
+**791 tests** run on every leg, against oracles rather than expected values typed
 by hand: the emitted SPIR-V, Slang's own alternate route to each fact, the Khronos validation
 layers and the D3D12 debug layer judging real NRI pipelines built from a **33-shader corpus**, and Slang's own test suite — 31 shaders whose expected reflection the Slang
 team wrote, compared against both `spReflection_ToJson` and this package's projection. It also

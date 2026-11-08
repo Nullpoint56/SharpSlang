@@ -37,7 +37,7 @@
     <RootNamespace>SharpSlang.Pipeline.NRI</RootNamespace>
 
     <PackageId>SharpSlang.Pipeline.NRI</PackageId>
-    <Version>0.1.0-alpha</Version>
+    <Version>$(SharpSlangVersion)</Version>
     <Authors>szombathy-tamas</Authors>
     <Description>NRI (NVIDIA Render Interface) projection for SharpSlang reflection: a SharpNRI pipeline layout desc, root constants, vertex attributes and shader descs from a Slang shader. References SharpNRI.Descs only, so no NRI binary comes with it. Alpha: not yet load-tested by a shipping game.</Description>
     <PackageTags>slang;nri;vulkan;d3d12;spirv;shader;reflection;descriptor-set</PackageTags>

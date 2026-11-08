@@ -187,6 +187,10 @@ public abstract unsafe class SlangObject : IDisposable
 
     public void Dispose()
     {
+        // No wrapper has a finalizer (AGENTS.md#ownership-and-lifetime); CA1816 asks for this anyway,
+        // for a derived type that would add one, and it costs nothing without one.
+        GC.SuppressFinalize(this);
+
         // Interlocked so concurrent Dispose calls cannot double-release.
         var p = Interlocked.Exchange(ref _unknown, 0);
         if (p == 0 || s_processExiting) return;

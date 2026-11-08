@@ -4,11 +4,17 @@
 
 .DESCRIPTION
   Runs ClangSharpPInvokeGenerator over slang.h + slang-deprecated.h and applies the post-processing
-  that ClangSharp cannot do itself. Validated end to end against Slang v2026.21 with
-  ClangSharp 21.1.8.4: 129 files, ~5,100 lines, 279 DllImports, 383 vtable call sites, 0 errors,
-  0 warnings on net11.0.
+  that ClangSharp cannot do itself, then carries Slang's header comments into it as XML docs
+  (tools/generate-native-docs.ps1). Validated end to end against Slang v2026.21 with ClangSharp
+  21.1.8.4: the counts are printed at the end and recorded in AGENTS.md#generator-and-abi.
 
-  See AGENTS.md#generator-and-abi for why each workaround below exists. The short version:
+  C++ mode, of necessity: slang.h does not parse as C (bool at :621, constexpr at :825, namespace at
+  :1040, measured with --language c at v2026.21). In C++ mode no enum is erased: every parameter,
+  field and return the header declares with an enum type is that enum in L0, and the check below
+  fails a regeneration where one is an integer.
+
+  See AGENTS.md#generator-and-abi for why each workaround below exists, and for every declaration
+  this script removes. The short version:
 
     * `struct Attribute` shadows System.Attribute and breaks every generated helper attribute.
     * The 12 C++ reflection "classes" are opaque types whose methods are inline forwarders. C++
@@ -16,9 +22,11 @@
       does not compile. They are excluded and hand-declared as empty opaque structs; the ~173 flat
       spReflection* functions they forward to are bound regardless, and those are the real ABI.
     * SLANG_COM_INTERFACE's constexpr GUID cannot be expressed as a C# fixed-buffer initializer.
-    * Nested C++ enum mirrors default to int backing but initialize from uint-backed C constants.
     * Callback function-pointer typedefs are mis-inferred as Thiscall. This one matters: it lands
       in ISlangFileSystemExt::enumeratePathContents. Left unfixed it would be an ABI mismatch.
+    * The lint findings in the generated layer (AGENTS.md#lint) are fixed here: no
+      [assembly: GeneratedCode] (it turned the analyzers off for the whole assembly), no
+      case-only twins of the vtable methods, a message on every [Obsolete].
 
   Everything above L0 (lifetime, reflection projection, host callbacks) is hand-written by design.
   Do not point this script at those directories.
@@ -87,6 +95,7 @@ foreach ($h in @("slang.h", "slang-deprecated.h", "slang-image-format-defs.h")) 
         Invoke-WebRequest -Uri "$base/$h" -OutFile $dest
     }
 }
+$headerFiles = @("slang.h", "slang-deprecated.h", "slang-image-format-defs.h") | ForEach-Object { Join-Path $inc $_ }
 
 # ---------------------------------------------------------------- generate
 # The 12 C++ reflection veneer types. Excluded, then re-declared as opaque structs below.
@@ -132,7 +141,7 @@ Write-Host "==> generating -> $Output"
     --remap-type Attribute=SlangAttribute `
     @exclude `
     --config codegen=latest file=multi `
-    --generate file-scoped-namespaces helper-types vtbl-index-attribute
+    --generate file-scoped-namespaces helper-types vtbl-index-attribute generated-code=none
 
 # ClangSharp exits non-zero on macro-translation warnings even when generation succeeded, so
 # verify by output rather than by exit code.
@@ -141,14 +150,6 @@ if ($produced.Count -lt 100) { throw "generation produced only $($produced.Count
 
 # ---------------------------------------------------------------- post-process
 Write-Host "==> post-processing"
-
-# Nested C++ enum mirrors: int-backed by default, but initialized from uint-backed C enum members.
-foreach ($f in @("TypeReflection.cs", "DeclReflection.cs")) {
-    $p = Join-Path $Output $f
-    if (Test-Path $p) {
-        (Get-Content $p) -replace '^(\s*public enum (?:Kind|ScalarType))$', '$1 : uint' | Set-Content $p
-    }
-}
 
 # Callback function-pointer typedefs mis-inferred as Thiscall. These are plain C callbacks.
 # ABI-critical: ISlangFileSystemExt::enumeratePathContents is in this set.
@@ -293,10 +294,10 @@ $($guidLines -join "`r`n")
 "@ | Set-Content (Join-Path $Output "_InterfaceGuids.cs")
 
 # ---------------------------------------------------------------- normalise
-# Last, over every file, so nothing after it can undo it.
+# Over every file, so that everything after it reads and writes LF.
 #
-# `using System;` goes: both projects that compile these files (dotnet/SharpSlang.csproj and,
-# for the reader enums, pipeline/SharpSlang.Pipeline.csproj) have ImplicitUsings on, which makes
+# `using System;` goes: both projects that compile these files (descs/SharpSlang.Descs.csproj and,
+# for SlangApi.cs, dotnet/SharpSlang.csproj; NativeSplit.props) have ImplicitUsings on, which makes
 # it a global using, and the build's IDE0005 then reports it as unnecessary. Measured with
 # ClangSharpPInvokeGenerator 21.1.8.4 on v2026.21: 33 files carry it, 32 of ClangSharp's and the
 # IID table above. A finding in this layer is fixed here, never by hand.
@@ -304,12 +305,82 @@ $($guidLines -join "`r`n")
 # And LF, in every file. ClangSharp writes LF, but Set-Content writes the platform's newline, so on
 # Windows the files this script touched came out CRLF while the rest stayed LF. .gitattributes
 # normalises them on add either way; writing LF here means the working tree is what is committed.
+function Write-Lf([string]$Path, [string]$Text) { [System.IO.File]::WriteAllText($Path, $Text, [System.Text.UTF8Encoding]::new($false)) }
+
 foreach ($p in @(Get-ChildItem (Join-Path $Output "*.cs"))) {
     $t = [System.IO.File]::ReadAllText($p.FullName)
     $n = ($t -replace "`r`n", "`n") -replace '(?m)^using System;\n', ''
     if (-not $n.EndsWith("`n")) { $n += "`n" }
-    if ($n -ne $t) { [System.IO.File]::WriteAllText($p.FullName, $n, [System.Text.UTF8Encoding]::new($false)) }
+    if ($n -ne $t) { Write-Lf $p.FullName $n }
 }
+
+# ---------------------------------------------------------------- lint findings, fixed here
+# The generated layer is linted like the rest (AGENTS.md#lint). Measured at v2026.21 with the SDK's
+# analyzers at latest-recommended, once ClangSharp's [assembly: GeneratedCode] was gone (which had
+# made the analyzers treat SharpSlang.dll, hand-written layers included, as generated code and
+# report nothing): the findings that are ClangSharp's choices are fixed below; the ones that are
+# Slang's names and C layout are exempt in .editorconfig with their reasons.
+#
+# 1. ClangSharp's COM-name twins of the IUnknown slots. For every interface deriving
+#    ISlangUnknown it writes QueryInterface(Guid*), AddRef() and Release() beside Slang's
+#    queryInterface, addRef and release, which slang.h declares inline on ISlangUnknown "to allow
+#    the above operations to be called using their traditional COM names". Two public methods
+#    whose names differ only by case (CA1708, 85 findings), each forwarding to the slot; removed.
+#    The slots stay, and the binding never called the twins.
+$twin = '(?m)^(    \[return: NativeTypeName\("[^"]*"\)\]\n)?    public \w+ (QueryInterface|AddRef|Release)\([^\n]*\)\n    \{\n        return [^\n]*;\n    \}\n\n'
+$twins = 0
+foreach ($p in @(Get-ChildItem (Join-Path $Output "*.cs"))) {
+    $t = [System.IO.File]::ReadAllText($p.FullName)
+    $c = ([regex]::Matches($t, $twin)).Count
+    if ($c) { $twins += $c; Write-Lf $p.FullName ([regex]::Replace($t, $twin, '')) }
+}
+if ($twins % 3 -ne 0 -or $twins -eq 0) { throw "removed $twins COM-name twins, not three per interface: ClangSharp's helper layout changed" }
+Write-Host "    removed $twins COM-name twins ($($twins / 3) interfaces x QueryInterface, AddRef, Release)"
+
+# 2. [Obsolete] with no message (CA1041): the two IGlobalSession slots slang.h marks
+#    SLANG_DEPRECATED (createCompileRequest, addBuiltins). The message says where it comes from.
+$obsolete = 0
+foreach ($p in @(Get-ChildItem (Join-Path $Output "*.cs"))) {
+    $t = [System.IO.File]::ReadAllText($p.FullName)
+    $c = ([regex]::Matches($t, '(?m)^(\s*)\[Obsolete\]$')).Count
+    if ($c) { $obsolete += $c; Write-Lf $p.FullName ($t -replace '(?m)^(\s*)\[Obsolete\]$', '$1[Obsolete("slang.h declares this SLANG_DEPRECATED.")]') }
+}
+Write-Host "    gave $obsolete [Obsolete] a message"
+
+# 3. A fixed buffer's indexer as a block-bodied getter (IDE0026, SlangTerminatedChars): written
+#    as the expression body the repository's style asks for.
+$indexer = '(?m)^(\s*)(public ref \w+ this\[int index\])\n\s*\{\n\s*get\n\s*\{\n\s*return (ref [^\n]*);\n\s*\}\n\s*\}\n'
+$indexers = 0
+foreach ($p in @(Get-ChildItem (Join-Path $Output "*.cs"))) {
+    $t = [System.IO.File]::ReadAllText($p.FullName)
+    $c = ([regex]::Matches($t, $indexer)).Count
+    if ($c) { $indexers += $c; Write-Lf $p.FullName ([regex]::Replace($t, $indexer, "`$1`$2 => `$3;`n")) }
+}
+Write-Host "    wrote $indexers fixed-buffer indexers as expression bodies"
+
+# ---------------------------------------------------------------- enum types are kept
+# A parameter, field or return slang.h declares with an enum type must be that enum in L0, not an
+# integer: the bytes would line up and the type would be gone. ClangSharp writes the C++ type it
+# translated into [NativeTypeName] wherever the C# spelling differs, so an enum name there on an
+# integer is an erased enum. 0 at v2026.21; the integer typedefs slang.h declares for flags
+# (SlangTargetFlags, SlangCompileFlags, SlangDiagnosticFlags, CompileCoreModuleFlags, SessionFlags)
+# are integers in the header too.
+$enums = @{}
+foreach ($m in (Select-String -Path (Join-Path $Output "*.cs") -Pattern '^\s*public enum (\w+)')) { $enums[$m.Matches[0].Groups[1].Value] = $true }
+$erased = @()
+foreach ($p in @(Get-ChildItem (Join-Path $Output "*.cs"))) {
+    $t = [System.IO.File]::ReadAllText($p.FullName)
+    foreach ($m in [regex]::Matches($t, 'NativeTypeName\("(?:const )?(?:slang::)?(\w+)"\)\]\s*(?:\[[^\]]*\]\s*)*(?:public )?(?:static )?(?:extern )?(\w+)\b')) {
+        if (-not $enums.ContainsKey($m.Groups[1].Value)) { continue }
+        if ($m.Groups[2].Value -in 'byte', 'sbyte', 'short', 'ushort', 'int', 'uint', 'long', 'ulong', 'nint', 'nuint') { $erased += "$($p.Name): $($m.Groups[1].Value) as $($m.Groups[2].Value)" }
+    }
+}
+if ($erased) { throw "enum types erased to integers: $($erased -join ', ')" }
+Write-Host "    enum types kept: $($enums.Count) enums, 0 erased to an integer"
+
+# ---------------------------------------------------------------- header comments as XML docs
+# Last: it reads the layout every step above produced.
+& (Join-Path $PSScriptRoot "generate-native-docs.ps1") -Headers @($headerFiles) -Output $Output
 
 # ---------------------------------------------------------------- report
 $files = @(Get-ChildItem (Join-Path $Output "*.cs"))

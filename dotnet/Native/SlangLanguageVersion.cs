@@ -8,9 +8,16 @@ public enum SlangLanguageVersion
     SLANG_LANGUAGE_VERSION_2025 = 2025,
     SLANG_LANGUAGE_VERSION_202B = 2026,
     SLANG_LANGUAGE_VERSION_2026 = 2026,
+    /// <summary>Note: the numeric value may change when the language version is given an</summary>
+    /// <remarks>
+    /// <para>official name. For now, it's one past the latest stable version.</para>
+    /// </remarks>
     SLANG_LANGUAGE_VERSION_202C = 2027,
+    /// <summary>Deprecated: retained for source compatibility; prefer SLANG_LANGUAGE_VERSION_DEFAULT.</summary>
     SLANG_LANGAUGE_VERSION_DEFAULT = SLANG_LANGUAGE_VERSION_LEGACY,
     SLANG_LANGUAGE_VERSION_DEFAULT = SLANG_LANGUAGE_VERSION_LEGACY,
+    /// <summary>The latest stable version</summary>
     SLANG_LANGUAGE_VERSION_LATEST = SLANG_LANGUAGE_VERSION_2026,
+    /// <summary>Development version</summary>
     SLANG_LANGUAGE_VERSION_NEXT = SLANG_LANGUAGE_VERSION_202C,
 }

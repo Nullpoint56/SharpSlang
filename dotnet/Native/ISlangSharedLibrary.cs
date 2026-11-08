@@ -2,29 +2,15 @@ using System.Runtime.CompilerServices;
 
 namespace SharpSlang.Native;
 
+/// <summary>An interface that can be used to encapsulate access to a shared library. An implementation does not have to implement the library as a shared library</summary>
 [NativeTypeName("struct ISlangSharedLibrary : ISlangCastable")]
 public unsafe partial struct ISlangSharedLibrary
 {
     public void** lpVtbl;
 
-    [return: NativeTypeName("SlangResult")]
-    public int QueryInterface([NativeTypeName("const struct _GUID &")] Guid* uuid, void** outObject)
-    {
-        return queryInterface(unchecked((SlangUUID*)(uuid)), outObject);
-    }
-
-    [return: NativeTypeName("uint32_t")]
-    public uint AddRef()
-    {
-        return addRef();
-    }
-
-    [return: NativeTypeName("uint32_t")]
-    public uint Release()
-    {
-        return release();
-    }
-
+    /// <summary>Get a function by name. If the library is unloaded will only return nullptr.</summary>
+    /// <param name="name">The name of the function</param>
+    /// <returns>The function pointer related to the name or nullptr if not found</returns>
     [return: NativeTypeName("SlangFuncPtr")]
     public delegate* unmanaged[Cdecl]<void> findFuncByName([NativeTypeName("const char *")] sbyte* name)
     {
@@ -52,12 +38,20 @@ public unsafe partial struct ISlangSharedLibrary
         return ((delegate* unmanaged[Stdcall]<ISlangSharedLibrary*, uint>)(lpVtbl[2]))((ISlangSharedLibrary*)Unsafe.AsPointer(ref this));
     }
 
+    /// <summary>Can be used to cast to interfaces without reference counting.</summary>
+    /// <remarks>
+    /// <para>Also provides access to internal implementations, when they provide a guid</para>
+    /// <para>Can simulate a 'generated' interface as long as kept in scope by cast from.</para>
+    /// </remarks>
     [VtblIndex(3)]
     public void* castAs([NativeTypeName("const SlangUUID &")] SlangUUID* guid)
     {
         return ((delegate* unmanaged[Stdcall]<ISlangSharedLibrary*, SlangUUID*, void*>)(lpVtbl[3]))((ISlangSharedLibrary*)Unsafe.AsPointer(ref this), guid);
     }
 
+    /// <summary>Get a symbol by name. If the library is unloaded will only return nullptr.</summary>
+    /// <param name="name">The name of the symbol</param>
+    /// <returns>The pointer related to the name or nullptr if not found</returns>
     [VtblIndex(4)]
     public void* findSymbolAddressByName([NativeTypeName("const char *")] sbyte* name)
     {

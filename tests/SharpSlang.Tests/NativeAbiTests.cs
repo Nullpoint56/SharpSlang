@@ -168,7 +168,7 @@ public sealed partial class NativeAbiTests(ITestOutputHelper output)
     /// <c>sizeof</c> on one is not merely wrong, it does not compile.
     /// </remarks>
     private static IEnumerable<Type> Probed() =>
-        typeof(SlangApi).Assembly.GetTypes()
+        typeof(SlangUUID).Assembly.GetTypes() // SharpSlang.Descs: every generated type but SlangApi (NativeSplit.props)
             .Where(t => t is { IsPublic: true, IsValueType: true, IsEnum: false, IsGenericType: false })
             .Where(t => t.Namespace == "SharpSlang.Native")
             .Where(t => Fields(t).Count > 0)
