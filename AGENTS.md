@@ -889,7 +889,11 @@ is in `patches/README.md`. `slang/` is never edited or staged by path; its point
   0013's first E56111 was an ordinary error, after which the C++ varying legalization dereferenced
   the empty value it went on with (an access violation in the test host); 0010's first form unsized
   the array in the IR, which two later passes read the size of; 0019's first form never ran for a
-  top-level block. U34 and U35 were hidden behind U18 and U19.
+  top-level block. U34 and U35 were hidden behind U18 and U19. Linux under WSL (GCC 13.3,
+  `-AllowNewerGlibc`): `patch-registry.ps1 -Bump` red for each, the patched build's touched classes
+  (target validation, digests, prober, unknown sizes, NRI validation, composites, compilation,
+  serialization, header, link options, second opinions, entry-point names, payload, downstream
+  compilers) 295 results, 261 passed, 34 skipped, 0 failed.
 - **Each patch carries Slang's own regression test** under `tools/slang-unit-test/` (`SLANG_UNIT_TEST`),
   as their contribution guide asks. `build-native.ps1` builds no tests (`SLANG_ENABLE_TESTS` OFF), so
   those tests are compiled and run only by Slang's CI on a fork PR; the binding's prober tests are
