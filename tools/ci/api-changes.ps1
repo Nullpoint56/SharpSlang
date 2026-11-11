@@ -63,12 +63,13 @@ else {
     $main = @($data.Packages | Where-Object { $_.Version -eq 'Version' -and $_.Assemblies })[0].Id
     $lower = $main.ToLowerInvariant()
     # A package never published has no version list: the feed answers 404.
-    $published = try { @((Invoke-RestMethod "$Feed/$lower/index.json").versions) }
-                 catch { if ($_.Exception.Response.StatusCode.value__ -eq 404) { @() } else { throw } }
-    $earlier = @($published | Where-Object { $_ -ne $Version.ToLowerInvariant() })
-    if (-not $earlier) {
+    [string[]]$published = @()
+    try { $published = @((Invoke-RestMethod "$Feed/$lower/index.json").versions) }
+    catch { if ($_.Exception.Response.StatusCode.value__ -ne 404) { throw } }
+    [string[]]$earlier = @($published | Where-Object { $_ -and $_ -ne $Version.ToLowerInvariant() })
+    if ($earlier.Count -eq 0) {
         # The first release: nothing to compare with, which the release body says rather than fails on.
-        $text = "## API changes`n`nFirst release: no earlier $main on nuget.org to compare with.`n"
+        $text = "## API changes`n`nFirst release: no earlier $main on $(([Uri]$Feed).Host) to compare with.`n"
         if ($Out) { Set-Content -Path $Out -Value $text -NoNewline -Encoding utf8NoBOM }
         Write-Host $text.TrimEnd()
         if (Test-Path $temp) { Remove-Item $temp -Recurse -Force -ErrorAction SilentlyContinue }

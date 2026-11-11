@@ -63,7 +63,7 @@ $notes = Join-Path $Root "docs/releases/$tag.md"
 if ($Ref -ne 'refs/heads/master') { throw "a release runs on master only, not '$Ref'" }
 if (-not (Test-Path $notes)) { throw "release notes docs/releases/$tag.md missing: add them in the version-bump pull request (docs/releases/README.md)" }
 # The notes' Verified section links the coverage report at the tag, so the report must describe it.
-& (Join-Path $Root "tools/coverage.ps1") -Check
+& (Join-Path $Root "tools/coverage.ps1") -Check -Root $Root
 if ($LASTEXITCODE -ne 0) { throw "docs/coverage.md does not describe this tree: measure and commit it before releasing (AGENTS.md#coverage)" }
 if (-not $NoTagCheck) {
     git -C $Root ls-remote --exit-code --tags origin "refs/tags/$tag" | Out-Null

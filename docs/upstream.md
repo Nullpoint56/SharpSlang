@@ -59,6 +59,7 @@ archive, which CI tests until the switch (`AGENTS.md`, Decisions), has none of t
 | U33 | A top-level parameter block's sub-object range reports space offset 0 | reflection | Slang defect | `0019-parameter-block-space-offset.patch` | `SecondOpinionTests.A_top_level_parameter_blocks_sub_object_range_reports_its_space` | patched |  | v2026.21 |
 | U34 | GLSL: the tessellation stages declare no `layout(vertices = N) out` or input primitive | GLSL output | Slang defect | `0022-glsl-tessellation-layouts.patch` | `TargetValidationTests.The_tessellation_stages_declare_their_glsl_layouts` | patched |  | v2026.21 |
 | U35 | GLSL: a hull shader's per-vertex output is indexed with `uint(gl_InvocationID)` | GLSL output | Slang defect |  | `TargetValidationTests.Glsl_compiles_with_glslang` | known issue: GLSL output only, the SPIR-V target is valid; a fix is an emitter special case for one builtin's cast, left to Slang (owner, 2026-11-08: the moderate and large ones patched, the rest known issues) |  | v2026.21 |
+| U36 | A standard module records its source as a path relative to Slang's build tree, resolved from wherever the module is loaded | modules | Slang defect |  |  | unpatched |  | v2026.21 |
 <!-- patch-registry:end -->
 
 Related upstream items found while checking whether these were known: the layout-query robustness
@@ -1119,3 +1120,24 @@ cast to the parameter's `uint`, and the output store is indexed with the cast va
 -S tesc` on the `tessellation` corpus case's hull shader once U18, U19 and U34 were patched, which
 had hidden it (`TargetValidationTests.Declared`, the GLSL row). Recorded as a known issue. Filed:
 no.
+
+## U36 — A standard module records its source as a path relative to Slang's build tree
+
+**Observed.** Each `.slang-module` in `slang-standard-module-2026.21/` records the `.slang` sources it
+was compiled from as a path relative to the folder it was built in: `../../../../source/...` in
+Slang's release archive, `../../../../../slang/source/...` in a build of the same tag from a
+checkout one folder deeper. Slang resolves that path from the folder the module is loaded from,
+and when a file exists there it names it among the importing module's dependency files. An
+application published five folders below a checkout that holds Slang's sources at the recorded
+place (here `tools/consume`'s output under `_build/consume/publish-linux-x64/`) reports
+`<checkout>/slang/source/standard-modules/numerics/numerics.slang`, a file outside the shipped
+module folder and possibly of another Slang version, instead of the copy beside the module.
+
+**Expected.** A module's recorded sources resolve to the copies shipped beside it, or are recorded
+relative to the module folder, so where the application sits does not change what Slang reads.
+
+**Measurement.** v2026.21, linux-x64 under WSL, `import slang.numerics` through
+`IModule::getDependencyFilePath` on the source-built payload: from five folders below the
+repository root the path names the checkout's file; from the system temp folder it names the copy
+beside the module. Whether Slang reads the file's contents from there, or only names it, is not
+measured. Not patched: the fix is in how the standard modules are compiled or staged. Filed: no.

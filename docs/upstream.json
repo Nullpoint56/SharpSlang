@@ -383,6 +383,16 @@
       "test": "TargetValidationTests.Glsl_compiles_with_glslang",
       "state": "known issue: GLSL output only, the SPIR-V target is valid; a fix is an emitter special case for one builtin's cast, left to Slang (owner, 2026-11-08: the moderate and large ones patched, the rest known issues)",
       "verified": "v2026.21"
+    },
+    {
+      "id": "U36",
+      "title": "A standard module records its source as a path relative to Slang's build tree, resolved from wherever the module is loaded",
+      "area": "modules",
+      "kind": "Slang defect",
+      "patch": null,
+      "test": null,
+      "state": "unpatched",
+      "verified": "v2026.21"
     }
   ]
 }

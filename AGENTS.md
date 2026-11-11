@@ -388,7 +388,7 @@ three, `IBindlessResourceMetadata::usesBindlessResourceHeap`).
   outputs sat five folders below the repository root, so the source-built modules named the
   checkout's own `slang/source/standard-modules/numerics/numerics.slang` (rehearsal on the branch
   `release-prep`, linux-x64). An application five folders below a Slang checkout would see the
-  same; the consume runs now build in the system temp folder.
+  same (U36); the consume runs now build in the system temp folder.
 - **The neural and numerics modules are an option.** `-StandardModules WithoutNeuralNumerics`
   stages workgraph and functional only (3 files, 0.2 MB of the 31.6 MB); win-x64 `native/` is then
   31.5 MB instead of 62.9 MB, and `import slang.neural` / `import slang.numerics` fail. The default,
