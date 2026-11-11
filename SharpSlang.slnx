@@ -15,6 +15,7 @@
     <File Path="global.json" />
   </Folder>
   <Folder Name="/docs/">
+    <File Path="docs/coverage.md" />
     <File Path="docs/guide.md" />
     <File Path="docs/upstream.md" />
     <File Path="docs/upstream.json" />
@@ -22,6 +23,7 @@
   </Folder>
   <Folder Name="/docs/releases/">
     <File Path="docs/releases/README.md" />
+    <File Path="docs/releases/v2026210.0.0-beta.1.md" />
   </Folder>
   <Folder Name="/patches/">
     <File Path="patches/README.md" />
