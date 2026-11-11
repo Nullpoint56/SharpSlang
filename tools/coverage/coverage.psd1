@@ -51,12 +51,11 @@
     # The measured inputs: these entries of the measured commit's tree are recorded, and -Check
     # compares them with HEAD's. A path that does not exist (patches/, before the first patch) is
     # recorded as absent, and its appearing counts as a change.
-    Inputs = @('dotnet', 'descs', 'pipeline', 'bake', 'pipeline-nri', 'dxc', 'tests', 'patches', 'NativeSplit.props')
+    Inputs = @('dotnet', 'descs', 'pipeline', 'bake', 'pipeline-nri', 'dxc', 'tests', 'patches', 'slang', 'NativeSplit.props')
 
-    # The upstream ref: `git describe` of the submodule when there is one (Submodule names its
-    # path), else the pin. No submodule yet: the payload is Slang's release binaries.
-    Upstream = @{ Submodule = $null; Pin = 'SlangVersion'; Name = 'Slang' }
-    Patches  = 'patches'
+    # The pin, for the report's upstream ref; the payload's payload.json says whether it is that
+    # release's binaries or a source build, and which patches it carries.
+    Upstream = @{ Pin = 'SlangVersion'; Name = 'Slang' }
 
     # The payload the tests load, identified by content: the library beside the test assembly,
     # compared with each staged variant

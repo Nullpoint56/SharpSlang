@@ -13,7 +13,8 @@
   requires it to equal the property it names in the props.
 
   Refuses: a run on another branch than master, a tag v<Version> that exists already (on origin),
-  and missing notes docs/releases/v<Version>.md. Writes version, tag, descs_version and
+  missing notes docs/releases/v<Version>.md, and coverage figures that do not describe the tree
+  (coverage.ps1 -Check). Writes version, tag, descs_version and
   pipeline_version to $GITHUB_OUTPUT when it is set, and prints them.
 
         pwsh tools/ci/release-version.ps1 -Ref refs/heads/master
@@ -61,6 +62,9 @@ $notes = Join-Path $Root "docs/releases/$tag.md"
 
 if ($Ref -ne 'refs/heads/master') { throw "a release runs on master only, not '$Ref'" }
 if (-not (Test-Path $notes)) { throw "release notes docs/releases/$tag.md missing: add them in the version-bump pull request (docs/releases/README.md)" }
+# The notes' Verified section links the coverage report at the tag, so the report must describe it.
+& (Join-Path $Root "tools/coverage.ps1") -Check
+if ($LASTEXITCODE -ne 0) { throw "docs/coverage.md does not describe this tree: measure and commit it before releasing (AGENTS.md#coverage)" }
 if (-not $NoTagCheck) {
     git -C $Root ls-remote --exit-code --tags origin "refs/tags/$tag" | Out-Null
     if ($LASTEXITCODE -eq 0) { throw "$tag exists already: bump SharpSlangVersion for a new release" }
