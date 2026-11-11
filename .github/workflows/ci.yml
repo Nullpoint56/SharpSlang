@@ -563,12 +563,23 @@ jobs:
         if: (vars.SHARPSLANG_NATIVE_FROM_SOURCE == 'true' || inputs.from_source)
         shell: pwsh
         run: |
-          $carried = @((Get-Content docs/upstream.json -Raw | ConvertFrom-Json).defects | Where-Object { $_.patch })
-          $counts = @(./tools/ci/count-tests.ps1 -Trx test-results/results.trx -Class (($carried | ForEach-Object test) -join ',') 6>&1 | ForEach-Object { "$_" })
-          $counts | ForEach-Object { Write-Host $_ }
-          if ($counts[-1] -notmatch "passed=$($carried.Count) skipped=0 failed=0\b") {
-            throw "expected the $($carried.Count) patched-behaviour tests of docs/upstream.json to pass on ${{ matrix.rid }}: $($counts[-1])"
+          # Per entry: none of its results failed, and none skipped for want of the patched payload,
+          # which is what this run is for. A skip naming a missing tool or device, or another
+          # platform's defect (U10 is Windows' library search), is the leg's environment and allowed;
+          # the gates above hold the tools to their legs.
+          $problems = @()
+          $ran = 0
+          foreach ($e in (Get-Content docs/upstream.json -Raw | ConvertFrom-Json).defects | Where-Object { $_.patch }) {
+            $out = @(./tools/ci/count-tests.ps1 -Trx test-results/results.trx -Class $e.test 6>&1 | ForEach-Object { "$_" })
+            Write-Host ("{0,-4} {1}: {2}" -f $e.id, $e.test, $out[-1])
+            if ($out[-1] -notmatch 'passed=(\d+) skipped=(\d+) failed=(\d+)') { $problems += "$($e.id): no result"; continue }
+            if ([int]$Matches[3] -gt 0) { $problems += "$($e.id): $($Matches[3]) failed" }
+            if ([int]$Matches[1] -gt 0) { $ran++ }
+            $payloadSkip = @($out | Where-Object { $_ -match 'release payload|payload\.json|payload''s origin' })
+            if ($payloadSkip) { $problems += "$($e.id): skipped for the payload: $($payloadSkip[0].Trim())" }
           }
+          Write-Host "$ran of the carried entries' tests ran on ${{ matrix.rid }}"
+          if ($problems) { throw "patched-behaviour tests of docs/upstream.json on ${{ matrix.rid }}: $($problems -join '; ')" }
 
       - name: The header-derived and corpus oracles actually ran
         # Every leg, unlike the lavapipe gate above, so `shell: bash` is explicit — a Windows
