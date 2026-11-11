@@ -1,0 +1,154 @@
+Give each linkWithOptions call a linked component type of its own.
+
+ComponentType::linkWithOptions (source/slang/slang-linkable.cpp) links, then loads the caller's
+options into the component type the link returned. ComponentType::link returns
+fillRequirements(this), and fillRequirements returns its argument unchanged when it has no
+requirements left to fill (source/slang/slang-check-shader.cpp:3153-3171). For an ordinary
+composite of a module and its entry points, linkWithOptions therefore loads the options into the
+caller's own composite, and the code generated for it is cached on that object. Linking the same
+composite a second time with other options returns the first link's code: with
+SLANG_OPTIMIZATION_LEVEL_NONE first and MAXIMAL second, both links emit the same 1,572 bytes of
+SPIR-V, where a fresh composite linked at MAXIMAL emits 1,188. Nothing is diagnosed, and the
+caller's composite has been changed by a call that returns a new object.
+
+This composes a component type of its own around the linked one when link returned the caller's
+component type, and loads the options into that. A link that composed a new component type takes
+the same path as before. A regression test is added as
+tools/slang-unit-test/unit-test-link-with-options-twice.cpp.
+
+Measured on v2026.21 (win-x64): before, NONE then MAXIMAL on one composite give 1,572 and 1,572
+bytes; a fresh composite at MAXIMAL gives 1,188.
+diff --git a/source/slang/slang-linkable.cpp b/source/slang/slang-linkable.cpp
+index 7e9886867..3098cfcc0 100644
+--- a/source/slang/slang-linkable.cpp
++++ b/source/slang/slang-linkable.cpp
+@@ -579,15 +579,24 @@ SLANG_NO_THROW SlangResult SLANG_MCALL ComponentType::linkWithOptions(
+     slang::CompilerOptionEntry const* entries,
+     ISlangBlob** outDiagnostics)
+ {
+-    SLANG_RETURN_ON_FAIL(link(outLinkedComponentType, outDiagnostics));
++    ComPtr<slang::IComponentType> linkedInterface;
++    SLANG_RETURN_ON_FAIL(link(linkedInterface.writeRef(), outDiagnostics));
+ 
+-    auto linked = *outLinkedComponentType;
+-
+-    if (linked)
++    // `link` returns this component type itself when it has no requirements left to fill, and its
++    // options, and the code generated for it, would then be shared with the caller's component type
++    // and with every other link of it: a second `linkWithOptions` would return the first link's
++    // code. A component type of its own, composed of the linked one, carries this link's options.
++    //
++    RefPtr<ComponentType> linked = static_cast<ComponentType*>(linkedInterface.get());
++    if (linked.Ptr() == this)
+     {
+-        static_cast<ComponentType*>(linked)->getOptionSet().load(count, entries);
++        List<RefPtr<ComponentType>> components;
++        components.add(linked);
++        linked = new CompositeComponentType(getLinkage(), components);
+     }
++    linked->getOptionSet().load(count, entries);
+ 
++    *outLinkedComponentType = ComPtr<slang::IComponentType>(linked).detach();
+     return SLANG_OK;
+ }
+ 
+diff --git a/tools/slang-unit-test/unit-test-link-with-options-twice.cpp b/tools/slang-unit-test/unit-test-link-with-options-twice.cpp
+new file mode 100644
+index 000000000..9e3c9ee93
+--- /dev/null
++++ b/tools/slang-unit-test/unit-test-link-with-options-twice.cpp
+@@ -0,0 +1,93 @@
++// unit-test-link-with-options-twice.cpp
++
++#include "slang-com-ptr.h"
++#include "slang.h"
++#include "unit-test/slang-unit-test.h"
++
++using namespace Slang;
++
++// This test links one composite component type twice with different optimization levels. Each link
++// should carry its own options, so the second link's code is the code a fresh composite linked with
++// the same options produces, and linking does not change the composite itself.
++
++static SlangInt linkAndMeasure(
++    slang::IComponentType* composite,
++    SlangOptimizationLevel level)
++{
++    slang::CompilerOptionEntry entry = {};
++    entry.name = slang::CompilerOptionName::Optimization;
++    entry.value.kind = slang::CompilerOptionValueKind::Int;
++    entry.value.intValue0 = level;
++
++    ComPtr<slang::IComponentType> linked;
++    ComPtr<slang::IBlob> diagnostics;
++    SLANG_CHECK_ABORT(SLANG_SUCCEEDED(
++        composite->linkWithOptions(linked.writeRef(), 1, &entry, diagnostics.writeRef())));
++
++    ComPtr<slang::IBlob> code;
++    SLANG_CHECK_ABORT(
++        SLANG_SUCCEEDED(linked->getEntryPointCode(0, 0, code.writeRef(), diagnostics.writeRef())));
++    return SlangInt(code->getBufferSize());
++}
++
++SLANG_UNIT_TEST(linkWithOptionsTwice)
++{
++    const char* source = R"(
++        RWStructuredBuffer<float> result;
++        [shader("compute")]
++        [numthreads(4, 1, 1)]
++        void computeMain(uint3 id : SV_DispatchThreadID)
++        {
++            float x = float(id.x);
++            for (int i = 0; i < 8; i++)
++                x = x * 1.5 + float(i);
++            result[id.x] = x;
++        }
++        )";
++
++    ComPtr<slang::IGlobalSession> globalSession;
++    SLANG_CHECK_ABORT(
++        slang_createGlobalSession(SLANG_API_VERSION, globalSession.writeRef()) == SLANG_OK);
++
++    slang::TargetDesc targetDesc = {};
++    targetDesc.format = SLANG_SPIRV;
++    targetDesc.profile = globalSession->findProfile("spirv_1_5");
++
++    slang::SessionDesc sessionDesc = {};
++    sessionDesc.targetCount = 1;
++    sessionDesc.targets = &targetDesc;
++
++    ComPtr<slang::ISession> session;
++    SLANG_CHECK_ABORT(globalSession->createSession(sessionDesc, session.writeRef()) == SLANG_OK);
++
++    auto makeComposite = [&](ComPtr<slang::IComponentType>& outComposite)
++    {
++        ComPtr<slang::IBlob> diagnostics;
++        auto module = session->loadModuleFromSourceString(
++            "linkWithOptionsTwice",
++            "linkWithOptionsTwice.slang",
++            source,
++            diagnostics.writeRef());
++        SLANG_CHECK_ABORT(module != nullptr);
++        ComPtr<slang::IEntryPoint> entryPoint;
++        SLANG_CHECK_ABORT(SLANG_SUCCEEDED(module->findEntryPointByName("computeMain", entryPoint.writeRef())));
++        slang::IComponentType* components[] = {module, entryPoint};
++        SLANG_CHECK_ABORT(SLANG_SUCCEEDED(session->createCompositeComponentType(
++            components,
++            2,
++            outComposite.writeRef(),
++            diagnostics.writeRef())));
++    };
++
++    ComPtr<slang::IComponentType> composite;
++    makeComposite(composite);
++    auto none = linkAndMeasure(composite, SLANG_OPTIMIZATION_LEVEL_NONE);
++    auto maximalSecond = linkAndMeasure(composite, SLANG_OPTIMIZATION_LEVEL_MAXIMAL);
++
++    ComPtr<slang::IComponentType> freshComposite;
++    makeComposite(freshComposite);
++    auto maximalFresh = linkAndMeasure(freshComposite, SLANG_OPTIMIZATION_LEVEL_MAXIMAL);
++
++    SLANG_CHECK(none != maximalFresh);
++    SLANG_CHECK(maximalSecond == maximalFresh);
++}
+\ No newline at end of file

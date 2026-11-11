@@ -19,11 +19,13 @@
 # the OpISub computing `VertexIndex - BaseVertex` swap with them. Every difference is one of those
 # three, in matched pairs. Both modules compute the same thing.
 #
-# Equivalent, then, but not identical, and not identical in a way any canonicalizer would fix — the
-# emission order is upstream's and there is nothing here to change.
+# Equivalent, then, but not identical. The cause is the order in which the host compiler evaluates
+# the two loads, written as the arguments of one call (U17, docs/upstream.md); patches/0021 emits
+# them in source order. This list is therefore Slang's release's: compare-digests.sh expects no
+# difference when both architectures' payloads carry 0021 (payload-patches.txt beside the digests).
 #
-# What it means for a cook farm: assets are reproducible on a fleet of one architecture, and are not
-# byte-comparable across a mixed one. Cook on one architecture, or content-address per architecture.
+# What it means for a cook farm on the release: assets are reproducible on a fleet of one
+# architecture, and are not byte-comparable across a mixed one.
 #
 #   <shader name>    <reason>
 

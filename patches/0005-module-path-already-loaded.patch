@@ -1,0 +1,120 @@
+Diagnose a second module loaded from source at a path the session already holds a module for.
+
+Linkage::loadModuleFromBlob (source/slang/slang-session.cpp), behind loadModuleFromSource and
+loadModuleFromSourceString, returns the cached module when its name is already loaded and diagnoses
+E38202 when that name was loaded from different source. A module under a new name at a path that
+another module was loaded from goes on to Linkage::loadParsedModule, which adds it to
+mapPathToLoadedModule under the path's most unique identity:
+
+    mapPathToLoadedModule.add(mostUniqueIdentity, loadedModule);   // 1261
+
+Dictionary::add asserts on a key that is already present (source/core/slang-dictionary.h:322-325),
+so the second load returns null with "assert failure: slang-dictionary.h(325): The key already
+exists in Dictionary." as its only diagnostic text and no diagnostic code.
+
+This checks the path before loading and diagnoses a new error, E38208 module-path-already-loaded,
+naming the path and the module, and returns null as the other refusals in loadModuleFromBlob do. A
+module at a new path, and a module whose name is already loaded, take the same path as before. A
+regression test is added as tools/slang-unit-test/unit-test-module-path-already-loaded.cpp.
+
+Measured on v2026.21: before, null with the assert text and no code (win-x64); after, null with
+E38208 naming 'shared.slang'.
+diff --git a/source/slang/slang-diagnostics.lua b/source/slang/slang-diagnostics.lua
+index b94f1344f..1d7fa801b 100644
+--- a/source/slang/slang-diagnostics.lua
++++ b/source/slang/slang-diagnostics.lua
+@@ -4959,6 +4959,13 @@ err(
+     span { loc = "location", message = "a module named '~moduleName:Name' is already loaded from different source contents in this session. Use a different module name or drop references to the previous module before reloading." }
+ )
+ 
++err(
++    "module-path-already-loaded",
++    38208,
++    "a module is already loaded from path '~path'",
++    span { loc = "location", message = "a module is already loaded from path '~path' in this session, so module '~moduleName:Name' cannot be loaded from it. Use a different path for each module loaded from source." }
++)
++
+ -- Note: compilationCeased is a fatal diagnostic that is locationless
+ fatal(
+     "compilation-ceased",
+diff --git a/source/slang/slang-session.cpp b/source/slang/slang-session.cpp
+index a7931f933..9141ac443 100644
+--- a/source/slang/slang-session.cpp
++++ b/source/slang/slang-session.cpp
+@@ -447,6 +447,19 @@ slang::IModule* Linkage::loadModuleFromBlob(
+                 pathInfo = PathInfo::makeNormal(pathStr, cannonicalPath);
+             }
+         }
++        // A second module under another name at a path the session already holds a module for would
++        // be added to `mapPathToLoadedModule` under the same key, so it is diagnosed here instead.
++        //
++        if (mapPathToLoadedModule.containsKey(pathInfo.getMostUniqueIdentity()))
++        {
++            sink.diagnose(Diagnostics::ModulePathAlreadyLoaded{
++                .path = pathStr,
++                .moduleName = name,
++                .location = SourceLoc(),
++            });
++            sink.getBlobIfNeeded(outDiagnostics);
++            return nullptr;
++        }
+         RefPtr<Module> module =
+             loadModuleImpl(name, pathInfo, sourceBlob, SourceLoc(), &sink, nullptr, blobType);
+         if (module)
+diff --git a/tools/slang-unit-test/unit-test-module-path-already-loaded.cpp b/tools/slang-unit-test/unit-test-module-path-already-loaded.cpp
+new file mode 100644
+index 000000000..f038a63c9
+--- /dev/null
++++ b/tools/slang-unit-test/unit-test-module-path-already-loaded.cpp
+@@ -0,0 +1,50 @@
++// unit-test-module-path-already-loaded.cpp
++
++#include "slang-com-ptr.h"
++#include "slang.h"
++#include "unit-test/slang-unit-test.h"
++
++using namespace Slang;
++
++// This test loads two differently named modules from source at the same path into one session.
++// The second load should fail with a diagnostic naming the path, rather than an internal assert.
++
++SLANG_UNIT_TEST(modulePathAlreadyLoaded)
++{
++    const char* source = "float4 f() { return float4(1, 2, 3, 4); }";
++
++    ComPtr<slang::IGlobalSession> globalSession;
++    SLANG_CHECK_ABORT(
++        slang_createGlobalSession(SLANG_API_VERSION, globalSession.writeRef()) == SLANG_OK);
++
++    slang::TargetDesc targetDesc = {};
++    targetDesc.format = SLANG_SPIRV;
++    targetDesc.profile = globalSession->findProfile("spirv_1_5");
++
++    slang::SessionDesc sessionDesc = {};
++    sessionDesc.targetCount = 1;
++    sessionDesc.targets = &targetDesc;
++
++    ComPtr<slang::ISession> session;
++    SLANG_CHECK_ABORT(globalSession->createSession(sessionDesc, session.writeRef()) == SLANG_OK);
++
++    ComPtr<slang::IBlob> diagnosticBlob;
++    auto first =
++        session->loadModuleFromSourceString("first", "shared.slang", source, diagnosticBlob.writeRef());
++    SLANG_CHECK_ABORT(first != nullptr);
++
++    auto second = session->loadModuleFromSourceString(
++        "second",
++        "shared.slang",
++        source,
++        diagnosticBlob.writeRef());
++    SLANG_CHECK(second == nullptr);
++    SLANG_CHECK_ABORT(diagnosticBlob != nullptr);
++
++    auto diagnostics = UnownedStringSlice(
++        (const char*)diagnosticBlob->getBufferPointer(),
++        diagnosticBlob->getBufferSize());
++    SLANG_CHECK(diagnostics.indexOf(UnownedStringSlice("38208")) != -1);
++    SLANG_CHECK(diagnostics.indexOf(UnownedStringSlice("shared.slang")) != -1);
++    SLANG_CHECK(diagnostics.indexOf(UnownedStringSlice("assert failure")) == -1);
++}
+\ No newline at end of file

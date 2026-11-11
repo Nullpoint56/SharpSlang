@@ -1,0 +1,27 @@
+Define the vector arithmetic and comparison operators for half in the C++ prelude.
+
+The C++ target emits half vectors as Vector<half, N> and their arithmetic and comparisons as the
+ordinary operators. prelude/slang-cpp-types-core.h instantiates SLANG_FLOAT_VECTOR_OPS, which
+defines + - * / unary - and the six comparisons for a vector element type, for float and double
+(lines 371-372) and not for half. Slang's own tests/compute/half-vector-calc.slang and
+half-vector-compare.slang therefore emit C++ that does not compile against the prelude: clang
+22.1.8, "invalid operands to binary expression ('Vector<half, 3>' (aka 'Vector<_Float16, 3>') and
+'Vector<half, 3>')".
+
+This instantiates SLANG_FLOAT_VECTOR_OPS(half) beside the other two. half is declared by
+slang-cpp-scalar-intrinsics.h, which slang-cpp-prelude.h includes first.
+
+Measured on v2026.21 (win-x64): both tests' C++ output refused by clang++ -std=c++17
+-fsyntax-only with the prelude at the tag on the include path.
+diff --git a/prelude/slang-cpp-types-core.h b/prelude/slang-cpp-types-core.h
+index 10d694bb6..35b66d537 100644
+--- a/prelude/slang-cpp-types-core.h
++++ b/prelude/slang-cpp-types-core.h
+@@ -370,6 +370,7 @@ SLANG_INT_VECTOR_OPS(uintptr_t)
+ 
+ SLANG_FLOAT_VECTOR_OPS(float)
+ SLANG_FLOAT_VECTOR_OPS(double)
++SLANG_FLOAT_VECTOR_OPS(half)
+ 
+ #define SLANG_VECTOR_INT_NEG_OP(T)                      \
+     template<int N>                                     \

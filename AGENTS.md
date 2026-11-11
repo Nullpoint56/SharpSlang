@@ -798,10 +798,30 @@ packages).
 | `0002-element-count-of-a-specialization-sized-array` | U1 | `GetSpecializedElementCount` returns `SLANG_UNKNOWN_SIZE` for a length that is not a constant instead of throwing out of `getIntVal` |
 | `0003-binding-ranges-of-a-specialization-sized-array` | U2 | the binding ranges of a resource array of such a length carry an unknown count instead of throwing |
 | `0004-specialize-generic-mismatched-arguments` | U3 | `Linkage::specializeGeneric` returns null when the application fails to check, instead of dereferencing the error expression |
+| `0005-module-path-already-loaded` | U31 | a second module from source at a path the session holds is E38208, naming the path, instead of an internal assert |
+| `0006-binary-module-up-to-date-reads-afresh` | U14 | `isBinaryModuleUpToDate` reads the dependencies through a fresh file cache and source manager |
+| `0007-document-loaded-module-ownership` | U12 | `slang.h` says the session owns a loaded module and the pointer is borrowed |
+| `0008-link-with-options-owns-its-options` | U30 | each `linkWithOptions` call gets a linked component type of its own, so its options apply |
+| `0009-glsl-patch-constant-function-void` | U18 | GLSL: the hull shader's patch-constant function returns void |
+| `0010-glsl-domain-input-unsized` | U19 | GLSL: a domain shader's per-vertex input is declared unsized |
+| `0011-cpp-prelude-half-vector-ops` | U24 | the C++ prelude defines vector arithmetic and comparison for `half` |
+| `0012-wgsl-override-not-const` | U20 | WGSL: a value computed from an `override` is a `var`, not a `const` |
+| `0013-diagnose-unsupported-double-and-varyings` | U23 | `double` on WGSL and Metal is E56110, a rasterization stage's varyings on C++ and CUDA the fatal E56111, instead of internal errors |
+| `0014-wide-vertex-input-two-locations` | U6 | a 64-bit three- or four-component varying takes two locations on GLSL and SPIR-V |
+| `0015-windows-load-beside-the-compiler` | U10 | Windows: a library named without a path is also looked for beside the compiler |
+| `0016-specialization-sized-constant-buffer-binding` | U5 | a constant buffer whose size is not known until specialization keeps its binding |
+| `0017-warn-on-each-unoptimized-spirv` | U9 | each SPIR-V compile emitted without spirv-opt warns E00118, and the failed load is no error |
+| `0018-link-time-options` | U16 | link-time HLSL-to-Vulkan layout options apply; Capability and Profile at link time warn E00136 |
+| `0019-parameter-block-space-offset` | U33 | a top-level parameter block's sub-object range reports its space |
+| `0020-cpp-append-consume-counter` | U32 | C++: the counter of an append or consume buffer is emitted through the atomic-add helpers |
+| `0021-vertex-id-loads-in-source-order` | U17 | the two loads `SV_VertexID` and `SV_InstanceID` lower to are emitted in source order, so x86-64 and aarch64 builds agree |
+| `0022-glsl-tessellation-layouts` | U34 | GLSL: the hull shader declares `layout(vertices = N) out`, the domain shader its abstract patch |
 
 Every Slang defect in `docs/upstream.md` gets a patch, test first, and the registry says what became
 of each (owner, 2026-11-08: "All of them and we roll a registry of them so we can clearly see if they
-are patched or not on the next release or upstream them from a fork"). `slang/` is Slang at the
+are patched or not on the next release or upstream them from a fork"), narrowed the same day to the
+moderate and large defects, the rest recorded as known issues ("I would overall do the moderate and
+large ones and leave the reast as known issues"). `slang/` is Slang at the
 pinned tag and `tools/build-native.ps1` builds it with `patches/` applied (Native build). The format
 is in `patches/README.md`. `slang/` is never edited or staged by path; its pointer moves only by
 `git update-index --cacheinfo 160000,<commit>,slang`.
@@ -813,8 +833,11 @@ is in `patches/README.md`. `slang/` is never edited or staged by path; its point
   `test` (`Class.Method`, the test that holds the entry), `state`, and `verified` (the Slang version
   it was last measured against). States: `patched` (our build carries the patch), `fixed upstream in
   vYYYY.RR` (no patch, or the patch dropped), `filed: <issue or PR URL>` and `upstream PR from fork:
-  <PR URL>` (the patch still carried), `not patchable: <reason>`, and `unpatched` (recorded, no patch
-  yet). An entry that carries a patch names its test and is verified against the pin.
+  <PR URL>` (the patch still carried), `not patchable: <reason>`, `known issue: <reason>` (left to
+  Slang by the owner's call, the moderate and large defects being patched; owner, 2026-11-08), and
+  `unpatched` (recorded, no patch yet). An optional `upstream` field links a Slang issue or PR that
+  reports the same defect. An entry that carries a patch names its test and is verified against the
+  pin.
 - **The checker, `tools/ci/patch-registry.ps1`**, runs in lint (`tools/check.ps1 -Lint`) and, the
   registry half only, in `tools/ci/check-docs.sh`, since a change to `docs/` alone does not run lint
   (the gate counts `docs/upstream.json` as a change with a result: the tests read it). It fails on a
@@ -857,6 +880,20 @@ is in `patches/README.md`. `slang/` is never edited or staged by path; its point
   seven of Test runner and the six release-payload facts), 0 failed; with Slang's release payload
   1168, 1156 passed, 12 skipped (the seven and the five patched facts), 0 failed. Under WSL the
   touched classes (`ProberTests`, `UnknownSizeTests`, `NativePayloadTests`): 41, 32 passed, 9 skipped.
+- **Batch 2 (patches 0005-0022: U31, U14, U12, U30, U18, U19, U24, U20, U23, U6, U10, U5, U9, U16,
+  U33, U32, U17, U34), verified at f7bf3b0.** The scope is the owner's: the moderate and large
+  defects, the rest known issues (U13, U15, U21, U26-U29, U35). Red on win-x64: all 22 registry
+  tests (23 results, a theory counting twice) fail against `-WithoutPatches`. The workstation's full
+  suite: with the patched build 1190 results, 1168 passed, 22 skipped, 0 failed; with Slang's release
+  payload 1190, 1159 passed, 31 skipped, 0 failed. Three were found only by running the batch:
+  0013's first E56111 was an ordinary error, after which the C++ varying legalization dereferenced
+  the empty value it went on with (an access violation in the test host); 0010's first form unsized
+  the array in the IR, which two later passes read the size of; 0019's first form never ran for a
+  top-level block. U34 and U35 were hidden behind U18 and U19. Linux under WSL (GCC 13.3,
+  `-AllowNewerGlibc`): `patch-registry.ps1 -Bump` red for each, the patched build's touched classes
+  (target validation, digests, prober, unknown sizes, NRI validation, composites, compilation,
+  serialization, header, link options, second opinions, entry-point names, payload, downstream
+  compilers) 295 results, 261 passed, 34 skipped, 0 failed.
 - **Each patch carries Slang's own regression test** under `tools/slang-unit-test/` (`SLANG_UNIT_TEST`),
   as their contribution guide asks. `build-native.ps1` builds no tests (`SLANG_ENABLE_TESTS` OFF), so
   those tests are compiled and run only by Slang's CI on a fork PR; the binding's prober tests are
@@ -1211,6 +1248,10 @@ in `docs/upstream.md`.
   Handled: `GlobalSessionOptions.RequireSpirvOptimizer` (default on) checks at session creation;
   the default diagnostics policy throws on the error; `DownstreamCompilerTests` asserts it in
   process; CI asserts it in the staged payload and in the packed package.
+  Patched (0017): every compile emitted without spirv-opt warns E00118 and the failed load is no
+  error (`ProberTests.Without_the_optimiser_every_compile_warns_and_none_reports_an_error`). The
+  check at session creation stays: it asks `checkPassThroughSupport` before the first compile, on
+  either payload.
 - **Windows does not search the compiler's own directory for its companions.** Slang loads
   `slang-glslang`, `slang-glsl-module` and `dxcompiler` by bare name through
   `LoadLibraryExW(name, nullptr, LOAD_LIBRARY_SEARCH_DEFAULT_DIRS)` then `LoadLibraryW`
@@ -1229,6 +1270,9 @@ in `docs/upstream.md`.
   `ProberTests.Launched_by_dotnet_from_another_directory_the_compiler_still_finds_its_companions`
   runs the prober as `dotnet <dll>` from an empty directory on every leg. The Windows failure modes
   were not re-run at v2026.21: re-measure.
+  Patched (0015): Slang falls back to its own directory for a bare name
+  (`ProberTests.Slang_finds_its_companions_beside_itself_without_the_bindings_preload`, the preload
+  turned off by `SHARPSLANG_TEST_NO_COMPANION_PRELOAD`). The preload stays for the release payload.
 - **Linux and macOS find them by rpath**: `libslang-compiler.so` carries `DT_RUNPATH`
   `$ORIGIN/../lib:$ORIGIN` (linux-x64 and linux-arm64), the dylib `LC_RPATH` `@loader_path/../lib`
   and `@loader_path`; the prober test above passes on both (runs 42422416933, 42423571989).
@@ -1267,7 +1311,8 @@ in `docs/upstream.md`.
   which `getLoadedModuleCount` / `getLoadedModule` enumerate), and `slang.h:4640-4656` says nothing
   about it. Releasing it over-releases: glibc aborts (`free(): corrupted unsorted chunks`); the
   Windows heap tolerated it, green from the first commit until the first Linux run. U12. Handled:
-  `SlangModule`'s constructor takes its own reference on adoption.
+  `SlangModule`'s constructor takes its own reference on adoption. Documented by 0007 in `slang.h`
+  (`HeaderDocumentationTests`); the behaviour is Slang's contract and stays.
 - **A child does not retain its session.** `ISession` retains `IGlobalSession`; `IModule` does not
   retain `ISession`, and neither does a linked program (v2026.14.1, refcounts by `addRef`/`release`:
   session 1 after `LoadModule`, 1 after `Link`). Releasing outermost first destroyed a session under
@@ -1375,7 +1420,8 @@ in `docs/upstream.md`.
   stays asserted on the release payload. The rest of the handling stays with the release (Patches).
 - **Sub-object ranges carry less than their names suggest**: `getSubObjectRangeOffset` returns a
   variable layout with no variable (names come from `getBindingRangeLeafVariable`);
-  `getSubObjectRangeSpaceOffset` is 0 for blocks in set 1 and set 2, and
+  `getSubObjectRangeSpaceOffset` is 0 for blocks in set 1 and set 2 (U33; patched, 0019, which
+  reports 1 and 2; `SecondOpinionTests` asserts each payload's answer), and
   `getBindingRangeDescriptorSetIndex` indexes the enclosing scope's own list. `SubObjectRange`
   therefore carries no space; join on the name against `DescriptorSets`. A `ConstantBuffer<T>` of
   plain values is reported beside parameter blocks, so it is not a `ParameterBlock` detector.
@@ -1437,7 +1483,9 @@ in `docs/upstream.md`.
   `[[vk::push_constant]]` form) with `struct Block { float4 values[kCount]; }` reports no bindings of
   any kind (v2026.21, `UnknownSizeTests`), and the module dropped the descriptor too while the
   shader reads the buffer (v2026.14.1; re-measure the module half). U5. Handled: the projection
-  asserts that every top-level parameter has a binding and refuses by name.
+  asserts that every top-level parameter has a binding and refuses by name. Patched (0016): the
+  buffer keeps its binding (`UnknownSizeTests.A_buffer_with_no_fixed_size_keeps_its_binding`); the
+  refusal stays for the release payload.
 - **An unbounded array reports `0xFFFFFFFF`**, which is not a count; normalised to 0 with
   `IsUnbounded` set. Caller's rule: choose the cap.
 - **A specialized workgroup dimension reports 0** (`[numthreads(kGroupX, 1, 1)]`), the residue of
@@ -1471,7 +1519,9 @@ in `docs/upstream.md`.
   which hands SharpNRI's validated Vulkan device the module alone (NRI has no 64-bit format to
   describe the attribute with), so it runs on lavapipe as well as the RTX 4070 SUPER. U6. Handled:
   NRI's `Format` has no 64-bit vertex format, so the projection refuses a `double` attribute; dxc
-  refuses a double in a stage signature.
+  refuses a double in a stage signature. Patched (0014): two locations on GLSL and SPIR-V
+  (`NriValidationTests.A_wide_64_bit_vertex_input_is_given_two_locations`); the projection still
+  refuses the attribute, for want of an NRI format.
 - **`pName` is `main`**: Slang names every per-entry-point module's entry point `main` by default.
   `BakedEntryPoint.ModuleEntryPointName` is read from the module, never derived.
 - **The SPIR-V version defaults to 1.5** when unset. A Vulkan 1.1 device accepts at most 1.3 and
@@ -1500,7 +1550,9 @@ in `docs/upstream.md`.
   Fast is the default) work; DebugInformation, VulkanUseEntryPointName (works on the session or
   target) and Capability (`spirv_1_6` still emits 1.5) do nothing. U16. Handled: `LinkTimeOptions`
   has the two typed properties; the rest go through `RawEntries`, and a test asserts a raw entry and
-  its typed form emit identical bytes.
+  its typed form emit identical bytes. Patched (0018): VulkanUseEntryPointName and the other
+  HLSL-to-Vulkan layout options apply at link time, and Capability or Profile given there warns
+  E00136.
 - **`GetEntryPointIdentityHash` follows options, not code**: naming the default optimisation level
   explicitly emits identical SPIR-V under a different hash (v2026.21, `LinkOptionsTests`). Fine as a
   conservative cache key, not an answer to "same code"; hash `GetEntryPointCodeBytes` for that.
@@ -1511,7 +1563,8 @@ in `docs/upstream.md`.
   `The_staleness_check_answers_from_the_sessions_file_cache_not_from_disk`). `slang.h:4790-4797`
   documents true for a primary source that cannot be located, which the fresh session does not
   do. U14. Caller's rule: ask from a session that has not loaded the module. `ReadModuleInfo`
-  names the compiler build that wrote a blob; a blob loads only into that build.
+  names the compiler build that wrote a blob; a blob loads only into that build. Patched (0006): the
+  check reads the files afresh in any session; the caller's rule stands for the release payload.
 - **Severity is parsed from message prefixes**: Slang's diagnostics are text. `SlangDiagnostics.Classify`
   does it once and hands the handler the severity.
 - **Type conformances**: without `CreateTypeConformance` an implementation reached only through
@@ -1526,7 +1579,8 @@ in `docs/upstream.md`.
   composite ignores its options (NONE first, then MAXIMAL: the same 1,572 bytes, where a fresh
   composite at MAXIMAL gives 1,188; v2026.21, workstation). U30. Asserted as wrong by
   `CompositeTests`; `SlangSession.Link` composes afresh per call, so it never meets it. Caller's
-  rule: one composite per link.
+  rule: one composite per link. Patched (0008): each `linkWithOptions` call gets a component type
+  of its own, so the second link's options apply; the rule stands for the release payload.
 - **A second module from source at a path the session already holds ends in an internal assert**:
   `loadModuleFromSourceString` of another module name at the same path returns null with
   "assert failure: slang-dictionary.h(325): The key already exists in Dictionary." and no
@@ -1534,6 +1588,8 @@ in `docs/upstream.md`.
   v2026.21, workstation). U31. Asserted as wrong by
   `CompilationTests.A_second_module_from_source_at_the_same_path_ends_in_an_internal_assert`.
   Caller's rule: one path per module from source. Found while measuring the standard modules.
+  Patched (0005): E38208 naming the path
+  (`CompilationTests.A_second_module_from_source_at_the_same_path_is_diagnosed_naming_the_path`).
 - **Specialization constants**: `Pack` refuses a value of the wrong type by name;
   `c.IsFloatingPoint ? c.DefaultFloat : c.DefaultInt` unifies to `double` before boxing and hands
   `Pack` the wrong type whichever branch is taken. A name the shader does not declare throws.
@@ -1577,20 +1633,25 @@ v2026.21 on the workstation (Tests and skips has the counts).
   compile would refuse it for reasons that are not defects. Tessellation is wrong in two ways the
   SPIR-V target is not: the hull stage's patch-constant function is declared to return its struct
   and ends in `return;` (U18), and the domain stage's per-vertex input is sized by the patch, which
-  GLSL forbids (U19).
+  GLSL forbids (U19). Both patched (0009, 0010). Neither stage declared its layout either
+  (`layout(vertices = N) out`, the input primitive), which glslang refuses once the other two are
+  fixed (U34, patched, 0022). Behind those the hull stage indexes its per-vertex output with
+  `uint(gl_InvocationID)`, which glslang refuses (U35, a known issue), so the hull stays declared
+  rejected with those words.
 - **HLSL** carries Vulkan-only constructs through: `SubpassInput` and a `double` stage input are
   written into the HLSL, and dxc refuses both, as on the DXIL target, where the refusal comes from
   inside Slang's compile instead. Slang's HLSL keeps each entry point's Slang name, so dxc is run
   with `-E` set to it.
 - **WGSL**: Slang diagnoses most of what WGSL lacks (`E36107`, `E55202`, `E55205`, `E56105`,
-  `E56106`) but not all of it. A `double` ends in an internal error (U23); `u64` is written although
-  WGSL has none (U25); a `const` is initialised from an `override` (U20); a matrix vertex input sits
+  `E56106`) but not all of it. A `double` ends in an internal error (U23; patched, 0013, E56110);
+  `u64` is written although WGSL has none (U25); a `const` is initialised from an `override` (U20;
+  patched, 0012); a matrix vertex input sits
   at one `@location` (U21); arrays of textures and samplers are `binding_array`, which naga takes
   only behind its own `enable` (U22, to be confirmed against the specification and Tint). Two
   rejections are naga 30.0.1's and are not called Slang defects: the `immediate_address_space`
   language extension Slang requires for push constants, and WGSL's `subgroups` extension, which
   naga has not implemented.
-- **Metal**: the same `double` internal error (U23), and a mesh shader writing its output per
+- **Metal**: the same `double` internal error (U23; patched, E56110), and a mesh shader writing its output per
   member is diagnosed (`E56104`). `xcrun metal` on the macos-15 runner (run 42475073038,
   2026-11-08) refuses five outputs as Slang defects: a texture `read` overload Metal lacks (U26),
   unbounded resource arrays as flexible array members (U27), a matrix vertex input at one
@@ -1601,12 +1662,13 @@ v2026.21 on the workstation (Tests and skips has the counts).
   with both, as Slang's own NVRTC path sets them (`compute_75` for NVRTC 12.8 and later), all 56 of
   Slang's compute tests compile. Ray-tracing stages call OptiX, whose header is the OptiX SDK's: the
   five that use it are rejected here, where no OptiX SDK is installed. Rasterization stages end in
-  an internal error, `E99999`, not a diagnostic (U23).
+  an internal error, `E99999`, not a diagnostic (U23; patched, 0013, the fatal E56111).
 - **C++** compiles against Slang's prelude (`prelude/` at the tag, fetched into
   `obj/slang-headers/<version>/prelude/`; the release ships it in `include/`). Half vectors do not
-  compile: the prelude defines vector arithmetic and comparison for `float` and `double` only (U24).
-  Rasterization stages and append buffers end in internal errors (U23); barriers and atomics are
-  diagnosed (`E36107`).
+  compile: the prelude defines vector arithmetic and comparison for `float` and `double` only (U24;
+  patched, 0011). Rasterization stages end in an internal error (U23; patched, 0013, E56111), and so do
+  append and consume buffers, whose atomic counter the emitter has no case for (U32; patched, 0020);
+  barriers and atomics are diagnosed (`E36107`).
 ### Threads
 
 - **A global session and everything made from it belong to one thread at a time**
@@ -1745,7 +1807,12 @@ v2026.21 on the workstation (Tests and skips has the counts).
   equal. U17. Handled: `tools/ci/cross-arch-differences.txt` is checked in both directions by
   `compare-digests.sh` (a new difference fails, a vanished one fails); `spirv-worddiff.py` reports
   every differing word. Holds at v2026.21 (run 42423571989, four legs). Caller's rule: cook on one
-  architecture or content-address per architecture.
+  architecture or content-address per architecture. Patched (0021): the cause is the evaluation
+  order of two loads written as the arguments of one call, which the compilers choose differently;
+  emitted in source order, win-x64 numbers `VertexIndex` before `BaseVertex` as aarch64 did
+  (`SpirvDigestTests`, both payloads). `compare-digests.sh` expects no difference when both
+  architectures' payloads carry 0021 (each leg's `payload-patches.txt`); that the patched modules
+  are equal across architectures is first measured by CI's source build.
 - **Crash behaviour has no platform rule**: the resource-array `InternalError` is catchable on
   Windows and fatal on Linux and macOS; `specializeType` on a non-generic type is null on Windows
   and macOS and fatal on Linux; `specializeGeneric` mismatches crash on Windows and Linux and are

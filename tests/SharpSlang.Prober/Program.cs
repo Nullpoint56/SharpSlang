@@ -168,6 +168,7 @@ internal static class Cases
         // working directory, so `dotnet SharpSlang.Prober.dll` from anywhere else lost spirv-opt
         // until CompanionLibraries preloaded it. ProberTests launches this case exactly that way.
         ["downstream-compilers"] = DownstreamCompilers,
+        ["missing-optimiser"] = MissingOptimiser,
     };
 
     /// <summary>
@@ -179,6 +180,27 @@ internal static class Cases
     /// message a consumer would read, which is exit 1 with that message on stderr, and the test
     /// distinguishes it from a crash.
     /// </remarks>
+    /// <summary>
+    /// Two SPIR-V compiles in one global session with slang-glslang absent from beside the compiler:
+    /// which of them reports what (U9, AGENTS.md#patches). The test copies this output without the
+    /// library and runs this from there.
+    /// </summary>
+    private static void MissingOptimiser()
+    {
+        var captured = new List<string>();
+        SlangDiagnostics.Policy = SlangDiagnosticPolicy.Report;
+        SlangDiagnostics.Handler = (op, severity, text) => captured.Add(text);
+
+        using var global = SlangGlobalSession.Create(new GlobalSessionOptions { RequireSpirvOptimizer = false });
+        for (var i = 1; i <= 2; i++)
+        {
+            captured.Clear();
+            var bytes = CompileSpirv(global, SlangOptimizationLevel.SLANG_OPTIMIZATION_LEVEL_MAXIMAL);
+            var all = string.Join("\n", captured);
+            Console.Out.WriteLine($"    compile {i}: {bytes.Length} bytes, E00100 {all.Contains("E00100", StringComparison.Ordinal)}, "
+                + $"W00118 {all.Contains("00118", StringComparison.Ordinal)}");
+        }
+    }
     private static void DownstreamCompilers()
     {
         Console.Out.WriteLine($"    process     {Environment.ProcessPath}");
@@ -252,7 +274,11 @@ internal static class Cases
             Console.Out.WriteLine($"    loaded      (not listable here: {e.GetType().Name})");
         }
 
-        static byte[] CompileSpirv(SlangGlobalSession global, SlangOptimizationLevel level)
+    }
+
+    /// <summary>The heavy fragment shader DownstreamCompilerTests measured, as SPIR-V at <paramref name="level"/>.</summary>
+    private static byte[] CompileSpirv(SlangGlobalSession global, SlangOptimizationLevel level)
+    {
         {
             using var session = global.CreateSession(new SessionOptions { Targets = [new TargetOptions()] });
             using var module = session.LoadModuleFromSource($"dc{level}", $"dc{level}.slang", """

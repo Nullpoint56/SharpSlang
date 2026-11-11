@@ -1,0 +1,60 @@
+Warn on each SPIR-V compile emitted unoptimized because spirv-opt cannot be loaded.
+
+When slang-glslang (which carries spirv-opt) cannot be loaded, the SPIR-V back end
+(source/slang/slang-emit.cpp) emits the module unoptimized and unvalidated, and getEntryPointCode
+returns SLANG_OK. Session::getOrLoadDownstreamCompiler (source/slang/slang-check.cpp) reports the
+failed load, as E00100 "failed to load downstream compiler 'spirv-opt'", an error, with a note per
+library tried, and only on the session's first attempt, because the attempt is remembered. A host
+therefore sees an error diagnostic on a successful result for its first compile, and nothing at
+all for every later one, whose modules are just as unoptimized: 1,280 bytes against 992 for one
+shader measured, 22.5 % larger.
+
+This loads spirv-opt for optimization and validation without the load's diagnostics, and when it is
+unavailable warns E00118 spirv-optimizer-unavailable on every compile it affects. A compile that
+must link several SPIR-V modules cannot proceed without the library and keeps the load's
+diagnostics. The behaviour needs the library to be absent, so it is not covered by a unit test;
+the measurement below copies an application without slang-glslang.
+
+Measured on v2026.14.1 (win-x64), two SPIR-V compiles in one global session without slang-glslang:
+E00100 on the first, nothing on the second. The patched behaviour is measured on v2026.21.
+diff --git a/source/slang/slang-diagnostics.lua b/source/slang/slang-diagnostics.lua
+index 8aab09cee..6d707d02d 100644
+--- a/source/slang/slang-diagnostics.lua
++++ b/source/slang/slang-diagnostics.lua
+@@ -589,6 +589,12 @@ err(
+ 
+ err("failed-to-load-downstream-compiler", 100, "failed to load downstream compiler '~compiler'")
+ 
++warning(
++    "spirv-optimizer-unavailable",
++    118,
++    "the SPIR-V was emitted without optimization or validation: 'spirv-opt', which is in the 'slang-glslang' library, could not be loaded"
++)
++
+ err(
+     "downstream-compiler-doesnt-support-whole-program-compilation",
+     101,
+diff --git a/source/slang/slang-emit.cpp b/source/slang/slang-emit.cpp
+index 4dc7e9058..5dc441679 100644
+--- a/source/slang/slang-emit.cpp
++++ b/source/slang/slang-emit.cpp
+@@ -3632,11 +3632,18 @@ static SlangResult createArtifactFromIR(
+     artifact->addRepresentationUnknown(
+         needsDownstreamCompiler ? ListBlob::create(spirv) : ListBlob::moveCreate(spirv));
+ 
++    // Optimization and validation are optional: the module is valid without them. A missing
++    // optimizer is therefore not an error of the compile that cannot load it, which reports success,
++    // and the session reports a failed load only on its first attempt. Each compile it affects warns
++    // instead. A link cannot happen without the library, so that case keeps the load's diagnostics.
++    //
+     IDownstreamCompiler* compiler = needsDownstreamCompiler
+                                         ? codeGenContext->getSession()->getOrLoadDownstreamCompiler(
+                                               PassThroughMode::SpirvOpt,
+-                                              codeGenContext->getSink())
++                                              needsLink ? codeGenContext->getSink() : nullptr)
+                                         : nullptr;
++    if (!compiler && needsDownstreamCompiler && !needsLink)
++        codeGenContext->getSink()->diagnose(Diagnostics::SpirvOptimizerUnavailable{});
+     if (compiler)
+     {
+ #if 0

@@ -119,7 +119,7 @@ public class UnknownSizeTests
         Assert.Equal(64u, range.Desc.descriptorNum);
     }
 
-    [NativeTheory]
+    [ReleasePayloadTheory("U5")]
     [InlineData("[[vk::push_constant]] ConstantBuffer<Block> gUnsized;")]
     [InlineData("ConstantBuffer<Block> gUnsized;")]
     public void A_buffer_with_no_fixed_size_is_refused_rather_than_dropped(string declaration)
@@ -146,6 +146,25 @@ public class UnknownSizeTests
         Assert.Contains("specialization constant", e.Message);
     }
 
+    [PatchedTheory("U5")]
+    [InlineData("ConstantBuffer<Block> gUnsized;")]
+    [InlineData("[[vk::push_constant]] ConstantBuffer<Block> gUnsized;")]
+    public void A_buffer_with_no_fixed_size_keeps_its_binding(string declaration)
+    {
+        // U5, patched (0016): the block's size is unknown until specialization, and the buffer is
+        // still bound: a descriptor, or a push-constant range for the push_constant form.
+        var source = $$"""
+            [vk::constant_id(0)] const int kCount = 4;
+            struct Block { float4 values[kCount]; };
+            {{declaration}}
+
+            [shader("fragment")]
+            float4 fragmentMain() : SV_Target { return gUnsized.values[0]; }
+            """;
+
+        var layout = Compile(source, "fragmentMain");
+        Assert.NotEmpty(layout.Parameter("gUnsized")!.Bindings);
+    }
     [PatchedFact("U2")]
     public void A_resource_array_sized_by_a_specialization_constant_is_refused_by_name()
     {
@@ -168,11 +187,12 @@ public class UnknownSizeTests
         Assert.Contains("specialization constant", e.Message, StringComparison.Ordinal);
     }
 
-    [NativeFact]
+    [ReleasePayloadFact("U5")]
     public void A_parameter_the_layout_cannot_place_is_named_in_the_refusal()
     {
         // The general invariant, stated on its own: a parameter with no binding of any kind is in
-        // the shader and in no part of the pipeline layout, whatever the reason.
+        // the shader and in no part of the pipeline layout, whatever the reason. Slang's release
+        // drops this buffer's binding (U5); patch 0016 keeps it, so the refusal is release-only.
         const string Source = """
             [vk::constant_id(0)] const int kCount = 2;
             struct Block { float4x4 transforms[kCount]; };

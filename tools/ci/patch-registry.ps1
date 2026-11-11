@@ -79,6 +79,8 @@ $states = [ordered]@{
     filed       = '^filed: https://github\.com/shader-slang/slang/(issues|pull)/\d+$'
     fork        = '^upstream PR from fork: https://github\.com/shader-slang/slang/pull/\d+$'
     unpatchable = '^not patchable: \S.*$'
+    # Owner's call (2026-11-08): a defect whose fix is a compiler feature, left to Slang for now.
+    known       = '^known issue: \S.*$'
     unpatched   = '^unpatched$'
 }
 # The states in which our build carries the entry's patch.
@@ -106,7 +108,7 @@ foreach ($e in $entries) {
     if ($kinds -cnotcontains $e.kind) { Fail "$($e.id): kind '$($e.kind)' is not one of: $($kinds -join ', ')" }
     if ($e.verified -cnotmatch "^$version$") { Fail "$($e.id): verified '$($e.verified)' is not a Slang version" }
     $state = Get-StateName $e.state
-    if (-not $state) { Fail "$($e.id): state '$($e.state)' is not one of: patched; fixed upstream in vYYYY.RR; filed: <issue or PR URL>; upstream PR from fork: <PR URL>; not patchable: <reason>; unpatched"; continue }
+    if (-not $state) { Fail "$($e.id): state '$($e.state)' is not one of: patched; fixed upstream in vYYYY.RR; filed: <issue or PR URL>; upstream PR from fork: <PR URL>; not patchable: <reason>; known issue: <reason>; unpatched"; continue }
 
     if ($carrying -contains $state) {
         if (-not $e.patch) { Fail "$($e.id) is '$($e.state)' and names no patch" }
@@ -155,12 +157,14 @@ foreach ($e in $entries) {
 # ------------------------------------------------------------------------------------------ index
 function Format-Cell([string]$Text) { $Text.Replace('|', '\|') }
 $rows = [System.Collections.Generic.List[string]]::new()
-$rows.Add("| # | Defect | Area | Kind | Patch | Test | State | Verified |")
-$rows.Add("|---|---|---|---|---|---|---|---|")
+$rows.Add("| # | Defect | Area | Kind | Patch | Test | State | Upstream | Verified |")
+$rows.Add("|---|---|---|---|---|---|---|---|---|")
 foreach ($e in ($entries | Sort-Object { [int]($_.id.Substring(1)) })) {
     $patchCell = if ($e.patch) { "``$($e.patch)``" } else { "" }
     $testCell = if ($e.test) { "``$($e.test)``" } else { "" }
-    $rows.Add("| $($e.id) | $(Format-Cell $e.title) | $($e.area) | $($e.kind) | $patchCell | $testCell | $(Format-Cell $e.state) | $($e.verified) |")
+    # Optional: what Slang's tracker already has for it, as "#NNNN" issue or PR numbers.
+    $upstreamCell = if ($e.PSObject.Properties['upstream'] -and $e.upstream) { (@($e.upstream) | ForEach-Object { "[$_](https://github.com/shader-slang/slang/issues/$($_.TrimStart('#')))" }) -join ', ' } else { '' }
+    $rows.Add("| $($e.id) | $(Format-Cell $e.title) | $($e.area) | $($e.kind) | $patchCell | $testCell | $(Format-Cell $e.state) | $upstreamCell | $($e.verified) |")
 }
 $begin = "<!-- patch-registry:begin (generated from docs/upstream.json by tools/ci/patch-registry.ps1 -Write; do not edit) -->"
 $end = "<!-- patch-registry:end -->"
@@ -278,8 +282,10 @@ if ($Bump) {
     foreach ($e in ($entries | Where-Object { $_.patch -and $carrying -contains (Get-StateName $_.state) })) {
         $out = @(& $exe -noColor -method "SharpSlang.Tests.$($e.test)" 2>&1 | ForEach-Object { "$_" })
         $summary = @($out | Where-Object { $_ -match 'Total: \d+' }) | Select-Object -Last 1
-        $verdict = if ($summary -match 'Total: 1, Errors: 0, Failed: 0, Skipped: 0') { "GREEN without the patch: the tag carries the fix; drop $($e.patch) and set the state to 'fixed upstream in <tag>'" }
-                   elseif ($summary -match 'Failed: 1') { "red without the patch: keep $($e.patch)" }
+        # A theory's rows count one result each: red when any fails, green when all ran and passed.
+        $counts = if ($summary -match 'Total: (\d+), Errors: (\d+), Failed: (\d+), Skipped: (\d+)') { [int[]]$Matches[1..4] } else { $null }
+        $verdict = if ($counts -and $counts[0] -gt 0 -and $counts[1] + $counts[2] + $counts[3] -eq 0) { "GREEN without the patch: the tag carries the fix; drop $($e.patch) and set the state to 'fixed upstream in <tag>'" }
+                   elseif ($counts -and $counts[2] -gt 0) { "red without the patch: keep $($e.patch)" }
                    else { "no verdict (skipped or did not run): $summary" }
         Write-Host ("    {0,-4} {1}" -f $e.id, $verdict)
     }

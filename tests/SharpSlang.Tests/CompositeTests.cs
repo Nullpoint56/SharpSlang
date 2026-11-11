@@ -120,15 +120,57 @@ public class CompositeTests(ITestOutputHelper output)
         using var fresh = session.CreateCompositeComponentType(module, entry);
         using var optimised = fresh.LinkWithOptions(maximal);
         Assert.True(optimised.GetEntryPointCodeBytes(0, 0).Length < stepped.GetEntryPointCodeBytes(0, 0).Length);
+    }
 
-        // Asserted as wrong (U30): linked a second time, a composite emits its first link's code
-        // whatever the second link's options say. When Slang honours them this fails; the cooker's
-        // rule (one composite per link) can then go.
+    private (byte[] None, byte[] MaximalFresh, byte[] MaximalAgain) LinkOneCompositeTwice()
+    {
+        using var global = SlangGlobalSession.Create();
+        using var session = NewSession(global);
+        const string Heavy = """
+            Texture2D albedo;
+            SamplerState samp;
+            float3 heavy(float3 c)
+            {
+                for (int i = 0; i < 4; ++i) { c = c * 1.0 + 0.0; c = normalize(c + 0.0001); }
+                return c;
+            }
+            [shader("fragment")]
+            float4 fragmentMain(float2 uv : TEXCOORD0) : SV_Target { return float4(heavy(albedo.Sample(samp, uv).rgb), 1.0); }
+            """;
+        using var module = session.LoadModuleFromSource("co", "co.slang", Heavy);
+        using var entry = module.FindEntryPoint("fragmentMain");
+        var none = new LinkTimeOptions { Optimization = SlangOptimizationLevel.SLANG_OPTIMIZATION_LEVEL_NONE };
+        var maximal = new LinkTimeOptions { Optimization = SlangOptimizationLevel.SLANG_OPTIMIZATION_LEVEL_MAXIMAL };
+
+        using var composite = session.CreateCompositeComponentType(module, entry);
+        using var first = composite.LinkWithOptions(none);
+        var firstCode = first.GetEntryPointCodeBytes(0, 0);
         using var again = composite.LinkWithOptions(maximal);
-        output.WriteLine($"NONE {stepped.GetEntryPointCodeBytes(0, 0).Length} B, MAXIMAL on a fresh composite " +
-                         $"{optimised.GetEntryPointCodeBytes(0, 0).Length} B, MAXIMAL on the first composite " +
-                         $"{again.GetEntryPointCodeBytes(0, 0).Length} B");
-        Assert.Equal(stepped.GetEntryPointCodeBytes(0, 0), again.GetEntryPointCodeBytes(0, 0));
+        using var fresh = session.CreateCompositeComponentType(module, entry);
+        using var optimised = fresh.LinkWithOptions(maximal);
+        var result = (firstCode, optimised.GetEntryPointCodeBytes(0, 0), again.GetEntryPointCodeBytes(0, 0));
+        output.WriteLine($"NONE {result.firstCode.Length} B, MAXIMAL on a fresh composite {result.Item2.Length} B, " +
+                         $"MAXIMAL on the first composite {result.Item3.Length} B");
+        return result;
+    }
+
+    [ReleasePayloadFact("U30")]
+    public void A_composite_linked_a_second_time_emits_its_first_links_code()
+    {
+        // U30, asserted as wrong on Slang's release: the second link's options are ignored (1,572
+        // bytes at NONE and again at MAXIMAL, against 1,188 for a fresh composite at v2026.21).
+        var (none, _, again) = LinkOneCompositeTwice();
+        Assert.Equal(none, again);
+    }
+
+    [PatchedFact("U30")]
+    public void A_composite_linked_a_second_time_emits_what_its_second_links_options_say()
+    {
+        // U30, patched (0008): each link carries its own options, so the second link emits what a
+        // fresh composite linked with the same options emits.
+        var (none, maximalFresh, again) = LinkOneCompositeTwice();
+        Assert.Equal(maximalFresh, again);
+        Assert.NotEqual(none, again);
     }
 
     [NativeFact]

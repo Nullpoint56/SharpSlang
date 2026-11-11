@@ -1,0 +1,54 @@
+Document that ISession::loadModule and its siblings return a module the session owns.
+
+loadModule, loadModuleFromSource, loadModuleFromIRBlob and loadModuleFromSourceString return an
+IModule* that the session keeps (getLoadedModuleCount and getLoadedModule enumerate it), and the
+caller receives no reference: the pointer is borrowed. Every other ISession call that hands out an
+object does so through an out-parameter that carries a reference, and the declarations in slang.h
+say nothing about ownership. A caller following the COM convention releases the module once too
+often; glibc then aborts (free(): corrupted unsorted chunks), while the Windows heap tolerates it.
+
+This adds one sentence to each of the four declarations. It changes no code.
+diff --git a/include/slang.h b/include/slang.h
+index 320686f30..cc7ce06c1 100644
+--- a/include/slang.h
++++ b/include/slang.h
+@@ -4638,6 +4638,9 @@ struct ISession : public ISlangUnknown
+     virtual SLANG_NO_THROW IGlobalSession* SLANG_MCALL getGlobalSession() = 0;
+ 
+     /** Load a module as it would be by code using `import`.
++
++        The returned module is owned by the session and stays valid while the session lives:
++        the caller does not release it, and calls ddRef to keep it beyond the session.
+      */
+     virtual SLANG_NO_THROW IModule* SLANG_MCALL
+     loadModule(const char* moduleName, IBlob** outDiagnostics = nullptr) = 0;
+@@ -4648,6 +4651,9 @@ struct ISession : public ISlangUnknown
+         loaded from that file's contents. If `source` is null and `path` cannot
+         be read, the call returns null and (when `outDiagnostics` is provided)
+         writes a `CannotOpenFile` diagnostic.
++
++        The returned module is owned by the session and stays valid while the session lives:
++        the caller does not release it, and calls ddRef to keep it beyond the session.
+      */
+     virtual SLANG_NO_THROW IModule* SLANG_MCALL loadModuleFromSource(
+         const char* moduleName,
+@@ -4777,6 +4783,9 @@ struct ISession : public ISlangUnknown
+         ISlangBlob** outDiagnostics) = 0;
+ 
+     /** Load a module from a Slang module blob.
++
++        The returned module is owned by the session and stays valid while the session lives:
++        the caller does not release it, and calls ddRef to keep it beyond the session.
+      */
+     virtual SLANG_NO_THROW IModule* SLANG_MCALL loadModuleFromIRBlob(
+         const char* moduleName,
+@@ -4800,6 +4809,9 @@ struct ISession : public ISlangUnknown
+     isBinaryModuleUpToDate(const char* modulePath, slang::IBlob* binaryModuleBlob) = 0;
+ 
+     /** Load a module from a string.
++
++        The returned module is owned by the session and stays valid while the session lives:
++        the caller does not release it, and calls ddRef to keep it beyond the session.
+      */
+     virtual SLANG_NO_THROW IModule* SLANG_MCALL loadModuleFromSourceString(
+         const char* moduleName,

@@ -932,6 +932,7 @@ jobs:
           # architecture exist nowhere else. tools/ci/spirv-worddiff.py reads them.
           path: |
             **/*-digests.txt
+            **/payload-patches.txt
             **/spirv-modules/*.spv
           if-no-files-found: ignore
 

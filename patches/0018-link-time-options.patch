@@ -1,0 +1,225 @@
+Apply link-time HLSL-to-Vulkan layout options, and report options a link cannot apply.
+
+IComponentType::linkWithOptions accepts any CompilerOptionName and loads the entries into the
+linked component type's option set. TargetProgram (source/slang/slang-target-program.cpp) merges
+that set over the target's into m_optionSet, but TargetProgram::getHLSLToVulkanLayoutOptions
+returned the target request's HLSLToVulkanLayoutOptions, built from the session's and the target's
+option sets only. Every option those layout options carry is therefore ignored at link time:
+VulkanUseEntryPointName, which works on the session or the target, still names the SPIR-V entry
+point "main" when given to linkWithOptions. Capability and Profile are fixed on the target request
+when the session creates it, and code generation reads the target's capabilities, so given at link
+time they change nothing either (spirv_1_6 still emits SPIR-V 1.5). Nothing is reported for any of
+them.
+
+This builds the program's own HLSLToVulkanLayoutOptions from its merged option set when the program
+carries options of its own, and warns E00136 link-time-option-has-no-effect, when code is generated, for a program that
+carries Capability or Profile from linkWithOptions. A program without options of its own uses the target request's
+layout options as before. A regression test is added as
+tools/slang-unit-test/unit-test-link-time-options.cpp.
+
+Measured on v2026.14.1 by diffing the emitted SPIR-V: Optimization and FloatingPointMode take effect
+at link time; VulkanUseEntryPointName and Capability change nothing and report nothing.
+diff --git a/source/slang/slang-diagnostics.lua b/source/slang/slang-diagnostics.lua
+index 6d707d02d..d04c0fa70 100644
+--- a/source/slang/slang-diagnostics.lua
++++ b/source/slang/slang-diagnostics.lua
+@@ -267,6 +267,12 @@ err(
+     span { loc = "location" }
+ )
+ 
++warning(
++    "link-time-option-has-no-effect",
++    136,
++    "compiler option '~option' has no effect at link time; it applies to the target, so give it in the session's target description"
++)
++
+ warning(
+     "deprecated-allow-glsl-option",
+     117,
+diff --git a/source/slang/slang-target-program.cpp b/source/slang/slang-target-program.cpp
+index 6492f6c58..88a3208ca 100644
+--- a/source/slang/slang-target-program.cpp
++++ b/source/slang/slang-target-program.cpp
+@@ -21,6 +21,25 @@ TargetProgram::TargetProgram(ComponentType* componentType, TargetRequest* target
+     m_optionSet.inheritFrom(targetReq->getOptionSet());
+ }
+ 
++HLSLToVulkanLayoutOptions* TargetProgram::getHLSLToVulkanLayoutOptions()
++{
++    // The target request's options are built from the session's and the target's option sets. Options
++    // given to `linkWithOptions` live on the program, and `m_optionSet` merges them over the target's;
++    // reading the target request's options alone dropped them (`VulkanUseEntryPointName` given at
++    // link time changed nothing).
++    //
++    if (m_program->getOptionSet().options.getCount() == 0)
++        return m_targetReq->getHLSLToVulkanLayoutOptions();
++
++    std::lock_guard<std::mutex> lock(m_hlslToVulkanLayoutOptionsMutex);
++    if (!m_hlslToVulkanLayoutOptions)
++    {
++        m_hlslToVulkanLayoutOptions = new HLSLToVulkanLayoutOptions();
++        m_hlslToVulkanLayoutOptions->loadFromOptionSet(m_optionSet);
++    }
++    return m_hlslToVulkanLayoutOptions.get();
++}
++
+ void TargetProgram::composeDownstreamArgs()
+ {
+     CompilerOptionSet* lowerLevels[] = {
+@@ -75,6 +94,19 @@ IArtifact* TargetProgram::_createEntryPointResult(
+     if (entryPointIndex < 0)
+         return nullptr;
+ 
++    // Capability and Profile are fixed on the target request when the session creates it, and code
++    // generation reads the target's capabilities. Given to `linkWithOptions` they live on the program
++    // and change nothing, so say so.
++    //
++    if (sink)
++    {
++        auto& programOptions = m_program->getOptionSet();
++        if (programOptions.hasOption(CompilerOptionName::Capability))
++            sink->diagnose(Diagnostics::LinkTimeOptionHasNoEffect{.option = "Capability"});
++        if (programOptions.hasOption(CompilerOptionName::Profile))
++            sink->diagnose(Diagnostics::LinkTimeOptionHasNoEffect{.option = "Profile"});
++    }
++
+     // It is possible that entry points got added to the `Program`
+     // *after* we created this `TargetProgram`, so there might be
+     // a request for an entry point that we didn't allocate space for.
+diff --git a/source/slang/slang-target-program.h b/source/slang/slang-target-program.h
+index fab416789..764413b33 100644
+--- a/source/slang/slang-target-program.h
++++ b/source/slang/slang-target-program.h
+@@ -11,6 +11,8 @@
+ #include "slang-hlsl-to-vulkan-layout-options.h"
+ #include "slang-ir.h"
+ #include "slang-linkable.h"
++
++#include <mutex>
+ #include "slang-target.h"
+ 
+ #include <mutex>
+@@ -106,10 +108,9 @@ public:
+ 
+     CompilerOptionSet& getOptionSet() { return m_optionSet; }
+ 
+-    HLSLToVulkanLayoutOptions* getHLSLToVulkanLayoutOptions()
+-    {
+-        return m_targetReq->getHLSLToVulkanLayoutOptions();
+-    }
++    /// The HLSL-to-Vulkan layout options this program is laid out and emitted with: the target's,
++    /// unless the program carries options of its own (from `linkWithOptions`), which take part.
++    HLSLToVulkanLayoutOptions* getHLSLToVulkanLayoutOptions();
+ 
+     bool shouldEmitSPIRVDirectly()
+     {
+@@ -139,6 +140,10 @@ private:
+     bool m_layoutHasErrors = false;
+ 
+     CompilerOptionSet m_optionSet;
++
++    // Built from `m_optionSet` on first use when the program carries options of its own.
++    RefPtr<HLSLToVulkanLayoutOptions> m_hlslToVulkanLayoutOptions;
++    std::mutex m_hlslToVulkanLayoutOptionsMutex;
+     // Parallel backend emission shares these lazy result caches across threads.
+     mutable std::mutex m_resultCacheMutex;
+ 
+diff --git a/tools/slang-unit-test/unit-test-link-time-options.cpp b/tools/slang-unit-test/unit-test-link-time-options.cpp
+new file mode 100644
+index 000000000..3b87560e1
+--- /dev/null
++++ b/tools/slang-unit-test/unit-test-link-time-options.cpp
+@@ -0,0 +1,92 @@
++// unit-test-link-time-options.cpp
++
++#include "slang-com-ptr.h"
++#include "slang.h"
++#include "unit-test/slang-unit-test.h"
++
++using namespace Slang;
++
++// Options given to linkWithOptions either take effect or are reported as having none:
++// VulkanUseEntryPointName names the SPIR-V entry point after the function, and Capability, which
++// only a target takes, is reported with E00136.
++
++SLANG_UNIT_TEST(linkTimeOptions)
++{
++    const char* source = R"(
++        [shader("fragment")]
++        float4 fragmentMain() : SV_Target { return float4(1, 0, 0, 1); }
++        )";
++
++    ComPtr<slang::IGlobalSession> globalSession;
++    SLANG_CHECK_ABORT(
++        slang_createGlobalSession(SLANG_API_VERSION, globalSession.writeRef()) == SLANG_OK);
++
++    slang::TargetDesc targetDesc = {};
++    targetDesc.format = SLANG_SPIRV;
++    targetDesc.profile = globalSession->findProfile("spirv_1_5");
++
++    slang::SessionDesc sessionDesc = {};
++    sessionDesc.targetCount = 1;
++    sessionDesc.targets = &targetDesc;
++
++    ComPtr<slang::ISession> session;
++    SLANG_CHECK_ABORT(globalSession->createSession(sessionDesc, session.writeRef()) == SLANG_OK);
++
++    ComPtr<slang::IBlob> diagnostics;
++    auto module = session->loadModuleFromSourceString(
++        "linkTimeOptions",
++        "linkTimeOptions.slang",
++        source,
++        diagnostics.writeRef());
++    SLANG_CHECK_ABORT(module != nullptr);
++    ComPtr<slang::IEntryPoint> entryPoint;
++    SLANG_CHECK_ABORT(
++        SLANG_SUCCEEDED(module->findEntryPointByName("fragmentMain", entryPoint.writeRef())));
++    slang::IComponentType* components[] = {module, entryPoint};
++
++    {
++        ComPtr<slang::IComponentType> composite;
++        SLANG_CHECK_ABORT(SLANG_SUCCEEDED(session->createCompositeComponentType(
++            components,
++            2,
++            composite.writeRef(),
++            diagnostics.writeRef())));
++        slang::CompilerOptionEntry entry = {};
++        entry.name = slang::CompilerOptionName::VulkanUseEntryPointName;
++        entry.value.kind = slang::CompilerOptionValueKind::Int;
++        entry.value.intValue0 = 1;
++        ComPtr<slang::IComponentType> linked;
++        SLANG_CHECK_ABORT(SLANG_SUCCEEDED(
++            composite->linkWithOptions(linked.writeRef(), 1, &entry, diagnostics.writeRef())));
++        ComPtr<slang::IBlob> code;
++        SLANG_CHECK_ABORT(SLANG_SUCCEEDED(
++            linked->getEntryPointCode(0, 0, code.writeRef(), diagnostics.writeRef())));
++        auto bytes = UnownedStringSlice((const char*)code->getBufferPointer(), code->getBufferSize());
++        SLANG_CHECK(bytes.indexOf(UnownedStringSlice("fragmentMain")) != -1);
++    }
++
++    {
++        ComPtr<slang::IComponentType> composite;
++        SLANG_CHECK_ABORT(SLANG_SUCCEEDED(session->createCompositeComponentType(
++            components,
++            2,
++            composite.writeRef(),
++            diagnostics.writeRef())));
++        slang::CompilerOptionEntry entry = {};
++        entry.name = slang::CompilerOptionName::Capability;
++        entry.value.kind = slang::CompilerOptionValueKind::String;
++        entry.value.stringValue0 = "spirv_1_6";
++        ComPtr<slang::IComponentType> linked;
++        SLANG_CHECK_ABORT(SLANG_SUCCEEDED(
++            composite->linkWithOptions(linked.writeRef(), 1, &entry, diagnostics.writeRef())));
++        ComPtr<slang::IBlob> code;
++        ComPtr<slang::IBlob> codeDiagnostics;
++        SLANG_CHECK_ABORT(SLANG_SUCCEEDED(
++            linked->getEntryPointCode(0, 0, code.writeRef(), codeDiagnostics.writeRef())));
++        SLANG_CHECK_ABORT(codeDiagnostics != nullptr);
++        auto text = UnownedStringSlice(
++            (const char*)codeDiagnostics->getBufferPointer(),
++            codeDiagnostics->getBufferSize());
++        SLANG_CHECK(text.indexOf(UnownedStringSlice("136")) != -1);
++    }
++}
+\ No newline at end of file

@@ -1,0 +1,112 @@
+Do not declare a WGSL const from a value computed from an override.
+
+The WGSL emitter declares a value with const when isStaticConst (source/slang/slang-emit-wgsl.cpp)
+says it is one: any module-scope instruction, and casts, swizzles and vector constructions of such
+values. A specialization constant is a module-scope instruction, and it is emitted as an override
+(emitVarKeywordImpl). A value computed from it therefore becomes, for example,
+`const _S1 : f32 = f32(scCascades_0);`. A WGSL const takes a const-expression, which an override is
+not; naga 30.0.1 refuses the module with "Unexpected override-expression".
+
+This makes isStaticConst false for a module-scope value laid out as a specialization constant, so
+values computed from it are declared with var, as other run-time values are. A regression test is
+added as tools/slang-unit-test/unit-test-wgsl-override-not-const.cpp.
+
+Measured on v2026.21 (win-x64): the corpus entry specialization-constants/scFragment's WGSL refused
+by naga 30.0.1.
+diff --git a/source/slang/slang-emit-wgsl.cpp b/source/slang/slang-emit-wgsl.cpp
+index b05cd2907..fe85432f2 100644
+--- a/source/slang/slang-emit-wgsl.cpp
++++ b/source/slang/slang-emit-wgsl.cpp
+@@ -843,6 +843,14 @@ static bool isStaticConst(IRInst* inst)
+ {
+     if (inst->getParent()->getOp() == kIROp_ModuleInst)
+     {
++        // A specialization constant is a module-scope value, but it is emitted as an `override`,
++        // and an override is not a const-expression: a `const` initialized from one is an error.
++        //
++        if (auto layout = findVarLayout(inst))
++        {
++            if (layout->findOffsetAttr(LayoutResourceKind::SpecializationConstant))
++                return false;
++        }
+         return true;
+     }
+     switch (inst->getOp())
+diff --git a/tools/slang-unit-test/unit-test-wgsl-override-not-const.cpp b/tools/slang-unit-test/unit-test-wgsl-override-not-const.cpp
+new file mode 100644
+index 000000000..934a9d1ce
+--- /dev/null
++++ b/tools/slang-unit-test/unit-test-wgsl-override-not-const.cpp
+@@ -0,0 +1,71 @@
++// unit-test-wgsl-override-not-const.cpp
++
++#include "core/slang-string-util.h"
++#include "slang-com-ptr.h"
++#include "slang.h"
++#include "unit-test/slang-unit-test.h"
++
++using namespace Slang;
++
++// A specialization constant is emitted to WGSL as an `override`, which is not a const-expression,
++// so a value computed from it must not be declared `const`.
++
++SLANG_UNIT_TEST(wgslOverrideNotConst)
++{
++    const char* source = R"(
++        [vk::constant_id(0)] const int scCascades = 3;
++
++        [shader("fragment")]
++        float4 scFragment() : SV_Target { return float4(scCascades, 0, 0, 1); }
++        )";
++
++    ComPtr<slang::IGlobalSession> globalSession;
++    SLANG_CHECK_ABORT(
++        slang_createGlobalSession(SLANG_API_VERSION, globalSession.writeRef()) == SLANG_OK);
++
++    slang::TargetDesc targetDesc = {};
++    targetDesc.format = SLANG_WGSL;
++
++    slang::SessionDesc sessionDesc = {};
++    sessionDesc.targetCount = 1;
++    sessionDesc.targets = &targetDesc;
++
++    ComPtr<slang::ISession> session;
++    SLANG_CHECK_ABORT(globalSession->createSession(sessionDesc, session.writeRef()) == SLANG_OK);
++
++    ComPtr<slang::IBlob> diagnostics;
++    auto module = session->loadModuleFromSourceString(
++        "wgslOverrideNotConst",
++        "wgslOverrideNotConst.slang",
++        source,
++        diagnostics.writeRef());
++    SLANG_CHECK_ABORT(module != nullptr);
++
++    ComPtr<slang::IEntryPoint> entryPoint;
++    SLANG_CHECK_ABORT(
++        SLANG_SUCCEEDED(module->findEntryPointByName("scFragment", entryPoint.writeRef())));
++    slang::IComponentType* components[] = {module, entryPoint};
++    ComPtr<slang::IComponentType> program;
++    SLANG_CHECK_ABORT(SLANG_SUCCEEDED(session->createCompositeComponentType(
++        components,
++        2,
++        program.writeRef(),
++        diagnostics.writeRef())));
++    ComPtr<slang::IComponentType> linked;
++    SLANG_CHECK_ABORT(SLANG_SUCCEEDED(program->link(linked.writeRef(), diagnostics.writeRef())));
++
++    ComPtr<slang::IBlob> code;
++    SLANG_CHECK_ABORT(
++        SLANG_SUCCEEDED(linked->getEntryPointCode(0, 0, code.writeRef(), diagnostics.writeRef())));
++    auto wgsl = UnownedStringSlice((const char*)code->getBufferPointer(), code->getBufferSize());
++    SLANG_CHECK(wgsl.indexOf(UnownedStringSlice("override")) != -1);
++
++    // No `const` declaration may be initialized from the override.
++    List<UnownedStringSlice> lines;
++    StringUtil::calcLines(wgsl, lines);
++    for (auto line : lines)
++    {
++        if (line.trim().startsWith(UnownedStringSlice("const ")))
++            SLANG_CHECK(line.indexOf(UnownedStringSlice("scCascades")) == -1);
++    }
++}
+\ No newline at end of file

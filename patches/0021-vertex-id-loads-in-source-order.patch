@@ -1,0 +1,159 @@
+Load VertexIndex before BaseVertex, and InstanceIndex before BaseInstance, in source order.
+
+The SPIR-V legalization of SV_VertexID and SV_InstanceID (source/slang/slang-ir-glsl-legalize.cpp)
+replaces each load with VertexIndex - BaseVertex (InstanceIndex - BaseInstance), writing the two
+loads as the arguments of one call: `builder.emitSub(type, builder.emitLoad(vertexIndex),
+builder.emitLoad(baseVertex))`. C++ leaves the order in which those arguments are evaluated
+unspecified, and host compilers differ: the x86-64 and aarch64 builds of Slang emit the two loads
+in opposite orders. The SPIR-V emitter numbers a builtin variable when it first sees it, so the
+same shader compiles to different SPIR-V on the two architectures: the IDs of the two builtins
+swap, they swap places in the OpEntryPoint interface, and the operands of the OpISub swap with
+them. The modules are equivalent and never equal, which defeats a cache or a build farm that
+compares the bytes.
+
+This emits each load as a statement of its own, in source order. A regression test is added as
+tools/slang-unit-test/unit-test-vertex-id-builtin-order.cpp.
+
+Measured on v2026.21, Slang's own release on GitHub-hosted runners: win-x64 and linux-x64 emit
+identical SPIR-V and linux-arm64 and osx-arm64 differ from them on exactly the three shaders, of
+33, that read SV_VertexID.
+diff --git a/source/slang/slang-ir-glsl-legalize.cpp b/source/slang/slang-ir-glsl-legalize.cpp
+index f34e007..8ac99cb 100644
+--- a/source/slang/slang-ir-glsl-legalize.cpp
++++ b/source/slang/slang-ir-glsl-legalize.cpp
+@@ -4883,10 +4883,15 @@ void legalizeTargetBuiltinVar(GLSLLegalizationContext& context)
+                     {
+                         IRBuilder builder(use->getUser());
+                         builder.setInsertBefore(use->getUser());
++                        // The two loads are emitted as statements of their own: as arguments of
++                        // one call their order is unspecified, and it differs between compilers,
++                        // so the builtins would be created, and numbered, in another order.
++                        auto instanceIndexVal = builder.emitLoad(instanceIndex);
++                        auto baseInstanceVal = builder.emitLoad(baseInstance);
+                         auto sub = builder.emitSub(
+                             tryGetPointedToType(&builder, varInst->getDataType()),
+-                            builder.emitLoad(instanceIndex),
+-                            builder.emitLoad(baseInstance));
++                            instanceIndexVal,
++                            baseInstanceVal);
+                         user->replaceUsesWith(sub);
+                     }
+                 });
+@@ -4916,10 +4921,15 @@ void legalizeTargetBuiltinVar(GLSLLegalizationContext& context)
+                     {
+                         IRBuilder builder(use->getUser());
+                         builder.setInsertBefore(use->getUser());
++                        // The two loads are emitted as statements of their own: as arguments of
++                        // one call their order is unspecified, and it differs between compilers,
++                        // so the builtins would be created, and numbered, in another order.
++                        auto vertexIndexVal = builder.emitLoad(vertexIndex);
++                        auto baseVertexVal = builder.emitLoad(baseVertex);
+                         auto sub = builder.emitSub(
+                             tryGetPointedToType(&builder, varInst->getDataType()),
+-                            builder.emitLoad(vertexIndex),
+-                            builder.emitLoad(baseVertex));
++                            vertexIndexVal,
++                            baseVertexVal);
+                         user->replaceUsesWith(sub);
+                     }
+                 });
+diff --git a/tools/slang-unit-test/unit-test-vertex-id-builtin-order.cpp b/tools/slang-unit-test/unit-test-vertex-id-builtin-order.cpp
+new file mode 100644
+index 0000000..39be764
+--- /dev/null
++++ b/tools/slang-unit-test/unit-test-vertex-id-builtin-order.cpp
+@@ -0,0 +1,94 @@
++// unit-test-vertex-id-builtin-order.cpp
++
++#include "slang-com-ptr.h"
++#include "slang.h"
++#include "unit-test/slang-unit-test.h"
++
++using namespace Slang;
++
++// SV_VertexID and SV_InstanceID are lowered for SPIR-V to VertexIndex - BaseVertex and
++// InstanceIndex - BaseInstance. The SPIR-V module numbers each builtin when it is first used, so the
++// loads are emitted in source order on every host compiler and the module is the same everywhere.
++
++static uint32_t findBuiltinId(const uint32_t* words, size_t wordCount, uint32_t builtin)
++{
++    const uint32_t opDecorate = 71;
++    const uint32_t decorationBuiltIn = 11;
++    for (size_t i = 5; i < wordCount;)
++    {
++        uint32_t opWordCount = words[i] >> 16;
++        uint32_t opcode = words[i] & 0xFFFF;
++        if (opWordCount == 0)
++            break;
++        if (opcode == opDecorate && opWordCount >= 4 && words[i + 2] == decorationBuiltIn &&
++            words[i + 3] == builtin)
++            return words[i + 1];
++        i += opWordCount;
++    }
++    return 0;
++}
++
++SLANG_UNIT_TEST(vertexIdBuiltinOrder)
++{
++    const char* source = R"(
++        [shader("vertex")]
++        float4 vsMain(uint vertexId : SV_VertexID, uint instanceId : SV_InstanceID) : SV_Position
++        {
++            return float4(float(vertexId), float(instanceId), 0, 1);
++        }
++        )";
++
++    ComPtr<slang::IGlobalSession> globalSession;
++    SLANG_CHECK_ABORT(
++        slang_createGlobalSession(SLANG_API_VERSION, globalSession.writeRef()) == SLANG_OK);
++
++    slang::TargetDesc targetDesc = {};
++    targetDesc.format = SLANG_SPIRV;
++    targetDesc.profile = globalSession->findProfile("spirv_1_5");
++
++    slang::SessionDesc sessionDesc = {};
++    sessionDesc.targetCount = 1;
++    sessionDesc.targets = &targetDesc;
++
++    ComPtr<slang::ISession> session;
++    SLANG_CHECK_ABORT(globalSession->createSession(sessionDesc, session.writeRef()) == SLANG_OK);
++
++    ComPtr<slang::IBlob> diagnostics;
++    auto module = session->loadModuleFromSourceString(
++        "vertexIdBuiltinOrder",
++        "vertexIdBuiltinOrder.slang",
++        source,
++        diagnostics.writeRef());
++    SLANG_CHECK_ABORT(module != nullptr);
++
++    ComPtr<slang::IEntryPoint> entryPoint;
++    SLANG_CHECK_ABORT(
++        SLANG_SUCCEEDED(module->findEntryPointByName("vsMain", entryPoint.writeRef())));
++    slang::IComponentType* components[] = {module, entryPoint};
++    ComPtr<slang::IComponentType> program;
++    SLANG_CHECK_ABORT(SLANG_SUCCEEDED(session->createCompositeComponentType(
++        components,
++        2,
++        program.writeRef(),
++        diagnostics.writeRef())));
++    ComPtr<slang::IComponentType> linked;
++    SLANG_CHECK_ABORT(SLANG_SUCCEEDED(program->link(linked.writeRef(), diagnostics.writeRef())));
++
++    ComPtr<slang::IBlob> code;
++    SLANG_CHECK_ABORT(
++        SLANG_SUCCEEDED(linked->getEntryPointCode(0, 0, code.writeRef(), diagnostics.writeRef())));
++    auto words = (const uint32_t*)code->getBufferPointer();
++    auto wordCount = code->getBufferSize() / sizeof(uint32_t);
++
++    const uint32_t builtInVertexIndex = 42;
++    const uint32_t builtInInstanceIndex = 43;
++    const uint32_t builtInBaseVertex = 4424;
++    const uint32_t builtInBaseInstance = 4425;
++    auto vertexIndex = findBuiltinId(words, wordCount, builtInVertexIndex);
++    auto baseVertex = findBuiltinId(words, wordCount, builtInBaseVertex);
++    auto instanceIndex = findBuiltinId(words, wordCount, builtInInstanceIndex);
++    auto baseInstance = findBuiltinId(words, wordCount, builtInBaseInstance);
++    SLANG_CHECK_ABORT(vertexIndex && baseVertex && instanceIndex && baseInstance);
++    SLANG_CHECK(vertexIndex < baseVertex);
++    SLANG_CHECK(instanceIndex < baseInstance);
++}

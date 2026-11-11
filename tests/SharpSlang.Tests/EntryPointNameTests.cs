@@ -74,13 +74,18 @@ public class EntryPointNameTests
         Assert.Equal("fragmentMain", program.GetSpirvEntryPoint(1, 0).Name);
     }
 
-    [NativeFact]
-    public void The_same_option_at_link_time_does_nothing()
+    [ReleasePayloadFact("U16")]
+    public void The_same_option_at_link_time_does_nothing() =>
+        // U16, asserted as wrong on Slang's release: VulkanUseEntryPointName is a no-op *at link
+        // time* only. Patched (0018), the link's options take part (the test below).
+        Assert.Equal("main", LinkWithEntryPointName());
+
+    [PatchedFact("U16")]
+    public void The_same_option_at_link_time_names_the_entry_point() =>
+        Assert.Equal("vertexMain", LinkWithEntryPointName());
+
+    private static string LinkWithEntryPointName()
     {
-        // Documented here rather than assumed. SharpSlang previously described
-        // VulkanUseEntryPointName as a no-op outright; it is a no-op *at link time* only, and the
-        // difference is the whole fix. If a future Slang honours it here, this test fails and the
-        // typed option can move to LinkTimeOptions.
         using var global = SlangGlobalSession.Create();
         using var session = Session(global, useEntryPointName: false);
         using var module = session.LoadModuleFromSource("t", "t.slang", TwoStages);
@@ -94,7 +99,7 @@ public class EntryPointNameTests
             },
         });
 
-        Assert.Equal("main", program.GetSpirvEntryPoint(0, 0).Name);
+        return program.GetSpirvEntryPoint(0, 0).Name;
     }
 
     [NativeFact]

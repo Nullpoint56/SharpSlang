@@ -33,7 +33,16 @@ public sealed class TargetValidationTests(ITestOutputHelper output)
     public enum Outcome { Valid, SlangRefuses, ValidatorRejects }
 
     /// <summary>What a declared entry expects: the outcome, words its message must contain, and why.</summary>
-    public sealed record Expected(Outcome Outcome, string Words, string Reason);
+    /// <summary>A declared outcome. <paramref name="FixedBy"/> names the defect whose patch makes the row
+    /// <see cref="Outcome.Valid"/> on a payload built with that patch, or, with <paramref name="FixedWords"/>, the same outcome in those words (AGENTS.md#patches).</summary>
+    public sealed record Expected(Outcome Outcome, string Words, string Reason, string? FixedBy = null, string? FixedWords = null)
+    {
+        /// <summary>What the staged payload should produce: <see cref="Outcome.Valid"/> where it carries the fix.</summary>
+        public Expected ForStagedPayload() =>
+            FixedBy is not null && PatchRegistry.PatchFor(FixedBy) is { } patch && StagedPayload.Carries(patch)
+                ? (FixedWords is null ? new Expected(Outcome.Valid, "", $"patched ({FixedBy})") : new Expected(Outcome, FixedWords, $"patched ({FixedBy})"))
+                : this;
+    }
 
     /// <summary>One entry point's code for one target, or Slang's reason for not producing it.</summary>
     private sealed record Emitted(string Key, SlangStage Stage, byte[]? Code, string? Refusal);
@@ -226,7 +235,7 @@ public sealed class TargetValidationTests(ITestOutputHelper output)
                 .ToList();
             foreach (var e in emitted)
             {
-                var expected = Declared.For(target.Name).GetValueOrDefault(e.Key);
+                var expected = Declared.For(target.Name).GetValueOrDefault(e.Key)?.ForStagedPayload();
                 var refusedNow = e.Refusal is not null;
                 var declaredRefused = expected?.Outcome == Outcome.SlangRefuses;
                 if (refusedNow != declaredRefused
@@ -258,6 +267,108 @@ public sealed class TargetValidationTests(ITestOutputHelper output)
 
     // ---------------------------------------------------------------- judging
 
+    /// <summary>
+    /// The registry test of a patch that fixes a target's output: the case must be <see cref="Outcome.Valid"/>
+    /// on our build, so the build without the patch is red (AGENTS.md#patches).
+    /// </summary>
+    private static void RequirePatchedCaseValid(string target, string name, Validator validator)
+    {
+        var missing = TargetValidators.Unavailable(validator);
+        Assert.SkipWhen(missing is not null, missing ?? "");
+        var t = TargetNamed(target);
+        using var global = SlangGlobalSession.Create();
+        var caseName = name.Split('/')[0];
+        var emitted = EmitCase(global, ShaderCorpus.Case(caseName), t.Options()).Where(e => e.Key == name).ToList();
+        Assert.NotEmpty(emitted);
+        foreach (var e in emitted)
+        {
+            Assert.True(e.Refusal is null, $"{target} {e.Key}: Slang refused: {e.Refusal}");
+            var verdict = t.Judge(e);
+            Assert.True(verdict.Accepted, $"{target} {e.Key}: {verdict.Message}");
+        }
+    }
+
+    [PatchedFact("U34")]
+    public void The_tessellation_stages_declare_their_glsl_layouts()
+    {
+        // U34, patched (0022): the hull shader declares its output control points and the domain
+        // shader its abstract patch, which GLSL requires of each stage and HLSL carries as
+        // [outputcontrolpoints(3)] and [domain("tri")]. Read from the text, so it holds apart from the
+        // stages' other GLSL defects (U18, U19).
+        using var global = SlangGlobalSession.Create();
+        var emitted = EmitCase(global, ShaderCorpus.Case("tessellation"), TargetNamed("glsl").Options())
+            .ToDictionary(e => e.Key, e => e.Code is null ? e.Refusal! : System.Text.Encoding.UTF8.GetString(e.Code));
+        Assert.Contains("layout(vertices = 3) out;", emitted["tessellation/teHull"], StringComparison.Ordinal);
+        Assert.Contains("layout(triangles) in;", emitted["tessellation/teDomain"], StringComparison.Ordinal);
+    }
+
+    [PatchedFact("U32")]
+    public void Append_and_consume_buffers_compile_as_cpp() =>
+        RequirePatchedCaseValid("cpp", "append-buffers/abCompute", Validator.HostCxx);
+
+    [PatchedFact("U18")]
+    public void A_hull_shaders_patch_constant_function_returns_void_in_glsl()
+    {
+        // U18, patched (0009): the patch-constant function, whose returns legalization rewrites to
+        // return nothing, is declared void. Read from the text: glslang still refuses the hull stage
+        // for its output index (U35, a known issue), so validity cannot be this test's oracle.
+        using var global = SlangGlobalSession.Create();
+        var hull = EmitCase(global, ShaderCorpus.Case("tessellation"), TargetNamed("glsl").Options())
+            .Single(e => e.Key == "tessellation/teHull");
+        Assert.True(hull.Code is not null, $"glsl tessellation/teHull: Slang refused: {hull.Refusal}");
+        var glsl = System.Text.Encoding.UTF8.GetString(hull.Code);
+        Assert.Contains("void teConstants_0(", glsl, StringComparison.Ordinal);
+        Assert.DoesNotContain("TePatch_0 teConstants_0(", glsl, StringComparison.Ordinal);
+    }
+
+    /// <summary>The registry test of a patch that fixes a compute case's output on <paramref name="target"/>.</summary>
+    private static void RequirePatchedComputeValid(string target, Validator validator, params string[] keys)
+    {
+        var missing = TargetValidators.Unavailable(validator);
+        Assert.SkipWhen(missing is not null, missing ?? "");
+        var t = TargetNamed(target);
+        using var global = SlangGlobalSession.Create();
+        foreach (var key in keys)
+        {
+            var test = SlangTestCorpus.Compute.Single(c => ComputePrefix + c.Source == key);
+            var e = EmitCompute(global, test, t.Options());
+            Assert.True(e.Refusal is null, $"{target} {key}: Slang refused: {e.Refusal}");
+            var verdict = t.Judge(e);
+            Assert.True(verdict.Accepted, $"{target} {key}: {verdict.Message}");
+        }
+    }
+
+    [PatchedFact("U20")]
+    public void A_value_computed_from_a_specialization_constant_is_not_a_wgsl_const() =>
+        RequirePatchedCaseValid("wgsl", "specialization-constants/scFragment", Validator.Naga);
+
+    [PatchedFact("U23")]
+    public void A_construct_the_target_cannot_express_is_diagnosed_not_an_internal_error()
+    {
+        // U23, patched (0013): double on WGSL and Metal is E56110, and a rasterization stage's
+        // varyings on the C++ and CUDA targets are E56111, each a diagnostic rather than an internal
+        // error.
+        using var global = SlangGlobalSession.Create();
+        foreach (var (target, key, words) in new[]
+                 {
+                     ("wgsl", "wide-scalars/wsFragment", "56110"),
+                     ("metal", "wide-scalars/wsFragment", "56110"),
+                     ("cpp", "system-values/svFragment", "56111"),
+                     ("cuda", "vertex-interface/viVertex", "56111"),
+                 })
+        {
+            var e = EmitCase(global, ShaderCorpus.Case(key.Split('/')[0]), TargetNamed(target).Options()).Single(x => x.Key == key);
+            Assert.True(e.Refusal is not null, $"{target} {key}: compiled");
+            Assert.Contains(words, e.Refusal, StringComparison.Ordinal);
+            Assert.DoesNotContain("E9999", e.Refusal, StringComparison.Ordinal);
+        }
+    }
+    [PatchedFact("U24")]
+    public void Half_vector_arithmetic_and_comparison_compile_as_cpp() =>
+        RequirePatchedComputeValid("cpp", Validator.HostCxx, "compute:half-vector-calc.slang", "compute:half-vector-compare.slang");
+    [PatchedFact("U19")]
+    public void A_domain_shaders_patch_input_compiles_as_glsl() =>
+        RequirePatchedCaseValid("glsl", "tessellation/teDomain", Validator.GlslangValidator);
     private void CheckCase(string target, string name)
     {
         var t = TargetNamed(target);
@@ -305,7 +416,7 @@ public sealed class TargetValidationTests(ITestOutputHelper output)
             tally[outcome] = tally.GetValueOrDefault(outcome) + 1;
             output.WriteLine($"{target.Name} {e.Key} ({e.Stage}): {outcome}{(message.Length > 0 ? ": " + Oneline(message) : "")}");
 
-            var expected = declared.GetValueOrDefault(e.Key) ?? new Expected(Outcome.Valid, "", "");
+            var expected = (declared.GetValueOrDefault(e.Key) ?? new Expected(Outcome.Valid, "", "")).ForStagedPayload();
             if (outcome != expected.Outcome || !message.Contains(expected.Words, StringComparison.Ordinal))
             {
                 problems.Add($"{e.Key}: expected {expected.Outcome}{(expected.Words.Length > 0 ? $" ('{expected.Words}')" : "")}, "
@@ -471,15 +582,15 @@ public sealed class TargetValidationTests(ITestOutputHelper output)
             (["compute-specialized/csCompute"], new(Outcome.SlangRefuses, SpecializedNumthreads, NoSpecializedNumthreads)));
 
         public static readonly Dictionary<string, Expected> Glsl = Table(
-            (["tessellation/teHull"], new(Outcome.ValidatorRejects, "non-void function must return a value", "U18: the patch-constant function is declared to return its struct and ends in a bare return")),
-            (["tessellation/teDomain"], new(Outcome.ValidatorRejects, "tessellation input array size must be gl_MaxPatchVertices or implicitly sized", "U19: the domain stage's per-vertex input is declared with the patch size")));
+            (["tessellation/teHull"], new(Outcome.ValidatorRejects, "non-void function must return a value", "U18: the patch-constant function is declared to return its struct and ends in a bare return; with it patched, U35: the per-vertex output is indexed with uint(gl_InvocationID)", FixedBy: "U18", FixedWords: "must be indexed with gl_InvocationID")),
+            (["tessellation/teDomain"], new(Outcome.ValidatorRejects, "tessellation input array size must be gl_MaxPatchVertices or implicitly sized", "U19: the domain stage's per-vertex input is declared with the patch size; with U19 and U34 patched it is valid", FixedBy: "U19")));
 
         public static readonly Dictionary<string, Expected> Metal = Table(
             (["tessellation/teHull", "tessellation/teDomain", "geometry/gsGeometry", .. RayTracing, "append-buffers/abCompute"],
                 new(Outcome.SlangRefuses, NotInStage, NoStageForTarget)),
             (["mesh/msMesh"], new(Outcome.SlangRefuses, "mesh output must be assigned as whole struct", "Metal writes a mesh vertex whole; Slang diagnoses a per-member write (E56104)")),
             (["wide-vertex-inputs/wvVertex", "wide-scalars/wsFragment", "scalar-widths/swFragment", "compute:bitcast-64bit.slang"],
-                new(Outcome.SlangRefuses, "'double' type emitted", "Metal has no double; Slang ends with an InternalError, E99997, instead of a diagnostic (U23)")),
+                new(Outcome.SlangRefuses, "'double' type emitted", "Metal has no double; Slang ends with an InternalError, E99997, instead of a diagnostic (U23)", FixedBy: "U23", FixedWords: "56110")),
             // Measured by xcrun metal on the GitHub-hosted macos-15 runner, run 42475073038
             // (2026-11-08, Slang v2026.21): the first time these rows met Apple's compiler.
             (["descriptor-kinds/dkFragment"], new(Outcome.ValidatorRejects, "no matching member function for call to 'read'", "U26: Slang calls a texture read overload Metal does not declare")),
@@ -495,16 +606,16 @@ public sealed class TargetValidationTests(ITestOutputHelper output)
                 new(Outcome.SlangRefuses, NotInStage, NoStageForTarget)),
             (["compute-specialized/csCompute"], new(Outcome.SlangRefuses, SpecializedNumthreads, NoSpecializedNumthreads)),
             (["wide-vertex-inputs/wvVertex", "wide-scalars/wsFragment", "scalar-widths/swFragment"],
-                new(Outcome.SlangRefuses, "'double' type emitted", "WGSL has no f64; Slang ends with an InternalError, E99997, instead of a diagnostic (U23)")),
+                new(Outcome.SlangRefuses, "'double' type emitted", "WGSL has no f64; Slang ends with an InternalError, E99997, instead of a diagnostic (U23)", FixedBy: "U23", FixedWords: "56110")),
             (["system-values/svVertex", "system-values/svFragment"], new(Outcome.SlangRefuses, "system value semantic", "WGSL has no such builtin; Slang diagnoses it (E55202)")),
             (["descriptor-arrays/daFragment", "buffer-arrays/baFragment"],
                 new(Outcome.ValidatorRejects, "the `wgpu_binding_array` enable extension is not enabled", "U22: binding_array is not WGSL; naga takes it only behind its own enable, which Slang does not write")),
-            (["specialization-constants/scFragment"], new(Outcome.ValidatorRejects, "Unexpected override-expression", "U20: a const declaration initialised from an override")),
+            (["specialization-constants/scFragment"], new(Outcome.ValidatorRejects, "Unexpected override-expression", "U20: a const declaration initialised from an override", FixedBy: "U20")),
             (["vertex-interface/viVertex"], new(Outcome.ValidatorRejects, "Only numeric scalars and vectors are allowed", "U21: a matrix vertex input at one @location")),
             (["push-constants/pcFragment"], new(Outcome.ValidatorRejects, "unknown language extension `immediate_address_space`", "naga 30.0.1 does not know the language extension Slang requires for push constants; not judged as a Slang defect")),
             (["wave-ops/woCompute"], new(Outcome.ValidatorRejects, "the `subgroups` enable-extension is not yet supported", "naga 30.0.1 does not implement WGSL's subgroups extension; not judged as a Slang defect")),
             (["compute:atomics-groupshared.slang", "compute:atomics.slang"], new(Outcome.SlangRefuses, NotInStage, NoStageForTarget)),
-            (["compute:bitcast-64bit.slang"], new(Outcome.SlangRefuses, "'double' type emitted", "WGSL has no f64; Slang ends with an InternalError, E99997, instead of a diagnostic (U23)")),
+            (["compute:bitcast-64bit.slang"], new(Outcome.SlangRefuses, "'double' type emitted", "WGSL has no f64; Slang ends with an InternalError, E99997, instead of a diagnostic (U23)", FixedBy: "U23", FixedWords: "56110")),
             (["compute:byte-address-buffer-64bit.slang"], new(Outcome.ValidatorRejects, "automatic conversions cannot convert elements of `u64` to `u32`", "U25: WGSL has no 64-bit integer, and Slang writes u64 into it")),
             (["compute:half-rw-texture-convert.slang", "compute:half-rw-texture-convert2.slang"],
                 new(Outcome.SlangRefuses, "does not support 'read_write' access for storage textures in WGSL", "WGSL has no read-write rgba16float storage texture; Slang diagnoses it (E56106)")),
@@ -513,8 +624,8 @@ public sealed class TargetValidationTests(ITestOutputHelper output)
         public static readonly Dictionary<string, Expected> Cuda = Table(
             (["descriptor-kinds/dkFragment", "subpass-inputs/siFragment", "tessellation/teHull", "tessellation/teDomain", "geometry/gsGeometry",
               "mesh/msMesh", "amplification/asAmplification"], new(Outcome.SlangRefuses, NotInStage, NoStageForTarget)),
-            (Fragments, new(Outcome.SlangRefuses, SystemVarying, NoRasterStage)),
-            (UserVaryings, new(Outcome.SlangRefuses, UserVarying, NoRasterStage)),
+            (Fragments, new(Outcome.SlangRefuses, SystemVarying, NoRasterStage, FixedBy: "U23", FixedWords: "56111")),
+            (UserVaryings, new(Outcome.SlangRefuses, UserVarying, NoRasterStage, FixedBy: "U23", FixedWords: "56111")),
             (["ray-tracing/rtRayGen", "ray-tracing/rtClosestHit", "ray-tracing/rtAnyHit", "ray-tracing/rtIntersection", "ray-tracing/rtMiss"],
                 new(Outcome.ValidatorRejects, "identifier \"optix", "CUDA ray tracing is OptiX: the source calls OptiX device functions, whose header is the OptiX SDK's, not the CUDA toolkit's")));
 
@@ -523,13 +634,13 @@ public sealed class TargetValidationTests(ITestOutputHelper output)
               "mesh/msMesh", "amplification/asAmplification", .. RayTracing, "wave-ops/woCompute", "atomics/atCompute"],
                 new(Outcome.SlangRefuses, NotInStage, NoStageForTarget)),
             (["compute-specialized/csCompute"], new(Outcome.SlangRefuses, SpecializedNumthreads, NoSpecializedNumthreads)),
-            (Fragments, new(Outcome.SlangRefuses, SystemVarying, NoRasterStage)),
-            (UserVaryings, new(Outcome.SlangRefuses, UserVarying, NoRasterStage)),
-            (["append-buffers/abCompute"], new(Outcome.SlangRefuses, "unexpected IR opcode during code emit", "U23: append and consume buffers on the C++ target end in an internal error, E99999")),
+            (Fragments, new(Outcome.SlangRefuses, SystemVarying, NoRasterStage, FixedBy: "U23", FixedWords: "56111")),
+            (UserVaryings, new(Outcome.SlangRefuses, UserVarying, NoRasterStage, FixedBy: "U23", FixedWords: "56111")),
+            (["append-buffers/abCompute"], new(Outcome.SlangRefuses, "unexpected IR opcode during code emit", "U32: append and consume buffers on the C++ target end in an internal error, E99999", FixedBy: "U32")),
             (["compute:atomics-groupshared.slang", "compute:atomics.slang", "compute:groupshared.slang", "compute:half-rw-texture-convert2.slang"],
                 new(Outcome.SlangRefuses, NotInStage, NoStageForTarget)),
             (["compute:half-vector-calc.slang", "compute:half-vector-compare.slang"],
-                new(Outcome.ValidatorRejects, "invalid operands to binary expression", "U24: Slang's C++ prelude defines vector arithmetic and comparison for float and double, not half")));
+                new(Outcome.ValidatorRejects, "invalid operands to binary expression", "U24: Slang's C++ prelude defines vector arithmetic and comparison for float and double, not half", FixedBy: "U24")));
 
         public static Dictionary<string, Expected> For(string target) => target switch
         {
@@ -563,6 +674,12 @@ internal static class SlangPrelude
 
     private static string Fetch()
     {
+        // A payload built from source is judged against the submodule's prelude, its patches applied
+        // (AGENTS.md#patches): a prelude patch changes what the emitted source compiles against.
+        var submodule = Path.Combine(SlangHeader.RepoRoot(), "slang", "prelude");
+        if (StagedPayload.IsBuild && File.Exists(Path.Combine(submodule, "slang-cpp-prelude.h")))
+            return submodule;
+
         var version = SlangHeader.Pinned.Version;
         var directory = Path.Combine(SlangHeader.RepoRoot(), "obj", "slang-headers", version, "prelude");
         System.IO.Directory.CreateDirectory(directory);

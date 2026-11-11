@@ -118,3 +118,23 @@ public sealed class ReleasePayloadFactAttribute : FactAttribute
     public ReleasePayloadFactAttribute(string defect, [CallerFilePath] string? sourceFilePath = null, [CallerLineNumber] int sourceLineNumber = -1)
         : base(sourceFilePath, sourceLineNumber) => Skip = PayloadSkips.Release(defect);
 }
+
+/// <summary>The theory form of <see cref="PatchedFactAttribute"/>.</summary>
+public sealed class PatchedTheoryAttribute : TheoryAttribute
+{
+    /// <param name="defect">The registry id, U and a number.</param>
+    /// <param name="sourceFilePath">Filled by the compiler.</param>
+    /// <param name="sourceLineNumber">Filled by the compiler.</param>
+    public PatchedTheoryAttribute(string defect, [CallerFilePath] string? sourceFilePath = null, [CallerLineNumber] int sourceLineNumber = -1)
+        : base(sourceFilePath, sourceLineNumber) => Skip = PayloadSkips.Patched(defect);
+}
+
+/// <summary>The theory form of <see cref="ReleasePayloadFactAttribute"/>.</summary>
+public sealed class ReleasePayloadTheoryAttribute : TheoryAttribute
+{
+    /// <param name="defect">The registry id, U and a number.</param>
+    /// <param name="sourceFilePath">Filled by the compiler.</param>
+    /// <param name="sourceLineNumber">Filled by the compiler.</param>
+    public ReleasePayloadTheoryAttribute(string defect, [CallerFilePath] string? sourceFilePath = null, [CallerLineNumber] int sourceLineNumber = -1)
+        : base(sourceFilePath, sourceLineNumber) => Skip = PayloadSkips.Release(defect);
+}

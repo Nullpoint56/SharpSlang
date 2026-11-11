@@ -5,6 +5,8 @@
 // ignores most of it, so a binding that plumbed the options nowhere would pass any test that only
 // checked "it still compiles".
 
+using SharpSlang.Interop;
+using SharpSlang.Spirv;
 using SharpSlang.Native;
 
 namespace SharpSlang.Tests;
@@ -76,6 +78,36 @@ public class LinkOptionsTests
         Assert.NotEqual(none, maximal);
     }
 
+    [PatchedFact("U16")]
+    public void A_link_time_option_takes_effect_or_says_it_cannot()
+    {
+        // U16, patched (0018): VulkanUseEntryPointName given at link time names the SPIR-V entry
+        // point after the function, as it does given to the target, and Capability, which only
+        // the target can take, is reported as having no effect (W00136) instead of being ignored.
+        var named = Compile(new LinkTimeOptions
+        {
+            RawEntries = [new RawCompilerOption(CompilerOptionName.VulkanUseEntryPointName, 1)],
+        });
+        Assert.Equal("fragmentMain", SpirvModule.SingleEntryPoint(named).Name);
+
+        var captured = new List<string>();
+        var (handler, policy) = (SlangDiagnostics.Handler, SlangDiagnostics.Policy);
+        SlangDiagnostics.Handler = (_, _, text) => captured.Add(text);
+        SlangDiagnostics.Policy = SlangDiagnosticPolicy.Report;
+        try
+        {
+            Compile(new LinkTimeOptions
+            {
+                RawEntries = [new RawCompilerOption(CompilerOptionName.Capability, StringValue: "spirv_1_6")],
+            });
+        }
+        finally
+        {
+            (SlangDiagnostics.Handler, SlangDiagnostics.Policy) = (handler, policy);
+        }
+
+        Assert.Contains(captured, text => text.Contains("00136", StringComparison.Ordinal));
+    }
     [NativeFact]
     public void The_identity_hash_moves_with_an_option_that_changes_nothing()
     {

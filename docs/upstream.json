@@ -47,9 +47,9 @@
       "title": "A constant buffer whose block holds only link-time-sized arrays gets no binding",
       "area": "reflection",
       "kind": "Slang defect",
-      "patch": null,
-      "test": "UnknownSizeTests.A_buffer_with_no_fixed_size_is_refused_rather_than_dropped",
-      "state": "unpatched",
+      "patch": "0016-specialization-sized-constant-buffer-binding.patch",
+      "test": "UnknownSizeTests.A_buffer_with_no_fixed_size_keeps_its_binding",
+      "state": "patched",
       "verified": "v2026.21"
     },
     {
@@ -57,10 +57,13 @@
       "title": "A 64-bit 3/4-component vertex input is given one location; Vulkan requires two",
       "area": "SPIR-V",
       "kind": "Slang defect",
-      "patch": null,
-      "test": "NriValidationTests.A_wide_64_bit_vertex_attribute_really_does_consume_two_locations",
-      "state": "unpatched",
-      "verified": "v2026.21"
+      "patch": "0014-wide-vertex-input-two-locations.patch",
+      "test": "NriValidationTests.A_wide_64_bit_vertex_input_is_given_two_locations",
+      "state": "patched",
+      "verified": "v2026.21",
+      "upstream": [
+        "#13427"
+      ]
     },
     {
       "id": "U7",
@@ -87,20 +90,20 @@
       "title": "A missing `slang-glslang` is an error diagnostic on a successful result, reported once per global session",
       "area": "diagnostics",
       "kind": "Slang defect",
-      "patch": null,
-      "test": "DownstreamCompilerTests.Requiring_the_optimiser_is_the_default_and_succeeds_on_a_correct_payload",
-      "state": "unpatched",
-      "verified": "v2026.14.1"
+      "patch": "0017-warn-on-each-unoptimized-spirv.patch",
+      "test": "ProberTests.Without_the_optimiser_every_compile_warns_and_none_reports_an_error",
+      "state": "patched",
+      "verified": "v2026.21"
     },
     {
       "id": "U10",
       "title": "Windows: downstream libraries are not looked up in the compiler's own directory",
       "area": "loading",
       "kind": "Slang defect",
-      "patch": null,
-      "test": "ProberTests.Launched_by_dotnet_from_another_directory_the_compiler_still_finds_its_companions",
-      "state": "unpatched",
-      "verified": "v2026.14.1"
+      "patch": "0015-windows-load-beside-the-compiler.patch",
+      "test": "ProberTests.Slang_finds_its_companions_beside_itself_without_the_bindings_preload",
+      "state": "patched",
+      "verified": "v2026.21"
     },
     {
       "id": "U11",
@@ -109,7 +112,7 @@
       "kind": "Slang defect",
       "patch": null,
       "test": "NativeExportTests.No_entry_point_is_bound_by_a_C_plus_plus_mangling",
-      "state": "unpatched",
+      "state": "not patchable: the fix gives both functions C linkage, which renames their exported symbols and breaks every C++ binary linked against them; keeping the old mangled export beside a C one needs a second declaration of the same name with another linkage, which C++ does not allow in one program without linker aliasing",
       "verified": "v2026.21"
     },
     {
@@ -117,9 +120,9 @@
       "title": "`ISession::loadModule*` returns a borrowed reference; the header does not say so",
       "area": "API header",
       "kind": "Slang documentation defect",
-      "patch": null,
-      "test": "LifetimeTests.A_module_can_be_disposed_and_loaded_again",
-      "state": "unpatched",
+      "patch": "0007-document-loaded-module-ownership.patch",
+      "test": "HeaderDocumentationTests.The_header_says_a_loaded_module_is_owned_by_the_session",
+      "state": "patched",
       "verified": "v2026.21"
     },
     {
@@ -129,7 +132,7 @@
       "kind": "Slang defect",
       "patch": null,
       "test": "LifetimeTests.The_global_session_is_never_destroyed_from_inside_the_linkage",
-      "state": "unpatched",
+      "state": "known issue: macOS only and last measured on v2026.14.1; re-measuring needs a Mac; left to Slang (owner, 2026-11-08)",
       "verified": "v2026.14.1"
     },
     {
@@ -137,9 +140,9 @@
       "title": "`isBinaryModuleUpToDate` answers from the session's file cache",
       "area": "modules",
       "kind": "Slang defect",
-      "patch": null,
-      "test": "ModuleSerializationTests.The_staleness_check_answers_from_the_sessions_file_cache_not_from_disk",
-      "state": "unpatched",
+      "patch": "0006-binary-module-up-to-date-reads-afresh.patch",
+      "test": "ModuleSerializationTests.The_staleness_check_reads_the_files_afresh_in_the_session_that_loaded_the_module",
+      "state": "patched",
       "verified": "v2026.21"
     },
     {
@@ -149,7 +152,7 @@
       "kind": "Slang defect",
       "patch": null,
       "test": "SecondOpinionTests.The_calls_that_report_nothing_are_pinned_reporting_nothing",
-      "state": "unpatched",
+      "state": "known issue: small reflection gaps, several possibly by design, each answered by another route the binding reads; the one with a clear defect, the parameter block's space offset, is U33 and patched (owner, 2026-11-08: the moderate and large ones patched, the rest known issues)",
       "verified": "v2026.21"
     },
     {
@@ -157,19 +160,19 @@
       "title": "`linkWithOptions` silently ignores most compiler options",
       "area": "linking",
       "kind": "Slang defect",
-      "patch": null,
-      "test": "LinkOptionsTests.The_identity_hash_moves_with_an_option_that_changes_nothing",
-      "state": "unpatched",
-      "verified": "v2026.14.1"
+      "patch": "0018-link-time-options.patch",
+      "test": "LinkOptionsTests.A_link_time_option_takes_effect_or_says_it_cannot",
+      "state": "patched",
+      "verified": "v2026.21"
     },
     {
       "id": "U17",
       "title": "SPIR-V for `SV_VertexID` differs between x86-64 and aarch64 builds",
       "area": "SPIR-V",
       "kind": "Slang defect",
-      "patch": null,
-      "test": "SpirvDigestTests.The_corpus_compiles_deterministically_and_records_a_digest_for_every_shader",
-      "state": "unpatched",
+      "patch": "0021-vertex-id-loads-in-source-order.patch",
+      "test": "SpirvDigestTests.SV_VertexID_builtins_are_numbered_in_source_order",
+      "state": "patched",
       "verified": "v2026.21"
     },
     {
@@ -177,30 +180,39 @@
       "title": "GLSL: a hull shader's patch-constant function returns its struct with a bare `return;`",
       "area": "GLSL",
       "kind": "Slang defect",
-      "patch": null,
-      "test": "TargetValidationTests.Glsl_compiles_with_glslang",
-      "state": "unpatched",
-      "verified": "v2026.21"
+      "patch": "0009-glsl-patch-constant-function-void.patch",
+      "test": "TargetValidationTests.A_hull_shaders_patch_constant_function_returns_void_in_glsl",
+      "state": "patched",
+      "verified": "v2026.21",
+      "upstream": [
+        "#14335"
+      ]
     },
     {
       "id": "U19",
       "title": "GLSL: a domain shader's per-vertex input is sized by the patch, which GLSL forbids",
       "area": "GLSL",
       "kind": "Slang defect",
-      "patch": null,
-      "test": "TargetValidationTests.Glsl_compiles_with_glslang",
-      "state": "unpatched",
-      "verified": "v2026.21"
+      "patch": "0010-glsl-domain-input-unsized.patch",
+      "test": "TargetValidationTests.A_domain_shaders_patch_input_compiles_as_glsl",
+      "state": "patched",
+      "verified": "v2026.21",
+      "upstream": [
+        "#14335"
+      ]
     },
     {
       "id": "U20",
       "title": "WGSL: a `const` is initialised from an `override`",
       "area": "WGSL",
       "kind": "Slang defect",
-      "patch": null,
-      "test": "TargetValidationTests.Wgsl_passes_naga",
-      "state": "unpatched",
-      "verified": "v2026.21"
+      "patch": "0012-wgsl-override-not-const.patch",
+      "test": "TargetValidationTests.A_value_computed_from_a_specialization_constant_is_not_a_wgsl_const",
+      "state": "patched",
+      "verified": "v2026.21",
+      "upstream": [
+        "#14285"
+      ]
     },
     {
       "id": "U21",
@@ -209,8 +221,11 @@
       "kind": "Slang defect",
       "patch": null,
       "test": "TargetValidationTests.Wgsl_passes_naga",
-      "state": "unpatched",
-      "verified": "v2026.21"
+      "state": "known issue: the fix splits a matrix vertex input into one location per column and reassembles it, a varying-legalization feature (the TODO at slang-ir-legalize-varying-params.cpp:880); left to Slang (owner, 2026-11-08)",
+      "verified": "v2026.21",
+      "upstream": [
+        "#13736"
+      ]
     },
     {
       "id": "U22",
@@ -219,28 +234,39 @@
       "kind": "Slang defect",
       "patch": null,
       "test": "TargetValidationTests.Wgsl_passes_naga",
-      "state": "unpatched",
-      "verified": "v2026.21"
+      "state": "not patchable: binding_array is not in the WGSL specification; naga takes it behind enable wgpu_binding_array and Tint behind requires sized_binding_array, so no one text is valid for both, and choosing a WGSL dialect is a Slang design decision (Slang #13914 proposes one)",
+      "verified": "v2026.21",
+      "upstream": [
+        "#13708",
+        "#13914"
+      ]
     },
     {
       "id": "U23",
-      "title": "An internal error where a diagnostic belongs: `double` on WGSL and Metal, varyings on CPU and CUDA, append buffers on C++",
+      "title": "An internal error where a diagnostic belongs: double on WGSL and Metal, varyings on CPU and CUDA",
       "area": "diagnostics",
       "kind": "Slang defect",
-      "patch": null,
-      "test": "TargetValidationTests.Wgsl_passes_naga",
-      "state": "unpatched",
-      "verified": "v2026.21"
+      "patch": "0013-diagnose-unsupported-double-and-varyings.patch",
+      "test": "TargetValidationTests.A_construct_the_target_cannot_express_is_diagnosed_not_an_internal_error",
+      "state": "patched",
+      "verified": "v2026.21",
+      "upstream": [
+        "#10232"
+      ]
     },
     {
       "id": "U24",
       "title": "C++: the prelude has no vector arithmetic or comparison for `half`",
       "area": "C++",
       "kind": "Slang defect",
-      "patch": null,
-      "test": "TargetValidationTests.Slang_compute_corpus_cpp_compiles_with_the_host_compiler",
-      "state": "unpatched",
-      "verified": "v2026.21"
+      "patch": "0011-cpp-prelude-half-vector-ops.patch",
+      "test": "TargetValidationTests.Half_vector_arithmetic_and_comparison_compile_as_cpp",
+      "state": "patched",
+      "verified": "v2026.21",
+      "upstream": [
+        "#14037",
+        "#14194"
+      ]
     },
     {
       "id": "U25",
@@ -249,8 +275,11 @@
       "kind": "Slang defect",
       "patch": null,
       "test": "TargetValidationTests.Slang_compute_corpus_wgsl_passes_naga",
-      "state": "unpatched",
-      "verified": "v2026.21"
+      "state": "not patchable: WGSL has no 64-bit integer; diagnosing u64 breaks the naga users Slang emits it for, and keeping it breaks Tint, so the fix is the WGSL dialect choice Slang #13914 proposes, which is the maintainers' design decision",
+      "verified": "v2026.21",
+      "upstream": [
+        "#13914"
+      ]
     },
     {
       "id": "U26",
@@ -259,7 +288,7 @@
       "kind": "Slang defect",
       "patch": null,
       "test": "TargetValidationTests.Metal_compiles_to_air",
-      "state": "unpatched",
+      "state": "known issue: a Metal texture read overload; measured only on the macos-15 runner, the fix needs Metal-side investigation; left to Slang (owner, 2026-11-08)",
       "verified": "v2026.21"
     },
     {
@@ -269,8 +298,11 @@
       "kind": "Slang defect",
       "patch": null,
       "test": "TargetValidationTests.Metal_compiles_to_air",
-      "state": "unpatched",
-      "verified": "v2026.21"
+      "state": "known issue: unbounded resource arrays need Metal argument buffers, a feature (Slang #11970); left to Slang (owner, 2026-11-08)",
+      "verified": "v2026.21",
+      "upstream": [
+        "#11970"
+      ]
     },
     {
       "id": "U28",
@@ -279,7 +311,7 @@
       "kind": "Slang defect",
       "patch": null,
       "test": "TargetValidationTests.Metal_compiles_to_air",
-      "state": "unpatched",
+      "state": "known issue: the same matrix-varying feature as U21, for Metal; left to Slang (owner, 2026-11-08)",
       "verified": "v2026.21"
     },
     {
@@ -289,7 +321,7 @@
       "kind": "Slang defect",
       "patch": null,
       "test": "TargetValidationTests.Slang_compute_corpus_metal_compiles_to_air",
-      "state": "unpatched",
+      "state": "known issue: device-pointer arrays as kernel inputs need an argument-buffer lowering, a feature; left to Slang (owner, 2026-11-08)",
       "verified": "v2026.21"
     },
     {
@@ -297,9 +329,9 @@
       "title": "A component type linked a second time ignores the second link's options",
       "area": "linking",
       "kind": "Slang defect",
-      "patch": null,
-      "test": "CompositeTests.Linking_with_options_one_call_at_a_time_emits_what_Link_emits",
-      "state": "unpatched",
+      "patch": "0008-link-with-options-owns-its-options.patch",
+      "test": "CompositeTests.A_composite_linked_a_second_time_emits_what_its_second_links_options_say",
+      "state": "patched",
       "verified": "v2026.21"
     },
     {
@@ -307,9 +339,49 @@
       "title": "A second module loaded from source at an already-used path ends in an internal assert",
       "area": "diagnostics",
       "kind": "Slang defect",
+      "patch": "0005-module-path-already-loaded.patch",
+      "test": "CompilationTests.A_second_module_from_source_at_the_same_path_is_diagnosed_naming_the_path",
+      "state": "patched",
+      "verified": "v2026.21"
+    },
+    {
+      "id": "U32",
+      "title": "C++: an append or consume structured buffer ends in an internal error",
+      "area": "C++ output",
+      "kind": "Slang defect",
+      "patch": "0020-cpp-append-consume-counter.patch",
+      "test": "TargetValidationTests.Append_and_consume_buffers_compile_as_cpp",
+      "state": "patched",
+      "verified": "v2026.21"
+    },
+    {
+      "id": "U33",
+      "title": "A top-level parameter block's sub-object range reports space offset 0",
+      "area": "reflection",
+      "kind": "Slang defect",
+      "patch": "0019-parameter-block-space-offset.patch",
+      "test": "SecondOpinionTests.A_top_level_parameter_blocks_sub_object_range_reports_its_space",
+      "state": "patched",
+      "verified": "v2026.21"
+    },
+    {
+      "id": "U34",
+      "title": "GLSL: the tessellation stages declare no `layout(vertices = N) out` or input primitive",
+      "area": "GLSL output",
+      "kind": "Slang defect",
+      "patch": "0022-glsl-tessellation-layouts.patch",
+      "test": "TargetValidationTests.The_tessellation_stages_declare_their_glsl_layouts",
+      "state": "patched",
+      "verified": "v2026.21"
+    },
+    {
+      "id": "U35",
+      "title": "GLSL: a hull shader's per-vertex output is indexed with `uint(gl_InvocationID)`",
+      "area": "GLSL output",
+      "kind": "Slang defect",
       "patch": null,
-      "test": "CompilationTests.A_second_module_from_source_at_the_same_path_ends_in_an_internal_assert",
-      "state": "unpatched",
+      "test": "TargetValidationTests.Glsl_compiles_with_glslang",
+      "state": "known issue: GLSL output only, the SPIR-V target is valid; a fix is an emitter special case for one builtin's cast, left to Slang (owner, 2026-11-08: the moderate and large ones patched, the rest known issues)",
       "verified": "v2026.21"
     }
   ]

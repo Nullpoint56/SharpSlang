@@ -405,13 +405,13 @@ public class CompilationTests
         Assert.NotNull(global);
     }
 
-    [NativeFact]
+    [ReleasePayloadFact("U31")]
     public void A_second_module_from_source_at_the_same_path_ends_in_an_internal_assert()
     {
-        // U31, asserted as wrong: two modules of different names loaded from source under one path
-        // in one session. The second load fails with Slang's own assertion text and no diagnostic
-        // code (v2026.21, win-x64). When Slang reports it as a diagnostic, or loads both, this
-        // fails: drop the caller's rule in AGENTS.md#compilation-linking-and-diagnostics.
+        // U31, asserted as wrong on Slang's release: two modules of different names loaded from
+        // source under one path in one session. The second load fails with Slang's own assertion
+        // text and no diagnostic code (v2026.21, win-x64). Patch 0005 makes it E38208; when a Slang
+        // release carries that, this fails and the patch is dropped (AGENTS.md#patches).
         const string Source = """[shader("compute")] [numthreads(1, 1, 1)] void main() {}""";
         using var global = SlangGlobalSession.Create();
         using var session = global.CreateSession(new SessionOptions());
@@ -421,6 +421,24 @@ public class CompilationTests
         Assert.Contains("assert failure: slang-dictionary.h(325): The key already exists in Dictionary.", e.Message, StringComparison.Ordinal);
 
         // Another path is fine
+        using var other = session.LoadModuleFromSource("second", "other.slang", Source);
+    }
+
+    [PatchedFact("U31")]
+    public void A_second_module_from_source_at_the_same_path_is_diagnosed_naming_the_path()
+    {
+        // U31, patched (0005): the second load is refused with E38208, which names the path, and no
+        // assertion text. A module at another path still loads.
+        const string Source = """[shader("compute")] [numthreads(1, 1, 1)] void main() {}""";
+        using var global = SlangGlobalSession.Create();
+        using var session = global.CreateSession(new SessionOptions());
+        using var first = session.LoadModuleFromSource("first", "shared.slang", Source);
+
+        var e = Assert.Throws<SlangException>(() => session.LoadModuleFromSource("second", "shared.slang", Source));
+        Assert.Contains("38208", e.Message, StringComparison.Ordinal);
+        Assert.Contains("shared.slang", e.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("assert failure", e.Message, StringComparison.Ordinal);
+
         using var other = session.LoadModuleFromSource("second", "other.slang", Source);
     }
 }
