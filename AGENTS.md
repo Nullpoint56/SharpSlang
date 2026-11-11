@@ -749,12 +749,14 @@ What it measures is `tools/coverage/coverage.psd1`.
 - **Measured at 094296b** (Windows, VK and D3D12 on the RTX 4070 SUPER): 191 of 489 functions bound,
   186 with a call site the tests run; 53 of 120 fields; lines 92.3 % (2716/2943), branches 81.3 %;
   761 tests passed.
-- **Published, measured at 5774760** (branch `release-prep`; Windows, VK and D3D12 on the RTX 4070
-  SUPER; Slang v2026.21 built from source with 22 patches): 225 of 489 functions bound, 218 with a
-  call site the tests run (47 of 210 slots, 178 of 279 exports); 53 of 120 fields; lines 88.1 %
-  (9364/10629), branches 82.5 % (3409/4134); 1190 tests, 1168 passed, 22 skipped, 0 failed.
-  `docs/coverage.md` and `docs/badges/` are committed; the lines grew with the pipeline packages,
-  which `Modules` counts.
+- **Published, measured at 2cb38fc** (branch `release-prep`; Windows, VK and D3D12 on the RTX 4070
+  SUPER; Slang v2026.21 built from source with 23 patches): 225 of 489 functions bound, 218 with a
+  call site the tests run (47 of 210 slots, 178 of 279 exports); 53 of 120 fields; lines 92.7 %
+  (3203/3456), branches 79.9 % (1538/1924) of the hand-written C#; 1191 tests, 1169 passed, 22
+  skipped, 0 failed. `docs/coverage.md` and `docs/badges/` are committed. Source-generated code
+  under each project's `obj/` is not counted (`Areas`): the first report at 5774760 counted it and
+  read 88.1 % of 10,629 lines, 7,173 of them System.Text.Json's serializer for the layout and the
+  regex generator's.
 - **BoundSurface alone, after the split** (branch `sharpslang-bake`, Release, Windows; the test
   coverage half not run): 225 of 489 functions bound (47 of 210 slots, 178 of 279 exports), 53 of
   120 fields (Unbound surface). The pipeline packages are not in `BoundSurface.Assemblies`: they call

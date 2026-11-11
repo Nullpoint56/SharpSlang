@@ -35,9 +35,16 @@
     # Test coverage: the modules measured (file names, no extension)
     Modules = @('SharpSlang', 'SharpSlang.Descs', 'SharpSlang.Pipeline', 'SharpSlang.Pipeline.Bake', 'SharpSlang.Pipeline.NRI')
 
-    # Report areas by source path, first match wins; $null = not counted (generated L0)
+    # Report areas by source path, first match wins; $null = not counted: the generated L0, and
+    # what source generators write under obj/ (System.Text.Json's serializer for the layout,
+    # 7,173 of the 11,163 lines first measured at 2cb38fc, and the regex generator's)
     Areas = @(
         @{ Path = 'dotnet/Native/';      Area = $null }
+        @{ Path = 'dotnet/obj/';         Area = $null }
+        @{ Path = 'descs/obj/';          Area = $null }
+        @{ Path = 'pipeline/obj/';       Area = $null }
+        @{ Path = 'bake/obj/';           Area = $null }
+        @{ Path = 'pipeline-nri/obj/';   Area = $null }
         @{ Path = 'dotnet/Interop/';     Area = 'L1 dotnet/Interop' }
         @{ Path = 'dotnet/Core/';        Area = 'L2 dotnet/Core' }
         @{ Path = 'dotnet/Extensions/';  Area = 'L3 dotnet/Extensions' }
