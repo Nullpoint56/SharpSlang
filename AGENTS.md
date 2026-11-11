@@ -2098,6 +2098,15 @@ on `master`'s tree; the version job checks the last itself.
    `--skip-duplicate`, every refusal named at the end. `nuget_from_release = <tag>` pushes that
    release's own `.nupkg` assets and builds nothing.
 
+- **Rehearsed locally at c505907** (branch `release-prep`), the steps as the workflow runs them but
+  for the CI gate and the uploads: the version step on Windows and Linux (coverage current); the
+  six packs on Linux under WSL with win-x64 and linux-x64 built from source with the 22 patches
+  (linux-x64 above the glibc floor, `-AllowNewerGlibc`) and linux-arm64 from Slang's release
+  archive, there being no arm64 machine here; `check-packages.ps1 -Rids win-x64,linux-x64,linux-arm64`
+  passed, Source Link maps naming the commit; `api-changes.ps1` and `release-body.ps1`; consume
+  from those packages, Windows 64 passed and Linux 57 passed, 0 failed. It found the API diff
+  throwing on a first release and the standard-module path (Native packages), both fixed
+  at 20094f4.
 - **Preconditions, the owner's last step**: the repository public, CI building the payload from
   source (owner, 2026-11-08), and before that U4 patched test first (Patches), because Linux then
   builds from source.
