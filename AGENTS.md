@@ -43,7 +43,7 @@ The layout below is the binding template's, with the pipeline packages in the te
 | `tests/SharpSlang.Pipeline.Consumer/` | a reader-only consumer outside the solution's build that must carry no compiler (`AssemblySplitTests` builds it); the packed packages are consumed by `tools/consume` |
 | `samples/SharpSlang.Smoke/` | source to SPIR-V end to end; CI's loadability gate ("Tier 0 spike") |
 | `tools/` | `check.ps1` (lint), `fetch-native.ps1` (stages Slang's prebuilt release until the from-source build replaces it), `generate-native.ps1` with `generate-native-docs.ps1` and `.cs` (header comments as XML docs), `coverage.ps1` with `coverage/` (BoundSurface), `apidiff/`, `consume/`, `ci/` (Package tools) |
-| `runtimes/`, `obj/`, `bin/`, `artifacts/`, `TestResults/`, `_build/` | build output, git-ignored (`_build/`: coverage.ps1's measurement, consume.ps1's runs) |
+| `runtimes/`, `obj/`, `bin/`, `artifacts/`, `TestResults/`, `_build/` | build output, git-ignored (`_build/`: coverage.ps1's measurement; consume.ps1 runs in the system temp folder) |
 | `AGENTS.md` | these notes |
 | `CLAUDE.md` | one line, `@AGENTS.md`, so Claude Code loads these notes |
 | `CLAUDE.local.md` | git-ignored: the filing policy and how we deal with Slang upstream |
@@ -383,7 +383,12 @@ three, `IBindlessResourceMetadata::usesBindlessResourceHeap`).
   have the same names; the `.slang` sources are byte-identical and each `.slang-module` differs by a
   few bytes, an embedded relative source path (`../../../../../slang/source/...` against the
   release's `../../../../source/...`). What differs in substance is the Linux glibc floor (Pin and
-  payload).
+  payload). The embedded path is resolved from the folder the module is loaded from, and when a
+  file exists there Slang names it as the module's source: `tools/consume`'s `publish -r` and AOT
+  outputs sat five folders below the repository root, so the source-built modules named the
+  checkout's own `slang/source/standard-modules/numerics/numerics.slang` (rehearsal on the branch
+  `release-prep`, linux-x64). An application five folders below a Slang checkout would see the
+  same; the consume runs now build in the system temp folder.
 - **The neural and numerics modules are an option.** `-StandardModules WithoutNeuralNumerics`
   stages workgraph and functional only (3 files, 0.2 MB of the 31.6 MB); win-x64 `native/` is then
   31.5 MB instead of 62.9 MB, and `import slang.neural` / `import slang.numerics` fail. The default,

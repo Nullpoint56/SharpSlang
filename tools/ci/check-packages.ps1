@@ -17,7 +17,7 @@
     names that version in its targets, and carries no binary.
 
         pwsh tools/ci/check-packages.ps1 -Folder nupkg
-        pwsh tools/ci/check-packages.ps1 -Folder nupkg -Pins Version=2026.21.0-beta.1 -Commit <sha> -Rids win-x64,linux-x64
+        pwsh tools/ci/check-packages.ps1 -Folder nupkg -Pins Version=2026210.0.0-beta.1 -Commit <sha> -Rids win-x64,linux-x64
 
     Versions and pins come from Directory.Build.props (packages.psd1 names the properties); -Pins
     overrides them. -Commit defaults to HEAD. -Rids names the platforms the pack had native

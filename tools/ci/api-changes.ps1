@@ -17,8 +17,8 @@
     writes Markdown for release-body.ps1. -Package Old=New and -Rename Old=New carry a rename or a
     split across the comparison (PrismSlang.Runtime=SharpSlang.Pipeline, PrismSlang=SharpSlang).
 
-        pwsh tools/ci/api-changes.ps1 -New nupkg -Out api-changes.md -BaselineRef v2026.21.0-beta.1
-        pwsh tools/ci/api-changes.ps1 -New nupkg -Out api-changes.md -Version 2026.21.0-beta.2
+        pwsh tools/ci/api-changes.ps1 -New nupkg -Out api-changes.md -BaselineRef v2026210.0.0-beta.1
+        pwsh tools/ci/api-changes.ps1 -New nupkg -Out api-changes.md -Version 2026210.0.0-beta.2
 #>
 param(
     [Parameter(Mandatory)] [string]$New,
@@ -62,9 +62,18 @@ else {
     if (-not $Version) { throw "give -Baseline, -BaselineRef, or -Version (the release being made, to find the one before it on $Feed)" }
     $main = @($data.Packages | Where-Object { $_.Version -eq 'Version' -and $_.Assemblies })[0].Id
     $lower = $main.ToLowerInvariant()
-    $published = @((Invoke-RestMethod "$Feed/$lower/index.json").versions)
+    # A package never published has no version list: the feed answers 404.
+    $published = try { @((Invoke-RestMethod "$Feed/$lower/index.json").versions) }
+                 catch { if ($_.Exception.Response.StatusCode.value__ -eq 404) { @() } else { throw } }
     $earlier = @($published | Where-Object { $_ -ne $Version.ToLowerInvariant() })
-    if (-not $earlier) { throw "no earlier $main on $Feed to compare with" }
+    if (-not $earlier) {
+        # The first release: nothing to compare with, which the release body says rather than fails on.
+        $text = "## API changes`n`nFirst release: no earlier $main on nuget.org to compare with.`n"
+        if ($Out) { Set-Content -Path $Out -Value $text -NoNewline -Encoding utf8NoBOM }
+        Write-Host $text.TrimEnd()
+        if (Test-Path $temp) { Remove-Item $temp -Recurse -Force -ErrorAction SilentlyContinue }
+        return
+    }
     $previous = $earlier[-1]
     $Baseline = Join-Path $temp "nupkg"
     New-Item -ItemType Directory -Force $Baseline | Out-Null

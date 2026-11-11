@@ -35,7 +35,7 @@
                          and with an empty one
 
     What each run references comes from tools/ci/packages.psd1 (Consume), at the versions the folder
-    holds. Each run is a copy of tools/consume under _build/consume/<run>/.
+    holds. Each run is a copy of tools/consume under -Work/<run>/.
 
         pwsh tools/consume/consume.ps1 -Feed nupkg
         pwsh tools/consume/consume.ps1 -Feed nupkg -Skip aot
@@ -47,6 +47,13 @@
     The Microsoft.Direct3D.DXC version for the wrong-dxc run (default: the newest release on
     nuget.org below the pin).
 
+.PARAMETER Work
+    Where the runs are built and logged (default: sharpslang-consume in the system temp folder).
+    Outside the repository on purpose: a standard module built from source records its .slang
+    sources relative to Slang's build tree, five folders up, and from an output five folders below
+    the repository root that path is the checkout's own slang/source/, which Slang then names as
+    the module's source (AGENTS.md#native-packages).
+
 .PARAMETER Skip
     Runs to leave out (portable, run, nolicences, publish, aot, dxc, reader, nri, wrongdxc); each is reported as
     skipped by request.
@@ -56,6 +63,7 @@ param(
     [string]$Rid,
     [string]$WrongDxc,
     [string[]]$Skip = @(),
+    [string]$Work = (Join-Path ([System.IO.Path]::GetTempPath()) "sharpslang-consume"),
     [object]$Pins = @{},
     [string]$Spec
 )
@@ -72,7 +80,7 @@ if (-not $Feed) { $Feed = Join-Path $root "nupkg" }
 $Feed = (Resolve-Path $Feed).Path
 if (-not $Rid) { $Rid = "$($IsWindows ? 'win' : ($IsMacOS ? 'osx' : 'linux'))-$([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString().ToLowerInvariant())" }
 $exe = $IsWindows ? ".exe" : ""
-$work = Join-Path $root "_build" "consume"
+$work = [System.IO.Path]::GetFullPath($Work)
 if (Test-Path $work) { dotnet build-server shutdown *> $null; Remove-Item $work -Recurse -Force }
 New-Item -ItemType Directory -Force $work | Out-Null
 $packagesPath = Join-Path $work "packages"
