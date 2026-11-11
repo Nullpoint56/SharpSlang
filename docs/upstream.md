@@ -58,8 +58,8 @@ archive, which CI tests until the switch (`AGENTS.md`, Decisions), has none of t
 | U32 | C++: an append or consume structured buffer ends in an internal error | C++ output | Slang defect | `0020-cpp-append-consume-counter.patch` | `TargetValidationTests.Append_and_consume_buffers_compile_as_cpp` | patched |  | v2026.21 |
 | U33 | A top-level parameter block's sub-object range reports space offset 0 | reflection | Slang defect | `0019-parameter-block-space-offset.patch` | `SecondOpinionTests.A_top_level_parameter_blocks_sub_object_range_reports_its_space` | patched |  | v2026.21 |
 | U34 | GLSL: the tessellation stages declare no `layout(vertices = N) out` or input primitive | GLSL output | Slang defect | `0022-glsl-tessellation-layouts.patch` | `TargetValidationTests.The_tessellation_stages_declare_their_glsl_layouts` | patched |  | v2026.21 |
-| U35 | GLSL: a hull shader's per-vertex output is indexed with `uint(gl_InvocationID)` | GLSL output | Slang defect |  | `TargetValidationTests.Glsl_compiles_with_glslang` | known issue: GLSL output only, the SPIR-V target is valid; a fix is an emitter special case for one builtin's cast, left to Slang (owner, 2026-11-08: the moderate and large ones patched, the rest known issues) |  | v2026.21 |
-| U36 | A standard module records its source as a path relative to Slang's build tree, resolved from wherever the module is loaded | modules | Slang defect |  |  | unpatched |  | v2026.21 |
+| U35 | GLSL: a hull shader's per-vertex output is indexed with `uint(gl_InvocationID)` | GLSL output | Slang defect | `0023-glsl-hull-output-invocation-id.patch` | `TargetValidationTests.The_hull_shader_compiles_as_glsl` | patched |  | v2026.21 |
+| U36 | A standard module records its source as a path relative to Slang's build tree, resolved from wherever the module is loaded | modules | Slang defect |  |  | known issue: the stray file is only named among the dependency files, never read: a broken one there leaves the compile unchanged; the fix is in how Slang compiles the standard modules (owner, 2026-11-08: the moderate and large ones patched, the rest known issues) |  | v2026.21 |
 <!-- patch-registry:end -->
 
 Related upstream items found while checking whether these were known: the layout-query robustness
@@ -886,8 +886,10 @@ of the corpus with `-target cpp`.
 **Cause.** `prelude/slang-cpp-types-core.h` instantiates `SLANG_FLOAT_VECTOR_OPS` for `float` and `double`
 (lines 371-372) and not for `half`.
 
-**Fix.** Instantiate `SLANG_FLOAT_VECTOR_OPS(half)` beside the other two
-(`patches/0011-cpp-prelude-half-vector-ops.patch`).
+**Fix.** Instantiate `SLANG_FLOAT_VECTOR_OPS(half)` beside the other two where `half` is declared:
+`slang-cpp-scalar-intrinsics.h`, which declares it and which the prelude includes first, defines
+`SLANG_PRELUDE_HAS_HALF`, and `slang-cpp-types-core.h` tests it, so a host including the types alone
+(slang-rhi's CPU backend) builds as before (`patches/0011-cpp-prelude-half-vector-ops.patch`).
 
 **Measurement.** v2026.21, Windows x64, `clang++ -std=c++17 -fsyntax-only` with the prelude
 directory at the tag on the include path. Slang's own `tests/compute/half-vector-calc.slang` and
@@ -1116,10 +1118,15 @@ The SPIR-V target's module is valid.
 cast to the parameter's `uint`, and the output store is indexed with the cast value
 (`source/slang/slang-ir-glsl-legalize.cpp`, the hull branch beside `rewriteReturnToOutputStore`).
 
+**Fix.** At the end of `legalizeEntryPointForGLSL` for a hull shader on a target other than SPIR-V,
+re-index each element address of a per-vertex output whose index is `gl_InvocationID` behind an
+integer cast with the builtin's own value, which selects the same element
+(`patches/0023-glsl-hull-output-invocation-id.patch`, with a `SLANG_UNIT_TEST`).
+
 **Measurement.** v2026.21, win-x64 (the workstation), `glslangValidator -V --target-env vulkan1.2
 -S tesc` on the `tessellation` corpus case's hull shader once U18, U19 and U34 were patched, which
-had hidden it (`TargetValidationTests.Declared`, the GLSL row). Recorded as a known issue. Filed:
-no.
+had hidden it (`TargetValidationTests.Declared`, the GLSL row); with the patch the hull's GLSL is
+valid (`TargetValidationTests.The_hull_shader_compiles_as_glsl`). Filed: no.
 
 ## U36 — A standard module records its source as a path relative to Slang's build tree
 
@@ -1139,5 +1146,10 @@ relative to the module folder, so where the application sits does not change wha
 **Measurement.** v2026.21, linux-x64 under WSL, `import slang.numerics` through
 `IModule::getDependencyFilePath` on the source-built payload: from five folders below the
 repository root the path names the checkout's file; from the system temp folder it names the copy
-beside the module. Whether Slang reads the file's contents from there, or only names it, is not
-measured. Not patched: the fix is in how the standard modules are compiled or staged. Filed: no.
+beside the module. Slang only names the file: an application published three folders below a
+folder holding a deliberately broken `slang/source/standard-modules/numerics/numerics.slang`
+compiled `import slang.numerics` to the same 664 bytes of SPIR-V with the file absent, present and
+broken, and listed it among the dependency files in the last two (win-x64, the patched build).
+A dependency list naming a file outside the module folder is the whole effect; a host that hashes
+dependency files, as a staleness check does, reads it. Recorded as a known issue: the fix is in how
+the standard modules are compiled. Filed: no.

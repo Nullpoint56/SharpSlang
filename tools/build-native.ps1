@@ -57,6 +57,12 @@
   patch's test red and for the Slang-bump check (tools/ci/patch-registry.ps1 -Bump); never a payload
   to pack (AGENTS.md#patches).
 
+.PARAMETER WithSlangTests
+  Build Slang's own test tools as well (SLANG_ENABLE_TESTS) into _build/<rid>-tests/, with the
+  patches, and run the regression test each patch adds under tools/slang-unit-test/ (its
+  SLANG_UNIT_TEST names) with slang-test. Stages nothing. For checking a patch's Slang-side test
+  before it is offered upstream from a fork (AGENTS.md#patches).
+
 .PARAMETER Configuration
   CMake configuration. Release by default.
 
@@ -72,6 +78,7 @@ param(
     [switch]$WithGlslModule,
     [switch]$AllowNewerGlibc,
     [switch]$WithoutPatches,
+    [switch]$WithSlangTests,
     [string]$Configuration = "Release",
     [switch]$Clean
 )
@@ -299,7 +306,12 @@ Write-Host "    ninja:    $((ninja --version) -join '')"
 Write-Host "    python:   $python"
 
 # ------------------------------------------------------------------------------------------ configure
-$build = Join-Path $root "_build" $(if ($WithoutPatches) { "$Rid-unpatched" } else { $Rid })
+if ($WithSlangTests -and $WithoutPatches) { throw "-WithSlangTests runs the patches' tests: give it without -WithoutPatches" }
+# Slang's test tools need slang-rhi (SLANG_ENABLE_TESTS requires SLANG_ENABLE_SLANG_RHI), slangc and
+# slangd (slang-test depends on both). The tree
+# is never staged, so the option and download guards below give way for it.
+if ($WithSlangTests) { foreach ($o in "SLANG_ENABLE_TESTS", "SLANG_ENABLE_SLANG_RHI", "SLANG_ENABLE_SLANGC", "SLANG_ENABLE_SLANGD") { $opt[$o] = "ON" } }
+$build = Join-Path $root "_build" $(if ($WithoutPatches) { "$Rid-unpatched" } elseif ($WithSlangTests) { "$Rid-tests" } else { $Rid })
 $deps  = Join-Path $build "_deps"
 if ($Clean -and (Test-Path $build)) { Remove-Item $build -Recurse -Force -Confirm:$false }
 
@@ -361,20 +373,49 @@ foreach ($kv in $opt.GetEnumerator()) {
     }
 }
 $unknown = @($entries.Keys | Where-Object { -not $opt.Contains($_) -and $derived -notcontains $_ })
-if ($unknown) { throw "slang/ declares options this script does not decide: $($unknown -join ', '). Add each to `$opt, and to the options table in AGENTS.md (Native build) with a reason." }
+if ($unknown -and -not $WithSlangTests) { throw "slang/ declares options this script does not decide: $($unknown -join ', '). Add each to `$opt, and to the options table in AGENTS.md (Native build) with a reason." }
 # What was downloaded: only DXC is expected (AGENTS.md#native-build). slang-llvm, Dawn and slang-tint would land here
 # or in the build tree's top level if an option above stopped holding.
 $downloaded = @(Get-ChildItem $deps -Directory -ErrorAction SilentlyContinue | Where-Object { $_.Name -like '*-src' } | ForEach-Object { $_.Name })
 Write-Host "    downloaded (_deps): $(if ($downloaded) { $downloaded -join ', ' } else { 'nothing' })"
 $expectedDownloads = @(if ((& $on SLANG_ENABLE_DXIL) -and ($targetWindows -or ($targetLinux -and -not $targetArm64))) { "dxc-src" })
 $extraDownloads = @($downloaded | Where-Object { $expectedDownloads -notcontains $_ })
-if ($extraDownloads) { throw "the configure downloaded something no option asked for: $($extraDownloads -join ', ')" }
+if ($extraDownloads -and -not $WithSlangTests) { throw "the configure downloaded something no option asked for: $($extraDownloads -join ', ')" }
 
 # ------------------------------------------------------------------------------------------ build
 Write-Host "==> build ($Configuration, $([Environment]::ProcessorCount) logical processors)"
 $buildTime = [System.Diagnostics.Stopwatch]::StartNew()
-Invoke-Native "cmake build" { cmake --build $build --config $Configuration --parallel }
+# With the tests, slang-test and what it loads (slang-unit-test among them); not slang-rhi's own
+# tests, which compile a path into a definition CMake drops when the path holds a `#`.
+$targets = if ($WithSlangTests) { @("--target", "slang-test") } else { @() }
+Invoke-Native "cmake build" { cmake --build $build --config $Configuration --parallel @targets }
 $buildTime.Stop()
+
+if ($WithSlangTests) {
+    # Each patch's regression test: the SLANG_UNIT_TEST names in the files it adds under
+    # tools/slang-unit-test/, run by slang-test from slang/ as Slang's CI runs them.
+    $names = @($patches | ForEach-Object {
+        Select-String -Path $_.FullName -Pattern '^\+SLANG_UNIT_TEST\((\w+)\)' | ForEach-Object { $_.Matches[0].Groups[1].Value }
+    })
+    $bin = Join-Path $build $Configuration "bin"
+    $slangTest = Join-Path $bin "slang-test$(if ($targetWindows) { '.exe' })"
+    if (-not (Test-Path $slangTest)) { throw "slang-test was not built: $slangTest" }
+    Write-Host "==> slang-test: $($names.Count) unit tests from patches/"
+    Push-Location $slang
+    try {
+        $failed = @()
+        foreach ($n in $names) {
+            $output = & $slangTest -bindir $bin "slang-unit-test-tool/$n.internal" 2>&1
+            $ok = $LASTEXITCODE -eq 0 -and ($output -match 'passed') -and -not ($output -match '\bFAILED\b|failed test')
+            Write-Host ("    {0,-44} {1}" -f $n, $(if ($ok) { "passed" } else { "FAILED" }))
+            if (-not $ok) { $failed += $n; $output | Select-Object -Last 15 | ForEach-Object { Write-Host "        $_" } }
+        }
+    }
+    finally { Pop-Location }
+    if ($failed) { throw "$($failed.Count) of $($names.Count) patch unit tests failed: $($failed -join ', ')" }
+    Write-Host "==> all $($names.Count) patch unit tests passed; nothing staged"
+    return
+}
 
 # Slang writes its outputs under <build>/<config>/{bin,lib}: shared libraries in bin/ on Windows and
 # lib/ elsewhere, beside the standard modules.

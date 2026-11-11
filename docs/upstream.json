@@ -379,9 +379,9 @@
       "title": "GLSL: a hull shader's per-vertex output is indexed with `uint(gl_InvocationID)`",
       "area": "GLSL output",
       "kind": "Slang defect",
-      "patch": null,
-      "test": "TargetValidationTests.Glsl_compiles_with_glslang",
-      "state": "known issue: GLSL output only, the SPIR-V target is valid; a fix is an emitter special case for one builtin's cast, left to Slang (owner, 2026-11-08: the moderate and large ones patched, the rest known issues)",
+      "patch": "0023-glsl-hull-output-invocation-id.patch",
+      "test": "TargetValidationTests.The_hull_shader_compiles_as_glsl",
+      "state": "patched",
       "verified": "v2026.21"
     },
     {
@@ -391,7 +391,7 @@
       "kind": "Slang defect",
       "patch": null,
       "test": null,
-      "state": "unpatched",
+      "state": "known issue: the stray file is only named among the dependency files, never read: a broken one there leaves the compile unchanged; the fix is in how Slang compiles the standard modules (owner, 2026-11-08: the moderate and large ones patched, the rest known issues)",
       "verified": "v2026.21"
     }
   ]

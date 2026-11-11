@@ -523,6 +523,7 @@ command; `-p:SharpSlangRequireNative=false` skips that (lint does).
 | `-WithGlslModule` | also stage `slang-glsl-module` (GLSL source input) |
 | `-AllowNewerGlibc` | Linux: stage a build above the pinned glibc floor instead of failing, for local test builds (Pin and payload) |
 | `-WithoutPatches` | reverse any applied patch, apply none, build into `_build/<rid>-unpatched/`: the payload a patch's test runs red against, and the Slang-bump check's (Patches); never one to pack |
+| `-WithSlangTests` | also build Slang's test tools (tests, slang-rhi, slangc, slangd) into `_build/<rid>-tests/`, patches applied, and run each patch's `SLANG_UNIT_TEST` with `slang-test`; stages nothing (Patches) |
 | `-Configuration` | CMake configuration, `Release` by default |
 | `-Clean` | delete `_build/<rid>/`, downloads included, before configuring |
 
@@ -830,6 +831,7 @@ packages).
 | `0020-cpp-append-consume-counter` | U32 | C++: the counter of an append or consume buffer is emitted through the atomic-add helpers |
 | `0021-vertex-id-loads-in-source-order` | U17 | the two loads `SV_VertexID` and `SV_InstanceID` lower to are emitted in source order, so x86-64 and aarch64 builds agree |
 | `0022-glsl-tessellation-layouts` | U34 | GLSL: the hull shader declares `layout(vertices = N) out`, the domain shader its abstract patch |
+| `0023-glsl-hull-output-invocation-id` | U35 | GLSL: a hull shader's per-vertex output is indexed with `gl_InvocationID` itself |
 
 Every Slang defect in `docs/upstream.md` gets a patch, test first, and the registry says what became
 of each (owner, 2026-11-08: "All of them and we roll a registry of them so we can clearly see if they
@@ -909,9 +911,16 @@ is in `patches/README.md`. `slang/` is never edited or staged by path; its point
   serialization, header, link options, second opinions, entry-point names, payload, downstream
   compilers) 295 results, 261 passed, 34 skipped, 0 failed.
 - **Each patch carries Slang's own regression test** under `tools/slang-unit-test/` (`SLANG_UNIT_TEST`),
-  as their contribution guide asks. `build-native.ps1` builds no tests (`SLANG_ENABLE_TESTS` OFF), so
-  those tests are compiled and run only by Slang's CI on a fork PR; the binding's prober tests are
-  the measurement here.
+  as their contribution guide asks, but 0015 and 0017, whose behaviour depends on how the process is
+  launched or on a missing library. The payload build compiles no tests (`SLANG_ENABLE_TESTS` OFF);
+  `build-native.ps1 -WithSlangTests` builds Slang's test tools beside it (`_build/<rid>-tests/`,
+  `slang-test` and what it loads, slang-rhi included) and runs each test with `slang-test`. First run
+  (win-x64, branch `release-prep`): it found 0011 breaking Slang's own build, since slang-rhi's CPU
+  backend includes the prelude's types without the header that declares `half` (MSVC C2065; the
+  operators are now instantiated only where `half` is declared), and 0016's test counting the
+  specialization constant as the buffer (fixed to look the buffer up by name). slang-rhi's own
+  tests are not built: they compile a path into a preprocessor definition, which CMake drops when
+  the path holds a `#`, as this checkout's does.
 
 - **Applying.** `build-native.ps1` applies `patches/*.patch` in name order and skips a patch already
   applied, by a reverse check with `-C0`.
@@ -931,7 +940,10 @@ is in `patches/README.md`. `slang/` is never edited or staged by path; its point
   switch (`native-from-source` builds, the legs restore its payload; Patches). What it means until
   then: CI does not verify the patches. Their tests skip there, naming the patch, so every patch
   batch is verified locally against our build, on Windows and on Linux under WSL (Patches). A
-  release packs payloads built from source, patches applied, whatever the variable says.
+  release packs payloads built from source, patches applied, whatever the variable says. One run
+  can take the source-built payload without the variable: the manual run's `from_source` input
+  (owner, 2026-11-11), for checking the hosted runners' source builds (linux-arm64 has no other
+  place to build) and the patched tests on every leg before a release.
 - **Name and repository: SharpSlang** (owner, 2026-11-08). No package or repository had the name
   that day. No engine or product name in it.
 - **Packages: `SharpSlang`, `SharpSlang.Descs`, `SharpSlang.Dxc`, `SharpSlang.Pipeline`,
@@ -1650,8 +1662,8 @@ v2026.21 on the workstation (Tests and skips has the counts).
   GLSL forbids (U19). Both patched (0009, 0010). Neither stage declared its layout either
   (`layout(vertices = N) out`, the input primitive), which glslang refuses once the other two are
   fixed (U34, patched, 0022). Behind those the hull stage indexes its per-vertex output with
-  `uint(gl_InvocationID)`, which glslang refuses (U35, a known issue), so the hull stays declared
-  rejected with those words.
+  `uint(gl_InvocationID)`, which glslang refuses (U35, patched, 0023); with the four, both stages
+  are valid GLSL.
 - **HLSL** carries Vulkan-only constructs through: `SubpassInput` and a `double` stage input are
   written into the HLSL, and dxc refuses both, as on the DXIL target, where the refusal comes from
   inside Slang's compile instead. Slang's HLSL keeps each entry point's Slang name, so dxc is run

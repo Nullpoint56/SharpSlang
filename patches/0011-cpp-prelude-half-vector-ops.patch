@@ -8,20 +8,44 @@ half-vector-compare.slang therefore emit C++ that does not compile against the p
 22.1.8, "invalid operands to binary expression ('Vector<half, 3>' (aka 'Vector<_Float16, 3>') and
 'Vector<half, 3>')".
 
-This instantiates SLANG_FLOAT_VECTOR_OPS(half) beside the other two. half is declared by
-slang-cpp-scalar-intrinsics.h, which slang-cpp-prelude.h includes first.
+This instantiates SLANG_FLOAT_VECTOR_OPS(half) beside the other two where half is declared.
+slang-cpp-scalar-intrinsics.h declares it, and slang-cpp-prelude.h includes it before the types; it
+now also defines SLANG_PRELUDE_HAS_HALF, which slang-cpp-types-core.h tests. A host that includes
+the types alone, as slang-rhi's CPU backend includes slang-cpp-types.h, has no half and gets no
+operators for it.
 
 Measured on v2026.21 (win-x64): both tests' C++ output refused by clang++ -std=c++17
--fsyntax-only with the prelude at the tag on the include path.
+-fsyntax-only with the prelude at the tag on the include path. An unconditional instantiation broke
+slang-rhi's CPU backend in a build with SLANG_ENABLE_TESTS (MSVC C2065, 'half': undeclared
+identifier).
+diff --git a/prelude/slang-cpp-scalar-intrinsics.h b/prelude/slang-cpp-scalar-intrinsics.h
+index c13763c..16f90c6 100644
+--- a/prelude/slang-cpp-scalar-intrinsics.h
++++ b/prelude/slang-cpp-scalar-intrinsics.h
+@@ -741,6 +741,10 @@ struct half
+ };
+ #endif
+ 
++// `half` is declared above. slang-cpp-types-core.h, when included after this header, defines the
++// vector operators for it.
++#define SLANG_PRELUDE_HAS_HALF 1
++
+ half U16_ashalf(uint16_t x);
+ 
+ union Union16
 diff --git a/prelude/slang-cpp-types-core.h b/prelude/slang-cpp-types-core.h
-index 10d694bb6..35b66d537 100644
+index 10d694b..b1e45e4 100644
 --- a/prelude/slang-cpp-types-core.h
 +++ b/prelude/slang-cpp-types-core.h
-@@ -370,6 +370,7 @@ SLANG_INT_VECTOR_OPS(uintptr_t)
+@@ -370,6 +370,11 @@ SLANG_INT_VECTOR_OPS(uintptr_t)
  
  SLANG_FLOAT_VECTOR_OPS(float)
  SLANG_FLOAT_VECTOR_OPS(double)
++// `half` exists only where slang-cpp-scalar-intrinsics.h was included first, as the C++ prelude
++// does; a host including the types alone has no `half` and no operators for it.
++#ifdef SLANG_PRELUDE_HAS_HALF
 +SLANG_FLOAT_VECTOR_OPS(half)
++#endif
  
  #define SLANG_VECTOR_INT_NEG_OP(T)                      \
      template<int N>                                     \

@@ -72,6 +72,10 @@ on:
         description: 'Run every requested job even if this tree already passed it'
         type: boolean
         default: false
+      from_source:
+        description: 'Test the payload built from slang/ with patches/, as SHARPSLANG_NATIVE_FROM_SOURCE does, for this run only (with force when the tree already passed on the release payload)'
+        type: boolean
+        default: false
 permissions:
   contents: read
 
@@ -263,8 +267,8 @@ jobs:
         uses: ./.github/actions/slang-payload
         with:
           rid: ${{ matrix.rid }}
-          source: ${{ vars.SHARPSLANG_NATIVE_FROM_SOURCE == 'true' && 'build' || 'release' }}
-          restore-only: ${{ vars.SHARPSLANG_NATIVE_FROM_SOURCE == 'true' && 'true' || 'false' }}
+          source: ${{ (vars.SHARPSLANG_NATIVE_FROM_SOURCE == 'true' || inputs.from_source) && 'build' || 'release' }}
+          restore-only: ${{ (vars.SHARPSLANG_NATIVE_FROM_SOURCE == 'true' || inputs.from_source) && 'true' || 'false' }}
           token: ${{ github.token }}
 
       - name: Payload carries the SPIR-V optimiser
@@ -556,7 +560,7 @@ jobs:
       # per entry that carries a patch (docs/upstream.json, AGENTS.md#patches). On Slang's release
       # they skip by design, naming the patch, and nothing is counted.
       - name: The patched-behaviour tests actually ran (source-built payload)
-        if: vars.SHARPSLANG_NATIVE_FROM_SOURCE == 'true'
+        if: (vars.SHARPSLANG_NATIVE_FROM_SOURCE == 'true' || inputs.from_source)
         shell: pwsh
         run: |
           $carried = @((Get-Content docs/upstream.json -Raw | ConvertFrom-Json).defects | Where-Object { $_.patch })
@@ -983,7 +987,7 @@ jobs:
   native-from-source:
     name: native payload from source (${{ matrix.rid }})
     needs: gate
-    if: vars.SHARPSLANG_NATIVE_FROM_SOURCE == 'true' && needs.gate.outputs.legs != '[]'
+    if: (vars.SHARPSLANG_NATIVE_FROM_SOURCE == 'true' || inputs.from_source) && needs.gate.outputs.legs != '[]'
     # Linux on Ubuntu 22.04, not the test legs' 24.04: the host's glibc and libstdc++ set the oldest
     # Linux the payload loads on, and 22.04 gives Slang's release floor, GLIBC_2.34 and GLIBCXX_3.4.29
     # (Directory.Build.props, LinuxGlibcFloor); a 24.04 build needs 2.38 and 3.4.32, and build-native.ps1

@@ -40,7 +40,7 @@ new file mode 100644
 index 000000000..31a01efdf
 --- /dev/null
 +++ b/tools/slang-unit-test/unit-test-specialization-sized-constant-buffer-binding.cpp
-@@ -0,0 +1,52 @@
+@@ -0,0 +1,59 @@
 +// unit-test-specialization-sized-constant-buffer-binding.cpp
 +
 +#include "slang-com-ptr.h"
@@ -88,8 +88,15 @@ index 000000000..31a01efdf
 +
 +    auto layout = module->getLayout(0, diagnostics.writeRef());
 +    SLANG_CHECK_ABORT(layout != nullptr);
-+    SLANG_CHECK_ABORT(layout->getParameterCount() == 1);
-+    auto parameter = layout->getParameterByIndex(0);
++    // The specialization constant is a global parameter too; the buffer is found by name.
++    slang::VariableLayoutReflection* parameter = nullptr;
++    for (unsigned i = 0; i < layout->getParameterCount(); ++i)
++    {
++        auto candidate = layout->getParameterByIndex(i);
++        if (candidate->getName() && UnownedStringSlice(candidate->getName()) == "gUnsized")
++            parameter = candidate;
++    }
++    SLANG_CHECK_ABORT(parameter != nullptr);
 +    SLANG_CHECK(parameter->getCategoryCount() > 0);
 +    SLANG_CHECK(parameter->getTypeLayout()->getDescriptorSetCount() + parameter->getCategoryCount() > 0);
 +}
