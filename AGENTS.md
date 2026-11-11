@@ -575,8 +575,10 @@ a zip on Windows, a tarball on Linux x86_64, none on macOS or Linux arm64) into
 set, the options, the compiler and the DXC pin: while it matches, the configure runs with
 `FETCHCONTENT_FULLY_DISCONNECTED=ON`; when it moves, the tree is deleted, downloads included.
 
-The macOS path (otool link list, `minos 15.0`, LC_RPATHs) and the linux-arm64 build have not run:
-written without a Mac, and linux-arm64 measured only on the release archive.
+Every RID has built on GitHub-hosted runners, the payload checks passing: the manual `from_source`
+run 43081907145 (branch `release-prep`, 23 patches) built osx-arm64 on macos-15 in 6 minutes,
+linux-x64 on ubuntu-22.04 in 28, linux-arm64 on ubuntu-22.04-arm in 31 and win-x64 on
+windows-2025-vs2026 in 31, and run 43089797096 tested the four payloads green (Tests and skips).
 
 ### Regenerating L0
 
@@ -1840,7 +1842,8 @@ v2026.21 on the workstation (Tests and skips has the counts).
   emitted in source order, win-x64 numbers `VertexIndex` before `BaseVertex` as aarch64 did
   (`SpirvDigestTests`, both payloads). `compare-digests.sh` expects no difference when both
   architectures' payloads carry 0021 (each leg's `payload-patches.txt`); that the patched modules
-  are equal across architectures is first measured by CI's source build.
+  are equal across architectures is measured: run 43089797096's digests job, both architectures'
+  payloads carrying 0021, found x64 and arm64 identical on every corpus shader.
 - **Crash behaviour has no platform rule**: the resource-array `InternalError` is catchable on
   Windows and fatal on Linux and macOS; `specializeType` on a non-generic type is null on Windows
   and macOS and fatal on Linux; `specializeGeneric` mismatches crash on Windows and Linux and are
@@ -1952,10 +1955,13 @@ CUDA device harness.
   `apply-generic-to-itself`): benign on Windows and Linux, unproven on macOS; asked out of process.
 - **Expected skips.** The workstation skips the `NativePayloadTests` rows for other platforms' binaries (3), the Metal rows (3) and `DxilTests`' session without dxc (1148 passed with the packaging, 1142 at the split, 1036 before it; Test runner); before the oracles it skipped only the first three (788 passed at eae435a). WSL skips the D3D12 and
   DXIL rows, 2 `NativePayloadTests` rows and the validator rows for tools Linux lacks (32 with the packaging, 899 passed; 32 at the split, 893
-  passed; 26 and 825 before it; 682 at eae435a). CI per leg has not run on this tree: the last figures are of the tree
-  before the Vulkan projection's removal (run 42422416933 on 9af4412: win-x64 774 passed, 10
-  skipped; linux-x64 740, 12; linux-arm64 670, 18; run 42423571989 on 15428be: osx-arm64 632, 24),
-  and are re-measured by the first CI run of this tree. Each skip prints its reason in the TRX: no
+  passed; 26 and 825 before it; 682 at eae435a). CI per leg with the payload built from source and
+  the 23 patches (run 43089797096 on 6275edc, the `from_source` input): win-x64 1031 results, 983
+  passed, 48 skipped; linux-x64 967, 919, 48; linux-arm64 871, 804, 67; osx-arm64 839, 766, 73; 0
+  failed on each, and 20, 22, 21 and 19 of the 23 patched entries' tests ran (the rest want a
+  validator or device the leg lacks). The release-payload figures before the Vulkan projection's
+  removal were run 42422416933 on 9af4412 (win-x64 774 passed, 10 skipped; linux-x64 740, 12;
+  linux-arm64 670, 18) and 42423571989 on 15428be (osx-arm64 632, 24). Each skip prints its reason in the TRX: no
   Vulkan driver on hosted Windows, no D3D12 or dxc off Windows, no `libNRI.so` on linux-arm64, NRI
   by decision on macOS.
 
@@ -2055,7 +2061,7 @@ owner's (owner, 2026-11-07):
 
   | Workflow | Starts on | Jobs (timeout, minutes; slowest measured) |
   |---|---|---|
-  | `ci.yml` | `master` push (not docs-only), manual, weekly | `gate` (5; 46 s), `regen` (calls `regen.yml` on a branch whose inputs changed), `checks` (calls `checks.yml`), `docs` (5; 11 s), `test` per leg (win-x64 30; 521 s, linux-x64 35; 667 s, linux-arm64 20; 360 s, osx-arm64 25; 474 s; the Test step 20; 375 s), `native-from-source` (off until `SHARPSLANG_NATIVE_FROM_SOURCE` is `true`, then the legs need it; 120, unmeasured), `digests` (5; 9 s, the leg count in its name because the gate reads it back), `report` (5; 16 s) |
+  | `ci.yml` | `master` push (not docs-only), manual, weekly | `gate` (5; 46 s), `regen` (calls `regen.yml` on a branch whose inputs changed), `checks` (calls `checks.yml`), `docs` (5; 11 s), `test` per leg (win-x64 30; 521 s, linux-x64 35; 667 s, linux-arm64 20; 360 s, osx-arm64 25; 474 s; the Test step 20; 375 s), `native-from-source` (off until `SHARPSLANG_NATIVE_FROM_SOURCE` is `true` or a manual run's `from_source`, then the legs need it; 120; 31 min, a cache hit seconds), `digests` (5; 9 s, the leg count in its name because the gate reads it back), `report` (5; 16 s) |
   | `checks.yml` | manual; called by `ci.yml` | `gate` (5), `lint` (10; 83 s before the descs version), `zero-alloc` (10; unmeasured on a runner) |
   | `regen.yml` | `master` push touching its inputs, manual; called by `ci.yml` | `gate` (5), `generated bindings are current` (10; 43 s) |
   | `coverage.yml` | `master` push touching a measured input or the report, manual | `coverage.ps1 -Check` (5; git only). Red blocks nothing |
