@@ -410,7 +410,7 @@ public class AllocationTests
         }
 
         // Measured: 0 host allocations and 0 reallocations over the 300 frames (workstation, NONE,
-        // SharpNRI 191.0.0-beta.4; NONE's objects are static dummies, and SharpNRI measures the
+        // SharpNRI 192.0.0-beta.1; NONE's objects are static dummies, and SharpNRI measures the
         // same of its own frame).
         Assert.True(hostAllocations == 0 && hostReallocations == 0,
             $"{Frames} frames made {hostAllocations} host allocations and {hostReallocations} reallocations through NRI's allocator; a frame must make none.");
@@ -431,7 +431,7 @@ public class AllocationTests
         // value) in place of Submit over spans: 14,400 bytes, 48 per frame, the one-element array
         // its signal span was built from — against the PrismNRI 0.3.0-alpha release. This test
         // found that, PrismNRI changed the overload to a span over a local (2b4ccf4), and against
-        // SharpNRI 191.0.0-beta.4 the same planted fault measures 0, so it no longer fails. A
+        // SharpNRI 192.0.0-beta.1 the same planted fault measures 0, so it no longer fails. A
         // foreach over DescriptorSets and each set's Ranges in
         // place of the indexed loops: 36,000 bytes, 120 per frame, three boxed List<T> enumerators.
     }
@@ -641,7 +641,7 @@ public class AllocationTests
             "submitting and waiting: the one-command-buffer Submit(cmd, fence, value) built its "
                 + "signal from an array up to PrismNRI 0.3.0-alpha (48 bytes a call); Submit over "
                 + "spans never did, and from PrismNRI 2b4ccf4 neither does the one-buffer form "
-                + "(measured 0 against SharpNRI 191.0.0-beta.4)",
+                + "(measured 0 against SharpNRI 192.0.0-beta.1)",
         ];
 
         private readonly long[] _bytes = new long[Suspects.Length];
