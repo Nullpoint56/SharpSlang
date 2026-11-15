@@ -90,15 +90,15 @@
       and SharpNRI.Testing (its validated headless device) at SharpNriPackageVersion, and
       SharpNRI.Descs (NRI's descriptor structs and enums, no native code) at
       SharpNriDescsPackageVersion. The two differ because SharpNRI.Descs is versioned by NRI and
-      released only when the descs change. Each package's major is the NRI version: 191.x is NRI
-      v191. Read by:
+      released only when the descs change (equal while they are). Each package's major is the NRI version: 192.x is NRI
+      v192. Read by:
 
         pipeline-nri/SharpSlang.Pipeline.NRI.csproj     SharpNRI.Descs, the one package the projection references
         tests/SharpSlang.Tests        SharpNRI and SharpNRI.Testing
 
       Exact, like the Slang pin, and for a smaller version of the same reason: the descs are a
       transcription of one NRI header revision, so a newer one can move a field. SharpNRI itself
-      depends on exactly one SharpNRI.Descs, [191.0.0-beta.1] for 191.0.0-beta.4. A Descs pin here
+      depends on exactly one SharpNRI.Descs, [192.0.0-beta.1] for 192.0.0-beta.1. A Descs pin here
       that disagrees with it does not fail the restore: measured with 1.0.0-beta.2, the tests'
       restore warns NU1608 and resolves SharpNRI's Descs for the tests while SharpSlang.Pipeline.NRI builds
       against the pin. CI's build runs with -warnaserror, which makes that warning the error. And
@@ -111,8 +111,8 @@
       Bumping it is: change these lines, restore, run the tests, and re-read the rules
       NriProjectionTests names if the NRI major moved.
     -->
-    <SharpNriPackageVersion>191.0.0-beta.4</SharpNriPackageVersion>
-    <SharpNriDescsPackageVersion>191.0.0-beta.1</SharpNriDescsPackageVersion>
+    <SharpNriPackageVersion>192.0.0-beta.1</SharpNriPackageVersion>
+    <SharpNriDescsPackageVersion>192.0.0-beta.1</SharpNriDescsPackageVersion>
 
     <!--
       The pinned Microsoft.Direct3D.DXC package, for SharpSlang.Dxc only. Slang compiles to
