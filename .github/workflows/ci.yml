@@ -2,11 +2,9 @@ name: CI
 
 # What runs, and when, is a measured decision rather than a default.
 #
-# The repository is private on the Free plan: $12 of Actions a month, which is 2,000 Linux minutes
-# at $0.006, with Windows at $0.010 and macOS at $0.062. Every job is billed rounded up to whole
-# minutes. October 2026's allowance was spent in two days. A third of the runs then were repeats on
-# main of code its branch had just passed, and macOS was 57% of the money. The rules since
-# 2026-11-07 are the owner's:
+# Actions minutes are budgeted, macOS minutes most of all (each job is billed in whole minutes), and
+# repeat runs of a tree a branch already passed were most of the waste. The rules are the owner's
+# (AGENTS.md#actions-budget):
 #
 #   * Nothing starts by itself on a branch. A push to a pull request runs nothing. A branch is
 #     tested when someone starts this workflow by hand on it: Actions > CI > Run workflow, choosing
@@ -640,7 +638,7 @@ jobs:
       # 70. Measured with PrismNRI 0.3.0-alpha and PRISMNRI_TEST_SOFTWARE=1 (SHARPNRI_TEST_SOFTWARE
       # since the rename) on a workstation, which makes NriTestDevice pick WARP ("Microsoft Basic
       # Render Driver") for D3D12 the way the runner does: every D3D12 row
-      # passed, with outcomes identical to the RTX 4070 SUPER case for case — WARP reports mesh
+      # passed, with outcomes identical to the NVIDIA GPU's case for case — WARP reports mesh
       # shaders and a ray tracing tier, so even the mesh, amplification and ray-tracing layouts
       # are built on it — and the same messages, error for error and warning for warning. Measured
       # again with SharpNRI 191.0.0-beta.4 the way the runner is: SHARPNRI_TEST_SOFTWARE=1,

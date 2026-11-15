@@ -12,7 +12,7 @@
 // fields all zero-initialize. That makes this the most dangerous class of generator gap in the
 // binding — every other one is a build error, this one is a behaviour change.
 //
-// Two concrete examples, both of which would silently mis-compile every shader in the engine:
+// Two concrete examples, both of which would silently mis-compile every shader:
 //
 //   SessionDesc.defaultMatrixLayoutMode   C++ default ROW_MAJOR (1);  zero-init = UNKNOWN (0)
 //   TargetDesc.flags                      C++ default GENERATE_SPIRV_DIRECTLY; zero-init = 0,

@@ -132,7 +132,7 @@
       "kind": "Slang defect",
       "patch": null,
       "test": "LifetimeTests.The_global_session_is_never_destroyed_from_inside_the_linkage",
-      "state": "known issue: macOS only and last measured on v2026.14.1; re-measuring needs a Mac; left to Slang (owner, 2026-11-08)",
+      "state": "known issue: macOS only and last measured on v2026.14.1; re-measuring needs a Mac; left to Slang (owner decision)",
       "verified": "v2026.14.1"
     },
     {
@@ -152,7 +152,7 @@
       "kind": "Slang defect",
       "patch": null,
       "test": "SecondOpinionTests.The_calls_that_report_nothing_are_pinned_reporting_nothing",
-      "state": "known issue: small reflection gaps, several possibly by design, each answered by another route the binding reads; the one with a clear defect, the parameter block's space offset, is U33 and patched (owner, 2026-11-08: the moderate and large ones patched, the rest known issues)",
+      "state": "known issue: small reflection gaps, several possibly by design, each answered by another route the binding reads; the one with a clear defect, the parameter block's space offset, is U33 and patched (owner decision: the moderate and large defects patched, the rest known issues)",
       "verified": "v2026.21"
     },
     {
@@ -221,7 +221,7 @@
       "kind": "Slang defect",
       "patch": null,
       "test": "TargetValidationTests.Wgsl_passes_naga",
-      "state": "known issue: the fix splits a matrix vertex input into one location per column and reassembles it, a varying-legalization feature (the TODO at slang-ir-legalize-varying-params.cpp:880); left to Slang (owner, 2026-11-08)",
+      "state": "known issue: the fix splits a matrix vertex input into one location per column and reassembles it, a varying-legalization feature (the TODO at slang-ir-legalize-varying-params.cpp:880); left to Slang (owner decision)",
       "verified": "v2026.21",
       "upstream": [
         "#13736"
@@ -288,7 +288,7 @@
       "kind": "Slang defect",
       "patch": null,
       "test": "TargetValidationTests.Metal_compiles_to_air",
-      "state": "known issue: a Metal texture read overload; measured only on the macos-15 runner, the fix needs Metal-side investigation; left to Slang (owner, 2026-11-08)",
+      "state": "known issue: a Metal texture read overload; measured only on the macos-15 runner, the fix needs Metal-side investigation; left to Slang (owner decision)",
       "verified": "v2026.21"
     },
     {
@@ -298,7 +298,7 @@
       "kind": "Slang defect",
       "patch": null,
       "test": "TargetValidationTests.Metal_compiles_to_air",
-      "state": "known issue: unbounded resource arrays need Metal argument buffers, a feature (Slang #11970); left to Slang (owner, 2026-11-08)",
+      "state": "known issue: unbounded resource arrays need Metal argument buffers, a feature (Slang #11970); left to Slang (owner decision)",
       "verified": "v2026.21",
       "upstream": [
         "#11970"
@@ -311,7 +311,7 @@
       "kind": "Slang defect",
       "patch": null,
       "test": "TargetValidationTests.Metal_compiles_to_air",
-      "state": "known issue: the same matrix-varying feature as U21, for Metal; left to Slang (owner, 2026-11-08)",
+      "state": "known issue: the same matrix-varying feature as U21, for Metal; left to Slang (owner decision)",
       "verified": "v2026.21"
     },
     {
@@ -321,7 +321,7 @@
       "kind": "Slang defect",
       "patch": null,
       "test": "TargetValidationTests.Slang_compute_corpus_metal_compiles_to_air",
-      "state": "known issue: device-pointer arrays as kernel inputs need an argument-buffer lowering, a feature; left to Slang (owner, 2026-11-08)",
+      "state": "known issue: device-pointer arrays as kernel inputs need an argument-buffer lowering, a feature; left to Slang (owner decision)",
       "verified": "v2026.21"
     },
     {
@@ -391,7 +391,7 @@
       "kind": "Slang defect",
       "patch": null,
       "test": null,
-      "state": "known issue: the stray file is only named among the dependency files, never read: a broken one there leaves the compile unchanged; the fix is in how Slang compiles the standard modules (owner, 2026-11-08: the moderate and large ones patched, the rest known issues)",
+      "state": "known issue: the stray file is only named among the dependency files, never read: a broken one there leaves the compile unchanged; the fix is in how Slang compiles the standard modules (owner decision: the moderate and large defects patched, the rest known issues)",
       "verified": "v2026.21"
     }
   ]

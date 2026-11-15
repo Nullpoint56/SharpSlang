@@ -50,7 +50,7 @@ public sealed class VersionGuardTests(ITestOutputHelper output)
     [Fact]
     public void Every_package_major_is_the_slang_version_as_YYYYRRP()
     {
-        // v2026.21 is 2026210 (owner, 2026-11-08); the targets compute it, these say it again.
+        // v2026.21 is 2026210 (AGENTS.md#decisions); the targets compute it, these say it again.
         var major = Encode(Pin("SlangVersion"));
         foreach (var pin in (string[])["SharpSlangVersion", "SharpSlangDescsVersion", "SharpSlangPipelineVersion"])
             Assert.StartsWith(major + ".", Pin(pin), StringComparison.Ordinal);

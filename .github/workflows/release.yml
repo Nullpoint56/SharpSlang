@@ -19,7 +19,7 @@ name: release
 #   version on nuget.org is permanent: a failure after the nuget job means a new version.
 #
 # Preconditions not in this file, each the owner's:
-#   * the repository is public, CI builds the payload from source (owner, 2026-11-08), and U4 is
+#   * the repository is public, CI builds the payload from source (AGENTS.md#decisions), and U4 is
 #     patched test first before Linux builds from source (AGENTS.md#patches): a release only happens
 #     after going public, so every payload here is built from the slang/ submodule;
 #   * the nuget.org Trusted Publishing policy and the nuget environment, and the NUGET_USER

@@ -31,7 +31,8 @@ git -C slang diff -- <paths> > patches/NNNN-short-description.patch
 
 then write the header above the diff. Patches follow Slang's coding standard (`slang/CLAUDE.md`,
 `slang/CONTRIBUTING.md`, `extras/formatting.sh`), make no semantic change to an existing call, and
-keep comments in Slang's voice. Each adds a regression test in Slang's form (a `SLANG_UNIT_TEST`
+keep comments in Slang's voice. Each adds a regression test in Slang's form where its behaviour can be tested
+in process (a `SLANG_UNIT_TEST`
 under `tools/slang-unit-test/`, or a `.slang` test under `tests/`). A new test goes in its own
 file: a patch that changed a file an earlier patch creates could not apply alone. Then add the
 patch to the registry, and run `pwsh tools/ci/patch-registry.ps1 -Write`.

@@ -239,7 +239,7 @@ public sealed class DxilTests(ITestOutputHelper output)
             // The digest is the validator's hash of the rest of the container, written when it
             // signs; a container nothing signed has zeros there. D3D12 refuses that unless
             // experimental shader models are enabled, which Windows' Developer Mode alone does not
-            // do — measured with it on, on an RTX 4070 SUPER and on WARP: "Compute Shader is
+            // do — measured with it on, on an NVIDIA GPU and on WARP: "Compute Shader is
             // unsigned or a preview shader and experimental shader models are not enabled, or
             // shader is otherwise corrupt." Nonzero is all this asserts. Whether it is the right
             // hash is left to D3D12, which checks it in every pipeline NriDeviceTests builds from

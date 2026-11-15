@@ -1,5 +1,5 @@
-// The NRI projection stored in a package at bake time and read back at load (owner, 2026-11-08:
-// the engine projects at bake time; AGENTS.md#nri-projection).
+// The NRI projection stored in a package at bake time and read back at load
+// (AGENTS.md#nri-projection).
 //
 // The oracle is the projection itself: what a game loads from a package must be, field by field,
 // what ToNri computes from the same layout, on every corpus shader and on both targets a device

@@ -1,6 +1,5 @@
 // The NRI projection as a section of a baked package: written by the cooker at bake time, read
-// back by the game at load (owner, 2026-11-08: the engine projects at bake time;
-// AGENTS.md#nri-projection).
+// back by the application at load (the projection is made at bake time; AGENTS.md#nri-projection).
 //
 // The section stores what ToNri produced, not the options to produce it again: the descs a game
 // hands SharpNRI are the bytes the cooker wrote, so the game never projects and never needs the

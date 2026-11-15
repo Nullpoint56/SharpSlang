@@ -63,7 +63,7 @@
 
     <!--
       Package versions (AGENTS.md#decisions): every package's major is the Slang version as a
-      fixed-width YYYYRRP, so v2026.21 is 2026210 and v2026.18.3 is 2026183 (owner, 2026-11-08);
+      fixed-width YYYYRRP, so v2026.21 is 2026210 and v2026.18.3 is 2026183 (AGENTS.md#decisions);
       Directory.Build.targets fails a build whose package major is not SlangVersion's encoding
       (SHARPSLANG004). Within one Slang version a breaking binding change moves the second number,
       a fix the third; beta while the API may change.

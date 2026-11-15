@@ -716,7 +716,7 @@ public class ProberTests(ITestOutputHelper output)
         //               cooker loses the shader and keeps running.
         //
         // So "terminates the process" was true of the platform it was measured on. Recording both
-        // matters for the engine: a cook farm on Linux dies mid-batch where a developer's Windows
+        // matters for a cooker: a cook farm on Linux dies mid-batch where a developer's Windows
         // machine reports one failed shader — which is the same shape as the borrowed pointer (AGENTS.md#ownership-and-lifetime), and the reason that
         // finding took a second platform to see.
         var outcome = Run("specialization-sized-resource-array");

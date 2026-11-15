@@ -15,7 +15,7 @@
       BakeExtensions.cs      the snapshot-returning conveniences on SharpSlang's objects
                              (Reflect, SpecializeGeneric, FindFunction, ...)
 
-    SharpSlang's public API only (the template's <Binding>.<Feature> slot, owner, 2026-11-08): no
+    SharpSlang's public API only (the template's <Binding>.<Feature> slot; AGENTS.md#layers): no
     InternalsVisibleTo from it, no SharpSlang.Native call, no unsafe code.
   -->
 

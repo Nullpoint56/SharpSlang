@@ -4,8 +4,7 @@
   whether release.yml's commit has passed what a release needs.
 
 .DESCRIPTION
-  The repository is private, on the Free plan, with $12 of Actions a month. The owner's rules
-  (2026-11-07; AGENTS.md#actions-budget):
+  Actions minutes are budgeted. The owner's rules (AGENTS.md#actions-budget):
 
   - A push to a pull request starts nothing. A branch is tested when someone starts ci.yml by
     hand on it (checks.yml and regen.yml too, for one check alone).

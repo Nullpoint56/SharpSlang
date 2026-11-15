@@ -103,7 +103,7 @@
     named in deps.json.
 
     No SharpNRI.AgilitySDK: the D3D12 tests run on the D3D12 runtime Windows ships, as they always
-    have. Measured with SharpNRI 191.0.0-beta.4 on an RTX 4070 SUPER and on WARP, with and without
+    have. Measured with SharpNRI 191.0.0-beta.4 on an NVIDIA GPU and on WARP, with and without
     it: the same tests pass with the same outcomes either way. Without it every D3D12 device logs
     one NRI warning, CheckFeatureSupport(options22) failing on the older runtime. With it, in this
     Release build, the debug layer is not copied (SharpNRIAgilityDebugLayer is true only in Debug)

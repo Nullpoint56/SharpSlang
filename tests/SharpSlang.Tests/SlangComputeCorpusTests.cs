@@ -113,7 +113,7 @@ public sealed class SlangComputeCorpusTests(ITestOutputHelper output)
     /// wrong layout at submit: a defect of NRI's barriers, not of the projection or this harness.
     /// </summary>
     /// <remarks>
-    /// Measured on the RTX 4070 SUPER with SharpNRI 191.0.0-beta.4 (NRI v191) and the Vulkan SDK's
+    /// Measured on an NVIDIA GPU with SharpNRI 191.0.0-beta.4 (NRI v191) and the Vulkan SDK's
     /// 1.4.363 layer: for each of rw-texture-simple's three <c>RWTexture3D</c>s (4x4x4) the layer
     /// reports <c>VUID-vkCmdDraw-None-09600</c> for <c>arrayLayer = 1</c>, <c>2</c> and <c>3</c>,
     /// "expects ... to be in layout VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL--instead, current layout

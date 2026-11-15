@@ -93,7 +93,7 @@ into error `SHARPSLANG005`, and `SlangGlobalSession.Create` refuses a mismatched
 
 ## Referencing SharpSlang from source
 
-An engine developed alongside SharpSlang can reference its projects instead of its packages: a
+An application developed alongside SharpSlang can reference its projects instead of its packages: a
 sibling checkout and `ProjectReference`s, so a change on one side is visible on the other without
 a pack in between.
 
@@ -103,9 +103,11 @@ a pack in between.
 <ProjectReference Include="..\SharpSlang\pipeline-nri\SharpSlang.Pipeline.NRI.csproj" />
 ```
 
-**Stage the payload in the checkout.** Run `pwsh tools/fetch-native.ps1` there once per Slang pin.
-The cooker's reference to `dotnet/SharpSlang.csproj` then copies the host RID's payload flat into
-the engine's output, beside its own assemblies.
+**Stage the payload in the checkout.** Run `pwsh tools/build-native.ps1` there once per Slang pin,
+which builds the compiler the packages ship (`tools/fetch-native.ps1` stages Slang's own release
+archive instead, without the fixes `docs/upstream.md` lists). The cooker's reference to
+`dotnet/SharpSlang.csproj` then copies the host RID's payload flat into the application's output,
+beside its own assemblies.
 
 **DXIL takes the targets by hand.** A package's `build/` files do not flow through a project
 reference, so referencing `dxc/SharpSlang.Dxc.csproj` would copy no dxc. The cooker does
@@ -121,11 +123,11 @@ version with `SHARPSLANG011`.
 <Import Project="..\SharpSlang\dxc\buildTransitive\SharpSlang.Dxc.targets" />
 ```
 
-**Both solutions build into SharpSlang's `obj/` and `bin/`.** The engine builds SharpSlang's
+**Both solutions build into SharpSlang's `obj/` and `bin/`.** The application builds SharpSlang's
 projects in place, so each solution's restore rewrites the other's. With the same target framework
 on both sides that is harmless.
 
-**Start it from anywhere.** As its own executable or as `dotnet engine.dll`, from any directory.
+**Start it from anywhere.** As its own executable or as `dotnet app.dll`, from any directory.
 Slang loads `slang-glslang` and `dxcompiler` itself, by name, and Windows looks for a name beside
 the executable and in the working directory rather than beside the compiler; so on Windows
 `SlangGlobalSession.Create` first loads them from where the compiler was loaded from, and dxc from
@@ -194,14 +196,11 @@ using var specialized = composite.Specialize(module.RequireType(0, "Lambert"));
 using var program = specialized.Link();
 ```
 
-A composite may be linked more than once, each `LinkWithOptions` call with options of its own.
-Slang's own release hands back the first link's code the second time; `session.Link` composes
-afresh for each call, so it never meets that.
+A composite may be linked more than once, each `LinkWithOptions` call with options of its own;
+`session.Link` composes afresh for each call.
 
 **One path per module.** Loading a second module from source under a path the session already
-loaded one from fails with E38208, naming the path (Slang's own release fails with its assertion
-text, "The key already exists in Dictionary.", and no code). Give each module from source its own
-path.
+loaded one from fails with E38208, naming the path. Give each module from source its own path.
 
 **Slang's standard modules.** `import slang.neural`, `slang.numerics`, `slang.functional` and
 `experimental.workgraph` resolve to the `slang-standard-module-<version>/` folder beside the
@@ -514,7 +513,7 @@ ShaderPackage package = ShaderPackageBaker.Bake(program, module, targetIndex: 0)
 package.WriteToFile("cooked/standard_surface.pslb");
 ```
 
-`ShaderPackageBaker` is in `SharpSlang.Pipeline.Bake`; `WithNriProjection`, if the engine renders
+`ShaderPackageBaker` is in `SharpSlang.Pipeline.Bake`; `WithNriProjection`, if the application renders
 through NRI, stores the projection beside the code (see [Projecting to NRI](#projecting-to-nri)).
 
 In the game, with no compiler present:
@@ -594,11 +593,9 @@ using var fs = new SlangFileSystem(new InMemoryFileProvider(new Dictionary<strin
 
 ## Diagnostics
 
-An error-level diagnostic on a **successful** compile is fatal by default, because Slang reports
-degraded output that way: with `slang-glslang` absent, Slang's own release succeeds, emits ~23%
-larger unoptimised SPIR-V, and reports an error once per global session, so shaders 2..n of a
-batch are oversized with nothing said. The packaged compiler warns E00118 on every such compile
-instead.
+An error-level diagnostic on a **successful** compile is fatal by default, because Slang can report
+degraded output on a successful result. With `slang-glslang` absent, a SPIR-V compile still
+succeeds, unoptimised and noticeably larger, and warns E00118.
 
 ```csharp
 SlangDiagnostics.Policy  = SlangDiagnosticPolicy.Report;      // default: ThrowOnError
@@ -609,7 +606,7 @@ SlangDiagnostics.Handler = (operation, severity, text) =>
 The severity is handed to you already classified. Slang has no structured severity — it comes from
 parsing message prefixes — so deriving it again means reimplementing `SlangDiagnostics.Classify`.
 
-Either way the output is already degraded when it is said, so there is a second mechanism:
+The output is already degraded when that is said, so there is a second mechanism:
 `GlobalSessionOptions.RequireSpirvOptimizer` (on by default) checks for the downstream compiler at
 session creation, before a single shader is compiled.
 
@@ -677,17 +674,16 @@ not implement the interface throws rather than linking something that cannot dis
 conformance the implementation is not in the program at all, however visible it looks in the source.
 
 **`CompilerOptions` has exactly two typed properties**, and that is not an oversight. Slang accepts
-the whole `CompilerOptionName` range at `linkWithOptions` and silently ignores most of it, so a
-typed property for an ignored option would read as a feature and do nothing. Measured by diffing
-emitted SPIR-V:
+the whole `CompilerOptionName` range at `linkWithOptions`, and not every option applies there, so a
+typed property for an option that does not would read as a feature and do nothing:
 
 | Option | At link time |
 |---|---|
-| `Optimization` | works — None 2,052 B, default 1,868, Maximal 1,668 |
-| `FloatingPointMode` | works — Precise adds 36 B; Fast *is* the default |
+| `Optimization` | works |
+| `FloatingPointMode` | works; Fast *is* the default |
 | `DebugInformation` | no effect; it is a session/target setting |
-| `VulkanUseEntryPointName` | works (no effect on Slang's own release); also works on the session or target |
-| `Capability` | no effect — `spirv_1_6` still emits 1.5, and the packaged compiler warns E00136. The profile is the only version knob |
+| `VulkanUseEntryPointName` | works; also on the session or target |
+| `Capability` | no effect, and warns E00136: it applies to the target, so give it in the target description. The profile is the only version knob |
 
 The others are reachable through `RawEntries`, and a test asserts a raw entry and its typed
 equivalent emit identical bytes, so the escape hatch cannot rot.
@@ -751,10 +747,8 @@ if (session.IsBinaryModuleUpToDate(sourcePath, ir))
 ```
 
 **`IsBinaryModuleUpToDate` reads the files afresh**, so it may be asked in the session that loaded
-the module. Slang's own release answers from the asking session's file cache instead, so there
-load-serialize-ask returns true unconditionally, even for a path with no file behind it; on it,
-ask from a session that has not loaded the module. `ReadModuleInfo(ir)` reports the compiler build
-that wrote the blob, and a blob is only loadable by that build.
+the module. `ReadModuleInfo(ir)` reports the compiler build that wrote the blob, and a blob is only
+loadable by that build.
 
 ## The payload has to be the pinned one
 
@@ -793,10 +787,8 @@ Slang.DescsSlangVersion     // the Slang release the loaded SharpSlang.Descs was
 ```
 
 **The packaged compiler carries fixes.** The `SharpSlang` package's compiler is Slang built from
-source at the pinned tag with the patches in `patches/`, one per Slang defect fixed here;
-`docs/upstream.md` lists every defect and its state. This guide describes the packaged compiler,
-and names Slang's own release where it differs: that is what `tools/fetch-native.ps1` stages in a
-checkout, and the binding's guards stay for it.
+source at the pinned tag with fixes for the Slang defects found here; `docs/upstream.md` lists every
+defect and whether the release carries a fix. This guide describes the packaged compiler.
 
 **No library at all.** Without `slang-compiler` beside the application the first call into Slang
 (`Create`, `BuildTag`, `RequirePinnedVersion`, `HashString`) throws a `DllNotFoundException` that
@@ -848,8 +840,7 @@ shared across threads".
 Sharing one across threads without a lock has been measured doing four different things: an access
 violation inside `loadModuleFromSource`, a clean `SlangException` out of one thread while the others
 carried on, once nothing at all, and once **five of eight threads returning success with SPIR-V
-that differed from a serial compile** (1,492 bytes against 1,436, on a GitHub-hosted Windows runner
-with Slang v2026.21).
+that differed from a serial compile**.
 
 **Do not count on the crash to tell you.** The access violation stops the cook, which is the outcome
 you want. The `SlangException` says `load module 'x' failed: SLANG_FAIL`, and that is
@@ -947,7 +938,7 @@ The same holds on Vulkan and on D3D12. The NRI projection is one object whicheve
 it, and the DXIL build differs only in what was baked.
 
 **A whole frame, measured.** SharpNRI measures its own per-frame calls at zero on NRI's NONE
-backend, and the lookups above are zero one at a time, but the frame an engine writes is the two
+backend, and the lookups above are zero one at a time, but the frame an application writes is the two
 together, and `AllocationTests` measures that as well: a compute frame driven purely through an
 `NriPipelineProjection`, with the sets allocated into an array it owns by the span overload and
 bound by `SetIndex`, every range written by `RangeIndex`, three ranges found by name, root constants
@@ -971,9 +962,8 @@ The section column says where the guide covers it.
 | The module says `ColMajor` where reflection says `ROW_MAJOR` | Same bytes, opposite vocabulary: HLSL writes rows by columns, SPIR-V's `OpTypeMatrix` is a list of columns. Read `Mode` and `Stride`; ignore the decoration. | [Filling a uniform buffer](#filling-a-uniform-buffer) |
 | An offset or size is about 18 quintillion | `CategorySize.Unknown` is `ulong.MaxValue - 1`: Slang's "I do not know", for anything sized by a specialization constant. Check `IsKnown` / `IsUniformOffsetKnown` before arithmetic. | [Filling a uniform buffer](#filling-a-uniform-buffer) |
 | A workgroup size of `0`, or a divide by zero dispatching | The dimension is a specialization constant. Check `ThreadGroupSize.IsSpecialized`, and resolve it against the values you supply. | [Compute and dispatch](#compute-and-dispatch) |
-| A `double3` or `double4` vertex input is refused | NRI has no 64-bit vertex format; Slang's own release also gives it one location where Vulkan requires two, so its module is invalid SPIR-V. Use `float`. | [Projecting to NRI](#projecting-to-nri) |
-| Reflecting a shader throws `NotSupportedException` naming an array; on Slang's own release it kills the cooker on Linux, or throws `SEHException` on Windows | A resource array sized by a specialization constant (`Texture2D t[kCount]`): its descriptor count is unknown until specialization, so it cannot work on Vulkan, where `descriptorCount` is fixed first. Slang's own release throws a C++ exception through its C API, and nothing distinguishes the shader beforehand. Do not write one. | [Reflecting](#reflecting) |
-| A buffer the shader reads has no binding (Slang's own release) | Its block holds only arrays sized by a specialization constant, and Slang's release places it nowhere; the projection refuses the shader with the parameter named. The packaged compiler binds it. Give the array a fixed size. | [Filling a uniform buffer](#filling-a-uniform-buffer) |
+| A `double3` or `double4` vertex input is refused | NRI has no 64-bit vertex format. Use `float`. | [Projecting to NRI](#projecting-to-nri) |
+| Reflecting a shader throws `NotSupportedException` naming an array | A resource array sized by a specialization constant (`Texture2D t[kCount]`): its descriptor count is unknown until specialization, so it cannot work on Vulkan, where `descriptorCount` is fixed first. Do not write one. | [Reflecting](#reflecting) |
 | The descriptor set layout is short two storage buffers | An `AppendStructuredBuffer` or `ConsumeStructuredBuffer` costs two descriptors: Slang adds a counter buffer, a binding named `counter` that is absent from `Parameters`. Build layouts from `DescriptorSets`, and pair counters with `CounterBinding`: with both kinds in one shader the two counters have the same name. | [Reflecting](#reflecting) |
 | A descriptor range with a null name | Loose global uniforms (`uniform float4 gTint;` at file scope) become a constant buffer nobody declared. Check `DescriptorRange.IsImplicitGlobalBuffer`, and `ProgramLayout.GlobalConstantBufferSize` for its size. | [Reflecting](#reflecting) |
 | Two option sets emit identical code under different `GetEntryPointIdentityHash` values | The hash follows the source and the compile options, not the code: naming the default optimisation level explicitly changes it. Fine as a conservative cache key; hash `GetEntryPointCodeBytes` to answer "same code". | [Linking with options](#linking-with-options) |
@@ -983,10 +973,9 @@ The section column says where the guide covers it.
 | A cook fails a different shader each time with `SLANG_FAIL`, and each passes alone; or ships different bytes with no symptom at all | One global session shared across threads. It sometimes fails as `SLANG_FAIL` on one module instead of crashing, which a per-shader error log blames on the file, and has been measured returning success with different SPIR-V. Give each thread its own global session, or lock. | [Threads](#threads) |
 | Uniform offsets differ between the Vulkan and the D3D12 build of one shader | Offsets are per target: std140 over-aligns a struct member and rounds its size up where D3D packing does neither (byte 32 on Vulkan, 24 on D3D, same source). Reflect against the target you run on; a baked layout belongs to its target. | [Targeting D3D12](#targeting-d3d12) |
 | `FindEntryPoint(name)` finds nothing and `EntryPointCount` is 0 | The function has no `[shader("...")]` attribute, so Slang does not know its stage. Use the overload taking a `SlangStage`. | [Compiling](#compiling) |
-| Shaders 2..n of a batch are about 23 % larger, and nothing was said | `slang-glslang` (where `spirv-opt` lives) is missing; Slang's own release reports it once per global session, as an error on a successful compile, and the packaged compiler warns E00118 on each. `RequireSpirvOptimizer` (on by default) refuses at session creation instead. | [Diagnostics](#diagnostics) |
+| SPIR-V larger than expected, with warning E00118 | `slang-glslang` (where `spirv-opt` lives) is missing beside the compiler, so the module is not optimised. `RequireSpirvOptimizer` (on by default) refuses at session creation instead. | [Diagnostics](#diagnostics) |
 | `vkCreateShaderModule` fails with nothing useful on an older device | The SPIR-V version defaults to 1.5 when unset; Vulkan 1.1 accepts at most 1.3. Pin `SpirvVersion`. | [Compiling](#compiling) |
-| `IsBinaryModuleUpToDate` says current after the source changed | Slang's own release answers from the asking session's file cache; ask from a session that has not loaded the module. The packaged compiler reads the files afresh. | [Caching parsed modules](#caching-parsed-modules) |
-| A link option has no effect | `linkWithOptions` accepts every option and ignores most; `Optimization`, `FloatingPointMode` and, on the packaged compiler, `VulkanUseEntryPointName` take effect there, and `Capability` or `Profile` warns E00136. | [Linking with options](#linking-with-options) |
+| A link option has no effect | Not every option applies at link time: `Optimization`, `FloatingPointMode` and `VulkanUseEntryPointName` do; `Capability` and `Profile` warn E00136 and belong in the target description. | [Linking with options](#linking-with-options) |
 | A function found by name appears to take no parameters | It is overloaded: `FindFunction` returns one function with `IsOverloaded` set and an empty signature. Check `IsOverloaded` before `Parameters`. | [Reading a shader's functions](#reading-a-shaders-functions) |
 | `InvalidOperationException` from `Dispose` | Something created from the object is still alive: a module of a session, an entry point of a module, a code blob of a program, a session still using a `SlangFileSystem`. Dispose it first; `using` declarations in creation order do it. | [Lifetime](#lifetime) |
 | A DXIL build compiles for an older shader model than expected, or a mesh or ray-tracing stage fails for DXIL | No `Profile` named: SharpSlang sets none, and Slang picks (6.0 for a compute shader). Name `sm_6_5`. | [Targeting D3D12](#targeting-d3d12) |
@@ -996,7 +985,6 @@ The section column says where the guide covers it.
 | Build error `SHARPSLANG011` | The project restores another `Microsoft.Direct3D.DXC` than `SharpSlang.Dxc` copies from, usually through a direct reference of its own. Drop it or match the version. | [Targeting D3D12](#targeting-d3d12) |
 | `SlangVersionMismatchException` after a version bump | The previous release is still staged in `runtimes/` (git-ignored). Fetch the pinned payload again. | [The payload has to be the pinned one](#the-payload-has-to-be-the-pinned-one) |
 | `SlangVersionMismatchException` naming `SharpSlang.Descs`, or build error `SHARPSLANG005` | A direct `SharpSlang.Descs` reference at another version than `SharpSlang` depends on; NuGet only warns (NU1608). Drop the reference or match the version. | [The two halves](#the-two-halves) |
-| The same shader cooked on x64 and on ARM64 hashes differently, on Slang's own release | Its x64 and ARM64 builds differ on shaders using `SV_VertexID`: they create the two builtins it lowers to in the opposite order, so the modules are equivalent and never compare equal. The packaged compiler creates them in source order. On the release, cook on one architecture, or content-address per architecture. | [Baking and loading](#baking-and-loading) |
 | A hash over a baked layout differs between platforms | It does not: `ProgramLayout.ToJson` writes `\n` on every platform on purpose, so the layout is portable. The SPIR-V beside it carries the row above. | [Baking and loading](#baking-and-loading) |
 
 Reflection reports what Slang says. Where reflection and the emitted module disagreed, the module
