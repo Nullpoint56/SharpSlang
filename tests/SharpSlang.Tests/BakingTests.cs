@@ -324,7 +324,7 @@ public class BakingTests
     [MemberData(nameof(CorpusCases))]
     public void Every_corpus_layout_survives_the_package_round_trip(string caseName)
     {
-        // The package is the contract between the cook and the engine, and the layout JSON in it is
+        // The package is the contract between the cook and the application, and the layout JSON in it is
         // the one part that is converted rather than copied. Package_round_trips_through_a_stream
         // covers one ordinary shader, which is how an unbounded array, present in this corpus twice,
         // baked and wrote fine and could not be read back. So: every shape the corpus has, through

@@ -35,7 +35,7 @@
                          and with an empty one
 
     What each run references comes from tools/ci/packages.psd1 (Consume), at the versions the folder
-    holds. Each run is a copy of tools/consume under _build/consume/<run>/.
+    holds. Each run is a copy of tools/consume under -Work/<run>/.
 
         pwsh tools/consume/consume.ps1 -Feed nupkg
         pwsh tools/consume/consume.ps1 -Feed nupkg -Skip aot
@@ -47,6 +47,15 @@
     The Microsoft.Direct3D.DXC version for the wrong-dxc run (default: the newest release on
     nuget.org below the pin).
 
+.PARAMETER Work
+    Where the runs are built and logged (default: sharpslang-consume-<checkout> in the system temp
+    folder, one per checkout, so worktrees running at once do not share it). Emptied at the start
+    of a run; a folder that exists and was not made by consume.ps1 is refused rather than deleted.
+    Outside the repository on purpose: a standard module built from source records its .slang
+    sources relative to Slang's build tree, five folders up, and from an output five folders below
+    the repository root that path is the checkout's own slang/source/, which Slang then names as
+    the module's source (AGENTS.md#native-packages).
+
 .PARAMETER Skip
     Runs to leave out (portable, run, nolicences, publish, aot, dxc, reader, nri, wrongdxc); each is reported as
     skipped by request.
@@ -56,6 +65,7 @@ param(
     [string]$Rid,
     [string]$WrongDxc,
     [string[]]$Skip = @(),
+    [string]$Work,
     [object]$Pins = @{},
     [string]$Spec
 )
@@ -72,9 +82,20 @@ if (-not $Feed) { $Feed = Join-Path $root "nupkg" }
 $Feed = (Resolve-Path $Feed).Path
 if (-not $Rid) { $Rid = "$($IsWindows ? 'win' : ($IsMacOS ? 'osx' : 'linux'))-$([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString().ToLowerInvariant())" }
 $exe = $IsWindows ? ".exe" : ""
-$work = Join-Path $root "_build" "consume"
-if (Test-Path $work) { dotnet build-server shutdown *> $null; Remove-Item $work -Recurse -Force }
+if (-not $Work) {
+    # One folder per checkout: the first 12 hex digits of the SHA-256 of the checkout's full path
+    $sha = [System.Security.Cryptography.SHA256]::HashData([System.Text.Encoding]::UTF8.GetBytes((Resolve-Path $root).Path))
+    $Work = Join-Path ([System.IO.Path]::GetTempPath()) "sharpslang-consume-$([Convert]::ToHexString($sha).Substring(0, 12).ToLowerInvariant())"
+}
+$work = [System.IO.Path]::GetFullPath($Work)
+$marker = Join-Path $work ".sharpslang-consume"
+if (Test-Path $work) {
+    if (@(Get-ChildItem $work -Force).Count -and -not (Test-Path $marker)) { throw "$work exists and was not made by consume.ps1; give -Work an empty or new folder" }
+    dotnet build-server shutdown *> $null
+    Remove-Item $work -Recurse -Force
+}
 New-Item -ItemType Directory -Force $work | Out-Null
+Set-Content $marker "made by tools/consume/consume.ps1 for $((Resolve-Path $root).Path); emptied by its next run"
 $packagesPath = Join-Path $work "packages"
 $packed = Get-PackedPackages $Feed
 Write-Host "feed $Feed`: $(($packed.Keys | Sort-Object | ForEach-Object { "$_ $($packed[$_][0].Version)" }) -join ', '); RID $Rid"
@@ -108,8 +129,11 @@ function New-Run([string]$name, [string]$kind, [string[]]$extraProps = @(), [str
     $dir = Join-Path $work $name
     New-Item -ItemType Directory -Force $dir | Out-Null
     foreach ($f in "SharpSlang.Consume.csproj", "Program.cs", "nuget.config", "Directory.Build.props", "Directory.Build.targets") { Copy-Item (Join-Path $PSScriptRoot $f) $dir }
-    # the tools' analyzer policy, which tools/.editorconfig gives the source folder
-    Copy-Item (Join-Path $PSScriptRoot ".." ".editorconfig") (Join-Path $dir ".editorconfig")
+    # The repository's .editorconfig and then the tools' (tools/.editorconfig), which inside the
+    # repository apply in that order; the run builds outside it, so the copy carries the root's
+    # `root = true` and no .editorconfig above the temp folder takes part.
+    Set-Content (Join-Path $dir ".editorconfig") -Encoding utf8NoBOM -Value (
+        (Get-Content (Join-Path $root ".editorconfig") -Raw) + "`n" + (Get-Content (Join-Path $PSScriptRoot ".." ".editorconfig") -Raw))
     $run = $c.Runs[$kind]
     $items = foreach ($id in @($run.Packages) + @($run.Optional | Where-Object { $_ -and $packed.ContainsKey($_) })) {
         if (-not $packed.ContainsKey($id)) { throw "$id is not in $Feed (tools/ci/packages.psd1, Consume.Runs.$kind)" }

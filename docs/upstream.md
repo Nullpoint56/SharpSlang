@@ -1,26 +1,18 @@
 # Upstream reports
 
-Every Slang defect this repository has found, as report text in Slang's terms, with what was filed
-where. Nothing here has been posted: filing is the repository owner's decision, made on the exact
-text, and the policy for it is kept outside the repository. Measurements, the guards in the binding
-and the tests that hold each entry are in `AGENTS.md` under Oddities and caveats (the "U" numbers
-match).
+Every Slang defect this repository has found, as report text in Slang's terms, and what became of
+it. Nothing here has been posted: filing is the repository owner's decision, made on the exact text.
+Where the binding is built around a defect, `AGENTS.md` (Oddities and caveats) says how; the "U"
+numbers match.
 
-Measured against Slang **v2026.21** (tag commit e73d2689) unless an entry says v2026.14.1. Line
-numbers are v2026.21's. "All four platforms" means win-x64, linux-x64, linux-arm64 and osx-arm64 on
-GitHub-hosted runners (windows-latest, ubuntu-24.04, ubuntu-24.04-arm, macos-15).
+Each report names the Slang version it was measured against, and the registry's `verified` column
+the version each entry was last checked on; line numbers are that version's.
 
-**The index below is the patch registry**, generated from `docs/upstream.json`, which is the single
-source of truth (`pwsh tools/ci/patch-registry.ps1 -Write`; lint fails when they differ). Per defect:
-the area, the kind (Slang defect, Slang documentation defect, not a defect), the patch in `patches/`
-that carries the fix, the test that holds it, the state, and the Slang version it was last verified
-against. The states: `patched` (our build carries the patch), `fixed upstream in vYYYY.RR` (no patch,
-or the patch dropped), `filed: <URL>` and `upstream PR from fork: <URL>` (the patch still carried),
-`not patchable: <reason>`, and `unpatched` (recorded, no patch yet). Every defect gets a patch, test
-first (owner, 2026-11-08); the order and the procedure are in `AGENTS.md` under Patches. A patch
-reaches only a payload built from source, which is what a release packs; Slang's own release
-archive, which CI tests until the switch (`AGENTS.md`, Decisions), has none of them.
-
+**The index below is the registry**, generated from `docs/upstream.json`, the single source of truth
+(`pwsh tools/ci/patch-registry.ps1 -Write`; lint fails when they differ): per defect the area, the
+kind, the patch in `patches/` that carries the fix, the test that holds it, the state and the
+version last verified. The states are listed in `AGENTS.md` (Patches). A patch reaches only a
+payload built from source, which is what a release packs; Slang's own release archive carries none.
 <!-- patch-registry:begin (generated from docs/upstream.json by tools/ci/patch-registry.ps1 -Write; do not edit) -->
 | # | Defect | Area | Kind | Patch | Test | State | Upstream | Verified |
 |---|---|---|---|---|---|---|---|---|
@@ -36,29 +28,30 @@ archive, which CI tests until the switch (`AGENTS.md`, Decisions), has none of t
 | U10 | Windows: downstream libraries are not looked up in the compiler's own directory | loading | Slang defect | `0015-windows-load-beside-the-compiler.patch` | `ProberTests.Slang_finds_its_companions_beside_itself_without_the_bindings_preload` | patched |  | v2026.21 |
 | U11 | Two public functions have C++ linkage | API header | Slang defect |  | `NativeExportTests.No_entry_point_is_bound_by_a_C_plus_plus_mangling` | not patchable: the fix gives both functions C linkage, which renames their exported symbols and breaks every C++ binary linked against them; keeping the old mangled export beside a C one needs a second declaration of the same name with another linkage, which C++ does not allow in one program without linker aliasing |  | v2026.21 |
 | U12 | `ISession::loadModule*` returns a borrowed reference; the header does not say so | API header | Slang documentation defect | `0007-document-loaded-module-ownership.patch` | `HeaderDocumentationTests.The_header_says_a_loaded_module_is_owned_by_the_session` | patched |  | v2026.21 |
-| U13 | Releasing a session's last reference from `~Linkage` destroys the global session inside it | lifetime | Slang defect |  | `LifetimeTests.The_global_session_is_never_destroyed_from_inside_the_linkage` | known issue: macOS only and last measured on v2026.14.1; re-measuring needs a Mac; left to Slang (owner, 2026-11-08) |  | v2026.14.1 |
+| U13 | Releasing a session's last reference from `~Linkage` destroys the global session inside it | lifetime | Slang defect |  | `LifetimeTests.The_global_session_is_never_destroyed_from_inside_the_linkage` | known issue: macOS only and last measured on v2026.14.1; re-measuring needs a Mac; left to Slang (owner decision) |  | v2026.14.1 |
 | U14 | `isBinaryModuleUpToDate` answers from the session's file cache | modules | Slang defect | `0006-binary-module-up-to-date-reads-afresh.patch` | `ModuleSerializationTests.The_staleness_check_reads_the_files_afresh_in_the_session_that_loaded_the_module` | patched |  | v2026.21 |
-| U15 | Reflection queries that answer nothing, and facts reflection does not carry | reflection | Slang defect |  | `SecondOpinionTests.The_calls_that_report_nothing_are_pinned_reporting_nothing` | known issue: small reflection gaps, several possibly by design, each answered by another route the binding reads; the one with a clear defect, the parameter block's space offset, is U33 and patched (owner, 2026-11-08: the moderate and large ones patched, the rest known issues) |  | v2026.21 |
+| U15 | Reflection queries that answer nothing, and facts reflection does not carry | reflection | Slang defect |  | `SecondOpinionTests.The_calls_that_report_nothing_are_pinned_reporting_nothing` | known issue: small reflection gaps, several possibly by design, each answered by another route the binding reads; the one with a clear defect, the parameter block's space offset, is U33 and patched (owner decision: the moderate and large defects patched, the rest known issues) |  | v2026.21 |
 | U16 | `linkWithOptions` silently ignores most compiler options | linking | Slang defect | `0018-link-time-options.patch` | `LinkOptionsTests.A_link_time_option_takes_effect_or_says_it_cannot` | patched |  | v2026.21 |
 | U17 | SPIR-V for `SV_VertexID` differs between x86-64 and aarch64 builds | SPIR-V | Slang defect | `0021-vertex-id-loads-in-source-order.patch` | `SpirvDigestTests.SV_VertexID_builtins_are_numbered_in_source_order` | patched |  | v2026.21 |
 | U18 | GLSL: a hull shader's patch-constant function returns its struct with a bare `return;` | GLSL | Slang defect | `0009-glsl-patch-constant-function-void.patch` | `TargetValidationTests.A_hull_shaders_patch_constant_function_returns_void_in_glsl` | patched | [#14335](https://github.com/shader-slang/slang/issues/14335) | v2026.21 |
 | U19 | GLSL: a domain shader's per-vertex input is sized by the patch, which GLSL forbids | GLSL | Slang defect | `0010-glsl-domain-input-unsized.patch` | `TargetValidationTests.A_domain_shaders_patch_input_compiles_as_glsl` | patched | [#14335](https://github.com/shader-slang/slang/issues/14335) | v2026.21 |
 | U20 | WGSL: a `const` is initialised from an `override` | WGSL | Slang defect | `0012-wgsl-override-not-const.patch` | `TargetValidationTests.A_value_computed_from_a_specialization_constant_is_not_a_wgsl_const` | patched | [#14285](https://github.com/shader-slang/slang/issues/14285) | v2026.21 |
-| U21 | WGSL: a matrix vertex input is written at one `@location` | WGSL | Slang defect |  | `TargetValidationTests.Wgsl_passes_naga` | known issue: the fix splits a matrix vertex input into one location per column and reassembles it, a varying-legalization feature (the TODO at slang-ir-legalize-varying-params.cpp:880); left to Slang (owner, 2026-11-08) | [#13736](https://github.com/shader-slang/slang/issues/13736) | v2026.21 |
+| U21 | WGSL: a matrix vertex input is written at one `@location` | WGSL | Slang defect |  | `TargetValidationTests.Wgsl_passes_naga` | known issue: the fix splits a matrix vertex input into one location per column and reassembles it, a varying-legalization feature (the TODO at slang-ir-legalize-varying-params.cpp:880); left to Slang (owner decision) | [#13736](https://github.com/shader-slang/slang/issues/13736) | v2026.21 |
 | U22 | WGSL: arrays of textures and samplers are written as `binding_array` with no `enable` | WGSL | Slang defect |  | `TargetValidationTests.Wgsl_passes_naga` | not patchable: binding_array is not in the WGSL specification; naga takes it behind enable wgpu_binding_array and Tint behind requires sized_binding_array, so no one text is valid for both, and choosing a WGSL dialect is a Slang design decision (Slang #13914 proposes one) | [#13708](https://github.com/shader-slang/slang/issues/13708), [#13914](https://github.com/shader-slang/slang/issues/13914) | v2026.21 |
 | U23 | An internal error where a diagnostic belongs: double on WGSL and Metal, varyings on CPU and CUDA | diagnostics | Slang defect | `0013-diagnose-unsupported-double-and-varyings.patch` | `TargetValidationTests.A_construct_the_target_cannot_express_is_diagnosed_not_an_internal_error` | patched | [#10232](https://github.com/shader-slang/slang/issues/10232) | v2026.21 |
 | U24 | C++: the prelude has no vector arithmetic or comparison for `half` | C++ | Slang defect | `0011-cpp-prelude-half-vector-ops.patch` | `TargetValidationTests.Half_vector_arithmetic_and_comparison_compile_as_cpp` | patched | [#14037](https://github.com/shader-slang/slang/issues/14037), [#14194](https://github.com/shader-slang/slang/issues/14194) | v2026.21 |
 | U25 | WGSL: 64-bit integers are written as `u64`, which WGSL does not have | WGSL | Slang defect |  | `TargetValidationTests.Slang_compute_corpus_wgsl_passes_naga` | not patchable: WGSL has no 64-bit integer; diagnosing u64 breaks the naga users Slang emits it for, and keeping it breaks Tint, so the fix is the WGSL dialect choice Slang #13914 proposes, which is the maintainers' design decision | [#13914](https://github.com/shader-slang/slang/issues/13914) | v2026.21 |
-| U26 | Metal: a texture read is called with an overload Metal does not declare | Metal | Slang defect |  | `TargetValidationTests.Metal_compiles_to_air` | known issue: a Metal texture read overload; measured only on the macos-15 runner, the fix needs Metal-side investigation; left to Slang (owner, 2026-11-08) |  | v2026.21 |
-| U27 | Metal: an unbounded resource array is written as a flexible array member | Metal | Slang defect |  | `TargetValidationTests.Metal_compiles_to_air` | known issue: unbounded resource arrays need Metal argument buffers, a feature (Slang #11970); left to Slang (owner, 2026-11-08) | [#11970](https://github.com/shader-slang/slang/issues/11970) | v2026.21 |
-| U28 | Metal: a matrix vertex input at one `[[attribute]]` | Metal | Slang defect |  | `TargetValidationTests.Metal_compiles_to_air` | known issue: the same matrix-varying feature as U21, for Metal; left to Slang (owner, 2026-11-08) |  | v2026.21 |
-| U29 | Metal: an array of device pointers as a kernel input | Metal | Slang defect |  | `TargetValidationTests.Slang_compute_corpus_metal_compiles_to_air` | known issue: device-pointer arrays as kernel inputs need an argument-buffer lowering, a feature; left to Slang (owner, 2026-11-08) |  | v2026.21 |
+| U26 | Metal: a texture read is called with an overload Metal does not declare | Metal | Slang defect |  | `TargetValidationTests.Metal_compiles_to_air` | known issue: a Metal texture read overload; measured only on the macos-15 runner, the fix needs Metal-side investigation; left to Slang (owner decision) |  | v2026.21 |
+| U27 | Metal: an unbounded resource array is written as a flexible array member | Metal | Slang defect |  | `TargetValidationTests.Metal_compiles_to_air` | known issue: unbounded resource arrays need Metal argument buffers, a feature (Slang #11970); left to Slang (owner decision) | [#11970](https://github.com/shader-slang/slang/issues/11970) | v2026.21 |
+| U28 | Metal: a matrix vertex input at one `[[attribute]]` | Metal | Slang defect |  | `TargetValidationTests.Metal_compiles_to_air` | known issue: the same matrix-varying feature as U21, for Metal; left to Slang (owner decision) |  | v2026.21 |
+| U29 | Metal: an array of device pointers as a kernel input | Metal | Slang defect |  | `TargetValidationTests.Slang_compute_corpus_metal_compiles_to_air` | known issue: device-pointer arrays as kernel inputs need an argument-buffer lowering, a feature; left to Slang (owner decision) |  | v2026.21 |
 | U30 | A component type linked a second time ignores the second link's options | linking | Slang defect | `0008-link-with-options-owns-its-options.patch` | `CompositeTests.A_composite_linked_a_second_time_emits_what_its_second_links_options_say` | patched |  | v2026.21 |
 | U31 | A second module loaded from source at an already-used path ends in an internal assert | diagnostics | Slang defect | `0005-module-path-already-loaded.patch` | `CompilationTests.A_second_module_from_source_at_the_same_path_is_diagnosed_naming_the_path` | patched |  | v2026.21 |
 | U32 | C++: an append or consume structured buffer ends in an internal error | C++ output | Slang defect | `0020-cpp-append-consume-counter.patch` | `TargetValidationTests.Append_and_consume_buffers_compile_as_cpp` | patched |  | v2026.21 |
 | U33 | A top-level parameter block's sub-object range reports space offset 0 | reflection | Slang defect | `0019-parameter-block-space-offset.patch` | `SecondOpinionTests.A_top_level_parameter_blocks_sub_object_range_reports_its_space` | patched |  | v2026.21 |
 | U34 | GLSL: the tessellation stages declare no `layout(vertices = N) out` or input primitive | GLSL output | Slang defect | `0022-glsl-tessellation-layouts.patch` | `TargetValidationTests.The_tessellation_stages_declare_their_glsl_layouts` | patched |  | v2026.21 |
-| U35 | GLSL: a hull shader's per-vertex output is indexed with `uint(gl_InvocationID)` | GLSL output | Slang defect |  | `TargetValidationTests.Glsl_compiles_with_glslang` | known issue: GLSL output only, the SPIR-V target is valid; a fix is an emitter special case for one builtin's cast, left to Slang (owner, 2026-11-08: the moderate and large ones patched, the rest known issues) |  | v2026.21 |
+| U35 | GLSL: a hull shader's per-vertex output is indexed with `uint(gl_InvocationID)` | GLSL output | Slang defect | `0023-glsl-hull-output-invocation-id.patch` | `TargetValidationTests.The_hull_shader_compiles_as_glsl` | patched |  | v2026.21 |
+| U36 | A standard module records its source as a path relative to Slang's build tree, resolved from wherever the module is loaded | modules | Slang defect |  |  | known issue: the stray file is only named among the dependency files, never read: a broken one there leaves the compile unchanged; the fix is in how Slang compiles the standard modules (owner decision: the moderate and large defects patched, the rest known issues) |  | v2026.21 |
 <!-- patch-registry:end -->
 
 Related upstream items found while checking whether these were known: the layout-query robustness
@@ -885,8 +878,10 @@ of the corpus with `-target cpp`.
 **Cause.** `prelude/slang-cpp-types-core.h` instantiates `SLANG_FLOAT_VECTOR_OPS` for `float` and `double`
 (lines 371-372) and not for `half`.
 
-**Fix.** Instantiate `SLANG_FLOAT_VECTOR_OPS(half)` beside the other two
-(`patches/0011-cpp-prelude-half-vector-ops.patch`).
+**Fix.** Instantiate `SLANG_FLOAT_VECTOR_OPS(half)` beside the other two where `half` is declared:
+`slang-cpp-scalar-intrinsics.h`, which declares it and which the prelude includes first, defines
+`SLANG_PRELUDE_HAS_HALF`, and `slang-cpp-types-core.h` tests it, so a host including the types alone
+(slang-rhi's CPU backend) builds as before (`patches/0011-cpp-prelude-half-vector-ops.patch`).
 
 **Measurement.** v2026.21, Windows x64, `clang++ -std=c++17 -fsyntax-only` with the prelude
 directory at the tag on the include path. Slang's own `tests/compute/half-vector-calc.slang` and
@@ -976,7 +971,7 @@ the code generated for it is cached there.
 it and load the options into that (`patches/0008-link-with-options-owns-its-options.patch`, with a
 `SLANG_UNIT_TEST`).
 
-**Measurement.** v2026.21, Windows (the workstation), `CompositeTests.Linking_with_options_one_call_at_a_time_emits_what_Link_emits`,
+**Measurement.** v2026.21, Windows, `CompositeTests.Linking_with_options_one_call_at_a_time_emits_what_Link_emits`,
 which asserts the wrong answer so a fix fails it. Filed: no.
 
 ## U31 — A second module loaded from source at an already-used path ends in an internal assert
@@ -1000,7 +995,7 @@ whose `mapPathToLoadedModule.add` (1261) asserts on the existing key.
 `module-path-already-loaded`, naming the path and the module (`patches/0005-module-path-already-loaded.patch`,
 with a `SLANG_UNIT_TEST`).
 
-**Measurement.** v2026.21, win-x64 (the workstation): before, null with the assert text and no code
+**Measurement.** v2026.21, win-x64: before, null with the assert text and no code
 (`CompilationTests.A_second_module_from_source_at_the_same_path_ends_in_an_internal_assert`, on the release
 payload); after, null with E38208 naming `shared.slang`, and a module at another path still loads
 (`CompilationTests.A_second_module_from_source_at_the_same_path_is_diagnosed_naming_the_path`). Filed: no.
@@ -1069,7 +1064,7 @@ float4 soFragment(float2 uv : TEXCOORD0) : SV_Target
 Through the C API: the global scope's type layout, each sub-object range's
 `getSubObjectRangeSpaceOffset`.
 
-**Measurement.** v2026.21, win-x64 (the workstation): 0 and 0 on the release payload
+**Measurement.** v2026.21, win-x64: 0 and 0 on the release payload
 (`SecondOpinionTests.A_top_level_parameter_blocks_sub_object_range_reports_space_0`), 1 and 2 with
 the patch (`SecondOpinionTests.A_top_level_parameter_blocks_sub_object_range_reports_its_space`).
 Filed: no.
@@ -1094,7 +1089,7 @@ stage. Spacing and vertex order, which GLSL declares on the evaluation shader, a
 shader's attributes in HLSL and unknown to a domain shader compiled alone, so GLSL's defaults
 apply (`patches/0022-glsl-tessellation-layouts.patch`, with a `SLANG_UNIT_TEST`).
 
-**Measurement.** v2026.21, win-x64 (the workstation), `glslangValidator -V --target-env vulkan1.2`
+**Measurement.** v2026.21, win-x64, `glslangValidator -V --target-env vulkan1.2`
 on the `tessellation` corpus case once U18 and U19 were patched; the layouts' presence is held by
 `TargetValidationTests.The_tessellation_stages_declare_their_glsl_layouts`, and the stages'
 validity by the U18 and U19 tests, which need all three patches. Found while patching U18 and U19,
@@ -1115,7 +1110,38 @@ The SPIR-V target's module is valid.
 cast to the parameter's `uint`, and the output store is indexed with the cast value
 (`source/slang/slang-ir-glsl-legalize.cpp`, the hull branch beside `rewriteReturnToOutputStore`).
 
-**Measurement.** v2026.21, win-x64 (the workstation), `glslangValidator -V --target-env vulkan1.2
+**Fix.** At the end of `legalizeEntryPointForGLSL` for a hull shader on a target other than SPIR-V,
+re-index each element address of a per-vertex output whose index is `gl_InvocationID` behind an
+integer cast with the builtin's own value, which selects the same element
+(`patches/0023-glsl-hull-output-invocation-id.patch`, with a `SLANG_UNIT_TEST`).
+
+**Measurement.** v2026.21, win-x64, `glslangValidator -V --target-env vulkan1.2
 -S tesc` on the `tessellation` corpus case's hull shader once U18, U19 and U34 were patched, which
-had hidden it (`TargetValidationTests.Declared`, the GLSL row). Recorded as a known issue. Filed:
-no.
+had hidden it (`TargetValidationTests.Declared`, the GLSL row); with the patch the hull's GLSL is
+valid (`TargetValidationTests.The_hull_shader_compiles_as_glsl`). Filed: no.
+
+## U36 — A standard module records its source as a path relative to Slang's build tree
+
+**Observed.** Each `.slang-module` in `slang-standard-module-2026.21/` records the `.slang` sources it
+was compiled from as a path relative to the folder it was built in: `../../../../source/...` in
+Slang's release archive, `../../../../../slang/source/...` in a build of the same tag from a
+checkout one folder deeper. Slang resolves that path from the folder the module is loaded from,
+and when a file exists there it names it among the importing module's dependency files. An
+application published five folders below a checkout that holds Slang's sources at the recorded
+place (here `tools/consume`'s output under `_build/consume/publish-linux-x64/`) reports
+`<checkout>/slang/source/standard-modules/numerics/numerics.slang`, a file outside the shipped
+module folder and possibly of another Slang version, instead of the copy beside the module.
+
+**Expected.** A module's recorded sources resolve to the copies shipped beside it, or are recorded
+relative to the module folder, so where the application sits does not change what Slang reads.
+
+**Measurement.** v2026.21, linux-x64 under WSL, `import slang.numerics` through
+`IModule::getDependencyFilePath` on the source-built payload: from five folders below the
+repository root the path names the checkout's file; from the system temp folder it names the copy
+beside the module. Slang only names the file: an application published three folders below a
+folder holding a deliberately broken `slang/source/standard-modules/numerics/numerics.slang`
+compiled `import slang.numerics` to the same 664 bytes of SPIR-V with the file absent, present and
+broken, and listed it among the dependency files in the last two (win-x64, the patched build).
+A dependency list naming a file outside the module folder is the whole effect; a host that hashes
+dependency files, as a staleness check does, reads it. Recorded as a known issue: the fix is in how
+the standard modules are compiled. Filed: no.

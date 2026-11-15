@@ -1,0 +1,166 @@
+Index a hull shader's per-vertex outputs with gl_InvocationID itself on the GLSL target.
+
+GLSL requires a tessellation control shader to index its per-vertex outputs with gl_InvocationID:
+"tessellation-control per-vertex output l-value must be indexed with gl_InvocationID". HLSL's
+SV_OutputControlPointID is a uint, and gl_InvocationID, which the GLSL legalization
+(source/slang/slang-ir-glsl-legalize.cpp) maps it to, an int, so the store of the returned control
+point is indexed with the builtin behind a conversion:
+`entryPointParam_teHull_tePosition_0[uint(gl_InvocationID)] = ...;`, which glslang refuses. The
+SPIR-V target's module for the same shader is valid.
+
+This re-indexes, at the end of legalizeEntryPointForGLSL for a hull shader on a target other than
+SPIR-V, each element address of a per-vertex output whose index is gl_InvocationID behind an
+integer cast with the builtin's own value. It selects the same element: an invocation id is never
+negative. A regression test is added as tools/slang-unit-test/unit-test-glsl-hull-output-invocation-id.cpp.
+
+Measured on v2026.21 (win-x64): glslangValidator -V --target-env vulkan1.2 -S tesc refused the hull
+shader's GLSL once the stage's other errors were patched.
+diff --git a/source/slang/slang-ir-glsl-legalize.cpp b/source/slang/slang-ir-glsl-legalize.cpp
+index f34e007..fe5c03c 100644
+--- a/source/slang/slang-ir-glsl-legalize.cpp
++++ b/source/slang/slang-ir-glsl-legalize.cpp
+@@ -4932,6 +4932,48 @@ void legalizeTargetBuiltinVar(GLSLLegalizationContext& context)
+     }
+ }
+ 
++// Whether `inst` is the value of the `gl_InvocationID` builtin: its global, or a load of it.
++static bool isInvocationIdValue(IRInst* inst)
++{
++    if (auto load = as<IRLoad>(inst))
++        inst = load->getPtr();
++    auto global = as<IRGlobalParam>(inst);
++    if (!global)
++        return false;
++    auto importDecor = global->findDecoration<IRImportDecoration>();
++    return importDecor && importDecor->getMangledName() == "gl_InvocationID";
++}
++
++// GLSL requires a tessellation control shader to index its per-vertex outputs with
++// `gl_InvocationID` itself. The output control point id is a `uint` in HLSL and Slang, and
++// `gl_InvocationID` an `int`, so the index the output store is given is `gl_InvocationID` behind a
++// cast. We index with the builtin's own value instead; it selects the same element, since an
++// invocation id is never negative.
++static void indexHullOutputsWithInvocationId(IRFunc* func)
++{
++    for (auto block : func->getBlocks())
++    {
++        for (auto inst : block->getChildren())
++        {
++            auto elementPtr = as<IRGetElementPtr>(inst);
++            if (!elementPtr)
++                continue;
++            auto base = as<IRGlobalParam>(elementPtr->getOperand(0));
++            if (!base || base->findDecoration<IRGLSLPatchDecoration>())
++                continue;
++            auto ptrType = as<IRPtrTypeBase>(base->getDataType());
++            if (!ptrType || ptrType->getAddressSpace() != AddressSpace::Output)
++                continue;
++            auto index = elementPtr->getOperand(1);
++            if ((index->getOp() == kIROp_IntCast || index->getOp() == kIROp_BitCast) &&
++                isInvocationIdValue(index->getOperand(0)))
++            {
++                elementPtr->setOperand(1, index->getOperand(0));
++            }
++        }
++    }
++}
++
+ void legalizeEntryPointForGLSL(
+     Session* session,
+     IRModule* module,
+@@ -5147,6 +5189,9 @@ void legalizeEntryPointForGLSL(
+         }
+     }
+ 
++    if (stage == Stage::Hull && !isSPIRV(codeGenContext->getTargetFormat()))
++        indexHullOutputsWithInvocationId(func);
++
+     // Some system value vars can't be mapped 1:1 to a GLSL/Vulkan builtin,
+     // for example, SV_InstanceID should map to gl_InstanceIndex - gl_BaseInstance,
+     // we will replace these builtins with additional compute logic here.
+diff --git a/tools/slang-unit-test/unit-test-glsl-hull-output-invocation-id.cpp b/tools/slang-unit-test/unit-test-glsl-hull-output-invocation-id.cpp
+new file mode 100644
+index 0000000..0845641
+--- /dev/null
++++ b/tools/slang-unit-test/unit-test-glsl-hull-output-invocation-id.cpp
+@@ -0,0 +1,80 @@
++// unit-test-glsl-hull-output-invocation-id.cpp
++
++#include "slang-com-ptr.h"
++#include "slang.h"
++#include "unit-test/slang-unit-test.h"
++
++using namespace Slang;
++
++// GLSL requires a tessellation control shader's per-vertex output to be indexed with
++// gl_InvocationID itself, so the store of a hull shader's returned control point must not wrap it
++// in the uint conversion SV_OutputControlPointID's type implies.
++
++SLANG_UNIT_TEST(glslHullOutputInvocationId)
++{
++    const char* source = R"(
++        struct TeControl { float3 tePosition : POSITION; };
++        struct TePatch { float teEdges[3] : SV_TessFactor; float teInner : SV_InsideTessFactor; };
++
++        TePatch teConstants(InputPatch<TeControl, 3> patch)
++        {
++            TePatch c;
++            c.teEdges[0] = c.teEdges[1] = c.teEdges[2] = 1;
++            c.teInner = 1;
++            return c;
++        }
++
++        [shader("hull")]
++        [domain("tri")]
++        [partitioning("integer")]
++        [outputtopology("triangle_cw")]
++        [outputcontrolpoints(3)]
++        [patchconstantfunc("teConstants")]
++        TeControl teHull(InputPatch<TeControl, 3> patch, uint i : SV_OutputControlPointID)
++        {
++            return patch[i];
++        }
++        )";
++
++    ComPtr<slang::IGlobalSession> globalSession;
++    SLANG_CHECK_ABORT(
++        slang_createGlobalSession(SLANG_API_VERSION, globalSession.writeRef()) == SLANG_OK);
++
++    slang::TargetDesc targetDesc = {};
++    targetDesc.format = SLANG_GLSL;
++    targetDesc.profile = globalSession->findProfile("glsl_450");
++
++    slang::SessionDesc sessionDesc = {};
++    sessionDesc.targetCount = 1;
++    sessionDesc.targets = &targetDesc;
++
++    ComPtr<slang::ISession> session;
++    SLANG_CHECK_ABORT(globalSession->createSession(sessionDesc, session.writeRef()) == SLANG_OK);
++
++    ComPtr<slang::IBlob> diagnostics;
++    auto module = session->loadModuleFromSourceString(
++        "glslHullOutputInvocationId",
++        "glslHullOutputInvocationId.slang",
++        source,
++        diagnostics.writeRef());
++    SLANG_CHECK_ABORT(module != nullptr);
++
++    ComPtr<slang::IEntryPoint> entryPoint;
++    SLANG_CHECK_ABORT(SLANG_SUCCEEDED(module->findEntryPointByName("teHull", entryPoint.writeRef())));
++    slang::IComponentType* components[] = {module, entryPoint};
++    ComPtr<slang::IComponentType> program;
++    SLANG_CHECK_ABORT(SLANG_SUCCEEDED(session->createCompositeComponentType(
++        components,
++        2,
++        program.writeRef(),
++        diagnostics.writeRef())));
++    ComPtr<slang::IComponentType> linked;
++    SLANG_CHECK_ABORT(SLANG_SUCCEEDED(program->link(linked.writeRef(), diagnostics.writeRef())));
++
++    ComPtr<slang::IBlob> code;
++    SLANG_CHECK_ABORT(
++        SLANG_SUCCEEDED(linked->getEntryPointCode(0, 0, code.writeRef(), diagnostics.writeRef())));
++    auto glsl = UnownedStringSlice((const char*)code->getBufferPointer(), code->getBufferSize());
++    SLANG_CHECK(glsl.indexOf(UnownedStringSlice("[gl_InvocationID] =")) != -1);
++    SLANG_CHECK(glsl.indexOf(UnownedStringSlice("[uint(gl_InvocationID)] =")) == -1);
++}

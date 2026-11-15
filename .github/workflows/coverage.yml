@@ -22,6 +22,7 @@ on:
       - 'dxc/**'
       - 'tests/**'
       - 'patches/**'
+      - 'slang'
       - 'NativeSplit.props'
       - 'docs/coverage.md'
       - 'docs/badges/**'

@@ -48,14 +48,16 @@ param(
     [switch]$SkipBuild,
     [switch]$SkipTests,
     [switch]$Check,
-    [string]$Spec
+    [string]$Spec,
+    # The checkout to measure or check (default: the one this script is in)
+    [string]$Root
 )
 
 $ErrorActionPreference = "Stop"
 # Numbers in the report and badges read the same whatever the machine's locale
 [System.Threading.Thread]::CurrentThread.CurrentCulture = [System.Globalization.CultureInfo]::InvariantCulture
 $PSNativeCommandUseErrorActionPreference = $true
-$root = Split-Path $PSScriptRoot -Parent
+$root = if ($Root) { (Resolve-Path $Root).Path } else { Split-Path $PSScriptRoot -Parent }
 if (-not $Spec) { $Spec = Join-Path $PSScriptRoot "coverage" "coverage.psd1" }
 $cfg = Import-PowerShellDataFile $Spec
 $work = Join-Path $root "_build" "coverage"
@@ -72,11 +74,11 @@ function Inputs([string]$rev) { @(git -C $root ls-tree $rev -- @inputPaths | For
 
 # ------------------------------------------------------------------------------------------ check
 if ($Check) {
-    if (-not (Test-Path $report)) { Write-Host "no docs/coverage.md: no figures to check"; exit 0 }
-    $text = Get-Content $report -Raw
     $problem = $null
     $measured = $null
-    if ($text -match '<!-- coverage inputs: uncommitted changes on top of ([0-9a-f]{40}) -->') {
+    $text = if (Test-Path $report) { Get-Content $report -Raw } else { $null }
+    if ($null -eq $text) { $problem = "there is no docs/coverage.md; a release states its coverage" }
+    elseif ($text -match '<!-- coverage inputs: uncommitted changes on top of ([0-9a-f]{40}) -->') {
         $measured = $Matches[1].Substring(0, 7)
         $problem = "docs/coverage.md was measured with uncommitted changes on top of $measured"
     }
@@ -182,22 +184,35 @@ function Measurement {
     $hash = { param($p) if (Test-Path $p) { (Get-FileHash $p -Algorithm SHA256).Hash } }
     $loaded = & $hash (Join-Path $testBin $native)
     $payload = if ($loaded) { "an unstaged payload (SHA-256 $($loaded.Substring(0, 12)))" } else { "no payload" }
+    $loadedVariant = $null
     foreach ($v in $cfg.Payload.Variants) {
-        if ($loaded -and $loaded -eq (& $hash (Join-Path $root $v.Path $rid "native" $native))) { $payload = "the $($v.Name) payload ($native SHA-256 $($loaded.Substring(0, 12)))"; break }
+        if ($loaded -and $loaded -eq (& $hash (Join-Path $root $v.Path $rid "native" $native))) { $payload = "the $($v.Name) payload ($native SHA-256 $($loaded.Substring(0, 12)))"; $loadedVariant = $v; break }
     }
 
-    # The upstream ref: the submodule's tag when there is one, else the pin
-    $sub = if ($cfg.Upstream.Submodule) { Join-Path $root $cfg.Upstream.Submodule } else { $null }
-    $upstream = if ($sub -and (Test-Path (Join-Path $sub ".git"))) { (git -C $sub describe --tags --always).Trim() } else {
-        $props = Get-Content (Join-Path $root "Directory.Build.props") -Raw
-        if ($props -match "<$($cfg.Upstream.Pin)>([^<]+)</$($cfg.Upstream.Pin)>") { "$($Matches[1].Trim()) (release binaries)" } else { "unknown" }
+    # The upstream ref and the patches applied: what the staged payload says it is
+    # (runtimes/<rid>/payload.json, AGENTS.md#pin-and-payload), since a checkout with patches/ may
+    # still have Slang's release binaries staged; without the file, the pin.
+    # Only the payload the tests loaded is described: when the library beside the tests is not the
+    # staged one, its origin is unknown whatever payload.json says.
+    $props = Get-Content (Join-Path $root "Directory.Build.props") -Raw
+    $pin = if ($props -match "<$($cfg.Upstream.Pin)>([^<]+)</$($cfg.Upstream.Pin)>") { $Matches[1].Trim() } else { "unknown" }
+    $payloadJson = if ($loadedVariant) { Join-Path $root $loadedVariant.Path $rid "payload.json" } else { $null }
+    $staged = if ($payloadJson -and (Test-Path $payloadJson)) { Get-Content $payloadJson -Raw | ConvertFrom-Json } else { $null }
+    $gitlink = ((git -C $root ls-tree HEAD -- slang) -split '\s+')[2]
+    $upstream = switch ($staged.source) {
+        "build" {
+            if ($gitlink -and $staged.commit -ne $gitlink) { throw "the staged payload was built from Slang $($staged.commit), and slang/ at HEAD is ${gitlink}: rebuild it (tools/build-native.ps1)" }
+            "$($staged.slang) built from source ($($staged.commit.Substring(0, 9)))"
+        }
+        "release" { "$pin (release binaries)" }
+        default { "$pin (payload origin unknown)" }
     }
-    $patchDir = Join-Path $root $cfg.Patches
+    $patchCount = if ($staged.source -eq "build") { @($staged.patches).Count } else { 0 }
     [pscustomobject]@{
         Commit = $sha; Dirty = $dirty; Inputs = (Inputs $sha)
         Date = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd")
         Upstream = $upstream
-        Patches = (Test-Path $patchDir) ? @(Get-ChildItem $patchDir -Filter "*.patch").Count : 0
+        Patches = $patchCount
         Payload = $payload
         Os = $os
         Adapters = $adapters

@@ -287,7 +287,7 @@ public sealed class NriDeviceTests(ITestOutputHelper output)
     /// filter that matches prose is one rewording away from swallowing a real defect. A tier or a
     /// feature bit does not get reworded.
     ///
-    /// Measured on the RTX 4070 SUPER: every condition below is satisfied, so no case is skipped
+    /// Measured on an NVIDIA GPU: every condition below is satisfied, so no case is skipped
     /// here on a workstation — all 30 projectable cases build their layout, 23 build pipelines on
     /// top, and the other 7 are the PipelineOutOfReach entries. The conditions were written for
     /// lavapipe, which had no ray tracing and no mesh shaders — but Mesa 25.2.8's lavapipe (Ubuntu
@@ -1053,7 +1053,7 @@ public sealed class NriDeviceTests(ITestOutputHelper output)
     [NriVulkanFact]
     public void A_dispatch_bound_through_the_projection_stored_in_the_package_reaches_the_shader_on_vulkan()
     {
-        // The engine projects at bake time (owner, 2026-11-08): the cooker stores the projection
+        // The projection is made at bake time (AGENTS.md#nri-projection): the cooker stores the projection
         // in the package and the game builds its pipeline from what it reads back, never calling
         // ToNri. Root constants and a descriptor, so both channels come off the loaded descs.
         const int Count = 64;

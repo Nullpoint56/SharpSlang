@@ -124,7 +124,7 @@ public sealed class PixelTests(ITestOutputHelper output)
     [NriVulkanFact]
     public void A_scene_drawn_with_the_projection_stored_at_bake_time_renders_on_vulkan_exactly_as_computed()
     {
-        // The path a game takes when the engine projects at bake time: the pipeline built from the
+        // The path an application takes when it projects at bake time: the pipeline built from the
         // NRI section read back out of the package, never from ToNri.
         var compiled = NriDeviceTests.Compile("pixels", Source, ["vertexMain", "fragmentMain"], new TargetOptions());
         using var fixture = NriTestDevice.Create(GraphicsAPI.VK);

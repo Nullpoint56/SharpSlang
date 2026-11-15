@@ -35,9 +35,16 @@
     # Test coverage: the modules measured (file names, no extension)
     Modules = @('SharpSlang', 'SharpSlang.Descs', 'SharpSlang.Pipeline', 'SharpSlang.Pipeline.Bake', 'SharpSlang.Pipeline.NRI')
 
-    # Report areas by source path, first match wins; $null = not counted (generated L0)
+    # Report areas by source path, first match wins; $null = not counted: the generated L0, and
+    # what source generators write under obj/ (System.Text.Json's serializer for the layout,
+    # 7,173 of the 11,163 lines first measured at 2cb38fc, and the regex generator's)
     Areas = @(
         @{ Path = 'dotnet/Native/';      Area = $null }
+        @{ Path = 'dotnet/obj/';         Area = $null }
+        @{ Path = 'descs/obj/';          Area = $null }
+        @{ Path = 'pipeline/obj/';       Area = $null }
+        @{ Path = 'bake/obj/';           Area = $null }
+        @{ Path = 'pipeline-nri/obj/';   Area = $null }
         @{ Path = 'dotnet/Interop/';     Area = 'L1 dotnet/Interop' }
         @{ Path = 'dotnet/Core/';        Area = 'L2 dotnet/Core' }
         @{ Path = 'dotnet/Extensions/';  Area = 'L3 dotnet/Extensions' }
@@ -51,12 +58,11 @@
     # The measured inputs: these entries of the measured commit's tree are recorded, and -Check
     # compares them with HEAD's. A path that does not exist (patches/, before the first patch) is
     # recorded as absent, and its appearing counts as a change.
-    Inputs = @('dotnet', 'descs', 'pipeline', 'bake', 'pipeline-nri', 'dxc', 'tests', 'patches', 'NativeSplit.props')
+    Inputs = @('dotnet', 'descs', 'pipeline', 'bake', 'pipeline-nri', 'dxc', 'tests', 'patches', 'slang', 'NativeSplit.props')
 
-    # The upstream ref: `git describe` of the submodule when there is one (Submodule names its
-    # path), else the pin. No submodule yet: the payload is Slang's release binaries.
-    Upstream = @{ Submodule = $null; Pin = 'SlangVersion'; Name = 'Slang' }
-    Patches  = 'patches'
+    # The pin, for the report's upstream ref; the payload's payload.json says whether it is that
+    # release's binaries or a source build, and which patches it carries.
+    Upstream = @{ Pin = 'SlangVersion'; Name = 'Slang' }
 
     # The payload the tests load, identified by content: the library beside the test assembly,
     # compared with each staged variant

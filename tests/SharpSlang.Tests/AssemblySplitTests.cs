@@ -301,7 +301,7 @@ public class AssemblySplitTests
         using var fragment = module.FindEntryPoint("fragmentMain");
         using var program = session.Link(module, vertex, fragment);
 
-        // The engine projects at bake time (owner, 2026-11-08): the cooker stores the NRI
+        // The projection is made at bake time (AGENTS.md#nri-projection): the cooker stores the NRI
         // projection in the package, and the reader-only consumer reads it back.
         ShaderPackageBaker.Bake(program, Source, 0)
             .WithNriProjection(new NriProjectionOptions { UnboundedArrayCap = 64 })

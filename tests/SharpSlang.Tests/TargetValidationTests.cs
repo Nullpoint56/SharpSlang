@@ -302,6 +302,11 @@ public sealed class TargetValidationTests(ITestOutputHelper output)
         Assert.Contains("layout(triangles) in;", emitted["tessellation/teDomain"], StringComparison.Ordinal);
     }
 
+    [PatchedFact("U35")]
+    public void The_hull_shader_compiles_as_glsl() =>
+        // U35, patched (0023), with U18, U19 and U34: the hull stage's GLSL is valid.
+        RequirePatchedCaseValid("glsl", "tessellation/teHull", Validator.GlslangValidator);
+
     [PatchedFact("U32")]
     public void Append_and_consume_buffers_compile_as_cpp() =>
         RequirePatchedCaseValid("cpp", "append-buffers/abCompute", Validator.HostCxx);
@@ -310,8 +315,8 @@ public sealed class TargetValidationTests(ITestOutputHelper output)
     public void A_hull_shaders_patch_constant_function_returns_void_in_glsl()
     {
         // U18, patched (0009): the patch-constant function, whose returns legalization rewrites to
-        // return nothing, is declared void. Read from the text: glslang still refuses the hull stage
-        // for its output index (U35, a known issue), so validity cannot be this test's oracle.
+        // return nothing, is declared void. Read from the text, so it holds apart from the stage's other
+        // GLSL defects (U19, U34, U35), which glslang reports first.
         using var global = SlangGlobalSession.Create();
         var hull = EmitCase(global, ShaderCorpus.Case("tessellation"), TargetNamed("glsl").Options())
             .Single(e => e.Key == "tessellation/teHull");
@@ -582,7 +587,7 @@ public sealed class TargetValidationTests(ITestOutputHelper output)
             (["compute-specialized/csCompute"], new(Outcome.SlangRefuses, SpecializedNumthreads, NoSpecializedNumthreads)));
 
         public static readonly Dictionary<string, Expected> Glsl = Table(
-            (["tessellation/teHull"], new(Outcome.ValidatorRejects, "non-void function must return a value", "U18: the patch-constant function is declared to return its struct and ends in a bare return; with it patched, U35: the per-vertex output is indexed with uint(gl_InvocationID)", FixedBy: "U18", FixedWords: "must be indexed with gl_InvocationID")),
+            (["tessellation/teHull"], new(Outcome.ValidatorRejects, "non-void function must return a value", "U18: the patch-constant function is declared to return its struct and ends in a bare return; behind it U19's input size, U34's layout and U35's output index, all patched", FixedBy: "U35")),
             (["tessellation/teDomain"], new(Outcome.ValidatorRejects, "tessellation input array size must be gl_MaxPatchVertices or implicitly sized", "U19: the domain stage's per-vertex input is declared with the patch size; with U19 and U34 patched it is valid", FixedBy: "U19")));
 
         public static readonly Dictionary<string, Expected> Metal = Table(

@@ -2,11 +2,9 @@ name: CI
 
 # What runs, and when, is a measured decision rather than a default.
 #
-# The repository is private on the Free plan: $12 of Actions a month, which is 2,000 Linux minutes
-# at $0.006, with Windows at $0.010 and macOS at $0.062. Every job is billed rounded up to whole
-# minutes. October 2026's allowance was spent in two days. A third of the runs then were repeats on
-# main of code its branch had just passed, and macOS was 57% of the money. The rules since
-# 2026-11-07 are the owner's:
+# Actions minutes are budgeted, macOS minutes most of all (each job is billed in whole minutes), and
+# repeat runs of a tree a branch already passed were most of the waste. The rules are the owner's
+# (AGENTS.md#actions-budget):
 #
 #   * Nothing starts by itself on a branch. A push to a pull request runs nothing. A branch is
 #     tested when someone starts this workflow by hand on it: Actions > CI > Run workflow, choosing
@@ -70,6 +68,10 @@ on:
         default: false
       force:
         description: 'Run every requested job even if this tree already passed it'
+        type: boolean
+        default: false
+      from_source:
+        description: 'Test the payload built from slang/ with patches/, as SHARPSLANG_NATIVE_FROM_SOURCE does, for this run only (with force when the tree already passed on the release payload)'
         type: boolean
         default: false
 permissions:
@@ -263,8 +265,8 @@ jobs:
         uses: ./.github/actions/slang-payload
         with:
           rid: ${{ matrix.rid }}
-          source: ${{ vars.SHARPSLANG_NATIVE_FROM_SOURCE == 'true' && 'build' || 'release' }}
-          restore-only: ${{ vars.SHARPSLANG_NATIVE_FROM_SOURCE == 'true' && 'true' || 'false' }}
+          source: ${{ (vars.SHARPSLANG_NATIVE_FROM_SOURCE == 'true' || inputs.from_source) && 'build' || 'release' }}
+          restore-only: ${{ (vars.SHARPSLANG_NATIVE_FROM_SOURCE == 'true' || inputs.from_source) && 'true' || 'false' }}
           token: ${{ github.token }}
 
       - name: Payload carries the SPIR-V optimiser
@@ -556,15 +558,26 @@ jobs:
       # per entry that carries a patch (docs/upstream.json, AGENTS.md#patches). On Slang's release
       # they skip by design, naming the patch, and nothing is counted.
       - name: The patched-behaviour tests actually ran (source-built payload)
-        if: vars.SHARPSLANG_NATIVE_FROM_SOURCE == 'true'
+        if: (vars.SHARPSLANG_NATIVE_FROM_SOURCE == 'true' || inputs.from_source)
         shell: pwsh
         run: |
-          $carried = @((Get-Content docs/upstream.json -Raw | ConvertFrom-Json).defects | Where-Object { $_.patch })
-          $counts = @(./tools/ci/count-tests.ps1 -Trx test-results/results.trx -Class (($carried | ForEach-Object test) -join ',') 6>&1 | ForEach-Object { "$_" })
-          $counts | ForEach-Object { Write-Host $_ }
-          if ($counts[-1] -notmatch "passed=$($carried.Count) skipped=0 failed=0\b") {
-            throw "expected the $($carried.Count) patched-behaviour tests of docs/upstream.json to pass on ${{ matrix.rid }}: $($counts[-1])"
+          # Per entry: none of its results failed, and none skipped for want of the patched payload,
+          # which is what this run is for. A skip naming a missing tool or device, or another
+          # platform's defect (U10 is Windows' library search), is the leg's environment and allowed;
+          # the gates above hold the tools to their legs.
+          $problems = @()
+          $ran = 0
+          foreach ($e in (Get-Content docs/upstream.json -Raw | ConvertFrom-Json).defects | Where-Object { $_.patch }) {
+            $out = @(./tools/ci/count-tests.ps1 -Trx test-results/results.trx -Class $e.test 6>&1 | ForEach-Object { "$_" })
+            Write-Host ("{0,-4} {1}: {2}" -f $e.id, $e.test, $out[-1])
+            if ($out[-1] -notmatch 'passed=(\d+) skipped=(\d+) failed=(\d+)') { $problems += "$($e.id): no result"; continue }
+            if ([int]$Matches[3] -gt 0) { $problems += "$($e.id): $($Matches[3]) failed" }
+            if ([int]$Matches[1] -gt 0) { $ran++ }
+            $payloadSkip = @($out | Where-Object { $_ -match 'release payload|payload\.json|payload''s origin' })
+            if ($payloadSkip) { $problems += "$($e.id): skipped for the payload: $($payloadSkip[0].Trim())" }
           }
+          Write-Host "$ran of the carried entries' tests ran on ${{ matrix.rid }}"
+          if ($problems) { throw "patched-behaviour tests of docs/upstream.json on ${{ matrix.rid }}: $($problems -join '; ')" }
 
       - name: The header-derived and corpus oracles actually ran
         # Every leg, unlike the lavapipe gate above, so `shell: bash` is explicit — a Windows
@@ -625,7 +638,7 @@ jobs:
       # 70. Measured with PrismNRI 0.3.0-alpha and PRISMNRI_TEST_SOFTWARE=1 (SHARPNRI_TEST_SOFTWARE
       # since the rename) on a workstation, which makes NriTestDevice pick WARP ("Microsoft Basic
       # Render Driver") for D3D12 the way the runner does: every D3D12 row
-      # passed, with outcomes identical to the RTX 4070 SUPER case for case — WARP reports mesh
+      # passed, with outcomes identical to the NVIDIA GPU's case for case — WARP reports mesh
       # shaders and a ray tracing tier, so even the mesh, amplification and ray-tracing layouts
       # are built on it — and the same messages, error for error and warning for warning. Measured
       # again with SharpNRI 191.0.0-beta.4 the way the runner is: SHARPNRI_TEST_SOFTWARE=1,
@@ -983,7 +996,7 @@ jobs:
   native-from-source:
     name: native payload from source (${{ matrix.rid }})
     needs: gate
-    if: vars.SHARPSLANG_NATIVE_FROM_SOURCE == 'true' && needs.gate.outputs.legs != '[]'
+    if: (vars.SHARPSLANG_NATIVE_FROM_SOURCE == 'true' || inputs.from_source) && needs.gate.outputs.legs != '[]'
     # Linux on Ubuntu 22.04, not the test legs' 24.04: the host's glibc and libstdc++ set the oldest
     # Linux the payload loads on, and 22.04 gives Slang's release floor, GLIBC_2.34 and GLIBCXX_3.4.29
     # (Directory.Build.props, LinuxGlibcFloor); a 24.04 build needs 2.38 and 3.4.32, and build-native.ps1

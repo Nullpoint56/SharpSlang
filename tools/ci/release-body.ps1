@@ -11,8 +11,8 @@
     and version, a reused one (-Reused, descs-version.ps1's publish=false) marked so. release.yml
     runs it; run it locally to preview or to rewrite a published body.
 
-        pwsh tools/ci/release-body.ps1 -Tag v2026.21.0-beta.1 -ApiChanges api-changes.md -Out body.md
-        pwsh tools/ci/release-body.ps1 -Tag v2026.21.0-beta.2 -Reused SharpSlang.Descs,SharpSlang.Pipeline -ApiChanges api-changes.md -Out body.md
+        pwsh tools/ci/release-body.ps1 -Tag v2026210.0.0-beta.1 -ApiChanges api-changes.md -Out body.md
+        pwsh tools/ci/release-body.ps1 -Tag v2026210.0.0-beta.2 -Reused SharpSlang.Descs,SharpSlang.Pipeline -ApiChanges api-changes.md -Out body.md
 
     The tag's version is the release pin ({Version}); the other pins come from Directory.Build.props
     unless -Pins names them.

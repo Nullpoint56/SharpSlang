@@ -26,6 +26,6 @@ per package, and a link per package and version.
 - Package versions follow Slang: every package's major is the Slang version as YYYYRRP
 
 ## Verified
-- NVIDIA GeForce RTX 4070 SUPER, SPIR-V on Vulkan and DXIL on D3D12: <commit> (coverage)
+- <GPU>, SPIR-V on Vulkan and DXIL on D3D12: <commit> (coverage)
 - WARP (D3D12), lavapipe (Vulkan): CI on the tagged commit
 ```

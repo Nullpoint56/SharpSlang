@@ -124,7 +124,7 @@ try
             var read = module.DependencyFilePaths.Where(p => p.EndsWith(".slang", StringComparison.Ordinal) && p != "usesModules.slang").Select(Path.GetFullPath).ToArray();
             var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
             if (read.Length == 0) Report("FAIL", "standard modules used", "the module names no file of slang.neural among its dependencies");
-            else if (!read.All(p => p.StartsWith(folder, comparison) && InOutput(p))) Report("FAIL", "standard modules used", $"read from {Path.GetDirectoryName(read[0])}, not {folder} in this output");
+            else if (read.FirstOrDefault(p => !(p.StartsWith(folder, comparison) && InOutput(p))) is { } stray) Report("FAIL", "standard modules used", $"read {stray}, not under {folder} in this output");
             else Report("PASS", "standard modules used", $"slang.neural and slang.numerics imported, {spirv.Length} bytes of SPIR-V; read from {folder}");
         }
         catch (SharpSlang.Interop.SlangException e)

@@ -66,7 +66,7 @@ Versions follow Slang: the major is Slang's version as `YYYYRRP`, so `2026210.x.
 
 ## What is tested
 
-The suite has **1223 tests**, run against oracles rather than values typed by hand:
+The suite has **1224 tests**, run against oracles rather than values typed by hand:
 - a C++ probe that checks every struct and all 279 `DllImport` entry points against `slang.h`;
 - the Khronos and D3D12 validation layers, judging real NRI pipelines built from a 33-shader corpus;
 - Slang's own reflection tests;
