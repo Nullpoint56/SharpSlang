@@ -9,7 +9,7 @@
 // slowing towards the bound says so before it reaches it.
 //
 // The NONE backend never comes here: its GetFenceValue returns 0 whatever was signalled
-// (nri/Source/NONE/ImplNONE.cpp, NRI v191), so a poll would run to the bound, and its Wait is an
+// (nri/Source/NONE/ImplNONE.cpp, NRI v192), so a poll would run to the bound, and its Wait is an
 // empty function, which is why AllocationTests' frame on NONE keeps it.
 
 using System.Diagnostics;

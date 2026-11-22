@@ -501,13 +501,12 @@ public class NriProjectionTests
     /// says, so a SharpNRI bump that moves NRI fails here with the rules to re-measure named,
     /// instead of passing on tests that never ask a device.
     ///
-    /// Re-read for v191 against v190 (NRI's tags, Source/VK/PipelineLayoutVK.hpp): the four rules
-    /// are unchanged, two lines further down. What moved is stage resolution — a range or root
-    /// constant whose stages are ALL or ALL_SHADERS now takes PipelineLayoutDesc.shaderStages,
-    /// which this projection sets and never relies on — and DescriptorSetDesc.flags is gone, with
-    /// update-after-bind derived from the ranges; the projection never set either.
+    /// Re-read for v192 against v191 (NRI's tags, Source/VK/PipelineLayoutVK.hpp): the four rules
+    /// are unchanged, six lines further down. What moved is that every stage mask is now also
+    /// intersected with the stages the device supports (GetSupportedShaderStageFlags), which drops
+    /// only stages the device cannot run; the projection sets explicit stages and is unaffected.
     /// </remarks>
-    private const int MeasuredNriVersion = 191;
+    private const int MeasuredNriVersion = 192;
 
     [Fact]
     public void The_descs_package_was_generated_from_the_nri_revision_the_projection_was_measured_against()
