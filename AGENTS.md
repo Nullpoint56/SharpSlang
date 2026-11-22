@@ -1006,8 +1006,10 @@ Manual, from `master` (`release.yml`). Before starting: pack on Linux as the wor
 3. **pack**: the six packages on Linux; a Descs or reader version already on nuget.org is taken from
    there; `check-packages.ps1` and `api-changes.ps1`.
 4. **consume** on win-x64, linux-x64 and linux-arm64.
-5. **release**: tag, GitHub release (body from `release-body.ps1`), the `.nupkg` files and symbol
-   zips; osx-arm64 attaches its zips when its runner turns up.
+5. **release**: build provenance (`actions/attest`) for the native libraries, the packages built
+   here and the zips; tag, GitHub release (body from `release-body.ps1`), the `.nupkg` files and
+   symbol zips; osx-arm64 attests and attaches its zips when its runner turns up. The libraries are
+   attested themselves because nuget.org repository-signs a package, which changes its digest.
 6. **nuget**: Trusted Publishing after the owner approves the `nuget` environment; skipped while the
    `NUGET_USER` repository variable is absent. Each package pushed alone with `--skip-duplicate`.
 
