@@ -18,13 +18,11 @@ name: release
 #   pull request and run again, or re-run failed jobs when the cause was outside the repository. A
 #   version on nuget.org is permanent: a failure after the nuget job means a new version.
 #
-# Preconditions not in this file, each the owner's:
-#   * the repository is public, CI builds the payload from source (AGENTS.md#decisions), and U4 is
-#     patched test first before Linux builds from source (AGENTS.md#patches): a release only happens
-#     after going public, so every payload here is built from the slang/ submodule;
-#   * the nuget.org Trusted Publishing policy and the nuget environment, and the NUGET_USER
-#     repository variable, which is absent until then, so the nuget jobs skip
-#     (AGENTS.md#actions-budget).
+# Preconditions not in this file, each the owner's and each met (AGENTS.md#the-release):
+#   * the repository is public and CI builds the payload from source (AGENTS.md#decisions); every
+#     payload here is built from the slang/ submodule with patches/;
+#   * the nuget.org Trusted Publishing policy, the nuget environment and the NUGET_USER repository
+#     variable; without the variable the nuget jobs skip.
 on:
   workflow_dispatch:
     inputs:
@@ -282,9 +280,12 @@ jobs:
     needs: [version, native, pack, consume]
     if: github.ref == 'refs/heads/master'
     runs-on: ubuntu-24.04
-    timeout-minutes: 10      # not measured: downloads, a script and one upload
+    timeout-minutes: 10      # not measured: downloads, a script, the attestations and one upload
     permissions:
       contents: write
+      id-token: write          # the attestations' Sigstore certificate
+      attestations: write
+      artifact-metadata: write
     steps:
       - uses: actions/checkout@v7
 
@@ -313,6 +314,36 @@ jobs:
       - name: Release assets
         run: ls -l dist
 
+      # Build provenance (AGENTS.md#the-release), signed through Sigstore and kept by GitHub, for what
+      # this run built: the native libraries the packages carry, the packages but the reused Descs
+      # and reader (built by an earlier release, which attested them), and the zips. The libraries
+      # are attested themselves because nuget.org repository-signs a package, so the .nupkg it
+      # serves has another digest than the one attested here; the files inside it do not change.
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: runtimes-*
+          path: _artifacts
+
+      - name: What this run built
+        id: built
+        shell: pwsh
+        run: |
+          $reused = @((Get-Content release-meta/reused.txt -Raw).Trim() -split ',' | Where-Object { $_ })
+          $paths = @(Get-ChildItem dist -Filter *.nupkg | Where-Object {
+              $n = $_.Name; -not ($reused | Where-Object { $n -like "$_.[0-9]*.nupkg" }) } | ForEach-Object { "dist/$($_.Name)" })
+          $paths += @(Get-ChildItem dist -Filter *.zip | ForEach-Object { "dist/$($_.Name)" })
+          foreach ($rid in 'win-x64', 'linux-x64', 'linux-arm64') {
+            $lib = @(Get-ChildItem "_artifacts/runtimes-$rid/native" -File | Where-Object { $_.Extension -in '.dll', '.so' })
+            if ($lib.Count -lt 2) { throw "runtimes-$rid has $($lib.Count) native libraries; slang-compiler and slang-glslang expected" }
+            $paths += $lib | ForEach-Object { "_artifacts/runtimes-$rid/native/$($_.Name)" }
+          }
+          $paths | ForEach-Object { Write-Host "  $_" }
+          "paths<<EOF`n$($paths -join "`n")`nEOF" >> $env:GITHUB_OUTPUT
+
+      - uses: actions/attest@v4
+        with:
+          subject-path: ${{ steps.built.outputs.paths }}
+
       - uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ needs.version.outputs.tag }}
@@ -335,6 +366,9 @@ jobs:
     timeout-minutes: 120     # not measured on a runner, as the other native builds
     permissions:
       contents: write
+      id-token: write          # the attestation's Sigstore certificate
+      attestations: write
+      artifact-metadata: write
     steps:
       - uses: actions/checkout@v7
 
@@ -353,6 +387,12 @@ jobs:
         shell: pwsh
         run: ./tools/ci/native-symbols.ps1 -Rid osx-arm64 -Zip dist -Tag ${{ needs.version.outputs.tag }} -Native
 
+      - uses: actions/attest@v4
+        with:
+          subject-path: |
+            dist/*.zip
+            runtimes/osx-arm64/native/*.dylib
+
       - name: Attach to the release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -362,7 +402,7 @@ jobs:
   # key; NuGet/login trades this job's OIDC token for a key valid one hour, accepted because the
   # owner's nuget.org policy names this repository, release.yml and the nuget environment, and every
   # package id. The nuget environment requires the owner's approval; NUGET_USER (a repository
-  # variable) is the nuget.org account, and without it the job skips, as it does today.
+  # variable) is the nuget.org account, and without it the job skips.
   nuget:
     name: nuget
     needs: [version, release]

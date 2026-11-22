@@ -25,6 +25,7 @@ param(
     [object]$Pins = @{},             # hashtable, or "Name=value" strings
     [string]$Notes,                  # default docs/releases/<Tag>.md
     [string]$Gallery = "https://www.nuget.org/packages",
+    [string]$Repository = $(if ($env:GITHUB_REPOSITORY) { $env:GITHUB_REPOSITORY } else { 'Nullpoint56/SharpSlang' }),
     [string]$Spec
 )
 
@@ -53,8 +54,14 @@ $patchCount = @(Get-ChildItem (Join-Path $root "patches") -Filter *.patch -Error
 foreach ($l in $data.Libraries) {
     $v = $pinValues[$l.Pin]
     if (-not $v) { throw "no value for the $($l.Name) pin {$($l.Pin)}" }
-    $note = if ($l.ContainsKey('Via')) { " (restored by the application through $($l.Via))" } elseif ($patchCount) { " ($patchCount patches)" } else { "" }
+    $note = if ($l.ContainsKey('Via')) { " (restored by the application through $($l.Via))" }
+            elseif ($patchCount) { ", built from source with [$patchCount patches](https://github.com/$Repository/tree/$Tag/patches), each fixing a defect recorded in [docs/upstream.md](https://github.com/$Repository/blob/$Tag/docs/upstream.md); not Slang's release binary, and it behaves differently where a patch applies" }
+            else { "" }
     $bound += "- $($l.Name): [$v]($(Expand-Template $l.Url $pinValues))$note"
+}
+if ($patchCount) {
+    $bound += ""
+    $bound += "The native libraries, the packages this release built and its zips carry a build provenance attestation: ``gh attestation verify <file> --repo $Repository``. A ``.nupkg`` from nuget.org is repository-signed there, so verify the library inside it, or the ``.nupkg`` attached here."
 }
 
 $api = if ($ApiChanges) { @("") + @((Get-Content $ApiChanges -Raw).TrimEnd() -split "`r?`n") } else { @() }

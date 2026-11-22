@@ -256,9 +256,9 @@ jobs:
       # The staged payload, cached under the git object ids of what makes it (the slang-payload
       # action, tools/ci/native-payload-key.ps1), the same key on every OS, and saved before the
       # build and tests. Slang's release archive while the repository variable
-      # SHARPSLANG_NATIVE_FROM_SOURCE is unset, which it is until the repository is public (owner,
-      # 2026-11-08; AGENTS.md#decisions); with the variable 'true', the payload the
-      # native-from-source job built with patches/ applied, restored and never built here
+      # SHARPSLANG_NATIVE_FROM_SOURCE is unset; with it 'true', as it is now the repository is
+      # public (AGENTS.md#decisions), the payload the native-from-source job built with patches/
+      # applied, restored and never built here
       # (restore-only), so the patched-behaviour tests run instead of skipping (AGENTS.md#patches).
       # The variable is the whole switch.
       - name: Slang payload
@@ -978,10 +978,10 @@ jobs:
 
   # The payload built from the slang/ submodule with patches/ applied (tools/build-native.ps1),
   # cached, for the test legs above. Skipped, costing nothing, unless the repository variable
-  # SHARPSLANG_NATIVE_FROM_SOURCE is 'true', which it is not until the repository is public (owner,
-  # 2026-11-08; AGENTS.md#decisions). With it 'true', the legs wait for this job and restore what it
-  # saved, so the patched-behaviour tests run against the patches; unset, the legs stage Slang's
-  # release and those tests skip, naming the patch.
+  # SHARPSLANG_NATIVE_FROM_SOURCE is 'true', as it is now the repository is public
+  # (AGENTS.md#decisions), or when a manual run asks for it; then the legs wait for this job and
+  # restore what it saved, so the patched-behaviour tests run against the patches; unset, the legs
+  # stage Slang's release and those tests skip, naming the patch.
   #
   # The payload is a function of its inputs, so it is built once per input set, not per run: the key
   # is the git object ids of the slang/ pointer, patches/, the build script, the props, the notices

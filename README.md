@@ -62,7 +62,10 @@ Versions follow Slang: the major is Slang's version as `YYYYRRP`, so `2026210.x.
 | macOS arm64 | the native library is a zip on each release, not in the packages |
 
 .NET 11. Slang's ABI is not stable across versions, so one release pins one Slang release
-(currently v2026.21). It is built from source, with the patches in [patches/](patches/README.md).
+(currently v2026.21). It is built from source, with the patches in [patches/](patches/README.md):
+the native library is not Slang's release binary, and behaves differently from it where a patch
+applies ([docs/upstream.md](docs/upstream.md)). Each release attests what it built: `gh attestation
+verify <file> --repo Nullpoint56/SharpSlang`.
 
 ## What is tested
 
