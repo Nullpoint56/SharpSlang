@@ -502,8 +502,8 @@ format of a patch is in `patches/README.md`.
 
 The owner's, unless said otherwise.
 
-- **CI tests Slang's release payload until the repository is public**; then
-  `SHARPSLANG_NATIVE_FROM_SOURCE` is set and CI tests the patched build. A release packs payloads
+- **CI tests the patched build**: the repository is public and `SHARPSLANG_NATIVE_FROM_SOURCE` is
+  set, so every leg restores the payload built from source with `patches/`. A release packs payloads
   built from source with the patches, whatever the variable says.
 - **Name: SharpSlang. Packages: `SharpSlang`, `.Descs`, `.Dxc`, `.Pipeline`, `.Pipeline.Bake`,
   `.Pipeline.NRI`.** The pipeline packages fill the template's `<Binding>.<Feature>` slot and use
@@ -523,8 +523,11 @@ The owner's, unless said otherwise.
 - **Unbound by decision**: the legacy compile-request API and the language server.
 - **Zero allocation per frame** for `SharpSlang.Pipeline`, not the binding.
 - **No `SharpSlang.Testing`**: SharpNRI.Testing provides the devices the pipeline tests use.
-- **Default branch `master`; going public, the rulesets and nuget.org Trusted Publishing are the
-  owner's last step.** Packages stay unpublished until then.
+- **Default branch `master`, public, with its full history.** Rulesets: `master` takes changes
+  through a pull request with the "ci" status green and up to date, and is never force-pushed or
+  deleted; `v*` tags are never moved or deleted. Secret scanning, push protection and Dependabot
+  alerts are on; outside contributors' workflow runs need approval. Packages go to nuget.org by
+  Trusted Publishing, through the `nuget` environment the owner approves (The release).
 - **CI is manual on branches, `master` reruns only untested trees, a "ci" commit status gates
   merges, macOS on demand and weekly; nothing in a release waits for macOS.**
 - **Upstream filing is the owner's trigger** (`CLAUDE.local.md`).
