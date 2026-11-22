@@ -1,5 +1,9 @@
 # SharpSlang
 
+[![Slang surface bound](docs/badges/bound-surface.svg)](docs/coverage.md#bound-surface)
+[![test coverage](docs/badges/test-coverage.svg)](docs/coverage.md#test-coverage)
+[![NuGet](https://img.shields.io/nuget/vpre/SharpSlang?label=NuGet)](https://www.nuget.org/packages/SharpSlang)
+
 C# bindings for the [Slang](https://github.com/shader-slang/slang) shader compiler: compilation and
 Slang's full reflection API. They are pure managed P/Invoke over a pinned Slang build. Opt-in
 pipeline packages bake shaders into packages a game reads without the compiler, and project their
