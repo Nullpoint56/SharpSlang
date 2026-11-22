@@ -74,15 +74,11 @@ public class EntryPointNameTests
         Assert.Equal("fragmentMain", program.GetSpirvEntryPoint(1, 0).Name);
     }
 
-    [ReleasePayloadFact("U16")]
+    [NativeFact]
     public void The_same_option_at_link_time_does_nothing() =>
-        // U16, asserted as wrong on Slang's release: VulkanUseEntryPointName is a no-op *at link
-        // time* only. Patched (0018), the link's options take part (the test below).
+        // U16, a known issue: VulkanUseEntryPointName is a no-op *at link time* only, and nothing
+        // says so. Give it to the session or the target (the test above).
         Assert.Equal("main", LinkWithEntryPointName());
-
-    [PatchedFact("U16")]
-    public void The_same_option_at_link_time_names_the_entry_point() =>
-        Assert.Equal("vertexMain", LinkWithEntryPointName());
 
     private static string LinkWithEntryPointName()
     {

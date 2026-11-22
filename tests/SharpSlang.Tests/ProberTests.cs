@@ -753,11 +753,13 @@ public class ProberTests(ITestOutputHelper output)
         }
     }
 
-    [PatchedFact("U9")]
-    public void Without_the_optimiser_every_compile_warns_and_none_reports_an_error()
+    [NativeFact]
+    public void Without_the_optimiser_only_a_sessions_first_compile_reports_it()
     {
-        // U9, patched (0017): with slang-glslang absent, each SPIR-V compile in a global session
-        // warns E00118 that its module was not optimized, and no compile reports E00100 on success.
+        // U9, a known issue: with slang-glslang absent, an optimized SPIR-V compile reports E00100,
+        // an error, as Slang intends (#11797), but only the global session's first: the failed load
+        // is remembered, and the second compile is as unoptimized and says nothing. The binding's
+        // RequireSpirvOptimizer default refuses such a session; the probe turns it off.
         var copy = Directory.CreateTempSubdirectory("sharpslang-no-optimiser-");
         try
         {
@@ -773,29 +775,32 @@ public class ProberTests(ITestOutputHelper output)
             var outcome = RunUnderMuxer("missing-optimiser", copy.FullName, copy.FullName, withoutPreload: true);
             output.WriteLine(outcome.ToString());
             Assert.Equal(0, outcome.ExitCode);
-            Assert.Contains("compile 1:", outcome.Stdout, StringComparison.Ordinal);
-            Assert.DoesNotContain("E00100 True", outcome.Stdout, StringComparison.Ordinal);
-            Assert.Equal(2, outcome.Stdout.Split("W00118 True").Length - 1);
+            var lines = outcome.Stdout.Split('\n').Where(l => l.Contains("compile ", StringComparison.Ordinal)).ToArray();
+            Assert.Equal(2, lines.Length);
+            Assert.Contains("E00100 True", lines[0], StringComparison.Ordinal);
+            Assert.Contains("E00100 False", lines[1], StringComparison.Ordinal);
         }
         finally
         {
             copy.Delete(recursive: true);
         }
     }
-    [PatchedFact("U10")]
-    public void Slang_finds_its_companions_beside_itself_without_the_bindings_preload()
+    [NativeFact]
+    public void Without_the_bindings_preload_Slang_does_not_look_beside_itself_on_Windows()
     {
-        // U10, patched (0015): with CompanionLibraries' preload turned off, Slang's own bare-name
-        // load falls back to its own directory on Windows, so the launch from elsewhere still gets
-        // spirv-opt. Elsewhere the payload's rpaths always did this, so the test has nothing to say
-        // there and skips: a pass off Windows would read as the release carrying the fix.
-        Assert.SkipUnless(OperatingSystem.IsWindows(), "U10 is Windows' library search; Linux and macOS find the companions by rpath with or without the patch");
+        // U10, not a defect: Slang loads slang-glslang by bare name through Windows' default
+        // search (LOAD_LIBRARY_SEARCH_DEFAULT_DIRS, then LoadLibraryW), which does not include the
+        // compiler's own directory; a host that loads Slang from elsewhere registers it, as slangpy
+        // does with AddDllDirectory (#7535). With CompanionLibraries' preload turned off, the launch
+        // from elsewhere therefore has no spirv-opt. Linux and macOS find it by rpath.
+        Assert.SkipUnless(OperatingSystem.IsWindows(), "Windows' library search; Linux and macOS find the companions by rpath");
         var elsewhere = Directory.CreateTempSubdirectory("sharpslang-elsewhere-");
         try
         {
             var outcome = RunUnderMuxer("downstream-compilers", ProberDirectory(), elsewhere.FullName, withoutPreload: true);
             output.WriteLine(outcome.ToString());
-            Assert.Equal(0, outcome.ExitCode);
+            Assert.Equal(1, outcome.ExitCode);
+            Assert.Contains("spirv-opt", outcome.Stderr, StringComparison.Ordinal);
         }
         finally
         {

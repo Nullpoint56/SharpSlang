@@ -182,8 +182,8 @@ internal static class Cases
     /// </remarks>
     /// <summary>
     /// Two SPIR-V compiles in one global session with slang-glslang absent from beside the compiler:
-    /// which of them reports what (U9, AGENTS.md#patches). The test copies this output without the
-    /// library and runs this from there.
+    /// which of them reports the missing optimizer (U9, AGENTS.md#companion-libraries-and-dxc). The
+    /// test copies this output without the library and runs this from there.
     /// </summary>
     private static void MissingOptimiser()
     {
@@ -197,8 +197,7 @@ internal static class Cases
             captured.Clear();
             var bytes = CompileSpirv(global, SlangOptimizationLevel.SLANG_OPTIMIZATION_LEVEL_MAXIMAL);
             var all = string.Join("\n", captured);
-            Console.Out.WriteLine($"    compile {i}: {bytes.Length} bytes, E00100 {all.Contains("E00100", StringComparison.Ordinal)}, "
-                + $"W00118 {all.Contains("00118", StringComparison.Ordinal)}");
+            Console.Out.WriteLine($"    compile {i}: {bytes.Length} bytes, E00100 {all.Contains("E00100", StringComparison.Ordinal)}");
         }
     }
     private static void DownstreamCompilers()

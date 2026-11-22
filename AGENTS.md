@@ -647,11 +647,13 @@ defect, it stays while Slang's release payload is supported.
 
 ### Companion libraries and dxc
 
-- **`slang-glslang` is required in practice.** Without it Slang emits unoptimised SPIR-V on a
-  successful result and reports the missing optimiser (U9). Handled:
+- **`slang-glslang` is required in practice.** Without it an optimized SPIR-V compile is emitted
+  unoptimized, with the missing optimizer reported as an error on a successful result, and only on
+  the global session's first such compile (U9). Handled:
   `GlobalSessionOptions.RequireSpirvOptimizer` (default on) asks `checkPassThroughSupport` at session
   creation; the default diagnostics policy throws on an error-level diagnostic.
-- **Windows does not search the compiler's own directory for its companions** (U10): Slang loads
+- **Windows does not search the compiler's own directory for its companions** (U10, by design: a
+  host that loads Slang from elsewhere registers the directory, as slangpy does): Slang loads
   `slang-glslang`, `slang-glsl-module` and `dxcompiler` by bare name through
   `LoadLibraryExW(..., LOAD_LIBRARY_SEARCH_DEFAULT_DIRS)`, which does not include the directory of
   `slang-compiler.dll`. Handled: `CompanionLibraries.Preload`, Windows only, once per process,
@@ -777,8 +779,8 @@ defect, it stays while Slang's release payload is supported.
   `LinkTimeOptions` types the ones that take effect (`Optimization`, `FloatingPointMode`); the rest
   go through `RawEntries`, and a raw entry and its typed form emit the same bytes.
 - **`GetEntryPointIdentityHash` follows options, not code**: hash `GetEntryPointCodeBytes` for "same code".
-- **`isBinaryModuleUpToDate` answers from the session's file cache** (U14). Caller's rule with
-  Slang's release: ask from a session that has not loaded the module. A module blob loads only into
+- **`isBinaryModuleUpToDate` answers from the session's file cache** (U14). Caller's rule: ask
+  from a session that has not loaded the module. A module blob loads only into
   the build that wrote it (`ReadModuleInfo`).
 - **Severity is parsed from message prefixes**: `SlangDiagnostics.Classify` does it once.
 - **Type conformances**: an implementation reached only through dynamic dispatch needs

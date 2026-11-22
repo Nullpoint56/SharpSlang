@@ -44,7 +44,7 @@
     },
     {
       "id": "U5",
-      "title": "A constant buffer whose block holds only link-time-sized arrays gets no binding",
+      "title": "A constant buffer whose block holds only link-time-sized arrays gets no binding, and its SPIR-V fails validation",
       "area": "reflection",
       "kind": "Slang defect",
       "patch": "0016-specialization-sized-constant-buffer-binding.patch",
@@ -87,22 +87,22 @@
     },
     {
       "id": "U9",
-      "title": "A missing `slang-glslang` is an error diagnostic on a successful result, reported once per global session",
+      "title": "Without `slang-glslang`, only a session's first optimized SPIR-V compile reports that spirv-opt is missing",
       "area": "diagnostics",
       "kind": "Slang defect",
-      "patch": "0017-warn-on-each-unoptimized-spirv.patch",
-      "test": "ProberTests.Without_the_optimiser_every_compile_warns_and_none_reports_an_error",
-      "state": "patched",
+      "patch": null,
+      "test": "ProberTests.Without_the_optimiser_only_a_sessions_first_compile_reports_it",
+      "state": "known issue: Slang reports the missing optimizer as an error by design (#11797), once per session because the failed load is remembered; the binding's RequireSpirvOptimizer default refuses such a session (owner decision, 2026-11-22: the patch made it a warning, against that design)",
       "verified": "v2026.21"
     },
     {
       "id": "U10",
-      "title": "Windows: downstream libraries are not looked up in the compiler's own directory",
+      "title": "Windows: Slang looks for its companion libraries by Windows' default search, not in its own directory",
       "area": "loading",
-      "kind": "Slang defect",
-      "patch": "0015-windows-load-beside-the-compiler.patch",
-      "test": "ProberTests.Slang_finds_its_companions_beside_itself_without_the_bindings_preload",
-      "state": "patched",
+      "kind": "not a defect",
+      "patch": null,
+      "test": "ProberTests.Without_the_bindings_preload_Slang_does_not_look_beside_itself_on_Windows",
+      "state": "known issue: by design: a host that loads Slang from another directory registers it (AddDllDirectory, as slangpy does; #7535); the binding preloads the companions (owner decision, 2026-11-22)",
       "verified": "v2026.21"
     },
     {
@@ -140,9 +140,9 @@
       "title": "`isBinaryModuleUpToDate` answers from the session's file cache",
       "area": "modules",
       "kind": "Slang defect",
-      "patch": "0006-binary-module-up-to-date-reads-afresh.patch",
-      "test": "ModuleSerializationTests.The_staleness_check_reads_the_files_afresh_in_the_session_that_loaded_the_module",
-      "state": "patched",
+      "patch": null,
+      "test": "ModuleSerializationTests.The_staleness_check_answers_from_the_sessions_file_cache_not_from_disk",
+      "state": "known issue: only the session that loaded the source answers from its cache, and the fix re-read every dependency on every check, each module load under UseUpToDateBinaryModule included; ask a new session (owner decision, 2026-11-22)",
       "verified": "v2026.21"
     },
     {
@@ -160,9 +160,9 @@
       "title": "`linkWithOptions` silently ignores most compiler options",
       "area": "linking",
       "kind": "Slang defect",
-      "patch": "0018-link-time-options.patch",
-      "test": "LinkOptionsTests.A_link_time_option_takes_effect_or_says_it_cannot",
-      "state": "patched",
+      "patch": null,
+      "test": "EntryPointNameTests.The_same_option_at_link_time_does_nothing",
+      "state": "known issue: which options a link should apply or refuse is Slang's to design; the binding types the link options that take effect (LinkTimeOptions), and the layout options go to the session or target (owner decision, 2026-11-22)",
       "verified": "v2026.21"
     },
     {
@@ -246,9 +246,9 @@
       "title": "An internal error where a diagnostic belongs: double on WGSL and Metal, varyings on CPU and CUDA",
       "area": "diagnostics",
       "kind": "Slang defect",
-      "patch": "0013-diagnose-unsupported-double-and-varyings.patch",
-      "test": "TargetValidationTests.A_construct_the_target_cannot_express_is_diagnosed_not_an_internal_error",
-      "state": "patched",
+      "patch": null,
+      "test": "TargetValidationTests.A_construct_the_target_cannot_express_ends_in_an_internal_error",
+      "state": "known issue: Slang's maintainers chose the capability system for it (#10232), not a diagnostic at emit; the compile still fails, with an internal error code (owner decision, 2026-11-22)",
       "verified": "v2026.21",
       "upstream": [
         "#10232"
@@ -352,7 +352,10 @@
       "patch": "0020-cpp-append-consume-counter.patch",
       "test": "TargetValidationTests.Append_and_consume_buffers_compile_as_cpp",
       "state": "patched",
-      "verified": "v2026.21"
+      "verified": "v2026.21",
+      "upstream": [
+        "#14192"
+      ]
     },
     {
       "id": "U33",
