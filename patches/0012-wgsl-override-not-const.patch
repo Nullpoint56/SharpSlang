@@ -37,7 +37,7 @@ new file mode 100644
 index 000000000..934a9d1ce
 --- /dev/null
 +++ b/tools/slang-unit-test/unit-test-wgsl-override-not-const.cpp
-@@ -0,0 +1,71 @@
+@@ -0,0 +1,77 @@
 +// unit-test-wgsl-override-not-const.cpp
 +
 +#include "core/slang-string-util.h"
@@ -48,15 +48,21 @@ index 000000000..934a9d1ce
 +using namespace Slang;
 +
 +// A specialization constant is emitted to WGSL as an `override`, which is not a const-expression,
-+// so a value computed from it must not be declared `const`.
++// so a value computed from it must not be declared `const`. The conversion of `scCascades` is
++// emitted as a local of its own only when the result also takes other values, as it does here.
 +
 +SLANG_UNIT_TEST(wgslOverrideNotConst)
 +{
 +    const char* source = R"(
 +        [vk::constant_id(0)] const int scCascades = 3;
++        [vk::constant_id(9)] const float scBias = 0.005;
++        [SpecializationConstant] const bool scDebug = false;
 +
 +        [shader("fragment")]
-+        float4 scFragment() : SV_Target { return float4(scCascades, 0, 0, 1); }
++        float4 scFragment() : SV_Target
++        {
++            return float4(scCascades, scBias, scDebug ? 1 : 0, 1);
++        }
 +        )";
 +
 +    ComPtr<slang::IGlobalSession> globalSession;

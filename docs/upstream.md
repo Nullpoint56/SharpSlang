@@ -20,25 +20,25 @@ payload built from source, which is what a release packs; Slang's own release ar
 | U2 | `getBindingRangeCount` throws a C++ exception through `extern "C"` for a resource array sized by a link-time constant | reflection | Slang defect | `0003-binding-ranges-of-a-specialization-sized-array.patch` | `ProberTests.A_specialization_sized_resource_array_has_binding_ranges_of_unknown_count` | patched |  | v2026.21 |
 | U3 | `spReflection_specializeGeneric` access-violates on a mismatched argument list | reflection | Slang defect | `0004-specialize-generic-mismatched-arguments.patch` | `ProberTests.A_mismatched_generic_argument_list_is_refused_with_a_diagnostic` | patched |  | v2026.21 |
 | U4 | `spReflection_specializeType` on a non-generic type segfaults on Linux (an assert that removes its own check) | reflection | Slang defect | `0001-specialize-type-diagnose-argument-count.patch` | `ProberTests.Specializing_a_non_generic_type_is_refused_with_a_diagnostic` | patched |  | v2026.21 |
-| U5 | A constant buffer whose block holds only link-time-sized arrays gets no binding | reflection | Slang defect | `0016-specialization-sized-constant-buffer-binding.patch` | `UnknownSizeTests.A_buffer_with_no_fixed_size_keeps_its_binding` | patched |  | v2026.21 |
+| U5 | A constant buffer whose block holds only link-time-sized arrays gets no binding, and its SPIR-V fails validation | reflection | Slang defect | `0016-specialization-sized-constant-buffer-binding.patch` | `UnknownSizeTests.A_buffer_with_no_fixed_size_keeps_its_binding` | patched |  | v2026.21 |
 | U6 | A 64-bit 3/4-component vertex input is given one location; Vulkan requires two | SPIR-V | Slang defect | `0014-wide-vertex-input-two-locations.patch` | `NriValidationTests.A_wide_64_bit_vertex_input_is_given_two_locations` | patched | [#13427](https://github.com/shader-slang/slang/issues/13427) | v2026.21 |
 | U7 | `sample` interpolation without `SampleRateShading` (reported by others as #12441) | SPIR-V | Slang defect |  | `ModuleAgreementTests.The_sample_interpolation_modifier_declares_SampleRateShading` | fixed upstream in v2026.21 |  | v2026.21 |
 | U8 | `float4x4` vertex input with a member `Offset` decoration | SPIR-V | Slang defect |  | `ModuleAgreementTests.A_matrix_vertex_input_carries_no_member_Offset` | fixed upstream in v2026.21 |  | v2026.21 |
-| U9 | A missing `slang-glslang` is an error diagnostic on a successful result, reported once per global session | diagnostics | Slang defect | `0017-warn-on-each-unoptimized-spirv.patch` | `ProberTests.Without_the_optimiser_every_compile_warns_and_none_reports_an_error` | patched |  | v2026.21 |
-| U10 | Windows: downstream libraries are not looked up in the compiler's own directory | loading | Slang defect | `0015-windows-load-beside-the-compiler.patch` | `ProberTests.Slang_finds_its_companions_beside_itself_without_the_bindings_preload` | patched |  | v2026.21 |
+| U9 | Without `slang-glslang`, only a session's first optimized SPIR-V compile reports that spirv-opt is missing | diagnostics | Slang defect |  | `ProberTests.Without_the_optimiser_only_a_sessions_first_compile_reports_it` | known issue: Slang reports the missing optimizer as an error by design (#11797), once per session because the failed load is remembered; the binding's RequireSpirvOptimizer default refuses such a session (owner decision, 2026-11-22: the patch made it a warning, against that design) |  | v2026.21 |
+| U10 | Windows: Slang looks for its companion libraries by Windows' default search, not in its own directory | loading | not a defect |  | `ProberTests.Without_the_bindings_preload_Slang_does_not_look_beside_itself_on_Windows` | known issue: by design: a host that loads Slang from another directory registers it (AddDllDirectory, as slangpy does; #7535); the binding preloads the companions (owner decision, 2026-11-22) |  | v2026.21 |
 | U11 | Two public functions have C++ linkage | API header | Slang defect |  | `NativeExportTests.No_entry_point_is_bound_by_a_C_plus_plus_mangling` | not patchable: the fix gives both functions C linkage, which renames their exported symbols and breaks every C++ binary linked against them; keeping the old mangled export beside a C one needs a second declaration of the same name with another linkage, which C++ does not allow in one program without linker aliasing |  | v2026.21 |
 | U12 | `ISession::loadModule*` returns a borrowed reference; the header does not say so | API header | Slang documentation defect | `0007-document-loaded-module-ownership.patch` | `HeaderDocumentationTests.The_header_says_a_loaded_module_is_owned_by_the_session` | patched |  | v2026.21 |
 | U13 | Releasing a session's last reference from `~Linkage` destroys the global session inside it | lifetime | Slang defect |  | `LifetimeTests.The_global_session_is_never_destroyed_from_inside_the_linkage` | known issue: macOS only and last measured on v2026.14.1; re-measuring needs a Mac; left to Slang (owner decision) |  | v2026.14.1 |
-| U14 | `isBinaryModuleUpToDate` answers from the session's file cache | modules | Slang defect | `0006-binary-module-up-to-date-reads-afresh.patch` | `ModuleSerializationTests.The_staleness_check_reads_the_files_afresh_in_the_session_that_loaded_the_module` | patched |  | v2026.21 |
+| U14 | `isBinaryModuleUpToDate` answers from the session's file cache | modules | Slang defect |  | `ModuleSerializationTests.The_staleness_check_answers_from_the_sessions_file_cache_not_from_disk` | known issue: only the session that loaded the source answers from its cache, and the fix re-read every dependency on every check, each module load under UseUpToDateBinaryModule included; ask a new session (owner decision, 2026-11-22) |  | v2026.21 |
 | U15 | Reflection queries that answer nothing, and facts reflection does not carry | reflection | Slang defect |  | `SecondOpinionTests.The_calls_that_report_nothing_are_pinned_reporting_nothing` | known issue: small reflection gaps, several possibly by design, each answered by another route the binding reads; the one with a clear defect, the parameter block's space offset, is U33 and patched (owner decision: the moderate and large defects patched, the rest known issues) |  | v2026.21 |
-| U16 | `linkWithOptions` silently ignores most compiler options | linking | Slang defect | `0018-link-time-options.patch` | `LinkOptionsTests.A_link_time_option_takes_effect_or_says_it_cannot` | patched |  | v2026.21 |
+| U16 | `linkWithOptions` silently ignores most compiler options | linking | Slang defect |  | `EntryPointNameTests.The_same_option_at_link_time_does_nothing` | known issue: which options a link should apply or refuse is Slang's to design; the binding types the link options that take effect (LinkTimeOptions), and the layout options go to the session or target (owner decision, 2026-11-22) |  | v2026.21 |
 | U17 | SPIR-V for `SV_VertexID` differs between x86-64 and aarch64 builds | SPIR-V | Slang defect | `0021-vertex-id-loads-in-source-order.patch` | `SpirvDigestTests.SV_VertexID_builtins_are_numbered_in_source_order` | patched |  | v2026.21 |
 | U18 | GLSL: a hull shader's patch-constant function returns its struct with a bare `return;` | GLSL | Slang defect | `0009-glsl-patch-constant-function-void.patch` | `TargetValidationTests.A_hull_shaders_patch_constant_function_returns_void_in_glsl` | patched | [#14335](https://github.com/shader-slang/slang/issues/14335) | v2026.21 |
 | U19 | GLSL: a domain shader's per-vertex input is sized by the patch, which GLSL forbids | GLSL | Slang defect | `0010-glsl-domain-input-unsized.patch` | `TargetValidationTests.A_domain_shaders_patch_input_compiles_as_glsl` | patched | [#14335](https://github.com/shader-slang/slang/issues/14335) | v2026.21 |
 | U20 | WGSL: a `const` is initialised from an `override` | WGSL | Slang defect | `0012-wgsl-override-not-const.patch` | `TargetValidationTests.A_value_computed_from_a_specialization_constant_is_not_a_wgsl_const` | patched | [#14285](https://github.com/shader-slang/slang/issues/14285) | v2026.21 |
 | U21 | WGSL: a matrix vertex input is written at one `@location` | WGSL | Slang defect |  | `TargetValidationTests.Wgsl_passes_naga` | known issue: the fix splits a matrix vertex input into one location per column and reassembles it, a varying-legalization feature (the TODO at slang-ir-legalize-varying-params.cpp:880); left to Slang (owner decision) | [#13736](https://github.com/shader-slang/slang/issues/13736) | v2026.21 |
 | U22 | WGSL: arrays of textures and samplers are written as `binding_array` with no `enable` | WGSL | Slang defect |  | `TargetValidationTests.Wgsl_passes_naga` | not patchable: binding_array is not in the WGSL specification; naga takes it behind enable wgpu_binding_array and Tint behind requires sized_binding_array, so no one text is valid for both, and choosing a WGSL dialect is a Slang design decision (Slang #13914 proposes one) | [#13708](https://github.com/shader-slang/slang/issues/13708), [#13914](https://github.com/shader-slang/slang/issues/13914) | v2026.21 |
-| U23 | An internal error where a diagnostic belongs: double on WGSL and Metal, varyings on CPU and CUDA | diagnostics | Slang defect | `0013-diagnose-unsupported-double-and-varyings.patch` | `TargetValidationTests.A_construct_the_target_cannot_express_is_diagnosed_not_an_internal_error` | patched | [#10232](https://github.com/shader-slang/slang/issues/10232) | v2026.21 |
+| U23 | An internal error where a diagnostic belongs: double on WGSL and Metal, varyings on CPU and CUDA | diagnostics | Slang defect |  | `TargetValidationTests.A_construct_the_target_cannot_express_ends_in_an_internal_error` | known issue: Slang's maintainers chose the capability system for it (#10232), not a diagnostic at emit; the compile still fails, with an internal error code (owner decision, 2026-11-22) | [#10232](https://github.com/shader-slang/slang/issues/10232) | v2026.21 |
 | U24 | C++: the prelude has no vector arithmetic or comparison for `half` | C++ | Slang defect | `0011-cpp-prelude-half-vector-ops.patch` | `TargetValidationTests.Half_vector_arithmetic_and_comparison_compile_as_cpp` | patched | [#14037](https://github.com/shader-slang/slang/issues/14037), [#14194](https://github.com/shader-slang/slang/issues/14194) | v2026.21 |
 | U25 | WGSL: 64-bit integers are written as `u64`, which WGSL does not have | WGSL | Slang defect |  | `TargetValidationTests.Slang_compute_corpus_wgsl_passes_naga` | not patchable: WGSL has no 64-bit integer; diagnosing u64 breaks the naga users Slang emits it for, and keeping it breaks Tint, so the fix is the WGSL dialect choice Slang #13914 proposes, which is the maintainers' design decision | [#13914](https://github.com/shader-slang/slang/issues/13914) | v2026.21 |
 | U26 | Metal: a texture read is called with an overload Metal does not declare | Metal | Slang defect |  | `TargetValidationTests.Metal_compiles_to_air` | known issue: a Metal texture read overload; measured only on the macos-15 runner, the fix needs Metal-side investigation; left to Slang (owner decision) |  | v2026.21 |
@@ -47,7 +47,7 @@ payload built from source, which is what a release packs; Slang's own release ar
 | U29 | Metal: an array of device pointers as a kernel input | Metal | Slang defect |  | `TargetValidationTests.Slang_compute_corpus_metal_compiles_to_air` | known issue: device-pointer arrays as kernel inputs need an argument-buffer lowering, a feature; left to Slang (owner decision) |  | v2026.21 |
 | U30 | A component type linked a second time ignores the second link's options | linking | Slang defect | `0008-link-with-options-owns-its-options.patch` | `CompositeTests.A_composite_linked_a_second_time_emits_what_its_second_links_options_say` | patched |  | v2026.21 |
 | U31 | A second module loaded from source at an already-used path ends in an internal assert | diagnostics | Slang defect | `0005-module-path-already-loaded.patch` | `CompilationTests.A_second_module_from_source_at_the_same_path_is_diagnosed_naming_the_path` | patched |  | v2026.21 |
-| U32 | C++: an append or consume structured buffer ends in an internal error | C++ output | Slang defect | `0020-cpp-append-consume-counter.patch` | `TargetValidationTests.Append_and_consume_buffers_compile_as_cpp` | patched |  | v2026.21 |
+| U32 | C++: an append or consume structured buffer ends in an internal error | C++ output | Slang defect | `0020-cpp-append-consume-counter.patch` | `TargetValidationTests.Append_and_consume_buffers_compile_as_cpp` | patched | [#14192](https://github.com/shader-slang/slang/issues/14192) | v2026.21 |
 | U33 | A top-level parameter block's sub-object range reports space offset 0 | reflection | Slang defect | `0019-parameter-block-space-offset.patch` | `SecondOpinionTests.A_top_level_parameter_blocks_sub_object_range_reports_its_space` | patched |  | v2026.21 |
 | U34 | GLSL: the tessellation stages declare no `layout(vertices = N) out` or input primitive | GLSL output | Slang defect | `0022-glsl-tessellation-layouts.patch` | `TargetValidationTests.The_tessellation_stages_declare_their_glsl_layouts` | patched |  | v2026.21 |
 | U35 | GLSL: a hull shader's per-vertex output is indexed with `uint(gl_InvocationID)` | GLSL output | Slang defect | `0023-glsl-hull-output-invocation-id.patch` | `TargetValidationTests.The_hull_shader_compiles_as_glsl` | patched |  | v2026.21 |
@@ -307,12 +307,14 @@ ISlangBlob* diagnostics = nullptr;
 spReflection_specializeType(layout, block, 1, args, &diagnostics);   // null on Windows/macOS, SIGSEGV on Linux
 ```
 
-## U5 — A constant buffer whose block holds only link-time-sized arrays gets no binding
+## U5 — A constant buffer whose block holds only link-time-sized arrays gets no binding, and its SPIR-V fails validation
 
 **Observed.** `ConstantBuffer<Block>` with `struct Block { float4 values[kCount]; }`, `kCount` a
 specialization constant, reports no binding of any kind: no descriptor range and no parameter
-category. The `[[vk::push_constant]]` form reports no push-constant range either. At v2026.14.1 the emitted SPIR-V also declared no descriptor for the
-buffer while the shader reads `gUnsized.values[0]`.
+category. The `[[vk::push_constant]]` form reports no push-constant range either. The emitted SPIR-V
+declares the buffer's variable with no DescriptorSet or Binding while the shader reads it, and
+`spirv-val --target-env vulkan1.3` rejects the module (VUID-StandaloneSpirv-UniformConstant-06677,
+"missing DescriptorSet decoration"); with a constant size the buffer is set 0, binding 1.
 
 **Expected.** Either a binding (the descriptor exists whatever the array length), or a compile
 error saying the buffer cannot be laid out before specialization. A block that also has a
@@ -327,8 +329,8 @@ unordered, so the buffer is treated as empty.
 **Fix.** Count a resource whose size compares unordered as used, so the buffer keeps its binding
 (`patches/0016-specialization-sized-constant-buffer-binding.patch`, with a `SLANG_UNIT_TEST`).
 
-**Measurement.** Reflection half: v2026.21, all four platforms. Module half: v2026.14.1, to be
-re-measured on v2026.21 with `spirv-dis` before filing.
+**Measurement.** v2026.21, all four platforms for the reflection; the module with Slang's release
+`slangc -target spirv` and `spirv-val` on Windows x64 (2026-11-22).
 
 **Repro.**
 
@@ -414,76 +416,67 @@ whose member was decorated `Offset 0`, row- and column-major alike. Vulkan SDK 1
 rejects it: `VUID-StandaloneSpirv-Offset-12509`, "the Input interface variable must not have Offset
 on any member decoration".
 
-## U9 — A missing `slang-glslang` is an error on a successful result, once per global session
+## U9 — Without `slang-glslang`, only a session's first optimized SPIR-V compile reports that spirv-opt is missing
 
-**Observed.** With `slang-glslang` absent from the library search path, `getEntryPointCode` for a
-SPIR-V target returns `SLANG_OK` and valid SPIR-V, and its diagnostics say:
+**Observed.** With `slang-glslang` absent from beside `slang-compiler`, a SPIR-V compile at an
+optimization level above none loads spirv-opt with the session's diagnostic sink and fails to:
 
 ```
 error[E00100]: failed to load downstream compiler 'spirv-opt'
 note[E99996]: failed to load dynamic library 'slang-glslang'
 ```
 
-The output is unoptimised: 1,280 bytes against 992 for the same shader with `slang-glslang`
-present, 22.5 % larger. The diagnostic is given for the first compile of a global session only;
-later compiles in the same session are unoptimised and say nothing.
+`slangc` then fails the compile and writes no output; through the API, `getEntryPointCode`
+returns `SLANG_OK` and unoptimized SPIR-V with that error in its diagnostics. A second such compile
+in the same global session is just as unoptimized and reports nothing. At `-O0`, with one module and
+no validation, Slang does not load `slang-glslang` at all and the compile is clean.
 
-**Expected.** One of: a failure result when optimisation was requested and cannot run; or a warning
-on every affected compile. An error-severity diagnostic attached to success, once, is the
-combination a host cannot act on reliably.
+**Expected.** Every compile that asked for an optimization it did not get reports it, as the first
+does.
 
-**Cause.** `Session::getOrLoadDownstreamCompiler` (`source/slang/slang-check.cpp`) reports the failed load
-as an error, and only on the session's first attempt, because the attempt is remembered; the SPIR-V back
-end (`source/slang/slang-emit.cpp`) then emits unoptimized and returns success.
+**Cause.** `Session::getOrLoadDownstreamCompiler` (`source/slang/slang-check.cpp`) remembers the failed
+load and reports it on the first attempt only.
 
-**Fix.** Load spirv-opt for optimization and validation without the load's diagnostics, and warn E00118
-`spirv-optimizer-unavailable` on every compile it affects; a compile that must link several SPIR-V modules
-keeps the load's diagnostics (`patches/0017-warn-on-each-unoptimized-spirv.patch`; no unit test, since the
-library must be absent).
+**Upstream's design.** Slang loads `slang-glslang` only when a step needs it and treats a missing
+optimizer, when optimization was asked for, as an error (#11797, which fixed #11662 in place of the
+unmerged #11663). The once-per-session report is the part that is wrong.
 
-**Measurement.** v2026.14.1 (the diagnostics, the sizes and the once-per-session behaviour). Not
-re-measured on v2026.21: do that before filing.
+**Not patched** (owner decision, 2026-11-22). The patch this repository carried turned the error into
+a warning on every compile, which goes against that design. The binding's `RequireSpirvOptimizer`
+(on by default) refuses a global session without spirv-opt.
 
-**Repro.** Any SPIR-V compile with the default optimisation level and `slang-glslang` removed from
-beside `slang-compiler`; compile two modules in one global session and compare their diagnostics.
+**Measurement.** v2026.21, Windows x64: Slang's release `slangc` without `slang-glslang.dll`, the
+default level fails with E00100 and `-O0` succeeds; two compiles in one session through the API
+(`ProberTests.Without_the_optimiser_only_a_sessions_first_compile_reports_it`).
 
-## U10 — Windows: downstream libraries are not looked up in the compiler's own directory
+**Repro.** Remove `slang-glslang` from beside `slang-compiler`, create one global session, compile two
+modules to SPIR-V at the default level, and compare their diagnostics.
+
+## U10 — Windows: Slang looks for its companion libraries by Windows' default search, not in its own directory
+
+Not a defect: recorded because a host has to act on it.
 
 **Observed.** On Windows, an application that loads `slang-compiler.dll` from a directory other than
-the executable's (a plugin directory, a package's `runtimes\win-x64\native\`, or an interpreter
-started from elsewhere) does not get `spirv-opt`: `slang-glslang.dll` beside `slang-compiler.dll`
-is not found, and neither is `dxcompiler.dll`. On Linux and macOS the same layout works, because
-`libslang-compiler.so` carries `DT_RUNPATH` `$ORIGIN/../lib:$ORIGIN` and the dylib `LC_RPATH`
-`@loader_path/../lib` and `@loader_path`.
+the executable's (a plugin directory, a package's `runtimes\win-x64\native\`, an interpreter started
+elsewhere) does not get `spirv-opt`: `slang-glslang.dll` beside `slang-compiler.dll` is not found, and
+neither is `dxcompiler.dll`. On Linux and macOS the same layout works through the libraries' rpaths
+(`$ORIGIN/../lib:$ORIGIN`, `@loader_path/../lib` and `@loader_path`).
 
-**Cause.** `SharedLibrary::loadWithPlatformPath` (`source/core/slang-platform.cpp:199-202`) calls
-`LoadLibraryExW(name, nullptr, LOAD_LIBRARY_SEARCH_DEFAULT_DIRS)` and then `LoadLibraryW(name)` with
-the bare name `slang-glslang` (`source/compiler-core/slang-glslang-compiler.cpp:592`, via
-`DownstreamCompilerUtil::loadSharedLibrary`, which uses no directory when no downstream path is
-set). `LOAD_LIBRARY_SEARCH_DEFAULT_DIRS` includes `LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR`, but that flag
-only applies when the name is a fully qualified path, so the directory of `slang-compiler.dll` is
-never searched. The comment at `slang-platform.cpp:189` lists that directory first.
+**Why.** `SharedLibrary::loadWithPlatformPath` (`source/core/slang-platform.cpp`) loads a bare name
+with `LoadLibraryExW(name, nullptr, LOAD_LIBRARY_SEARCH_DEFAULT_DIRS)`, then `LoadLibraryW(name)`:
+the application directory, the directories registered with `AddDllDirectory`, System32, then PATH.
+The comment's "directory that contains the DLL" is the loaded DLL's own, for its dependencies.
+This is upstream's design: #7535 moved to `LoadLibraryEx` because slangpy registers Slang's
+directory with `AddDllDirectory`, and #8491 kept that.
 
-**Fix sketch.** When no downstream path is set, try the directory of the module containing Slang
-(`GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS, ...)` plus `GetModuleFileNameW`) with
-a full path before the search-order load, matching what the rpaths give Linux and macOS.
-`IGlobalSession::setDownstreamCompilerPath` may serve as a per-compiler workaround today; not
-tried.
+**Caller's rule.** A host that loads Slang from another directory registers it with `AddDllDirectory`
+or loads the companions by full path first. The binding does the second
+(`CompanionLibraries.Preload`), and dropped the patch it once carried for this (owner decision,
+2026-11-22).
 
-**Cause.** `SharedLibrary::loadWithPlatformPath` (`source/core/slang-platform.cpp`) tries
-`LoadLibraryExW(name, nullptr, LOAD_LIBRARY_SEARCH_DEFAULT_DIRS)` and then `LoadLibraryW(name)`.
-`LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR` applies only to a fully qualified name, so a bare name never searches
-the directory of `slang-compiler.dll`.
-
-**Fix.** A third attempt for a name without a path: the directory of the module the code is linked into,
-found with `GetModuleHandleExW` and `GetModuleFileNameW`, loaded by full path
-(`patches/0015-windows-load-beside-the-compiler.patch`; no unit test, since it depends on how the process
-is launched).
-
-**Measurement.** Windows 11, Slang 2026.14.1: a host started from another directory failed to load
-`spirv-opt` with `SLANG_E_NOT_FOUND`; with the library preloaded by full path from the compiler's
-directory, the same host optimised 2,048 bytes of SPIR-V to 1,664. Re-run on v2026.21 before filing
-(the code above is v2026.21's).
+**Measurement.** v2026.21, Windows x64: with the preload turned off, a host started from another
+directory fails to load spirv-opt
+(`ProberTests.Without_the_bindings_preload_Slang_does_not_look_beside_itself_on_Windows`).
 
 ## U11 — Two public functions have C++ linkage
 
@@ -569,9 +562,15 @@ why the same-session answer for a changed file is true.
 through `Linkage::loadSourceFile`, that is, through the session's `CacheFileSystem` and source manager,
 which keep what they read when the module was loaded.
 
-**Fix.** Read the dependencies through a new `CacheFileSystem` over the same underlying file system and a
-source manager of its own, as a new session reads them; a caller-supplied `CacheFileSystem` is read as
-before (`patches/0006-binary-module-up-to-date-reads-afresh.patch`, with a `SLANG_UNIT_TEST`).
+**Contract.** The user guide (`docs/user-guide/10-link-time-specialization.md`) says the check is
+against "the current content of the source files", and that it returns false once "the compiler
+options or source files have been changed since the module was last compiled". Separately, a module
+whose primary source cannot be found at all is accepted as a standalone precompiled module (#11125);
+that is not this case, since here the source is found and has changed.
+
+**Not patched** (owner decision, 2026-11-22). The defect is narrow, the session that loaded the source,
+and a fix re-reads every dependency from disk on every check, which includes each module load under
+`UseUpToDateBinaryModule`. Caller's rule: ask a new session.
 
 **Measurement.** v2026.21, all four platforms.
 
@@ -619,11 +618,15 @@ the target request's options, built from the session's and the target's option s
 they carry is ignored at link time. Capability and Profile are fixed on the target request when the
 session creates it.
 
-**Fix.** Build the program's own HLSL-to-Vulkan layout options from its merged option set when it carries
-options of its own, and warn E00136 `link-time-option-has-no-effect` for Capability or Profile given at
-link time (`patches/0018-link-time-options.patch`, with a `SLANG_UNIT_TEST`).
+**Not patched** (owner decision, 2026-11-22). The user guide presents `linkWithOptions` as taking
+"additional compiler options when generating code from the linked program", with no option said to be
+ignored there, so the silence is a defect; but which options a link should apply, and which it should
+refuse, is Slang's to design. The binding types the link options that take effect (`LinkTimeOptions`:
+`Optimization`, `FloatingPointMode`). Caller's rule: give the layout options, `VulkanUseEntryPointName`
+among them, to the session or the target.
 
-**Measurement.** v2026.14.1. Re-measure on v2026.21 before filing.
+**Measurement.** v2026.21: `VulkanUseEntryPointName` at link time still names the SPIR-V entry point
+`main` (`EntryPointNameTests.The_same_option_at_link_time_does_nothing`).
 
 ## U17 — SPIR-V for `SV_VertexID` differs between x86-64 and aarch64 builds
 
@@ -843,11 +846,13 @@ with an internal error rather than a diagnostic naming the construct and the tar
 legalization for C++ and CUDA reports `Diagnostics::Unimplemented`
 (`source/slang/slang-ir-legalize-varying-params.cpp`).
 
-**Fix.** Two diagnostics: the error E56110 `type-not-supported-on-target`, naming the type and the target,
-and the fatal E56111 `varying-parameter-not-supported-on-target`, naming whether the parameter is
-system-defined or user-defined. E56111 is fatal, as `Unimplemented` was, because the legalization goes on
-to use the value it returns (`patches/0013-diagnose-unsupported-double-and-varyings.patch`, with a
-`SLANG_UNIT_TEST`).
+**Upstream's direction.** On #10232 a Slang collaborator (2026-11-04) asked for these to be refused
+through the capability system rather than diagnosed at emit, and the triage proposal there adds an
+`fp64` capability that Metal and WGSL lack.
+
+**Not patched** (owner decision, 2026-11-22). The patch this repository carried added the late
+diagnostics, with two error codes of its own, which is the approach upstream set aside. The compile
+fails either way; only the message differs.
 
 **Measurement.** v2026.21, Windows x64, from `getEntryPointCode`; the messages are Slang's.
 
@@ -1039,7 +1044,10 @@ the blocks occupy spaces 1 and 2 (their descriptor sets say so), and both ranges
 **Cause.** `ExtendedTypeLayoutContext` (`source/slang/slang-reflection-api.cpp`) reads the range's
 space offset, the variable's `SubElementRegisterSpace` index, only when `kind`, the resource kind
 the group's binding range is reflected as, is `SubElementRegisterSpace`. For a top-level block
-`kind` is a descriptor kind, so the space is never read and the offset stays 0.
+`kind` is `RegisterSpace`, so the space is never read and the offset stays 0. This is a regression:
+before 6aca3813c (#3302, 2023-11) the condition was `kind == RegisterSpace` and the space was
+reported; that change moved it to `SubElementRegisterSpace` while setting `kind = RegisterSpace` for
+a block that starts a space. Slang's own consumers read `getSubObjectRangeOffset`, not this.
 
 **Fix.** Read the variable's `SubElementRegisterSpace` index, or its `RegisterSpace` index where the
 container starts a space, whatever kind the binding range is reflected as

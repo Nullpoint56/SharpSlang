@@ -595,7 +595,8 @@ using var fs = new SlangFileSystem(new InMemoryFileProvider(new Dictionary<strin
 
 An error-level diagnostic on a **successful** compile is fatal by default, because Slang can report
 degraded output on a successful result. With `slang-glslang` absent, a SPIR-V compile still
-succeeds, unoptimised and noticeably larger, and warns E00118.
+succeeds, unoptimised and noticeably larger, and reports error E00100: on the first such compile of
+a global session only.
 
 ```csharp
 SlangDiagnostics.Policy  = SlangDiagnosticPolicy.Report;      // default: ThrowOnError
@@ -674,16 +675,17 @@ not implement the interface throws rather than linking something that cannot dis
 conformance the implementation is not in the program at all, however visible it looks in the source.
 
 **`CompilerOptions` has exactly two typed properties**, and that is not an oversight. Slang accepts
-the whole `CompilerOptionName` range at `linkWithOptions`, and not every option applies there, so a
-typed property for an option that does not would read as a feature and do nothing:
+the whole `CompilerOptionName` range at `linkWithOptions`, and not every option applies there, with
+nothing said about the ones that do not, so a typed property for one would read as a feature and do
+nothing:
 
 | Option | At link time |
 |---|---|
 | `Optimization` | works |
 | `FloatingPointMode` | works; Fast *is* the default |
 | `DebugInformation` | no effect; it is a session/target setting |
-| `VulkanUseEntryPointName` | works; also on the session or target |
-| `Capability` | no effect, and warns E00136: it applies to the target, so give it in the target description. The profile is the only version knob |
+| `VulkanUseEntryPointName` | no effect at link time; give it to the session or target |
+| `Capability` | no effect: it applies to the target, so give it in the target description. The profile is the only version knob |
 
 The others are reachable through `RawEntries`, and a test asserts a raw entry and its typed
 equivalent emit identical bytes, so the escape hatch cannot rot.
@@ -746,8 +748,9 @@ if (session.IsBinaryModuleUpToDate(sourcePath, ir))
     session.LoadModuleFromIRBlob("mylib", sourcePath, ir);
 ```
 
-**`IsBinaryModuleUpToDate` reads the files afresh**, so it may be asked in the session that loaded
-the module. `ReadModuleInfo(ir)` reports the compiler build that wrote the blob, and a blob is only
+**`IsBinaryModuleUpToDate` answers from the session's file cache**: the session that loaded the module
+keeps answering for the files as it first read them, even after they change. Ask a session that has not
+loaded it, as above. `ReadModuleInfo(ir)` reports the compiler build that wrote the blob, and a blob is only
 loadable by that build.
 
 ## The payload has to be the pinned one
@@ -973,9 +976,9 @@ The section column says where the guide covers it.
 | A cook fails a different shader each time with `SLANG_FAIL`, and each passes alone; or ships different bytes with no symptom at all | One global session shared across threads. It sometimes fails as `SLANG_FAIL` on one module instead of crashing, which a per-shader error log blames on the file, and has been measured returning success with different SPIR-V. Give each thread its own global session, or lock. | [Threads](#threads) |
 | Uniform offsets differ between the Vulkan and the D3D12 build of one shader | Offsets are per target: std140 over-aligns a struct member and rounds its size up where D3D packing does neither (byte 32 on Vulkan, 24 on D3D, same source). Reflect against the target you run on; a baked layout belongs to its target. | [Targeting D3D12](#targeting-d3d12) |
 | `FindEntryPoint(name)` finds nothing and `EntryPointCount` is 0 | The function has no `[shader("...")]` attribute, so Slang does not know its stage. Use the overload taking a `SlangStage`. | [Compiling](#compiling) |
-| SPIR-V larger than expected, with warning E00118 | `slang-glslang` (where `spirv-opt` lives) is missing beside the compiler, so the module is not optimised. `RequireSpirvOptimizer` (on by default) refuses at session creation instead. | [Diagnostics](#diagnostics) |
+| SPIR-V larger than expected, with error E00100 on a session's first compile and nothing after | `slang-glslang` (where `spirv-opt` lives) is missing beside the compiler, so the module is not optimised. `RequireSpirvOptimizer` (on by default) refuses at session creation instead. | [Diagnostics](#diagnostics) |
 | `vkCreateShaderModule` fails with nothing useful on an older device | The SPIR-V version defaults to 1.5 when unset; Vulkan 1.1 accepts at most 1.3. Pin `SpirvVersion`. | [Compiling](#compiling) |
-| A link option has no effect | Not every option applies at link time: `Optimization`, `FloatingPointMode` and `VulkanUseEntryPointName` do; `Capability` and `Profile` warn E00136 and belong in the target description. | [Linking with options](#linking-with-options) |
+| A link option has no effect | Not every option applies at link time, and Slang does not say which: `Optimization` and `FloatingPointMode` do; `VulkanUseEntryPointName`, `Capability` and `Profile` belong in the session or target description. | [Linking with options](#linking-with-options) |
 | A function found by name appears to take no parameters | It is overloaded: `FindFunction` returns one function with `IsOverloaded` set and an empty signature. Check `IsOverloaded` before `Parameters`. | [Reading a shader's functions](#reading-a-shaders-functions) |
 | `InvalidOperationException` from `Dispose` | Something created from the object is still alive: a module of a session, an entry point of a module, a code blob of a program, a session still using a `SlangFileSystem`. Dispose it first; `using` declarations in creation order do it. | [Lifetime](#lifetime) |
 | A DXIL build compiles for an older shader model than expected, or a mesh or ray-tracing stage fails for DXIL | No `Profile` named: SharpSlang sets none, and Slang picks (6.0 for a compute shader). Name `sm_6_5`. | [Targeting D3D12](#targeting-d3d12) |
