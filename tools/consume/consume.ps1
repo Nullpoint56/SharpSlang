@@ -386,3 +386,6 @@ $fail = @($results | Where-Object Outcome -eq 'FAIL')
 Write-Host ("consume: {0} passed, {1} failed, {2} not yet, {3} skipped; logs in {4}" -f @($results | Where-Object Outcome -eq 'PASS').Count, $fail.Count, $notYet.Count, @($results | Where-Object Outcome -eq 'SKIP').Count, $work)
 if ($notYet) { Write-Host "not yet:"; foreach ($n in $notYet) { Write-Host "  $($n.Run): $($n.Check): $($n.Detail -replace '^not yet: ', '')" } }
 if ($fail) { if ($env:GITHUB_ACTIONS -eq "true") { foreach ($f in $fail) { Write-Host "::error title=Consume $($f.Run)::$($f.Check): $($f.Detail)" } }; exit 1 }
+# Every check passed. Say so explicitly: the last command run is the wrong-dxc build, which fails on
+# purpose, and GitHub's pwsh step ends with `exit $LASTEXITCODE` (release run 45041460767).
+exit 0
