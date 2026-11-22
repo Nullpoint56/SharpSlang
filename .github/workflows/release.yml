@@ -18,13 +18,11 @@ name: release
 #   pull request and run again, or re-run failed jobs when the cause was outside the repository. A
 #   version on nuget.org is permanent: a failure after the nuget job means a new version.
 #
-# Preconditions not in this file, each the owner's:
-#   * the repository is public, CI builds the payload from source (AGENTS.md#decisions), and U4 is
-#     patched test first before Linux builds from source (AGENTS.md#patches): a release only happens
-#     after going public, so every payload here is built from the slang/ submodule;
-#   * the nuget.org Trusted Publishing policy and the nuget environment, and the NUGET_USER
-#     repository variable, which is absent until then, so the nuget jobs skip
-#     (AGENTS.md#actions-budget).
+# Preconditions not in this file, each the owner's and each met (AGENTS.md#the-release):
+#   * the repository is public and CI builds the payload from source (AGENTS.md#decisions); every
+#     payload here is built from the slang/ submodule with patches/;
+#   * the nuget.org Trusted Publishing policy, the nuget environment and the NUGET_USER repository
+#     variable; without the variable the nuget jobs skip.
 on:
   workflow_dispatch:
     inputs:
@@ -362,7 +360,7 @@ jobs:
   # key; NuGet/login trades this job's OIDC token for a key valid one hour, accepted because the
   # owner's nuget.org policy names this repository, release.yml and the nuget environment, and every
   # package id. The nuget environment requires the owner's approval; NUGET_USER (a repository
-  # variable) is the nuget.org account, and without it the job skips, as it does today.
+  # variable) is the nuget.org account, and without it the job skips.
   nuget:
     name: nuget
     needs: [version, release]

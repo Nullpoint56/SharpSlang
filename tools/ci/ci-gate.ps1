@@ -21,7 +21,8 @@
   "checks / lint" in ci.yml, which calls checks.yml, are the same job. Commits looked at: this one,
   and the head of every pull request it belongs to; for the merge of an up-to-date branch, that head
   has the merged tree. A release looks further, down the first-parent history while only
-  documentation differs, because a documentation-only push to master starts nothing.
+  documentation differs, because a documentation-only push to master starts nothing, and at the
+  pull-request heads of those commits that have their tree.
 
   -Workflow ci       legs, count, digests, docs, lint, zero_alloc, regen
   -Workflow checks   lint, zero_alloc (each also off when the manual run's input turned it off)
@@ -218,8 +219,10 @@ try {
         if ($pr.head.sha -and -not $heads.Contains($pr.head.sha)) { $heads.Add($pr.head.sha) }
     }
     # A release: also the first-parent commits whose difference from this one is documentation only,
-    # read from the local history (release.yml checks out with fetch-depth 0). Their trees differ, so
-    # they are taken whatever their tree.
+    # read from the local history (release.yml checks out with fetch-depth 0), and the head of every
+    # pull request such a commit belongs to when that head has the commit's tree: the merge of a
+    # tested branch starts nothing on master, so the branch's run is the one that tested it. Their
+    # trees differ from this one's, so they are taken whatever their tree.
     $docsEquivalent = [System.Collections.Generic.HashSet[string]]::new()
     if ($Workflow -eq 'release') {
         foreach ($c in @(git rev-list --first-parent --max-count=30 "$Sha" 2>$null | Select-Object -Skip 1)) {
@@ -227,6 +230,13 @@ try {
             if (@($diff | Where-Object { $f = $_; ($hasResult -contains $f -or -not ($noResult | Where-Object { $f -like $_ })) }).Count -gt 0) { break }
             [void]$docsEquivalent.Add($c)
             if (-not $heads.Contains($c)) { $heads.Add($c) }
+            $cTree = (Get-Api "git/commits/$c").tree.sha
+            foreach ($pr in (Get-Api "commits/$c/pulls" | ForEach-Object { $_ })) {
+                $h = $pr.head.sha
+                if (-not $h -or $heads.Contains($h) -or (Get-Api "git/commits/$h").tree.sha -ne $cTree) { continue }
+                [void]$docsEquivalent.Add($h)
+                $heads.Add($h)
+            }
         }
         if ($docsEquivalent.Count) { $notes.Add("Documentation alone differs from $($docsEquivalent.Count) earlier first-parent commit(s); their runs count.") }
     }

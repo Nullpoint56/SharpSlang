@@ -16,7 +16,7 @@ inputs:
     description: win-x64, linux-x64, linux-arm64 or osx-arm64
     required: true
   source:
-    description: release (Slang's archive, what CI stages until the repository is public) or build (from the submodule)
+    description: release (Slang's archive, unpatched) or build (from the submodule with patches/, what CI stages)
     required: true
   token:
     description: the job token, for fetch-native.ps1's API fallback route
