@@ -806,6 +806,7 @@ public class ProberTests(ITestOutputHelper output)
             Assert.Contains("enabled True", outcome.Stdout, StringComparison.Ordinal);
             Assert.Contains("enabled after False", outcome.Stdout, StringComparison.Ordinal);
             Assert.Contains("missing recording refused: True", outcome.Stdout, StringComparison.Ordinal);
+            Assert.Contains("latest recording loaded", outcome.Stdout, StringComparison.Ordinal);
 
             // The recording is a folder under the directory set, holding the call stream.
             var recording = Regex.Match(outcome.Stdout, @"recording (.+)").Groups[1].Value.Trim();

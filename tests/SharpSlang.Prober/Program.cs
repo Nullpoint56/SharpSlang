@@ -210,6 +210,10 @@ internal static class Cases
         {
             Console.Out.WriteLine($"    missing recording refused: {e.Result == SlangResult.NotFound}");
         }
+
+        // Last, since it switches the layer to playback for the rest of the process.
+        SlangRecordReplay.LoadLatestReplay();
+        Console.Out.WriteLine("    latest recording loaded");
     }
 
     /// <summary>

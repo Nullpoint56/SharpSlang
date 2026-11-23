@@ -81,6 +81,54 @@ public class CompileMetadataTests(ITestOutputHelper output)
         Assert.Empty(cooperative.CooperativeVectorCombinations);
     }
 
+    private const string CooperativeVector = """
+        using namespace linalg;
+
+        RWStructuredBuffer<int32_t> outputBuffer;
+        ByteAddressBuffer input;
+        RWByteAddressBuffer matrix;
+
+        [shader("compute")]
+        [numthreads(1,1,1)]
+        void computeMain()
+        {
+            let vec4 = coopVecLoad<4, int8_t>(input);
+            let result = coopVecMatMul<int32_t, 4, 4>(
+                vec4, CoopVecComponentType::SignedInt8, matrix, 0,
+                CoopVecComponentType::SignedInt8, CoopVecMatrixLayout::RowMajor, false, 4);
+            for (int i = 0; i < result.getCount(); ++i)
+                outputBuffer[i] = result[i];
+        }
+        """;
+
+    [NativeFact]
+    public void The_cooperative_vectors_are_the_ones_the_shader_multiplies()
+    {
+        using var global = SlangGlobalSession.Create();
+        using var session = global.CreateSessionFromCommandLine(
+            "-target", "spirv", "-profile", "spirv_1_6", "-capability", "spvCooperativeVectorNV");
+        using var program = Link(session, "coopvec", CooperativeVector);
+        using var metadata = program.GetEntryPointMetadata(0, 0);
+
+        var cooperative = metadata.CooperativeTypesMetadata;
+        var types = cooperative.CooperativeVectorTypes;
+        foreach (var t in types) output.WriteLine($"{t.componentType} up to {t.maxSize}, training {t.usedForTrainingOp}");
+
+        // An int8 vector of 4 in, an int32 vector of 4 out.
+        Assert.Equal(2, types.Length);
+        Assert.Contains(types, t => t.componentType == SlangScalarType.SLANG_SCALAR_TYPE_INT8 && t.maxSize == 4);
+        Assert.Contains(types, t => t.componentType == SlangScalarType.SLANG_SCALAR_TYPE_INT32 && t.maxSize == 4);
+
+        var combination = Assert.Single(cooperative.CooperativeVectorCombinations);
+        Assert.Equal(SlangScalarType.SLANG_SCALAR_TYPE_INT8, combination.inputType);
+        Assert.Equal(SlangScalarType.SLANG_SCALAR_TYPE_INT8, combination.matrixInterpretation);
+        Assert.Equal(SlangScalarType.SLANG_SCALAR_TYPE_NONE, combination.biasInterpretation);
+        Assert.Equal(SlangScalarType.SLANG_SCALAR_TYPE_INT32, combination.resultType);
+        Assert.Equal(0, combination.transpose);
+
+        Assert.Empty(cooperative.CooperativeMatrixTypes);
+    }
+
     [NativeFact]
     public void Coverage_entries_name_the_shaders_own_lines_and_its_buffer()
     {

@@ -57,6 +57,7 @@ public class ByteCodeRunnerTests(ITestOutputHelper output)
 
         // 7 * (1 + ... + 6)
         Assert.Equal("total 147\n", string.Concat(printed));
+        Assert.Equal((int)info.returnValueSize, runner.GetReturnValue().Length);
         Assert.NotEqual(0, runner.CurrentWorkingSet);
     }
 
