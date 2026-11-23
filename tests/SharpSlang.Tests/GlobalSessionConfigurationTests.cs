@@ -197,6 +197,52 @@ public class GlobalSessionConfigurationTests(ITestOutputHelper output)
     }
 
     [NativeFact]
+    public void A_host_library_loader_decides_what_Slang_loads()
+    {
+        var asked = new List<string>();
+        using var refusing = new Hosting.SlangSharedLibraryLoader(name => { asked.Add(name); return 0; });
+        var found = new List<string>();
+        using var probing = new Hosting.SlangSharedLibraryLoader(name =>
+        {
+            found.Add(name);
+            return System.Runtime.InteropServices.NativeLibrary.TryLoad(name, typeof(SlangGlobalSession).Assembly, null, out var h) ? h : 0;
+        });
+
+        var spirvOpt = SlangPassThrough.SLANG_PASS_THROUGH_SPIRV_OPT;
+        var noCheck = new GlobalSessionOptions { RequireSpirvOptimizer = false };
+
+        // A loader that has nothing: spirv-opt is not found, though it is beside the compiler.
+        using (var global = SlangGlobalSession.Create(noCheck))
+        {
+            Assert.Null(global.SharedLibraryLoader);
+            global.SetSharedLibraryLoader(refusing);
+            Assert.Same(refusing, global.SharedLibraryLoader);
+            Assert.False(global.IsDownstreamCompilerAvailable(spirvOpt));
+            Assert.Throws<InvalidOperationException>(refusing.Dispose);
+        }
+
+        output.WriteLine($"asked for: {string.Join(", ", asked)}");
+        Assert.Contains(asked, n => n.Contains("slang-glslang", StringComparison.Ordinal));
+        Assert.Equal(1, refusing.NativeReferenceCount);
+
+        // A loader that probes beside the binding: found, through it.
+        using (var global = SlangGlobalSession.Create(noCheck))
+        {
+            global.SetSharedLibraryLoader(probing);
+            Assert.True(global.IsDownstreamCompilerAvailable(spirvOpt));
+            Assert.True(Hosting.SlangSharedLibraryLoader.LiveLibraries > 0);
+
+            global.SetSharedLibraryLoader(null);
+            Assert.Null(global.SharedLibraryLoader);
+        }
+
+        output.WriteLine($"loaded: {string.Join(", ", found)}; live libraries after {Hosting.SlangSharedLibraryLoader.LiveLibraries}");
+        Assert.Contains(found, n => n.Contains("slang-glslang", StringComparison.Ordinal));
+        Assert.Equal(1, probing.NativeReferenceCount);
+        Assert.Equal(0, Hosting.SlangSharedLibraryLoader.LiveLibraries);
+    }
+
+    [NativeFact]
     public void A_missing_SPIRV_grammar_file_is_refused()
     {
         using var global = SlangGlobalSession.Create();

@@ -26,6 +26,7 @@ recalled — and the traps flagged along the way are the ones that actually bit 
 - [Laying out a generic before you use it](#laying-out-a-generic-before-you-use-it)
 - [Which bindings the code actually reads](#which-bindings-the-code-actually-reads)
 - [Caching parsed modules](#caching-parsed-modules)
+- [Tools, editors and pipelines](#tools-editors-and-pipelines)
 - [The payload has to be the pinned one](#the-payload-has-to-be-the-pinned-one)
 - [Lifetime](#lifetime)
 - [Threads](#threads)
@@ -753,6 +754,47 @@ keeps answering for the files as it first read them, even after they change. Ask
 loaded it, as above. `ReadModuleInfo(ir)` reports the compiler build that wrote the blob, and a blob is only
 loadable by that build.
 
+## Tools, editors and pipelines
+
+Calls a shader editor, a build tool or an asset pipeline reaches for, beyond compiling and reflecting:
+
+```csharp
+// The same options as a slangc command line, and a cache key for a session's options.
+using var session = global.CreateSessionFromCommandLine("-target", "spirv", "-profile", "spirv_1_5");
+byte[] optionsKey = global.GetSessionDescDigest(options);
+
+// Where a declaration is written, for errors that point at source.
+var where = session.GetDeclSourceLocation(decl);          // file, 1-based line and column
+
+// A type's layout under a target's rules, without a program that uses it.
+var element = session.GetTypeLayout(type, targetIndex, LayoutRules.DefaultStructuredBuffer);
+
+// Every module the session holds, the ones an import pulled in included.
+for (var i = 0; i < session.LoadedModuleCount; i++) { using var m = session.GetLoadedModule(i); }
+
+// What Slang made of a module, and everything it writes for an entry point.
+string ir = module.Disassemble();
+var files = program.GetResultFiles(entryPointIndex, targetIndex);
+```
+
+- **Specialization by name**: `Specialize(SpecializationArgument.OfExpression("MyMaterial"))`
+  resolves the name in the program's scope and emits what specializing by the type emits.
+- **One entry point under another name**: `entryPoint.RenameEntryPoint("shadowMain")`, composed in
+  place of the original.
+- **Coverage tracing**: compile with `-trace-coverage`, bind the buffer
+  `metadata.CoverageTracingMetadata.Buffer` (or `SyntheticResourceMetadata`) names, read back
+  `CounterCount` counters and attribute them per entry; `ToManifestJson()` writes Slang's manifest.
+- **Cooperative types**: `metadata.CooperativeTypesMetadata` lists the cooperative matrix and vector
+  types and combinations the code uses, to compare with the device's.
+- **Precompiled modules**: `module.PrecompileService.PrecompileForTarget(SLANG_SPIRV)` embeds the
+  target code in the module before `Serialize` (experimental in Slang).
+- **Running Slang on the CPU**: compile for `SLANG_HOST_VM`, then `SlangByteCodeRunner` loads the
+  target code, selects a function and executes it, with `printf` through `SetPrintCallback`.
+- **Downstream compilers**: `SetDownstreamCompilerPath`, `SetLanguagePrelude`,
+  `SetDefaultDownstreamCompiler`, `SetDownstreamCompilerForTransition`, or a whole
+  `SetSharedLibraryLoader` to load them your own way.
+- **A repro for a compiler bug**: `SlangRecordReplay.Directory = folder; SlangRecordReplay.IsEnabled = true;`
+  at startup records every Slang call. It is process-wide.
 ## The payload has to be the pinned one
 
 `SlangGlobalSession.Create` refuses a `slang-compiler` that is not the release these bindings were
@@ -986,7 +1028,8 @@ The section column says where the guide covers it.
 | `import slang.neural` fails with `E00104` "is an experimental module" | Slang declares every standard module experimental. Set `SessionOptions.ExperimentalFeatures`. `E00001` "cannot open file" instead means the module folder is not beside the loaded compiler. | [Compiling](#compiling) |
 | A second module from source fails with "assert failure: ... The key already exists in Dictionary." | Its path is one the session already loaded a module from. Give each module its own path. | [Compiling](#compiling) |
 | Build error `SHARPSLANG011` | The project restores another `Microsoft.Direct3D.DXC` than `SharpSlang.Dxc` copies from, usually through a direct reference of its own. Drop it or match the version. | [Targeting D3D12](#targeting-d3d12) |
-| `SlangVersionMismatchException` after a version bump | The previous release is still staged in `runtimes/` (git-ignored). Fetch the pinned payload again. | [The payload has to be the pinned one](#the-payload-has-to-be-the-pinned-one) |
+| `RenameEntryPoint` throws `InvalidOperationException` on a composite | The composite holds more or fewer than one entry point; Slang itself would wrap it and succeed. Rename the entry point, then compose. | [Tools, editors and pipelines](#tools-editors-and-pipelines) |
+| A loader set with `SetSharedLibraryLoader` is never asked for spirv-opt | `RequireSpirvOptimizer` loaded it while the global session was created. Create it with that check off. | [Tools, editors and pipelines](#tools-editors-and-pipelines) || `SlangVersionMismatchException` after a version bump | The previous release is still staged in `runtimes/` (git-ignored). Fetch the pinned payload again. | [The payload has to be the pinned one](#the-payload-has-to-be-the-pinned-one) |
 | `SlangVersionMismatchException` naming `SharpSlang.Descs`, or build error `SHARPSLANG005` | A direct `SharpSlang.Descs` reference at another version than `SharpSlang` depends on; NuGet only warns (NU1608). Drop the reference or match the version. | [The two halves](#the-two-halves) |
 | A hash over a baked layout differs between platforms | It does not: `ProgramLayout.ToJson` writes `\n` on every platform on purpose, so the layout is portable. The SPIR-V beside it carries the row above. | [Baking and loading](#baking-and-loading) |
 

@@ -503,6 +503,40 @@ public sealed unsafe class SlangGlobalSession : SlangObject<IGlobalSession>
         Diagnostics.ThrowIfFailed(Ptr->setSPIRVCoreGrammar(p), $"IGlobalSession::setSPIRVCoreGrammar('{jsonPath}')", null);
     }
 
+    private Hosting.SlangSharedLibraryLoader? _loader;
+
+    /// <summary>
+    /// <c>setSharedLibraryLoader</c>: Slang loads every library it loads by name (spirv-opt's
+    /// <c>slang-glslang</c>, dxc, ...) through <paramref name="loader"/>; null restores Slang's own
+    /// loader. Set it before the first compile that needs one: a library already loaded stays.
+    /// </summary>
+    /// <remarks>
+    /// Create the global session with <see cref="GlobalSessionOptions.RequireSpirvOptimizer"/> off
+    /// when the loader is to provide spirv-opt, since that check loads it during creation.
+    /// </remarks>
+    public void SetSharedLibraryLoader(Hosting.SlangSharedLibraryLoader? loader)
+    {
+        Ptr->setSharedLibraryLoader(loader is null ? null : loader.Handle);
+        _loader = loader;
+    }
+
+    /// <summary>
+    /// <c>getSharedLibraryLoader</c>: the loader <see cref="SetSharedLibraryLoader"/> set, or null
+    /// for Slang's own.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">Slang holds a loader this wrapper did not set.</exception>
+    public Hosting.SlangSharedLibraryLoader? SharedLibraryLoader
+    {
+        get
+        {
+            // Borrowed: Session::getSharedLibraryLoader returns its pointer without a reference.
+            var current = Ptr->getSharedLibraryLoader();
+            if (current is null) return null;
+            if (_loader is not null && current == _loader.Handle) return _loader;
+            throw new InvalidOperationException("Slang holds a shared library loader set outside this wrapper");
+        }
+    }
+
     private static string? NullIfEmpty(string s) => s.Length == 0 ? null : s;
 
     private static void RequireCompiler(SlangPassThrough compiler)
