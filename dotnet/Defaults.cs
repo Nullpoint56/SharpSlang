@@ -152,6 +152,12 @@ internal static unsafe class Defaults
         bindlessIndex = -1,
     };
 
+    /// <summary>Mirrors <c>slang::ByteCodeRunnerDesc</c>'s in-class initializers.</summary>
+    internal static ByteCodeRunnerDesc ByteCodeRunnerDesc() => new()
+    {
+        structSize = (nuint)sizeof(ByteCodeRunnerDesc),
+    };
+
     /// <summary>Mirrors <c>slang::CooperativeMatrixType</c>'s in-class initializers.</summary>
     internal static CooperativeMatrixType CooperativeMatrixType() => new()
     {

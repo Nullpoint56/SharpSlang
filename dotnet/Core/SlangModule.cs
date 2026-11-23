@@ -39,6 +39,32 @@ public sealed unsafe class SlangModule : SlangObject<IModule>, ISlangComponentTy
 
     internal SlangSession Session { get; }
 
+    private SlangModulePrecompileServiceExtension? _precompile;
+    private bool _precompileProbed;
+
+    /// <summary>
+    /// <c>slang::IModulePrecompileService_Experimental</c> (<c>queryInterface</c>), or null when the
+    /// module does not offer it. Acquired once; released with the module.
+    /// </summary>
+    public SlangModulePrecompileServiceExtension? TryPrecompileService
+    {
+        get
+        {
+            if (!_precompileProbed)
+            {
+                _precompile = SlangModulePrecompileServiceExtension.TryAcquire(this, Ptr);
+                _precompileProbed = true;
+            }
+            return _precompile;
+        }
+    }
+
+    /// <summary><c>slang::IModulePrecompileService_Experimental</c>. Throws <see cref="NotSupportedException"/> when absent.</summary>
+    public SlangModulePrecompileServiceExtension PrecompileService =>
+        TryPrecompileService ?? throw new NotSupportedException("queryInterface(IModulePrecompileService_Experimental) failed on this module");
+
+    private protected override void BeforeRelease() => _precompile?.Release();
+
     /// <summary>
     /// <c>IModule::disassemble</c>: Slang's IR for this module as text, for reading what Slang made
     /// of the source.

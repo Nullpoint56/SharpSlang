@@ -34,6 +34,7 @@ public class DefaultsDriftTests
         "CooperativeMatrixCombination",
         "CooperativeVectorTypeUsageInfo",
         "CooperativeVectorCombination",
+        "ByteCodeRunnerDesc",
     ];
 
     private static object Produce(string structName) => structName switch
@@ -50,6 +51,7 @@ public class DefaultsDriftTests
         "CooperativeMatrixCombination" => Defaults.CooperativeMatrixCombination(),
         "CooperativeVectorTypeUsageInfo" => Defaults.CooperativeVectorTypeUsageInfo(),
         "CooperativeVectorCombination" => Defaults.CooperativeVectorCombination(),
+        "ByteCodeRunnerDesc" => Defaults.ByteCodeRunnerDesc(),
         _ => throw new InvalidOperationException($"no factory mapped for {structName}"),
     };
 
@@ -190,6 +192,7 @@ public class DefaultsDriftTests
         "CoverageEntryInfo" => sizeof(CoverageEntryInfo),
         "CoverageBufferInfo" => sizeof(CoverageBufferInfo),
         "SyntheticResourceInfo" => sizeof(SyntheticResourceInfo),
+        "ByteCodeRunnerDesc" => sizeof(ByteCodeRunnerDesc),
         _ => throw new InvalidOperationException($"no sizeof mapping for {structName}"),
     };
 

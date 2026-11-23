@@ -269,6 +269,45 @@ public class SessionQueryTests(ITestOutputHelper output)
     }
 
     [NativeFact]
+    public void A_precompiled_module_carries_SPIRV_and_keeps_it_through_serialization()
+    {
+        const string Exported = """
+            module qpre;
+            public export float qTwice(float x) { return x * 2.0; }
+            """;
+
+        byte[] ir;
+        using (var global = SlangGlobalSession.Create())
+        using (var session = NewSession(global))
+        using (var module = session.LoadModuleFromSource("qpre", "qpre.slang", Exported))
+        {
+            var service = module.PrecompileService;
+            Assert.Null(service.GetPrecompiledTargetCode(SlangCompileTarget.SLANG_SPIRV));
+
+            service.PrecompileForTarget(SlangCompileTarget.SLANG_SPIRV);
+            service.PrecompileForTarget(SlangCompileTarget.SLANG_SPIRV);
+
+            var code = service.GetPrecompiledTargetCode(SlangCompileTarget.SLANG_SPIRV);
+            output.WriteLine($"{code?.Length} bytes of SPIR-V");
+            Assert.NotNull(code);
+            Assert.True(SpirvModule.IsSpirv(code));
+            Assert.Equal(0, service.ModuleDependencyCount);
+            Assert.Throws<ArgumentOutOfRangeException>(() => service.GetModuleDependency(0));
+
+            using var blob = module.Serialize();
+            ir = blob.ToArray();
+        }
+
+        // The embedded code is part of the module: a fresh session loading the IR finds it.
+        using (var global = SlangGlobalSession.Create())
+        using (var session = NewSession(global))
+        using (var reloaded = session.LoadModuleFromIRBlob("qpre", "qpre.slang", ir))
+        {
+            Assert.NotNull(reloaded.PrecompileService.GetPrecompiledTargetCode(SlangCompileTarget.SLANG_SPIRV));
+        }
+    }
+
+    [NativeFact]
     public void The_result_files_hold_the_code_getEntryPointCode_returns()
     {
         using var global = SlangGlobalSession.Create();
