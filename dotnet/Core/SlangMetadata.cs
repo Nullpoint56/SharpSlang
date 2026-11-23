@@ -100,6 +100,79 @@ public sealed unsafe class SlangMetadata : SlangObject<IMetadata>
     public SlangBindlessResourceMetadataExtension BindlessResourceMetadata =>
         TryBindlessResourceMetadata ?? throw new NotSupportedException("castAs(IBindlessResourceMetadata) returned null on this metadata");
 
+    private SlangCooperativeTypesMetadataExtension? _cooperative;
+    private bool _cooperativeProbed;
+
+    /// <summary>
+    /// <c>slang::ICooperativeTypesMetadata</c> (<c>castAs</c>), or null when this metadata does not
+    /// carry it. Acquired once; borrowed for this metadata's lifetime.
+    /// </summary>
+    public SlangCooperativeTypesMetadataExtension? TryCooperativeTypesMetadata
+    {
+        get
+        {
+            if (!_cooperativeProbed)
+            {
+                _cooperative = SlangCooperativeTypesMetadataExtension.TryAcquire(this, Ptr);
+                _cooperativeProbed = true;
+            }
+            return _cooperative;
+        }
+    }
+
+    /// <summary><c>slang::ICooperativeTypesMetadata</c>. Throws <see cref="NotSupportedException"/> when absent.</summary>
+    public SlangCooperativeTypesMetadataExtension CooperativeTypesMetadata =>
+        TryCooperativeTypesMetadata ?? throw new NotSupportedException("castAs(ICooperativeTypesMetadata) returned null on this metadata");
+
+    private SlangSyntheticResourceMetadataExtension? _synthetic;
+    private bool _syntheticProbed;
+
+    /// <summary>
+    /// <c>slang::ISyntheticResourceMetadata</c> (<c>castAs</c>), or null when this metadata does not
+    /// carry it. Acquired once; borrowed for this metadata's lifetime.
+    /// </summary>
+    public SlangSyntheticResourceMetadataExtension? TrySyntheticResourceMetadata
+    {
+        get
+        {
+            if (!_syntheticProbed)
+            {
+                _synthetic = SlangSyntheticResourceMetadataExtension.TryAcquire(this, Ptr);
+                _syntheticProbed = true;
+            }
+            return _synthetic;
+        }
+    }
+
+    /// <summary><c>slang::ISyntheticResourceMetadata</c>. Throws <see cref="NotSupportedException"/> when absent.</summary>
+    public SlangSyntheticResourceMetadataExtension SyntheticResourceMetadata =>
+        TrySyntheticResourceMetadata ?? throw new NotSupportedException("castAs(ISyntheticResourceMetadata) returned null on this metadata");
+
+    private SlangCoverageTracingMetadataExtension? _coverage;
+    private bool _coverageProbed;
+
+    /// <summary>
+    /// <c>slang::ICoverageTracingMetadata</c> (<c>castAs</c>), or null when this metadata does not
+    /// carry it. Code compiled without coverage tracing carries it too, with no entries and no
+    /// buffer (measured). Acquired once; borrowed for this metadata's lifetime.
+    /// </summary>
+    public SlangCoverageTracingMetadataExtension? TryCoverageTracingMetadata
+    {
+        get
+        {
+            if (!_coverageProbed)
+            {
+                _coverage = SlangCoverageTracingMetadataExtension.TryAcquire(this, Ptr);
+                _coverageProbed = true;
+            }
+            return _coverage;
+        }
+    }
+
+    /// <summary><c>slang::ICoverageTracingMetadata</c>. Throws <see cref="NotSupportedException"/> when absent.</summary>
+    public SlangCoverageTracingMetadataExtension CoverageTracingMetadata =>
+        TryCoverageTracingMetadata ?? throw new NotSupportedException("castAs(ICoverageTracingMetadata) returned null on this metadata");
+
     public override string ToString() =>
         IsDisposed ? "SlangMetadata (disposed)" : "SlangMetadata";
 }

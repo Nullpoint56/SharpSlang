@@ -34,6 +34,28 @@ public sealed unsafe class SlangModule : SlangObject<IModule>, ISlangComponentTy
     {
         AddReference();
         Name = name;
+        Session = owner;
+    }
+
+    internal SlangSession Session { get; }
+
+    /// <summary>
+    /// <c>IModule::disassemble</c>: Slang's IR for this module as text, for reading what Slang made
+    /// of the source.
+    /// </summary>
+    /// <exception cref="SlangException">Slang could not disassemble it.</exception>
+    public string Disassemble()
+    {
+        ISlangBlob* blob = null;
+        var hr = Ptr->disassemble(&blob);
+        if (SlangResult.Failed(hr) || blob is null)
+        {
+            if (blob is not null) blob->release();
+            throw new SlangException(SlangResult.Failed(hr) ? hr : SlangResult.Fail, $"IModule::disassemble('{Name}')", Diagnostics.NewInternalError());
+        }
+
+        using var owned = new SlangBlob(blob);
+        return owned.AsText();
     }
 
     /// <summary>The module name it was loaded under.</summary>
@@ -285,8 +307,27 @@ public sealed unsafe class SlangModule : SlangObject<IModule>, ISlangComponentTy
 /// <summary>A shader entry point within a module.</summary>
 public sealed unsafe class SlangEntryPoint : SlangObject<IEntryPoint>, ISlangComponentType
 {
+    private readonly SlangModule _module;
+
     internal SlangEntryPoint(IEntryPoint* owned, string name, SlangModule owner)
-        : base(owned, $"SlangEntryPoint('{name}')", owner) => Name = name;
+        : base(owned, $"SlangEntryPoint('{name}')", owner)
+    {
+        Name = name;
+        _module = owner;
+    }
+
+    /// <summary>
+    /// <c>IComponentType::renameEntryPoint</c>: this entry point under another name, as a new
+    /// component type to compose and link in its place. This one is unchanged.
+    /// </summary>
+    /// <remarks>
+    /// The name is what code generation emits, so two entry points with the same function name can
+    /// go into one program, and a SPIR-V target with <see cref="TargetOptions.UseEntryPointNameInSpirv"/>
+    /// names the <c>OpEntryPoint</c> after it.
+    /// </remarks>
+    /// <exception cref="SlangException">Slang refused the rename.</exception>
+    public SlangComponentType RenameEntryPoint(string newName) =>
+        SlangComponentType.Rename(AsComponent, newName, _module.Session, $"SlangEntryPoint('{Name}')");
 
     /// <summary>The entry point's function name.</summary>
     public string Name { get; }

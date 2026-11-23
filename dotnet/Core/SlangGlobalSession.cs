@@ -307,5 +307,209 @@ public sealed unsafe class SlangGlobalSession : SlangObject<IGlobalSession>
         return SlangSession.Create(this, options);
     }
 
+    /// <summary>
+    /// <c>parseCommandLineArguments</c> then <c>createSession</c>: a session configured by
+    /// <c>slangc</c> options (<c>-target</c>, <c>-profile</c>, <c>-I</c>, <c>-D</c>, <c>-O</c>, ...).
+    /// </summary>
+    /// <remarks>
+    /// Slang parses the options; the binding adds nothing and checks nothing about them beyond
+    /// dxc for a DXIL target. The emitted SPIR-V version is not verified, since no
+    /// <see cref="TargetOptions.SpirvVersion"/> was given: pass <c>-profile spirv_1_5</c> to pin it.
+    /// </remarks>
+    /// <param name="arguments">The options, one per element, as a shell would split them.</param>
+    /// <exception cref="SlangException">Slang refused the options; its diagnostics are attached.</exception>
+    public SlangSession CreateSessionFromCommandLine(params string[] arguments)
+    {
+        ArgumentNullException.ThrowIfNull(arguments);
+
+        var argv = new nint[Math.Max(arguments.Length, 1)];
+        try
+        {
+            for (var i = 0; i < arguments.Length; i++)
+            {
+                ArgumentNullException.ThrowIfNull(arguments[i], nameof(arguments));
+                argv[i] = (nint)Utf8.Alloc(arguments[i]);
+            }
+
+            // structureSize first: Slang refuses a zeroed descriptor as too small.
+            var desc = Defaults.SessionDesc();
+            ISlangUnknown* aux = null;
+            int hr;
+            fixed (nint* p = argv)
+            {
+                hr = Ptr->parseCommandLineArguments(arguments.Length, (sbyte**)p, &desc, &aux);
+            }
+
+            try
+            {
+                Diagnostics.ThrowIfFailed(hr, "IGlobalSession::parseCommandLineArguments", null);
+
+                // Kept so a linked program reads the same target list as from SessionOptions.
+                var targets = new TargetOptions[desc.targetCount];
+                for (var i = 0; i < targets.Length; i++)
+                {
+                    targets[i] = new TargetOptions { Format = desc.targets[i].format, VerifyEmittedSpirv = false };
+                }
+
+                if (targets.Any(t => t.Format == SlangCompileTarget.SLANG_DXIL)) RequireDxc();
+
+                ISession* session = null;
+                hr = Ptr->createSession(&desc, &session);
+                if (SlangResult.Failed(hr) || session is null)
+                    throw new SlangException(hr, "IGlobalSession::createSession", Diagnostics.NewInternalError());
+
+                return SlangSession.Adopt(session, this, targets);
+            }
+            finally
+            {
+                // The descriptor's arrays live in this allocation; Slang copied what it needs.
+                if (aux is not null) aux->release();
+            }
+        }
+        finally
+        {
+            foreach (var p in argv) Utf8.Free((sbyte*)p);
+        }
+    }
+
+    /// <summary>
+    /// <c>getSessionDescDigest</c>: Slang's digest of the session <paramref name="options"/>
+    /// describe. Equal options give equal digests, so it is the options half of a cache key.
+    /// </summary>
+    /// <exception cref="SlangException">Slang could not compute it.</exception>
+    public byte[] GetSessionDescDigest(SessionOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+
+        return SlangSession.WithSessionDesc(this, options, desc =>
+        {
+            ISlangBlob* blob = null;
+            var hr = Ptr->getSessionDescDigest(desc, &blob);
+            if (SlangResult.Failed(hr) || blob is null)
+            {
+                if (blob is not null) blob->release();
+                throw new SlangException(hr, "IGlobalSession::getSessionDescDigest", Diagnostics.NewInternalError());
+            }
+
+            using var owned = new SlangBlob(blob);
+            return owned.ToArray();
+        });
+    }
+
+    /// <summary>
+    /// <c>getCompilerElapsedTime</c>: time this global session has spent compiling, in total and in
+    /// downstream compilers (dxc, spirv-opt, ...).
+    /// </summary>
+    public (TimeSpan Total, TimeSpan Downstream) CompilerElapsedTime
+    {
+        get
+        {
+            double total, downstream;
+            Ptr->getCompilerElapsedTime(&total, &downstream);
+            return (TimeSpan.FromSeconds(total), TimeSpan.FromSeconds(downstream));
+        }
+    }
+
+    /// <summary>
+    /// <c>setDownstreamCompilerPath</c>: the directory Slang loads a downstream compiler from,
+    /// instead of searching for it by name. Set it before the first compile that needs that compiler.
+    /// </summary>
+    /// <param name="compiler">The downstream compiler.</param>
+    /// <param name="directory">Its directory; null or empty restores the search by name.</param>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="compiler"/> names no compiler.</exception>
+    public void SetDownstreamCompilerPath(SlangPassThrough compiler, string? directory)
+    {
+        // Slang indexes a per-compiler array with it, checked only by an assert.
+        RequireCompiler(compiler);
+        using Utf8.Scoped p = new(directory ?? "");
+        Ptr->setDownstreamCompilerPath(compiler, p);
+    }
+
+    /// <summary>
+    /// <c>getDownstreamCompilerPath</c>: the file of the downstream compiler Slang will use, or
+    /// null when it cannot load one.
+    /// </summary>
+    /// <remarks>
+    /// Slang answers by loading the compiler, from the directory <see cref="SetDownstreamCompilerPath"/>
+    /// set or by its usual search, so this names the library compiles will use, not the setting.
+    /// </remarks>
+    public string? GetDownstreamCompilerPath(SlangPassThrough compiler)
+    {
+        ISlangBlob* blob = null;
+        var hr = Ptr->getDownstreamCompilerPath(compiler, &blob);
+        if (blob is null) return null;
+
+        using var owned = new SlangBlob(blob);
+        return SlangResult.Failed(hr) ? null : NullIfEmpty(owned.AsText());
+    }
+
+    /// <summary>
+    /// <c>setLanguagePrelude</c>: text Slang puts before the code it generates in
+    /// <paramref name="language"/> (C++, CUDA, HLSL, ...), replacing Slang's own prelude.
+    /// </summary>
+    public void SetLanguagePrelude(SlangSourceLanguage language, string prelude)
+    {
+        ArgumentNullException.ThrowIfNull(prelude);
+        using Utf8.Scoped p = new(prelude);
+        Ptr->setLanguagePrelude(language, p);
+    }
+
+    /// <summary><c>getLanguagePrelude</c>: the prelude for <paramref name="language"/>, or null for none.</summary>
+    public string? GetLanguagePrelude(SlangSourceLanguage language)
+    {
+        ISlangBlob* blob = null;
+        Ptr->getLanguagePrelude(language, &blob);
+        if (blob is null) return null;
+
+        using var owned = new SlangBlob(blob);
+        return NullIfEmpty(owned.AsText());
+    }
+
+    /// <summary>
+    /// <c>setDefaultDownstreamCompiler</c>: which downstream compiler Slang hands code in
+    /// <paramref name="language"/> to.
+    /// </summary>
+    /// <exception cref="SlangException">Slang refused the pairing.</exception>
+    public void SetDefaultDownstreamCompiler(SlangSourceLanguage language, SlangPassThrough compiler) =>
+        Diagnostics.ThrowIfFailed(
+            Ptr->setDefaultDownstreamCompiler(language, compiler),
+            $"IGlobalSession::setDefaultDownstreamCompiler({language}, {compiler})", null);
+
+    /// <summary><c>getDefaultDownstreamCompiler</c>.</summary>
+    public SlangPassThrough GetDefaultDownstreamCompiler(SlangSourceLanguage language) =>
+        Ptr->getDefaultDownstreamCompiler(language);
+
+    /// <summary>
+    /// <c>setDownstreamCompilerForTransition</c>: which downstream compiler turns
+    /// <paramref name="source"/> code into <paramref name="target"/> code (HLSL to DXIL, say).
+    /// </summary>
+    public void SetDownstreamCompilerForTransition(
+        SlangCompileTarget source, SlangCompileTarget target, SlangPassThrough compiler) =>
+        Ptr->setDownstreamCompilerForTransition(source, target, compiler);
+
+    /// <summary><c>getDownstreamCompilerForTransition</c>: the compiler Slang will use for it.</summary>
+    public SlangPassThrough GetDownstreamCompilerForTransition(SlangCompileTarget source, SlangCompileTarget target) =>
+        Ptr->getDownstreamCompilerForTransition(source, target);
+
+    /// <summary>
+    /// <c>setSPIRVCoreGrammar</c>: a <c>spirv.core.grammar.json</c> Slang reads when it parses
+    /// and checks SPIR-V written inline in a shader, in place of the grammar built into it.
+    /// </summary>
+    /// <exception cref="SlangException">Slang could not load the file.</exception>
+    public void SetSpirvCoreGrammar(string jsonPath)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(jsonPath);
+        using Utf8.Scoped p = new(jsonPath);
+        Diagnostics.ThrowIfFailed(Ptr->setSPIRVCoreGrammar(p), $"IGlobalSession::setSPIRVCoreGrammar('{jsonPath}')", null);
+    }
+
+    private static string? NullIfEmpty(string s) => s.Length == 0 ? null : s;
+
+    private static void RequireCompiler(SlangPassThrough compiler)
+    {
+        if (compiler <= SlangPassThrough.SLANG_PASS_THROUGH_NONE || compiler >= SlangPassThrough.SLANG_PASS_THROUGH_COUNT_OF)
+            throw new ArgumentOutOfRangeException(nameof(compiler), compiler, "not a downstream compiler");
+    }
+
     internal IGlobalSession* Handle => Ptr;
 }
