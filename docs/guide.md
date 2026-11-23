@@ -43,12 +43,12 @@ loads them. The runtime half has no native dependency, so a shipped build carrie
 
 ```xml
 <!-- asset pipeline: the cooker brings SharpSlang, the compiler and the reader with it -->
-<PackageReference Include="SharpSlang.Pipeline.Bake" Version="2026210.0.0-beta.1" />
-<PackageReference Include="SharpSlang.Pipeline.NRI" Version="2026210.0.0-beta.1" />
+<PackageReference Include="SharpSlang.Pipeline.Bake" Version="2026210.0.0-beta.2" />
+<PackageReference Include="SharpSlang.Pipeline.NRI" Version="2026210.0.0-beta.2" />
 
 <!-- game -->
 <PackageReference Include="SharpSlang.Pipeline" Version="2026210.0.0-beta.1" />
-<PackageReference Include="SharpSlang.Pipeline.NRI" Version="2026210.0.0-beta.1" />
+<PackageReference Include="SharpSlang.Pipeline.NRI" Version="2026210.0.0-beta.2" />
 ```
 
 `ShaderPackage` — the container, its reader, and the staleness checks — is in the runtime half.
@@ -825,7 +825,7 @@ at run time.
 ```csharp
 Slang.SlangVersion          // const: the Slang release the SharpSlang you compiled against was built for
 SlangHeaders.Version        // const: the Slang release of the SharpSlang.Descs you compiled against
-Slang.BindingVersion        // the loaded SharpSlang package version, e.g. "2026210.0.0-beta.1"
+Slang.BindingVersion        // the loaded SharpSlang package version, e.g. "2026210.0.0-beta.2"
 Slang.BindingSlangVersion   // the Slang release the loaded SharpSlang was built for
 Slang.DescsVersion          // the loaded SharpSlang.Descs package version
 Slang.DescsSlangVersion     // the Slang release the loaded SharpSlang.Descs was generated from

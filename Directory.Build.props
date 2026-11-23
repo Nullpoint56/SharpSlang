@@ -81,7 +81,7 @@
       dotnet/buildTransitive/SharpSlang.targets), and global-session creation refuses a loaded
       Descs of another version (AGENTS.md#pin-and-payload).
     -->
-    <SharpSlangVersion>2026210.0.0-beta.1</SharpSlangVersion>
+    <SharpSlangVersion>2026210.0.0-beta.2</SharpSlangVersion>
     <SharpSlangDescsVersion>2026210.0.0-beta.1</SharpSlangDescsVersion>
     <SharpSlangPipelineVersion>2026210.0.0-beta.1</SharpSlangPipelineVersion>
 
