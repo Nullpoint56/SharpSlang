@@ -169,7 +169,52 @@ internal static class Cases
         // until CompanionLibraries preloaded it. ProberTests launches this case exactly that way.
         ["downstream-compilers"] = DownstreamCompilers,
         ["missing-optimiser"] = MissingOptimiser,
+
+        // The record layer is process-wide, so it is switched on only in a process of its own.
+        ["record-replay"] = RecordReplay,
     };
+
+    /// <summary>
+    /// Records a compile into the folder <c>SHARPSLANG_PROBE_REPLAY_DIR</c> names and reports where
+    /// the recording went, then asks for a recording that is not there.
+    /// </summary>
+    private static void RecordReplay()
+    {
+        var directory = Environment.GetEnvironmentVariable("SHARPSLANG_PROBE_REPLAY_DIR")
+            ?? throw new InvalidOperationException("SHARPSLANG_PROBE_REPLAY_DIR is not set");
+
+        Console.Out.WriteLine($"    enabled at start {SlangRecordReplay.IsEnabled}");
+        Console.Out.WriteLine($"    default directory {SlangRecordReplay.Directory}");
+
+        SlangRecordReplay.Directory = directory;
+        SlangRecordReplay.IsEnabled = true;
+        Console.Out.WriteLine($"    enabled {SlangRecordReplay.IsEnabled}");
+
+        using (var global = SlangGlobalSession.Create())
+        {
+            SlangRecordReplay.Marker("sharpslang-probe");
+            var bytes = CompileSpirv(global, SlangOptimizationLevel.SLANG_OPTIMIZATION_LEVEL_DEFAULT);
+            Console.Out.WriteLine($"    compiled {bytes.Length} bytes");
+        }
+
+        Console.Out.WriteLine($"    recording {SlangRecordReplay.CurrentReplayPath}");
+        SlangRecordReplay.IsEnabled = false;
+        Console.Out.WriteLine($"    enabled after {SlangRecordReplay.IsEnabled}");
+
+        try
+        {
+            SlangRecordReplay.LoadReplay(Path.Combine(directory, "no-such-recording"));
+            Console.Out.WriteLine("    missing recording loaded");
+        }
+        catch (SlangException e)
+        {
+            Console.Out.WriteLine($"    missing recording refused: {e.Result == SlangResult.NotFound}");
+        }
+
+        // Last, since it switches the layer to playback for the rest of the process.
+        SlangRecordReplay.LoadLatestReplay();
+        Console.Out.WriteLine("    latest recording loaded");
+    }
 
     /// <summary>
     /// A global session that requires spirv-opt, a SPIR-V compile with the optimiser on, and DXIL

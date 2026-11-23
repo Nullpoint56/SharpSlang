@@ -45,6 +45,7 @@ namespace SharpSlang
         public byte[] GetEntryPointIdentityHash(int entryPointIndex, int targetIndex) { }
         public SharpSlang.Reflection.SlangMetadata GetEntryPointMetadata(int entryPointIndex, int targetIndex) { }
         public SharpSlang.SlangShaderReflection GetLayout(int targetIndex) { }
+        public System.Collections.Generic.IReadOnlyDictionary<string, byte[]> GetResultFiles(int entryPointIndex, int targetIndex) { }
         public SharpSlang.Interop.SlangBlob GetTargetCode(int targetIndex) { }
         public SharpSlang.Reflection.SlangMetadata GetTargetMetadata(int targetIndex) { }
         public bool IsSubType(int targetIndex, SharpSlang.SlangType type, SharpSlang.SlangType baseType) { }
@@ -82,6 +83,22 @@ namespace SharpSlang
         public System.IntPtr NativeHandle { get; }
         public bool UsesBindlessResourceHeap { get; }
     }
+    public sealed class SlangByteCodeRunner : SharpSlang.Interop.SlangObject<SharpSlang.Native.IByteCodeRunner>
+    {
+        public System.IntPtr CurrentWorkingSet { get; }
+        public string? ErrorString { get; }
+        public void Execute(System.ReadOnlySpan<byte> arguments = default) { }
+        public int FindFunctionByName(string name) { }
+        public SharpSlang.Native.ByteCodeFuncInfo GetFunctionInfo(int index) { }
+        public byte[] GetReturnValue() { }
+        public void LoadModule(System.ReadOnlySpan<byte> byteCode) { }
+        public void RegisterExtCall(string name, method function) { }
+        public void SelectFunction(int index) { }
+        public void SetExtInstHandlerUserData(nint userData) { }
+        public void SetPrintCallback(System.Action<string>? callback) { }
+        public static SharpSlang.SlangByteCodeRunner Create() { }
+        public static string DisassembleByteCode(System.ReadOnlySpan<byte> byteCode) { }
+    }
     public sealed class SlangCompileResult : SharpSlang.Interop.SlangObject<SharpSlang.Native.ICompileResult>
     {
         public uint ItemCount { get; }
@@ -95,13 +112,56 @@ namespace SharpSlang
         public SharpSlang.SlangShaderReflection GetLayout(int targetIndex) { }
         public SharpSlang.LinkedProgram Link() { }
         public SharpSlang.LinkedProgram LinkWithOptions(SharpSlang.LinkTimeOptions options) { }
+        public SharpSlang.SlangComponentType RenameEntryPoint(string newName) { }
         public SharpSlang.SlangComponentType Specialize([System.Runtime.CompilerServices.ParamCollection] [System.Runtime.CompilerServices.ScopedRef] System.ReadOnlySpan<SharpSlang.SlangType> arguments) { }
+        public SharpSlang.SlangComponentType Specialize([System.Runtime.CompilerServices.ParamCollection] [System.Runtime.CompilerServices.ScopedRef] System.ReadOnlySpan<SharpSlang.SpecializationArgument> arguments) { }
     }
     public sealed class SlangComponentType2Extension
     {
         public System.IntPtr NativeHandle { get; }
         public SharpSlang.SlangCompileResult GetEntryPointCompileResult(long entryPointIndex, long targetIndex) { }
         public SharpSlang.SlangCompileResult GetTargetCompileResult(long targetIndex) { }
+    }
+    public sealed class SlangCooperativeTypesMetadataExtension
+    {
+        public SharpSlang.Native.CooperativeMatrixCombination[] CooperativeMatrixCombinations { get; }
+        public SharpSlang.Native.CooperativeMatrixType[] CooperativeMatrixTypes { get; }
+        public SharpSlang.Native.CooperativeVectorCombination[] CooperativeVectorCombinations { get; }
+        public SharpSlang.Native.CooperativeVectorTypeUsageInfo[] CooperativeVectorTypes { get; }
+        public System.IntPtr NativeHandle { get; }
+    }
+    public readonly struct SlangCoverageBuffer : System.IEquatable<SharpSlang.SlangCoverageBuffer>
+    {
+        public SlangCoverageBuffer(int Space, int Binding, uint ElementByteWidth) { }
+        public int Binding { get; init; }
+        public uint ElementByteWidth { get; init; }
+        public int Space { get; init; }
+    }
+    public sealed class SlangCoverageEntry : System.IEquatable<SharpSlang.SlangCoverageEntry>
+    {
+        public SlangCoverageEntry(string? File, uint Line, uint? CounterIndex, SharpSlang.Native.CoverageEntryKind Kind, SharpSlang.Native.CoverageCounterMode CounterMode, uint StartColumn, uint EndLine, uint EndColumn, string? FunctionName, string? FunctionMangledName, uint BranchSiteId, uint BranchArmId, SharpSlang.Native.CoverageBranchArmKind BranchArmKind) { }
+        public uint BranchArmId { get; init; }
+        public SharpSlang.Native.CoverageBranchArmKind BranchArmKind { get; init; }
+        public uint BranchSiteId { get; init; }
+        public uint? CounterIndex { get; init; }
+        public SharpSlang.Native.CoverageCounterMode CounterMode { get; init; }
+        public uint EndColumn { get; init; }
+        public uint EndLine { get; init; }
+        public string? File { get; init; }
+        public string? FunctionMangledName { get; init; }
+        public string? FunctionName { get; init; }
+        public SharpSlang.Native.CoverageEntryKind Kind { get; init; }
+        public uint Line { get; init; }
+        public uint StartColumn { get; init; }
+    }
+    public sealed class SlangCoverageTracingMetadataExtension
+    {
+        public SharpSlang.SlangCoverageBuffer Buffer { get; }
+        public int CounterCount { get; }
+        public int EntryCount { get; }
+        public System.IntPtr NativeHandle { get; }
+        public SharpSlang.SlangCoverageEntry GetEntry(int index) { }
+        public string ToManifestJson() { }
     }
     public sealed class SlangDecl : SharpSlang.Interop.SlangReflectionObject
     {
@@ -120,6 +180,7 @@ namespace SharpSlang
     {
         public SharpSlang.SlangFunction? FunctionReflection { get; }
         public string Name { get; }
+        public SharpSlang.SlangComponentType RenameEntryPoint(string newName) { }
     }
     public sealed class SlangEntryPointReflection : SharpSlang.Interop.SlangReflectionObject
     {
@@ -173,14 +234,31 @@ namespace SharpSlang
     }
     public sealed class SlangGlobalSession : SharpSlang.Interop.SlangObject<SharpSlang.Native.IGlobalSession>
     {
+        [System.Runtime.CompilerServices.TupleElementNames(new string[] {
+                "Total",
+                "Downstream"})]
+        public System.ValueTuple<System.TimeSpan, System.TimeSpan> CompilerElapsedTime { get; }
+        public SharpSlang.Hosting.SlangSharedLibraryLoader? SharedLibraryLoader { get; }
         public static string BuildTag { get; }
         public static string PinnedBuildTag { get; }
         public SharpSlang.SlangSession CreateSession(SharpSlang.SessionOptions options) { }
+        public SharpSlang.SlangSession CreateSessionFromCommandLine(params string[] arguments) { }
         public SharpSlang.Native.SlangCapabilityID FindCapability(string name) { }
         public SharpSlang.Native.SlangProfileID FindProfile(string name) { }
+        public SharpSlang.Native.SlangPassThrough GetDefaultDownstreamCompiler(SharpSlang.Native.SlangSourceLanguage language) { }
+        public SharpSlang.Native.SlangPassThrough GetDownstreamCompilerForTransition(SharpSlang.Native.SlangCompileTarget source, SharpSlang.Native.SlangCompileTarget target) { }
+        public string? GetDownstreamCompilerPath(SharpSlang.Native.SlangPassThrough compiler) { }
+        public string? GetLanguagePrelude(SharpSlang.Native.SlangSourceLanguage language) { }
+        public byte[] GetSessionDescDigest(SharpSlang.SessionOptions options) { }
         public bool IsDownstreamCompilerAvailable(SharpSlang.Native.SlangPassThrough compiler) { }
         public void RequireDxc() { }
         public void RequireSpirvOptimizer() { }
+        public void SetDefaultDownstreamCompiler(SharpSlang.Native.SlangSourceLanguage language, SharpSlang.Native.SlangPassThrough compiler) { }
+        public void SetDownstreamCompilerForTransition(SharpSlang.Native.SlangCompileTarget source, SharpSlang.Native.SlangCompileTarget target, SharpSlang.Native.SlangPassThrough compiler) { }
+        public void SetDownstreamCompilerPath(SharpSlang.Native.SlangPassThrough compiler, string? directory) { }
+        public void SetLanguagePrelude(SharpSlang.Native.SlangSourceLanguage language, string prelude) { }
+        public void SetSharedLibraryLoader(SharpSlang.Hosting.SlangSharedLibraryLoader? loader) { }
+        public void SetSpirvCoreGrammar(string jsonPath) { }
         public bool SupportsTarget(SharpSlang.Native.SlangCompileTarget target) { }
         public static SharpSlang.SlangGlobalSession Create(SharpSlang.GlobalSessionOptions? options = null) { }
         public static uint HashString(string value) { }
@@ -194,7 +272,10 @@ namespace SharpSlang
         public int EntryPointCount { get; }
         public string? FilePath { get; }
         public string Name { get; }
+        public SharpSlang.SlangModulePrecompileServiceExtension PrecompileService { get; }
+        public SharpSlang.SlangModulePrecompileServiceExtension? TryPrecompileService { get; }
         public string? UniqueIdentity { get; }
+        public string Disassemble() { }
         public SharpSlang.SlangEntryPoint[] EntryPoints() { }
         public SharpSlang.SlangEntryPoint FindEntryPoint(string name) { }
         public SharpSlang.SlangEntryPoint FindEntryPoint(string name, SharpSlang.Native.SlangStage stage) { }
@@ -204,6 +285,23 @@ namespace SharpSlang
         public SharpSlang.SlangType RequireType(int targetIndex, string name) { }
         public SharpSlang.Interop.SlangBlob Serialize() { }
         public void WriteToFile(string path) { }
+    }
+    public sealed class SlangModulePrecompileServiceExtension
+    {
+        public int ModuleDependencyCount { get; }
+        public System.IntPtr NativeHandle { get; }
+        public SharpSlang.SlangModule GetModuleDependency(int index) { }
+        public byte[]? GetPrecompiledTargetCode(SharpSlang.Native.SlangCompileTarget target) { }
+        public void PrecompileForTarget(SharpSlang.Native.SlangCompileTarget target) { }
+    }
+    public static class SlangRecordReplay
+    {
+        public static string? CurrentReplayPath { get; }
+        public static string Directory { get; set; }
+        public static bool IsEnabled { get; set; }
+        public static void LoadLatestReplay() { }
+        public static void LoadReplay(string folderPath) { }
+        public static void Marker(string label) { }
     }
     public static class SlangResult
     {
@@ -231,8 +329,18 @@ namespace SharpSlang
     }
     public sealed class SlangSession : SharpSlang.Interop.SlangObject<SharpSlang.Native.ISession>
     {
+        public SharpSlang.SlangType DynamicType { get; }
+        public int LoadedModuleCount { get; }
         public SharpSlang.SlangComponentType CreateCompositeComponentType([System.Runtime.CompilerServices.ParamCollection] [System.Runtime.CompilerServices.ScopedRef] System.ReadOnlySpan<SharpSlang.ISlangComponentType> components) { }
         public SharpSlang.TypeConformance CreateTypeConformance(SharpSlang.SlangType type, SharpSlang.SlangType interfaceType, int? conformanceId = default) { }
+        public SharpSlang.SlangType GetContainerType(SharpSlang.SlangType elementType, SharpSlang.Native.ContainerType container) { }
+        public SharpSlang.SlangSourceLocation? GetDeclSourceLocation(SharpSlang.SlangDecl declaration) { }
+        public byte[] GetDynamicObjectRttiBytes(SharpSlang.SlangType type, SharpSlang.SlangType interfaceType) { }
+        public SharpSlang.SlangModule GetLoadedModule(int index) { }
+        public string GetTypeConformanceWitnessMangledName(SharpSlang.SlangType type, SharpSlang.SlangType interfaceType) { }
+        public uint GetTypeConformanceWitnessSequentialId(SharpSlang.SlangType type, SharpSlang.SlangType interfaceType) { }
+        public SharpSlang.SlangTypeLayout GetTypeLayout(SharpSlang.SlangType type, int targetIndex, SharpSlang.Native.LayoutRules rules = 0) { }
+        public string GetTypeRttiMangledName(SharpSlang.SlangType type) { }
         public bool IsBinaryModuleUpToDate(string modulePath, System.ReadOnlySpan<byte> ir) { }
         public SharpSlang.LinkedProgram Link(SharpSlang.SlangModule module, [System.Runtime.CompilerServices.ParamCollection] [System.Runtime.CompilerServices.ScopedRef] System.ReadOnlySpan<SharpSlang.SlangEntryPoint> entryPoints) { }
         public SharpSlang.LinkedProgram Link(SharpSlang.SlangModule module, System.ReadOnlySpan<SharpSlang.SlangEntryPoint> entryPoints, SharpSlang.LinkOptions? options) { }
@@ -271,6 +379,37 @@ namespace SharpSlang
         public SharpSlang.SlangGeneric SpecializeGeneric(SharpSlang.SlangGeneric generic, [System.Runtime.CompilerServices.ParamCollection] [System.Runtime.CompilerServices.ScopedRef] System.ReadOnlySpan<SharpSlang.GenericArgument> arguments) { }
         public string? ToJson() { }
         public SharpSlang.SlangFunction? TryResolveOverloadedFunction([System.Runtime.CompilerServices.ParamCollection] [System.Runtime.CompilerServices.ScopedRef] System.ReadOnlySpan<SharpSlang.SlangFunction> candidates) { }
+    }
+    public readonly struct SlangSourceLocation : System.IEquatable<SharpSlang.SlangSourceLocation>
+    {
+        public SlangSourceLocation(string? FilePath, long Line, long Column) { }
+        public long Column { get; init; }
+        public string? FilePath { get; init; }
+        public long Line { get; init; }
+    }
+    public sealed class SlangSyntheticResource : System.IEquatable<SharpSlang.SlangSyntheticResource>
+    {
+        public SlangSyntheticResource(uint Id, SharpSlang.Native.BindingType BindingType, uint ArraySize, SharpSlang.Native.SyntheticResourceScope Scope, SharpSlang.Native.SyntheticResourceAccess Access, int EntryPointIndex, int Space, int Binding, int UniformOffset, int UniformStride, string? DebugName, int BindlessIndex) { }
+        public SharpSlang.Native.SyntheticResourceAccess Access { get; init; }
+        public uint ArraySize { get; init; }
+        public int Binding { get; init; }
+        public SharpSlang.Native.BindingType BindingType { get; init; }
+        public int BindlessIndex { get; init; }
+        public string? DebugName { get; init; }
+        public int EntryPointIndex { get; init; }
+        public uint Id { get; init; }
+        public bool IsUnbounded { get; }
+        public SharpSlang.Native.SyntheticResourceScope Scope { get; init; }
+        public int Space { get; init; }
+        public int UniformOffset { get; init; }
+        public int UniformStride { get; init; }
+    }
+    public sealed class SlangSyntheticResourceMetadataExtension
+    {
+        public System.IntPtr NativeHandle { get; }
+        public int ResourceCount { get; }
+        public int? FindResourceIndexById(uint id) { }
+        public SharpSlang.SlangSyntheticResource GetResource(int index) { }
     }
     public sealed class SlangType : SharpSlang.Interop.SlangReflectionObject
     {
@@ -392,6 +531,15 @@ namespace SharpSlang
         public ulong GetOffset(SharpSlang.Native.SlangParameterCategory category = 8) { }
         public ulong GetSpace(SharpSlang.Native.SlangParameterCategory category) { }
     }
+    public readonly struct SpecializationArgument
+    {
+        public string? Expression { get; }
+        public SharpSlang.SlangType? Type { get; }
+        public override string ToString() { }
+        public static SharpSlang.SpecializationArgument OfExpression(string expression) { }
+        public static SharpSlang.SpecializationArgument OfType(SharpSlang.SlangType type) { }
+        public static SharpSlang.SpecializationArgument op_Implicit(SharpSlang.SlangType type) { }
+    }
     public sealed class TargetOptions
     {
         public TargetOptions() { }
@@ -423,6 +571,13 @@ namespace SharpSlang.Hosting
         public SlangFileSystem(SharpSlang.Hosting.ISlangFileProvider provider) { }
         public int LiveSessions { get; }
         public int NativeReferenceCount { get; }
+        public void Dispose() { }
+    }
+    public sealed class SlangSharedLibraryLoader : System.IDisposable
+    {
+        public SlangSharedLibraryLoader(System.Func<string, System.IntPtr> load) { }
+        public int NativeReferenceCount { get; }
+        public static int LiveLibraries { get; }
         public void Dispose() { }
     }
 }
@@ -797,8 +952,14 @@ namespace SharpSlang.Reflection
     public sealed class SlangMetadata : SharpSlang.Interop.SlangObject<SharpSlang.Native.IMetadata>
     {
         public SharpSlang.SlangBindlessResourceMetadataExtension BindlessResourceMetadata { get; }
+        public SharpSlang.SlangCooperativeTypesMetadataExtension CooperativeTypesMetadata { get; }
+        public SharpSlang.SlangCoverageTracingMetadataExtension CoverageTracingMetadata { get; }
         public string? DebugBuildIdentifier { get; }
+        public SharpSlang.SlangSyntheticResourceMetadataExtension SyntheticResourceMetadata { get; }
         public SharpSlang.SlangBindlessResourceMetadataExtension? TryBindlessResourceMetadata { get; }
+        public SharpSlang.SlangCooperativeTypesMetadataExtension? TryCooperativeTypesMetadata { get; }
+        public SharpSlang.SlangCoverageTracingMetadataExtension? TryCoverageTracingMetadata { get; }
+        public SharpSlang.SlangSyntheticResourceMetadataExtension? TrySyntheticResourceMetadata { get; }
         public bool IsUsed(SharpSlang.Native.SlangParameterCategory category, uint space, uint index) { }
         public override string ToString() { }
     }

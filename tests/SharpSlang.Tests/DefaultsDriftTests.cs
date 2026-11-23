@@ -27,6 +27,14 @@ public class DefaultsDriftTests
         "TargetDesc",
         "CompilerOptionValue",
         "SourceLocation",
+        "CoverageEntryInfo",
+        "CoverageBufferInfo",
+        "SyntheticResourceInfo",
+        "CooperativeMatrixType",
+        "CooperativeMatrixCombination",
+        "CooperativeVectorTypeUsageInfo",
+        "CooperativeVectorCombination",
+        "ByteCodeRunnerDesc",
     ];
 
     private static object Produce(string structName) => structName switch
@@ -36,6 +44,14 @@ public class DefaultsDriftTests
         "TargetDesc" => Defaults.TargetDesc(),
         "CompilerOptionValue" => Defaults.CompilerOptionValue(),
         "SourceLocation" => Defaults.SourceLocation(),
+        "CoverageEntryInfo" => Defaults.CoverageEntryInfo(),
+        "CoverageBufferInfo" => Defaults.CoverageBufferInfo(),
+        "SyntheticResourceInfo" => Defaults.SyntheticResourceInfo(),
+        "CooperativeMatrixType" => Defaults.CooperativeMatrixType(),
+        "CooperativeMatrixCombination" => Defaults.CooperativeMatrixCombination(),
+        "CooperativeVectorTypeUsageInfo" => Defaults.CooperativeVectorTypeUsageInfo(),
+        "CooperativeVectorCombination" => Defaults.CooperativeVectorCombination(),
+        "ByteCodeRunnerDesc" => Defaults.ByteCodeRunnerDesc(),
         _ => throw new InvalidOperationException($"no factory mapped for {structName}"),
     };
 
@@ -173,6 +189,10 @@ public class DefaultsDriftTests
         "TargetDesc" => sizeof(TargetDesc),
         "CompilerOptionValue" => sizeof(CompilerOptionValue),
         "SourceLocation" => sizeof(SourceLocation),
+        "CoverageEntryInfo" => sizeof(CoverageEntryInfo),
+        "CoverageBufferInfo" => sizeof(CoverageBufferInfo),
+        "SyntheticResourceInfo" => sizeof(SyntheticResourceInfo),
+        "ByteCodeRunnerDesc" => sizeof(ByteCodeRunnerDesc),
         _ => throw new InvalidOperationException($"no sizeof mapping for {structName}"),
     };
 

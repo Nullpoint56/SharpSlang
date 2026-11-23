@@ -264,85 +264,67 @@ public partial class VtableOrderTests(ITestOutputHelper output)
     /// </remarks>
     private static readonly Dictionary<string, (int Cold, string Why)> UntriedInterfaces = new(StringComparer.Ordinal)
     {
-        // queryInterface and castAs are called once each, by L3 (dotnet/Extensions): queryInterface
-        // on a component type for IComponentType2, castAs on IMetadata for
-        // IBindlessResourceMetadata, so ISlangUnknown's and ISlangCastable's slots are warm. Every
-        // other cast is a direct one between interface pointers whose layouts slang.h guarantees.
+        // queryInterface and castAs are called by L3 (dotnet/Extensions): queryInterface on a
+        // component type for IComponentType2 and on a module for its precompile service, castAs on
+        // IMetadata for its four optional interfaces, so ISlangUnknown's and ISlangCastable's slots
+        // are warm. Every other cast is a direct one between interface pointers whose layouts
+        // slang.h guarantees.
 
         ["ICompileRequest"] = (77,
             "the entire legacy compile-request API, deliberately unbound (AGENTS.md#unbound-surface). "
             + "It is generated only because slang.h includes slang-deprecated.h, and every "
             + "one of its 84 slots duplicates something ISession and IComponentType do better"),
 
-        ["IGlobalSession"] = (27,
-            "downstream-compiler configuration (dxc, fxc and glslang paths, preludes and version "
-            + "queries), the core-module compile/save/load cycle, command-line argument parsing, "
-            + "and createCompileRequest into the legacy API. A SPIR-V cook configures none of them"),
+        ["IGlobalSession"] = (13,
+            "createCompileRequest into the legacy API; addBuiltins and the downstream-compiler "
+            + "prelude pair, deprecated in slang.h; the core and builtin module compile/save/load "
+            + "bootstrap; and getBuildTagString, checkCompileTargetSupport and findCapability, bound "
+            + "as their flat exports instead (AGENTS.md#unbound-surface)"),
 
-        ["ISession"] = (14,
-            "the type-system queries L2 does not surface — specializeType, getTypeLayout, "
-            + "getContainerType, the RTTI and witness mangled names — plus the loaded-module "
-            + "enumeration and createCompileRequest. specializeType is measured rather than "
-            + "unknown: it aborts on Linux for a non-generic type, and the prober records that"),
+        ["ISession"] = (4,
+            "specializeType, which aborts on Linux for a non-generic type (U4, recorded by the "
+            + "prober); loadModuleFromSource, the blob form of loadModuleFromSourceString; "
+            + "getGlobalSession, which the wrapper holds; and createCompileRequest into the legacy API"),
 
-        ["ISlangMutableFileSystem"] = (12,
+        ["ISlangMutableFileSystem"] = (10,
             "the write half of the filesystem host, and the read half it inherits. SlangFileSystem "
-            + "implements the read-only ISlangFileSystemExt; nothing asks Slang to write files"),
+            + "implements the read-only ISlangFileSystemExt, and LinkedProgram.GetResultFiles reads "
+            + "Slang's result file system with loadFile and enumeratePathContents only"),
 
-        ["ISlangFileSystemExt"] = (8,
+        ["ISlangFileSystemExt"] = (6,
             "implemented, not called. SlangFileSystem builds a vtable Slang dispatches through, so "
             + "these slots are cold as call sites and live as callbacks — CallbackBoundaryTests "
             + "exercises that direction, which this measurement cannot see"),
 
-        ["ISlangFileSystem"] = (1, "the base of the above, implemented rather than called"),
-
-        ["IByteCodeRunner"] = (10,
-            "Slang's bytecode VM: loading, executing and inspecting compiled Slang on the CPU. Not "
-            + "a path a Vulkan renderer takes, and it needs slang-llvm, which the payload excludes"),
-
-        ["ICooperativeTypesMetadata"] = (8,
-            "cooperative matrix and vector type enumeration, for tensor and ML workloads. "
-            + "no shader here uses them and the corpus declares neither kind"),
-
         ["ISlangWriter"] = (6,
-            "redirecting Slang's diagnostic and dump streams to a caller-supplied sink. "
-            + "Diagnostics arrive as blobs instead, which is the route that survives a callback "
-            + "throwing"),
+            "redirecting Slang's diagnostic and dump streams to a caller-supplied sink, which only "
+            + "the legacy compile request accepts (setWriter). Diagnostics arrive as blobs instead"),
 
-        ["ICoverageTracingMetadata"] = (4, "shader coverage counters, a slangc feature with no host use here"),
+        ["IModule"] = (2,
+            "the inherited IComponentType members below: getSession and getEntryPointHostCallable"),
 
-        ["IModule"] = (5,
-            "getEntryPointHostCallable and disassemble, which need slang-llvm, plus the inherited "
-            + "IComponentType members below"),
+        ["IComponentType"] = (2,
+            "getSession, which the wrappers already hold, and getEntryPointHostCallable, CPU "
+            + "host-callable code, which needs slang-llvm, excluded from the payload"),
 
-        ["IComponentType"] = (4,
-            "getSession, getResultAsFileSystem, getEntryPointHostCallable and renameEntryPoint. "
-            + "The first two are alternate routes to what L2 already holds; the third is CPU "
-            + "codegen; the fourth renames an entry point in the *emitted* module, which "
-            + "TargetOptions.UseEntryPointNameInSpirv does at the target level instead"),
-
-        ["IEntryPoint"] = (4, "the same four, inherited from IComponentType"),
-        ["ITypeConformance"] = (4, "the same four again — ITypeConformance adds no methods of its own"),
+        ["IEntryPoint"] = (2, "the same two, inherited from IComponentType"),
+        ["ITypeConformance"] = (2, "the same two again — ITypeConformance adds no methods of its own"),
 
         ["IComponentType2"] = (1,
             "getTargetHostCallable, CPU host-callable code, which needs slang-llvm, excluded from "
             + "the payload. The compile results are SlangComponentType2Extension (L3)"),
 
-        ["IModulePrecompileService_Experimental"] = (4,
-            "experimental by name, and precompiling to a target is what ShaderPackageBaker does "
-            + "through the supported API"),
+        ["ISlangProfiler"] = (3,
+            "the compiler's own timing counters, which only the legacy compile request hands out "
+            + "(getCompileTimeProfile). Its getEntryCount shares a name with ICoverageTracingMetadata's, "
+            + "which is called, so three of four read as cold"),
 
-        ["ISlangProfiler"] = (4, "the compiler's own timing counters"),
+        ["ISlangClonable"] = (1, "clone. No object Slang hands out implements it"),
 
-        ["ISyntheticResourceMetadata"] = (3,
-            "resources Slang synthesises rather than the shader declaring; at v2026.21 shader "
-            + "coverage is the only feature that does, and coverage tracing is unbound by decision "
-            + "(AGENTS.md#unbound-surface)"),
-
-        ["ISlangClonable"] = (1, "clone. Nothing here copies a Slang object"),
-
-        ["ISlangSharedLibrary"] = (1, "symbol lookup in a loaded library — Slang's own plumbing for glslang"),
-        ["ISlangSharedLibraryLoader"] = (1, "the loader behind it, replaceable and never replaced"),
+        ["ISlangSharedLibrary"] = (1,
+            "symbol lookup in a loaded library: implemented by Hosting.SlangSharedLibraryLoader for "
+            + "Slang to call, not called here"),
+        ["ISlangSharedLibraryLoader"] = (1, "the loader behind it: implemented, set with SetSharedLibraryLoader, called by Slang"),
         ["ISlangSharedLibrary_Dep1"] = (1, "the superseded version of the same, kept by upstream for ABI"),
     };
 

@@ -137,25 +137,38 @@ Every unbound function has a reason; `VtableOrderTests`, `SurfaceCoverageTests` 
 IID check hold the list, and `tools/coverage/BoundSurface` names every unbound slot, export and
 field (`_build/coverage/bound.json`).
 
+Everything a consumer could use is bound (Decisions); what is left, measured by BoundSurface:
+
 - The reflection API is bound whole but for U1's and U4's two calls (Layers).
-- The legacy compile-request API (`ICompileRequest`, `createCompileRequest`, the flat `sp*` request
-  family) and the language-server surface: unbound by decision. `spReflection_ToJson` takes a
-  request and is called with null.
-- Record/replay, the bytecode VM, coverage tracing, `ISlangProfiler`,
-  `IModulePrecompileService_Experimental`, cooperative-type metadata: no use in a cooker or a
-  renderer; generated, not wrapped.
-- CPU host code (`getEntryPointHostCallable`, `getTargetHostCallable`): needs `slang-llvm`, not staged.
-- `slang_createGlobalSession` (v1) and `...WithoutCoreModule`: `slang_createGlobalSession2` is used.
-- Flat aliases of vtable methods (`slang_loadModuleFromSource`, `spSessionCheckPassThroughSupport`,
-  `spFindProfile`, ...): second doors. The other way round, `spFindCapability`,
+- **The legacy compile-request API**, by decision: `ICompileRequest` (81 slots); the 75 flat `sp*`
+  functions that take, create or replay a request (`spCreateCompileRequest`, `spExtractRepro`,
+  `spLoadReproAsFileSystem`, ...); `IGlobalSession::createCompileRequest` and
+  `ISession::createCompileRequest` (both `[[deprecated]]`); and `ISlangProfiler` (4 slots), which
+  only `ICompileRequest::getCompileTimeProfile` hands out. `spReflection_ToJson` takes a request and
+  is called with null.
+- `ISession::specializeType`: on a non-generic type it ends the process on Linux (U4), and on a type
+  from `FindTypeByName` it returns null (U15); `SpecializeGeneric` is the working route.
+- **Deprecated in `slang.h`**: `IGlobalSession::addBuiltins` and its flat `spAddBuiltins`;
+  `setDownstreamCompilerPrelude` / `getDownstreamCompilerPrelude`, which forward to the language
+  prelude (bound).
+- **The core-module bootstrap**: `compileCoreModule`, `loadCoreModule`, `saveCoreModule`,
+  `compileBuiltinModule`, `loadBuiltinModule`, `saveBuiltinModule`, and
+  `slang_createGlobalSessionWithoutCoreModule`. Slang's build compiles the core module and embeds
+  it in the library; loading another needs a global session made without one.
+- **CPU host code** (`getEntryPointHostCallable`, `getTargetHostCallable`): needs `slang-llvm`, not staged.
+- **Earlier or flat second doors** to calls that are bound: `slang_createGlobalSession` (v1),
+  `spCreateSession`, `spDestroySession`; `slang_loadModuleFromSource`, `slang_loadModuleFromIRBlob`,
+  `slang_loadModuleInfoFromIRBlob`, `ISession::loadModuleFromSource` (the blob form of
+  `loadModuleFromSourceString`); `spSessionSetSharedLibraryLoader`, `spSessionGetSharedLibraryLoader`,
+  `spSessionCheckPassThroughSupport`, `spFindProfile`. The other way round, `spFindCapability`,
   `spSessionCheckCompileTargetSupport` and `spGetBuildTagString` are bound instead of their slots.
-- `IGlobalSession`'s compiler configuration (downstream paths, preludes, the core and builtin
-  module cycle, the shared-library loader, `setSPIRVCoreGrammar`, `parseCommandLineArguments`, ...):
-  a SPIR-V and DXIL cook configures none of it.
-- `ISession`'s type-system queries (`specializeType`, `getTypeLayout`, the RTTI and witness queries,
-  `getLoadedModule*`, ...): the reflection objects answer the layout questions, and L2 holds the rest.
-- `IComponentType::getSession`, `getResultAsFileSystem`, `renameEntryPoint`; `ISlangClonable::clone`.
+- `IComponentType::getSession`, `ISession::getGlobalSession`: the wrappers hold both.
+- `ISlangClonable::clone`: no object Slang hands out implements it.
 - `slang_shutdown`: never called; it tears down process-wide state.
+- **Fields**: `SlangUUID`'s four parts (IIDs are constants, `SlangIID`);
+  `SlangGlobalSessionDesc.reserved`; `VMExecInstHeader`'s three, which a host's ext-call function
+  reads through the pointer `SlangByteCodeRunner.RegisterExtCall` passes it (BoundSurface does not
+  follow function pointers).
 - `slang-rhi`, `gfx`: out of scope; the renderer is NRI through SharpNRI.
 
 ### Native packages
@@ -521,6 +534,10 @@ The owner's, unless said otherwise.
   (SPIR-V on Vulkan, DXIL on D3D12, through SharpNRI), a validator otherwise, compile-only and named
   as such where neither exists.
 - **Unbound by decision**: the legacy compile-request API and the language server.
+- **Bind everything a consumer could use** (owner, 2026-11-23): games, engines, engine and
+  application asset pipelines, shader compilers and editors. "A cook does not need it" is not a
+  reason to leave a call unbound; a crash, a decision, a deprecation, an unshipped component or a
+  second door is (Unbound surface).
 - **Zero allocation per frame** for `SharpSlang.Pipeline`, not the binding.
 - **No `SharpSlang.Testing`**: SharpNRI.Testing provides the devices the pipeline tests use.
 - **Default branch `master`, public, with its full history.** Rulesets: `master` takes changes
@@ -661,6 +678,15 @@ defect, it stays while Slang's release payload is supported.
   and never frees them (Slang frees its own when a global session goes).
   `ProberTests` launches the prober as `dotnet <dll>` from an empty directory on every leg.
 - **Linux and macOS find them by rpath** (`$ORIGIN`, `@loader_path`).
+- **`getDownstreamCompilerPath` answers by loading the compiler**: it names the file Slang would use
+  (from `setDownstreamCompilerPath`'s directory or its usual search), or nothing when that fails; it
+  does not echo the setting. `setDownstreamCompilerForTransition(..., NONE)` stores none rather than
+  restoring Slang's choice, and `setDefaultDownstreamCompiler(language, NONE)` fails for a language
+  with no default.
+- **A host library loader** (`SetSharedLibraryLoader`, `Hosting.SlangSharedLibraryLoader`) is asked
+  for undecorated names (`slang-glslang`). `RequireSpirvOptimizer` loads spirv-opt during
+  `Create`, before a loader can be set, so a loader that is to provide it needs that check off.
+  Each library object frees its handle when Slang releases it; `LiveLibraries` counts them.
 - **Slang ships no dxc.** `SharpSlang.Dxc` copies `dxcompiler.dll` and `dxil.dll` from
   `Microsoft.Direct3D.DXC`; `CreateSession` refuses a DXIL target without loadable dxc, naming the
   package. The pinned dxc signs with its internal validator and never loads `dxil.dll`, which is
@@ -794,6 +820,17 @@ defect, it stays while Slang's release payload is supported.
   (U31). Caller's rule: one path per module from source.
 - **Specialization constants**: `Pack` refuses a value of the wrong type by name; a ternary over
   `DefaultFloat` and `DefaultInt` unifies to `double` and hands `Pack` the wrong type.
+- **`renameEntryPoint` does not check its precondition**: `slang.h` requires exactly one entry
+  point, and `ComponentType::renameEntryPoint` wraps any component type and succeeds. Handled:
+  `SlangComponentType.RenameEntryPoint` refuses another count.
+- **A session from `slangc` options** (`CreateSessionFromCommandLine`) is Slang's
+  `parseCommandLineArguments`; the descriptor needs its `structureSize`, or the call fails
+  `SLANG_E_BUFFER_TOO_SMALL`. With no `-profile`, the emitted SPIR-V version is not verified.
+- **Coverage metadata is there without tracing**: the cast answers on any compile, with no entries
+  and the buffer at -1/-1. Read `EntryCount`, not the cast, to tell a traced compile.
+- **A module's precompile service reports no dependencies**: `Module::getModuleDependencyCount` is 0
+  and `getModuleDependency` does nothing; the wrapper refuses every index.
+- **The record layer is process-wide** (`SlangRecordReplay`); its test runs in the prober.
 
 ### DXIL
 

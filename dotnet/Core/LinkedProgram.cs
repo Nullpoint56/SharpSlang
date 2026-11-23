@@ -342,4 +342,83 @@ public sealed unsafe class LinkedProgram : SlangObject<IComponentType>, ISlangCo
         TryComponentType2 ?? throw new NotSupportedException("queryInterface(IComponentType2) failed on this program");
 
     private protected override void BeforeRelease() => _componentType2?.Release();
+
+    /// <summary>
+    /// <c>IComponentType::getResultAsFileSystem</c>: everything Slang writes for one entry point
+    /// and target, as files: the code, and when there are any, the diagnostics and the obfuscated
+    /// source maps. Keyed by Slang's path for each file.
+    /// </summary>
+    /// <exception cref="SlangException">Code generation failed; Slang's diagnostics are attached.</exception>
+    public IReadOnlyDictionary<string, byte[]> GetResultFiles(int entryPointIndex, int targetIndex)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(entryPointIndex);
+        ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(entryPointIndex, _entryPointNames.Length);
+        // Slang indexes its target list with it unchecked once the code exists.
+        ArgumentOutOfRangeException.ThrowIfNegative(targetIndex);
+        ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(targetIndex, _targets.Count);
+
+        ISlangMutableFileSystem* fs = null;
+        var operation = $"getResultAsFileSystem('{_entryPointNames[entryPointIndex]}')";
+        var hr = Ptr->getResultAsFileSystem(entryPointIndex, targetIndex, &fs);
+        if (SlangResult.Failed(hr) || fs is null)
+        {
+            if (fs is not null) fs->release();
+            throw new SlangException(SlangResult.Failed(hr) ? hr : SlangResult.Fail, operation, Diagnostics.NewInternalError());
+        }
+
+        try
+        {
+            var files = new Dictionary<string, byte[]>(StringComparer.Ordinal);
+            ReadDirectory(fs, "", files, operation);
+            return files;
+        }
+        finally
+        {
+            fs->release();
+        }
+    }
+
+    private static void ReadDirectory(ISlangMutableFileSystem* fs, string directory, Dictionary<string, byte[]> files, string operation)
+    {
+        var entries = new List<(SlangPathType Type, string Name)>();
+        var handle = System.Runtime.InteropServices.GCHandle.Alloc(entries);
+        try
+        {
+            using Utf8.Scoped d = new(directory.Length == 0 ? "." : directory);
+            var hr = fs->enumeratePathContents(d, &CollectEntry, (void*)System.Runtime.InteropServices.GCHandle.ToIntPtr(handle));
+            Diagnostics.ThrowIfFailed(hr, $"{operation}: enumeratePathContents('{directory}')", null);
+        }
+        finally
+        {
+            handle.Free();
+        }
+
+        foreach (var (type, name) in entries)
+        {
+            var path = directory.Length == 0 ? name : $"{directory}/{name}";
+            if (type == SlangPathType.SLANG_PATH_TYPE_DIRECTORY)
+            {
+                ReadDirectory(fs, path, files, operation);
+                continue;
+            }
+
+            ISlangBlob* blob = null;
+            using (Utf8.Scoped p = new(path))
+            {
+                var hr = fs->loadFile(p, &blob);
+                Diagnostics.ThrowIfFailed(hr, $"{operation}: loadFile('{path}')", null);
+            }
+
+            using var owned = new SlangBlob(blob);
+            files[path] = owned.ToArray();
+        }
+    }
+
+    // FileSystemContentsCallBack. Nothing here can throw into Slang: the list only grows.
+    [System.Runtime.InteropServices.UnmanagedCallersOnly(CallConvs = [typeof(System.Runtime.CompilerServices.CallConvCdecl)])]
+    private static void CollectEntry(SlangPathType type, sbyte* name, void* userData)
+    {
+        var entries = (List<(SlangPathType, string)>)System.Runtime.InteropServices.GCHandle.FromIntPtr((nint)userData).Target!;
+        entries.Add((type, Utf8.Read(name) ?? ""));
+    }
 }

@@ -38,7 +38,27 @@ public sealed unsafe class SlangSession : SlangObject<ISession>
     /// </summary>
     internal IReadOnlyList<TargetOptions> Targets { get; }
 
-    internal static SlangSession Create(SlangGlobalSession global, SessionOptions options)
+    internal static SlangSession Create(SlangGlobalSession global, SessionOptions options) =>
+        WithSessionDesc(global, options, desc =>
+        {
+            ISession* p = null;
+            var hr = global.Handle->createSession(desc, &p);
+            if (SlangResult.Failed(hr) || p is null)
+                throw new SlangException(hr, "IGlobalSession::createSession", null);
+
+            return new SlangSession(p, global, [.. options.Targets], options.FileSystem);
+        });
+
+    internal static SlangSession Adopt(ISession* owned, SlangGlobalSession global, IReadOnlyList<TargetOptions> targets) =>
+        new(owned, global, targets, null);
+
+    internal delegate T SessionDescUser<T>(SessionDesc* desc);
+
+    /// <summary>
+    /// Builds the <c>SessionDesc</c> <paramref name="options"/> describe, hands it to
+    /// <paramref name="use"/> for one call, and frees it.
+    /// </summary>
+    internal static T WithSessionDesc<T>(SlangGlobalSession global, SessionOptions options, SessionDescUser<T> use)
     {
         if (options.Targets.Count == 0)
             throw new ArgumentException("a session needs at least one target", nameof(options));
@@ -147,12 +167,7 @@ public sealed unsafe class SlangSession : SlangObject<ISession>
                 sessionDesc.compilerOptionEntryCount = 1;
             }
 
-            ISession* p = null;
-            var hr = global.Handle->createSession(&sessionDesc, &p);
-            if (SlangResult.Failed(hr) || p is null)
-                throw new SlangException(hr, "IGlobalSession::createSession", null);
-
-            return new SlangSession(p, global, [.. options.Targets], options.FileSystem);
+            return use(&sessionDesc);
         }
         finally
         {
@@ -375,7 +390,7 @@ public sealed unsafe class SlangSession : SlangObject<ISession>
 
     /// <summary>
     /// Composes, optionally specializes, and links: <see cref="CreateCompositeComponentType"/>,
-    /// <see cref="SlangComponentType.Specialize"/> when <see cref="LinkOptions.SpecializationArguments"/>
+    /// <see cref="SlangComponentType.Specialize(ReadOnlySpan{SlangType})"/> when <see cref="LinkOptions.SpecializationArguments"/>
     /// has any, then <see cref="SlangComponentType.Link"/> or <see cref="SlangComponentType.LinkWithOptions"/>.
     /// </summary>
     /// <remarks>
@@ -444,4 +459,182 @@ public sealed unsafe class SlangSession : SlangObject<ISession>
 
         return new TypeConformance(conformance, this, $"TypeConformance({type.Name}:{interfaceType.Name})");
     }
+
+    /// <summary>
+    /// <c>getLoadedModuleCount</c>: every module the session holds, including the ones Slang loaded
+    /// itself to resolve an <c>import</c>.
+    /// </summary>
+    public int LoadedModuleCount => checked((int)Ptr->getLoadedModuleCount());
+
+    /// <summary>
+    /// <c>getLoadedModule</c>: a module the session holds, by index, in load order. Each call
+    /// returns a new wrapper, which the caller disposes; the session keeps the module.
+    /// </summary>
+    /// <exception cref="ArgumentOutOfRangeException">No module at <paramref name="index"/>.</exception>
+    public SlangModule GetLoadedModule(int index)
+    {
+        // Borrowed, like loadModule's (U12): Linkage::getLoadedModule returns the list's pointer
+        // without a reference, and SlangModule takes its own.
+        var module = Ptr->getLoadedModule(index);
+        if (module is null)
+            throw new ArgumentOutOfRangeException(nameof(index), index, $"the session holds {LoadedModuleCount} modules");
+
+        return new SlangModule(module, Utf8.Read(module->getName()) ?? $"#{index}", this);
+    }
+
+    /// <summary>
+    /// <c>ISession::getTypeLayout</c>: the layout of <paramref name="type"/> on one target under
+    /// <paramref name="rules"/>, without a program that uses it. Borrowed from this session.
+    /// </summary>
+    /// <exception cref="SlangException">Slang produced no layout; its diagnostics are attached.</exception>
+    public SlangTypeLayout GetTypeLayout(SlangType type, int targetIndex, LayoutRules rules = LayoutRules.Default)
+    {
+        ArgumentNullException.ThrowIfNull(type);
+        RequireTarget(targetIndex);
+
+        ISlangBlob* diagnostics = null;
+        var layout = Ptr->getTypeLayout(type.Handle, targetIndex, rules, &diagnostics);
+        Diagnostics.ThrowIfNull(layout, $"ISession::getTypeLayout({type.Name})", diagnostics);
+        return SlangTypeLayout.From((SlangReflectionTypeLayout*)layout, this)!;
+    }
+
+    /// <summary>
+    /// <c>getContainerType</c>: <paramref name="elementType"/> wrapped in a container,
+    /// <c>StructuredBuffer&lt;T&gt;</c> for <see cref="ContainerType.StructuredBuffer"/>. Borrowed
+    /// from this session.
+    /// </summary>
+    /// <exception cref="SlangException">Slang produced no type; its diagnostics are attached.</exception>
+    public SlangType GetContainerType(SlangType elementType, ContainerType container)
+    {
+        ArgumentNullException.ThrowIfNull(elementType);
+
+        ISlangBlob* diagnostics = null;
+        var type = Ptr->getContainerType(elementType.Handle, container, &diagnostics);
+        Diagnostics.ThrowIfNull(type, $"ISession::getContainerType({elementType.Name}, {container})", diagnostics);
+        return SlangType.From((SlangReflectionType*)type, this)!;
+    }
+
+    /// <summary>
+    /// <c>getDynamicType</c>: the <c>__Dynamic</c> type, the specialization argument that asks
+    /// for dynamic dispatch. Borrowed from this session.
+    /// </summary>
+    public SlangType DynamicType
+    {
+        get
+        {
+            var type = Ptr->getDynamicType();
+            Diagnostics.ThrowIfNull(type, "ISession::getDynamicType", null);
+            return SlangType.From((SlangReflectionType*)type, this)!;
+        }
+    }
+
+    /// <summary>
+    /// <c>getDeclSourceLocation</c>: where a declaration's name is in its source, 1-based, or null
+    /// when Slang has no source for it.
+    /// </summary>
+    /// <exception cref="SlangException">Slang refused the declaration.</exception>
+    public SlangSourceLocation? GetDeclSourceLocation(SlangDecl declaration)
+    {
+        ArgumentNullException.ThrowIfNull(declaration);
+
+        var location = Defaults.SourceLocation();
+        var hr = Ptr->getDeclSourceLocation((DeclReflection*)declaration.Ptr, &location);
+        if (hr == SlangResult.NotFound) return null;
+        Diagnostics.ThrowIfFailed(hr, $"ISession::getDeclSourceLocation({declaration.Name})", null);
+
+        // The path is pooled by the session; copied here so the result outlives it.
+        return new SlangSourceLocation(Utf8.Read(location.filePath), location.line, location.column);
+    }
+
+    /// <summary><c>getTypeRTTIMangledName</c>: the symbol name of a type's RTTI object in generated code.</summary>
+    /// <exception cref="SlangException">Slang refused the type.</exception>
+    public string GetTypeRttiMangledName(SlangType type)
+    {
+        ArgumentNullException.ThrowIfNull(type);
+
+        ISlangBlob* blob = null;
+        var hr = Ptr->getTypeRTTIMangledName(type.Handle, &blob);
+        return Text(hr, blob, $"ISession::getTypeRTTIMangledName({type.Name})");
+    }
+
+    /// <summary>
+    /// <c>getTypeConformanceWitnessMangledName</c>: the symbol name of the witness table for
+    /// <paramref name="type"/> conforming to <paramref name="interfaceType"/>. Slang does not
+    /// check the conformance here.
+    /// </summary>
+    /// <exception cref="SlangException">Slang refused the types.</exception>
+    public string GetTypeConformanceWitnessMangledName(SlangType type, SlangType interfaceType)
+    {
+        ArgumentNullException.ThrowIfNull(type);
+        ArgumentNullException.ThrowIfNull(interfaceType);
+
+        ISlangBlob* blob = null;
+        var hr = Ptr->getTypeConformanceWitnessMangledName(type.Handle, interfaceType.Handle, &blob);
+        return Text(hr, blob, $"ISession::getTypeConformanceWitnessMangledName({type.Name} : {interfaceType.Name})");
+    }
+
+    /// <summary>
+    /// <c>getTypeConformanceWitnessSequentialID</c>: the id a dynamic object carries for
+    /// <paramref name="type"/> as <paramref name="interfaceType"/>. Slang allocates ids per
+    /// interface in the order they are first asked for, in this session.
+    /// </summary>
+    /// <exception cref="SlangException">Slang refused the types.</exception>
+    public uint GetTypeConformanceWitnessSequentialId(SlangType type, SlangType interfaceType)
+    {
+        ArgumentNullException.ThrowIfNull(type);
+        ArgumentNullException.ThrowIfNull(interfaceType);
+
+        uint id;
+        var hr = Ptr->getTypeConformanceWitnessSequentialID(type.Handle, interfaceType.Handle, &id);
+        Diagnostics.ThrowIfFailed(hr, $"ISession::getTypeConformanceWitnessSequentialID({type.Name} : {interfaceType.Name})", null);
+        return id;
+    }
+
+    /// <summary>
+    /// <c>getDynamicObjectRTTIBytes</c>: the 16-byte header a dynamic object of
+    /// <paramref name="type"/> starts with when the shader holds it as <paramref name="interfaceType"/>
+    /// (<c>ConstantBuffer&lt;dyn IFoo&gt;</c>); the object's fields follow it.
+    /// </summary>
+    /// <exception cref="SlangException">Slang refused the types.</exception>
+    public byte[] GetDynamicObjectRttiBytes(SlangType type, SlangType interfaceType)
+    {
+        ArgumentNullException.ThrowIfNull(type);
+        ArgumentNullException.ThrowIfNull(interfaceType);
+
+        var bytes = new byte[RttiHeaderSize];
+        fixed (byte* p = bytes)
+        {
+            var hr = Ptr->getDynamicObjectRTTIBytes(type.Handle, interfaceType.Handle, (uint*)p, RttiHeaderSize);
+            Diagnostics.ThrowIfFailed(hr, $"ISession::getDynamicObjectRTTIBytes({type.Name} : {interfaceType.Name})", null);
+        }
+
+        return bytes;
+    }
+
+    // slang.h: "the first 16 bytes should be the RTTI bytes"; Slang refuses a smaller buffer.
+    private const int RttiHeaderSize = 16;
+
+    private void RequireTarget(int targetIndex)
+    {
+        if (targetIndex < 0 || targetIndex >= Targets.Count)
+            throw new ArgumentOutOfRangeException(nameof(targetIndex), targetIndex, $"the session has {Targets.Count} targets");
+    }
+
+    private static string Text(int hr, ISlangBlob* blob, string operation)
+    {
+        if (SlangResult.Failed(hr) || blob is null)
+        {
+            if (blob is not null) blob->release();
+            throw new SlangException(SlangResult.Failed(hr) ? hr : SlangResult.Fail, operation, Diagnostics.NewInternalError());
+        }
+
+        using var owned = new SlangBlob(blob);
+        return owned.AsText();
+    }
 }
+
+/// <summary>Where a declaration is in its source: <see cref="SlangSession.GetDeclSourceLocation"/>.</summary>
+/// <param name="FilePath">The file, or null when the source has no path.</param>
+/// <param name="Line">1-based line.</param>
+/// <param name="Column">1-based column.</param>
+public readonly record struct SlangSourceLocation(string? FilePath, long Line, long Column);

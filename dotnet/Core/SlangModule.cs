@@ -34,6 +34,54 @@ public sealed unsafe class SlangModule : SlangObject<IModule>, ISlangComponentTy
     {
         AddReference();
         Name = name;
+        Session = owner;
+    }
+
+    internal SlangSession Session { get; }
+
+    private SlangModulePrecompileServiceExtension? _precompile;
+    private bool _precompileProbed;
+
+    /// <summary>
+    /// <c>slang::IModulePrecompileService_Experimental</c> (<c>queryInterface</c>), or null when the
+    /// module does not offer it. Acquired once; released with the module.
+    /// </summary>
+    public SlangModulePrecompileServiceExtension? TryPrecompileService
+    {
+        get
+        {
+            if (!_precompileProbed)
+            {
+                _precompile = SlangModulePrecompileServiceExtension.TryAcquire(this, Ptr);
+                _precompileProbed = true;
+            }
+            return _precompile;
+        }
+    }
+
+    /// <summary><c>slang::IModulePrecompileService_Experimental</c>. Throws <see cref="NotSupportedException"/> when absent.</summary>
+    public SlangModulePrecompileServiceExtension PrecompileService =>
+        TryPrecompileService ?? throw new NotSupportedException("queryInterface(IModulePrecompileService_Experimental) failed on this module");
+
+    private protected override void BeforeRelease() => _precompile?.Release();
+
+    /// <summary>
+    /// <c>IModule::disassemble</c>: Slang's IR for this module as text, for reading what Slang made
+    /// of the source.
+    /// </summary>
+    /// <exception cref="SlangException">Slang could not disassemble it.</exception>
+    public string Disassemble()
+    {
+        ISlangBlob* blob = null;
+        var hr = Ptr->disassemble(&blob);
+        if (SlangResult.Failed(hr) || blob is null)
+        {
+            if (blob is not null) blob->release();
+            throw new SlangException(SlangResult.Failed(hr) ? hr : SlangResult.Fail, $"IModule::disassemble('{Name}')", Diagnostics.NewInternalError());
+        }
+
+        using var owned = new SlangBlob(blob);
+        return owned.AsText();
     }
 
     /// <summary>The module name it was loaded under.</summary>
@@ -285,8 +333,27 @@ public sealed unsafe class SlangModule : SlangObject<IModule>, ISlangComponentTy
 /// <summary>A shader entry point within a module.</summary>
 public sealed unsafe class SlangEntryPoint : SlangObject<IEntryPoint>, ISlangComponentType
 {
+    private readonly SlangModule _module;
+
     internal SlangEntryPoint(IEntryPoint* owned, string name, SlangModule owner)
-        : base(owned, $"SlangEntryPoint('{name}')", owner) => Name = name;
+        : base(owned, $"SlangEntryPoint('{name}')", owner)
+    {
+        Name = name;
+        _module = owner;
+    }
+
+    /// <summary>
+    /// <c>IComponentType::renameEntryPoint</c>: this entry point under another name, as a new
+    /// component type to compose and link in its place. This one is unchanged.
+    /// </summary>
+    /// <remarks>
+    /// The name is what code generation emits, so two entry points with the same function name can
+    /// go into one program, and a SPIR-V target with <see cref="TargetOptions.UseEntryPointNameInSpirv"/>
+    /// names the <c>OpEntryPoint</c> after it.
+    /// </remarks>
+    /// <exception cref="SlangException">Slang refused the rename.</exception>
+    public SlangComponentType RenameEntryPoint(string newName) =>
+        SlangComponentType.Rename(AsComponent, newName, _module.Session, $"SlangEntryPoint('{Name}')");
 
     /// <summary>The entry point's function name.</summary>
     public string Name { get; }

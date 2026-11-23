@@ -786,6 +786,42 @@ public class ProberTests(ITestOutputHelper output)
         }
     }
     [NativeFact]
+    public void The_record_layer_records_a_compile_into_the_replay_directory()
+    {
+        // Out of process: the layer is process-wide, and a recording test sharing the suite's
+        // process would record every later test.
+        var directory = Directory.CreateTempSubdirectory("sharpslang-replay-");
+        try
+        {
+            var outcome = Run("record-replay", new Dictionary<string, string?>
+            {
+                ["SHARPSLANG_PROBE_REPLAY_DIR"] = directory.FullName,
+                ["SLANG_RECORD_LAYER"] = null,
+                ["SLANG_RECORD_PATH"] = null,
+            });
+            output.WriteLine(outcome.ToString());
+            Assert.Equal(0, outcome.ExitCode);
+
+            Assert.Contains("enabled at start False", outcome.Stdout, StringComparison.Ordinal);
+            Assert.Contains("enabled True", outcome.Stdout, StringComparison.Ordinal);
+            Assert.Contains("enabled after False", outcome.Stdout, StringComparison.Ordinal);
+            Assert.Contains("missing recording refused: True", outcome.Stdout, StringComparison.Ordinal);
+            Assert.Contains("latest recording loaded", outcome.Stdout, StringComparison.Ordinal);
+
+            // The recording is a folder under the directory set, holding the call stream.
+            var recording = Regex.Match(outcome.Stdout, @"recording (.+)").Groups[1].Value.Trim();
+            Assert.False(string.IsNullOrEmpty(recording), "no recording path reported");
+            var full = Path.GetFullPath(recording, directory.FullName);
+            Assert.StartsWith(directory.FullName, full, StringComparison.OrdinalIgnoreCase);
+            Assert.True(File.Exists(Path.Combine(full, "stream.bin")), $"no stream.bin in {full}");
+        }
+        finally
+        {
+            directory.Delete(recursive: true);
+        }
+    }
+
+    [NativeFact]
     public void Without_the_bindings_preload_Slang_does_not_look_beside_itself_on_Windows()
     {
         // U10, not a defect: Slang loads slang-glslang by bare name through Windows' default

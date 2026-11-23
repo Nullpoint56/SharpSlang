@@ -24,6 +24,7 @@
   <Folder Name="/docs/releases/">
     <File Path="docs/releases/README.md" />
     <File Path="docs/releases/v2026210.0.0-beta.1.md" />
+    <File Path="docs/releases/v2026210.0.0-beta.2.md" />
   </Folder>
   <Folder Name="/patches/">
     <File Path="patches/README.md" />

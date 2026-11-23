@@ -105,4 +105,100 @@ internal static unsafe class Defaults
         line = -1,
         column = -1,
     };
+
+    /// <summary>Mirrors <c>slang::CoverageEntryInfo</c>'s in-class initializers; Slang refuses a zero <c>structSize</c>.</summary>
+    internal static CoverageEntryInfo CoverageEntryInfo() => new()
+    {
+        structSize = (nuint)sizeof(CoverageEntryInfo),
+        file = null,
+        line = 0,
+        counterIndex = SlangApi.kInvalidCoverageCounterIndex,
+        kind = CoverageEntryKind.Unknown,
+        counterMode = CoverageCounterMode.Count,
+        startColumn = 0,
+        endLine = 0,
+        endColumn = 0,
+        functionName = null,
+        functionMangledName = null,
+        branchSiteID = 0,
+        branchArmID = 0,
+        branchArmKind = CoverageBranchArmKind.Unknown,
+    };
+
+    /// <summary>Mirrors <c>slang::CoverageBufferInfo</c>'s in-class initializers.</summary>
+    internal static CoverageBufferInfo CoverageBufferInfo() => new()
+    {
+        structSize = (nuint)sizeof(CoverageBufferInfo),
+        space = -1,
+        binding = -1,
+        elementByteWidth = 4,
+    };
+
+    /// <summary>Mirrors <c>slang::SyntheticResourceInfo</c>'s in-class initializers.</summary>
+    internal static SyntheticResourceInfo SyntheticResourceInfo() => new()
+    {
+        structSize = (nuint)sizeof(SyntheticResourceInfo),
+        id = 0,
+        bindingType = BindingType.Unknown,
+        arraySize = 1,
+        scope = SyntheticResourceScope.Global,
+        access = SyntheticResourceAccess.Read,
+        entryPointIndex = -1,
+        space = -1,
+        binding = -1,
+        uniformOffset = -1,
+        uniformStride = 0,
+        debugName = null,
+        bindlessIndex = -1,
+    };
+
+    /// <summary>Mirrors <c>slang::ByteCodeRunnerDesc</c>'s in-class initializers.</summary>
+    internal static ByteCodeRunnerDesc ByteCodeRunnerDesc() => new()
+    {
+        structSize = (nuint)sizeof(ByteCodeRunnerDesc),
+    };
+
+    /// <summary>Mirrors <c>slang::CooperativeMatrixType</c>'s in-class initializers.</summary>
+    internal static CooperativeMatrixType CooperativeMatrixType() => new()
+    {
+        componentType = SlangScalarType.SLANG_SCALAR_TYPE_NONE,
+        scope = SlangScope.SLANG_SCOPE_NONE,
+        rowCount = 0,
+        columnCount = 0,
+        use = SlangCooperativeMatrixUse.SLANG_COOPERATIVE_MATRIX_USE_A,
+    };
+
+    /// <summary>Mirrors <c>slang::CooperativeMatrixCombination</c>'s in-class initializers.</summary>
+    internal static CooperativeMatrixCombination CooperativeMatrixCombination() => new()
+    {
+        m = 0,
+        n = 0,
+        k = 0,
+        componentTypeA = SlangScalarType.SLANG_SCALAR_TYPE_NONE,
+        componentTypeB = SlangScalarType.SLANG_SCALAR_TYPE_NONE,
+        componentTypeC = SlangScalarType.SLANG_SCALAR_TYPE_NONE,
+        componentTypeResult = SlangScalarType.SLANG_SCALAR_TYPE_NONE,
+        saturate = 0,
+        scope = SlangScope.SLANG_SCOPE_NONE,
+    };
+
+    /// <summary>Mirrors <c>slang::CooperativeVectorTypeUsageInfo</c>'s in-class initializers.</summary>
+    internal static CooperativeVectorTypeUsageInfo CooperativeVectorTypeUsageInfo() => new()
+    {
+        componentType = SlangScalarType.SLANG_SCALAR_TYPE_NONE,
+        maxSize = 0,
+        usedForTrainingOp = 0,
+    };
+
+    /// <summary>Mirrors <c>slang::CooperativeVectorCombination</c>'s in-class initializers.</summary>
+    internal static CooperativeVectorCombination CooperativeVectorCombination() => new()
+    {
+        inputType = SlangScalarType.SLANG_SCALAR_TYPE_NONE,
+        inputInterpretation = SlangScalarType.SLANG_SCALAR_TYPE_NONE,
+        inputPackingFactor = 1,
+        matrixInterpretation = SlangScalarType.SLANG_SCALAR_TYPE_NONE,
+        biasInterpretation = SlangScalarType.SLANG_SCALAR_TYPE_NONE,
+        resultType = SlangScalarType.SLANG_SCALAR_TYPE_NONE,
+        transpose = 0,
+    };
 }
